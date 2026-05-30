@@ -94,6 +94,11 @@ Standing preferences for this project:
 
 - Effort: maximum. Use deepest reasoning.
 - Permission mode: bypass during development (user-controlled).
+  <!-- Other permission modes (set with /permissions or settings.json "defaultMode"):
+       - default:           prompt for approval the first time each tool or command runs.
+       - acceptEdits:       auto-accept file edits; still prompt for other actions (e.g. Bash).
+       - plan:              read-only; analyze and plan, but make no edits and run no commands.
+       - bypassPermissions: no prompts at all (the mode set above). -->
 - Superpowers: use relevant skills proactively (brainstorming, writing-plans,
   test-driven-development, subagent-driven-development, executing-plans,
   verification-before-completion).
