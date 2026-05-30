@@ -46,12 +46,9 @@ When code and a doc disagree, the code wins and the doc is corrected in the same
 Before any deep planning or implementation, write a short sub-plan first: a
 handful of checkpoint bullets (the approach, the files you expect to touch, the
 order, the verification step) posted in the issue or the draft PR. This is cheap
-insurance. If the connection drops or the session hits its limit, the next
-session reads the checkpoint and resumes instead of restarting.
-
-Only after that short sub-plan is committed do you expand it into a full plan via
-`superpowers:writing-plans`, saved to `docs/plans/<issue-number>-<slug>.md` and
-linked in the issue.
+insurance: if the connection drops or the session hits its limit, the next
+session reads the checkpoint and resumes instead of restarting. Expanding it into
+a full plan comes later (see "How to pick up a task").
 
 ### Commits
 
@@ -68,8 +65,6 @@ linked in the issue.
 - End-to-end tests live in `e2e/` and gate deployment (see Repo layout). Run them
   locally before pushing any change that touches the full stack. Unit-green is not
   e2e-green.
-- Record the exact "run before commit" and "run before PR" commands under Useful
-  commands once the project is scaffolded.
 
 ### Code style
 
@@ -78,7 +73,6 @@ Project-specific rules go here. Examples to adapt or delete:
 - Strict typing; no escape hatches without a `// reason:` comment.
 - Money, units, and identifiers use their dedicated types, never raw primitives.
 - No hard-coded user-facing strings; use the i18n layer.
-- No new dependency without a why in the PR body.
 
 ### Writing style (commits, PRs, docs, comments)
 
@@ -94,11 +88,9 @@ Standing preferences for this project:
 
 - Effort: maximum. Use deepest reasoning.
 - Permission mode: bypass during development (user-controlled).
-  <!-- Other permission modes (set with /permissions or settings.json "defaultMode"):
-       - default:           prompt for approval the first time each tool or command runs.
-       - acceptEdits:       auto-accept file edits; still prompt for other actions (e.g. Bash).
-       - plan:              read-only; analyze and plan, but make no edits and run no commands.
-       - bypassPermissions: no prompts at all (the mode set above). -->
+  <!-- Modes (set with /permissions or settings.json "defaultMode"): default = prompt on
+       first use of each tool; acceptEdits = auto-accept edits, prompt other actions;
+       plan = read-only; bypassPermissions = no prompts (the mode above). -->
 - Superpowers: use relevant skills proactively (brainstorming, writing-plans,
   test-driven-development, subagent-driven-development, executing-plans,
   verification-before-completion).
@@ -160,8 +152,6 @@ not rediscover them.
   change touches the stack.
 - Don't bypass git hooks (`--no-verify`). If a hook fails, fix the cause.
 - Don't introduce a new dependency without saying why in the PR body.
-- Don't add a comment that restates the code. Add one only when the why is
-  non-obvious.
 - (Add project-specific traps here: the mistakes that quietly break this codebase.)
 
 ## When in doubt
