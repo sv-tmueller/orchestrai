@@ -9,7 +9,8 @@ new repo's root and fill in its placeholders as you go.
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
 - [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
-      `type:feat`, `type:fix`.
+      `type:feat`, `type:fix`. Recommended regardless: the sizing set `size:S`,
+      `size:M`, `size:L`, `size:XL` (see CLAUDE.md "Sizing").
 
 ## 2. Docs structure
 

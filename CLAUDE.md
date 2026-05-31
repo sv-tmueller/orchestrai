@@ -41,14 +41,32 @@ When code and a doc disagree, the code wins and the doc is corrected in the same
 - Merge via PR. Direct pushes to `main` are blocked.
 - The PR references the issue with `Closes #N`. One topic per PR.
 
+### Sizing (t-shirt size per issue)
+
+Every issue carries a t-shirt size label, estimated in human working hours:
+
+- `size:S` - under 1 hour. One focused change.
+- `size:M` - 1 to 3 hours. Write a sub-plan first.
+- `size:L` - 4 to 6 hours. Split into smaller issues, or break into checkpointed
+  sub-plans (below).
+- `size:XL` - a full day, about 8 hours. Too big to start as one issue. Split it.
+
+Hours are the yardstick, but the reason to keep issues small is the session: a
+large issue risks hitting the session limit mid-task and bloats context until
+quality drops. Size the issue when you file it, then re-check while planning. If
+the full plan shows the work is bigger than its label, re-label and split rather
+than push through.
+
 ### Sub-plans (checkpoint before deep work)
 
 Before any deep planning or implementation, write a short sub-plan first: a
 handful of checkpoint bullets (the approach, the files you expect to touch, the
 order, the verification step) posted in the issue or the draft PR. This is cheap
 insurance: if the connection drops or the session hits its limit, the next
-session reads the checkpoint and resumes instead of restarting. Expanding it into
-a full plan comes later (see "How to pick up a task").
+session reads the checkpoint and resumes instead of restarting. For anything
+sized `M` or larger, the sub-plan is also where you confirm the work still fits
+one session and decompose it if it does not. Expanding it into a full plan comes
+later (see "How to pick up a task").
 
 ### Commits
 
@@ -101,12 +119,15 @@ Standing preferences for this project:
 
 1. `gh issue list --state open` (add `--label phase:<current>` if you use phase
    labels) to see what is available.
-2. Pick an unassigned issue with no unresolved blockers.
+2. Pick an unassigned issue with no unresolved blockers. Check its `size:` label;
+   if it is unsized, size it first, and if it is `L` or `XL`, decompose it before
+   starting.
 3. Post a short sub-plan on the issue (the checkpoint bullets above).
 4. Create a branch and open a draft PR linking the issue (`Closes #N`). This puts
    the in-progress work in front of the user from minute one.
 5. Expand the sub-plan into a full plan via `superpowers:writing-plans`, saved to
-   `docs/plans/<issue-number>-<slug>.md`.
+   `docs/plans/<issue-number>-<slug>.md`. If the plan reveals the issue is bigger
+   than its label, re-label and split it into sub-issues before implementing.
 6. Implement with TDD per the plan.
 7. Run the full check suite (typecheck, lint, test, e2e if touched). It must pass
    before requesting review.
