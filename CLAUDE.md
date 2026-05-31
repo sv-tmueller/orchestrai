@@ -105,10 +105,10 @@ Project-specific rules go here. Examples to adapt or delete:
 Standing preferences for this project:
 
 - Effort: maximum. Use deepest reasoning.
-- Permission mode: bypass during development (user-controlled).
+- Permission mode: Auto (acceptEdits) during development (user-controlled).
   <!-- Modes (set with /permissions or settings.json "defaultMode"): default = prompt on
-       first use of each tool; acceptEdits = auto-accept edits, prompt other actions;
-       plan = read-only; bypassPermissions = no prompts (the mode above). -->
+       first use of each tool; acceptEdits = auto-accept edits, prompt other actions
+       ("Auto", the mode above); plan = read-only; bypassPermissions = no prompts. -->
 - Superpowers: use relevant skills proactively (brainstorming, writing-plans,
   test-driven-development, subagent-driven-development, executing-plans,
   verification-before-completion).
