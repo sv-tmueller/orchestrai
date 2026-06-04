@@ -8,9 +8,6 @@ A starting `CLAUDE.md` and a bootstrap checklist for new projects.
   writing style, and workflow defaults.
 - `NEW-PROJECT-SETUP.md` - the once-per-repo checklist: branch protection, docs
   structure, CI/CD and e2e wiring, and filling in the `CLAUDE.md` placeholders.
-- `.claude/settings.json` - notification "pling" hooks (`Notification` and
-  `Stop`). macOS only (`afplay`); the command no-ops elsewhere. Delete the file
-  to opt out.
 
 Generalized from two project `CLAUDE.md` files (a Python advisory bot and a
 TypeScript web app), keeping the shared backbone and dropping the project

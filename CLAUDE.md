@@ -114,9 +114,6 @@ Standing preferences for this project:
   verification-before-completion).
 - Parallel work: fan out subagents for independent research or implementation
   streams. Default to parallel over serial.
-- Notifications: `.claude/settings.json` adds a macOS sound hook on the
-  `Notification` and `Stop` events (a "pling" when a session waits or finishes).
-  Delete that file to opt out. See NEW-PROJECT-SETUP.md.
 
 ## How to pick up a task
 

@@ -37,11 +37,6 @@ new repo's root and fill in its placeholders as you go.
 - [ ] Fill "Useful commands" with the real install/dev/test/lint/e2e commands.
 - [ ] Tailor "Code style" and "What not to do" to this project; delete the rest.
 - [ ] Confirm "Workflow defaults" still match how you want to work here.
-- [ ] (Optional, macOS) Notification pling: this template ships
-      `.claude/settings.json` with `Notification` and `Stop` hooks that run
-      `afplay /System/Library/Sounds/Glass.aiff` (async), a short sound when a
-      session waits for you or finishes a turn. Delete `.claude/settings.json`
-      to opt out, or swap the file for another sound in `/System/Library/Sounds/`.
 
 ## 5. First slice of work
 
