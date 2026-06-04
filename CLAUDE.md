@@ -114,6 +114,8 @@ Standing preferences for this project:
   verification-before-completion).
 - Parallel work: fan out subagents for independent research or implementation
   streams. Default to parallel over serial.
+- Notifications: optional macOS sound hook on the `Notification` and `Stop`
+  events (a "pling" when a session waits or finishes). See NEW-PROJECT-SETUP.md.
 
 ## How to pick up a task
 
