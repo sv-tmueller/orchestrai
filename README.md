@@ -13,6 +13,11 @@ ready-made agent team for Claude Code.
 - `.claude/agents/` - four role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only).
+- `.claude/skills/advisor/` - `/advisor`: the operating model on top of the
+  team. Refines a raw need into a batch of work packages, takes one sign-off,
+  runs the batch uninterrupted through the kickoff pipeline, and reports.
+  State lives in a batch tracking issue, so a dropped session resumes. Design:
+  `docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`.
 - `.claude/skills/kickoff/` - `/kickoff`: fans refined, sized issues out to
   the agent team in parallel waves, through implement, test, and review, to a
   ready PR per issue.
@@ -24,6 +29,9 @@ ready-made agent team for Claude Code.
 - `.claude/skills/sync-template/` - `/sync-template`: pulls later template
   versions into a repo created from this one (machinery copied, prose merged
   by judgment, labels ensured) and opens a PR.
+- `.claude/workflows/` - bounded orchestration scripts. `review-changes`
+  reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic,
+  models pinned in-script so the cost is bounded by construction.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).

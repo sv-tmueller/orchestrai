@@ -38,16 +38,20 @@ For each issue, `gh issue view <n> --comments`, and
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
 by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
 PRs) and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended.
+run; after it, run the wave unattended. Inside an /advisor batch the batch
+sign-off replaces this confirmation; do not ask twice.
 
 ## 3. Per-package pipeline
 
-Run up to 3 packages concurrently; dispatch their agents in parallel.
-Worktree isolation keeps packages apart. Within a package the stages are
-serial:
+Run up to 3 packages concurrently; dispatch their agents in parallel. A
+larger queue (up to 6 inside an /advisor batch) starts the next package as
+one finishes. Worktree isolation keeps packages apart. Within a package the
+stages are serial:
 
 1. Architect: SUB_PLAN for the issue. Post it as an issue comment. On
-   NEEDS_DECISION, park the package (below) and continue the others.
+   NEEDS_DECISION: inside an /advisor batch, decide it yourself when it stays
+   within the signed-off scope, logging the decision on the batch issue;
+   otherwise park the package (below) and continue the others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
 3. On DONE or DONE_WITH_CONCERNS: dispatch the tester with the branch and
@@ -80,6 +84,8 @@ Routing rules:
   park the package.
 - Parking: post the open question or the exact state to the issue or PR,
   swap `in-progress` for `needs-human`, and move on to the other packages.
+- Inside an /advisor batch, mirror lead decisions and package outcomes
+  (PR ready, parked) to the batch tracking issue as they happen.
 
 ## 4. Wave end
 

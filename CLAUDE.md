@@ -140,6 +140,29 @@ Labels: `in-progress` (package dispatched; resume, do not restart) and
 `needs-human` (parked: question, blocker, or exhausted fix loop), on top of
 the sizing set.
 
+## Operating model (CEO + advisor)
+
+`/advisor` (user-typed only) runs the lead session as the user's advisor: it
+refines a raw need into a batch of work packages, gets one sign-off, then
+runs the team uninterrupted and reports. The full design is
+`docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`; the
+mechanics live in `.claude/skills/advisor/SKILL.md`. The rules that matter
+session-wide:
+
+- A batch is up to 6 independent `size:S`/`size:M` issues, run through the
+  kickoff pipeline 3 at a time. Merging stays human; dependent work waits
+  for the next batch.
+- One sign-off per batch covers filing the issues and dispatching. Nothing
+  lands on GitHub before it.
+- The escalation line is scope. Within the signed-off scope and acceptance
+  criteria the advisor decides and logs the decision on the batch issue.
+  Scope or acceptance-criteria changes, new dependencies or costs,
+  irreversible or outward-facing actions, and conflicts with
+  `docs/architecture/` park as `needs-human`.
+- Each batch has a tracking issue (title `Batch: <slug>`): the approved
+  contract, the decision log, parked questions, the final report. Dropped
+  sessions resume from it.
+
 ## Model policy
 
 A strong orchestrator with efficient workers. The lever is where each model
@@ -192,7 +215,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 ```
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
-  skills/            project skills, /kickoff
+  skills/            project skills: /advisor, /kickoff
   workflows/         bounded orchestration scripts (review-changes)
   settings.json      project settings; enables the superpowers plugin
 docs/
