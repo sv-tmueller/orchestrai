@@ -115,6 +115,31 @@ Standing preferences for this project:
 - Parallel work: fan out subagents for independent research or implementation
   streams. Default to parallel over serial.
 
+## Agent team
+
+The template ships four role agents in `.claude/agents/` and a `/kickoff`
+skill. The lead is the main session: subagents cannot call each other, so the
+session running `/kickoff` routes every handoff, and GitHub (sub-plan and
+verdict comments, draft PRs, labels) holds the state that makes a dropped
+session resumable.
+
+- `architect` - advisory, read-only: sub-plans, split proposals, arbitration.
+- `developer` - one issue end to end in an isolated worktree.
+- `tester` - independent verification on the branch, read-only.
+- `reviewer` - spec pass then quality pass, read-only.
+
+Refine and size issues in discussion first; mark dependencies with a literal
+`Blocked by: #N` line in the issue body. Then `/kickoff <issues>` (user-typed
+only; it does not auto-trigger) runs unblocked issues in parallel waves to
+ready PRs. Under `/kickoff` the sub-plan comment substitutes for the full plan
+in `docs/plans/`. Merging stays human and gates the next wave. Caps, routing,
+and report contracts live in `.claude/skills/kickoff/SKILL.md` and the agent
+files; they are not repeated here.
+
+Labels: `in-progress` (package dispatched; resume, do not restart) and
+`needs-human` (parked: question, blocker, or exhausted fix loop), on top of
+the sizing set.
+
 ## How to pick up a task
 
 1. `gh issue list --state open` (add `--label phase:<current>` if you use phase
@@ -133,9 +158,17 @@ Standing preferences for this project:
    before requesting review.
 8. Mark the PR ready for review.
 
+For a batch of refined, sized issues, `/kickoff` automates this flow per
+issue, with the sub-plan comment standing in for step 5's full plan (see
+"Agent team").
+
 ## Repo layout
 
 ```
+.claude/
+  agents/            role agents: architect, developer, tester, reviewer
+  skills/            project skills, /kickoff
+  settings.json      project settings; enables the superpowers plugin
 docs/
   architecture/      stack and policy decisions, data model, domain math
   operations/        run/deploy/operate: environments, CI/CD, runbooks
