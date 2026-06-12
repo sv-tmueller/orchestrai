@@ -105,9 +105,18 @@ const reviews = await parallel(
 
 const raw = reviews.filter(Boolean).flatMap((r) => r.findings)
 
+// parallel() null-pads a worker that errors or is skipped, so a dead reviewer
+// would otherwise drop its whole dimension while the critic assumes full
+// coverage. Track which dimensions actually reported.
+const covered = DIMENSIONS.filter((_, i) => reviews[i])
+const dropped = DIMENSIONS.filter((_, i) => !reviews[i])
+const coverageNote = dropped.length
+  ? ` ${dropped.length} reviewer(s) did not return, so these dimensions are NOT covered: ${dropped.map((d) => d.key).join(', ')}. Treat the review as partial and say so in your summary.`
+  : ''
+
 phase('Consolidate')
 const report = await agent(
-  `You are the senior reviewer. ${DIMENSIONS.length} parallel reviewers produced the raw findings below. ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
   { label: 'consolidate', phase: 'Consolidate', model: 'opus', schema: REPORT_SCHEMA }
 )
 
