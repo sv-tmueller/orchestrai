@@ -205,6 +205,9 @@ not rediscover them.
 - Don't merge a PR that has not run the full check suite, including e2e if the
   change touches the stack.
 - Don't bypass git hooks (`--no-verify`). If a hook fails, fix the cause.
+- Don't improve `.claude/` machinery only in this repo. Change the template
+  (sv-tmueller/claude-template) first, then `/sync-template` it back here;
+  local-only edits are overwritten by the next sync.
 - Don't introduce a new dependency without saying why in the PR body.
 - (Add project-specific traps here: the mistakes that quietly break this codebase.)
 

@@ -21,6 +21,9 @@ ready-made agent team for Claude Code.
 - `.claude/skills/to-issues/` - `/to-issues`: turns an approved plan into
   sized, dependency-ordered issues ready for `/kickoff` (adapted from
   mattpocock/skills, MIT).
+- `.claude/skills/sync-template/` - `/sync-template`: pulls later template
+  versions into a repo created from this one (machinery copied, prose merged
+  by judgment, labels ensured) and opens a PR.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
@@ -42,6 +45,25 @@ gh repo create <new-repo> --template sv-tmueller/claude-template --private --clo
 ```
 
 Copying only `CLAUDE.md` works but does not carry the agents and skills.
+
+## Updating existing repos
+
+Repos created from a template share no git history with it, so updates flow
+through `/sync-template` instead of `git merge`. In a repo that already
+carries the skill, run `/sync-template` and review the PR it opens. For
+older repos that predate the skill (or have no `.claude/` at all), install
+it once at user scope, which makes it available in every repo on the
+machine:
+
+```bash
+git clone https://github.com/sv-tmueller/claude-template.git /tmp/ct
+mkdir -p ~/.claude/skills
+cp -r /tmp/ct/.claude/skills/sync-template ~/.claude/skills/
+```
+
+Then open the old repo in Claude Code and run `/sync-template`. The first
+run has no version stamp, so it ports everything conservatively and stamps
+the repo; later runs apply only the template's delta.
 
 ## License
 

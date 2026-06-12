@@ -23,6 +23,12 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
       `/plugin install superpowers@claude-plugins-official`.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
+- [ ] Stamp the template version, so `/sync-template` can apply future
+      template updates incrementally:
+      ```
+      gh api repos/sv-tmueller/claude-template/commits/main --jq .sha > .claude/template-version
+      ```
+      Commit the file.
 
 ## 3. Docs structure
 
