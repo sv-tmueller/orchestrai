@@ -128,9 +128,9 @@ session resumable.
 - `tester` - independent verification on the branch, read-only.
 - `reviewer` - spec pass then quality pass, read-only.
 
-Refine and size issues in discussion first (`/grill-me` stress-tests the plan
-before it becomes issues); mark dependencies with a literal `Blocked by: #N`
-line in the issue body. Then `/kickoff <issues>` (user-typed only; it does not
+Refine and size issues in discussion first (`/grill-me` stress-tests the
+plan, `/to-issues` turns it into sized issues); mark dependencies with a
+literal `Blocked by: #N` line in the issue body. Then `/kickoff <issues>` (user-typed only; it does not
 auto-trigger) runs unblocked issues in parallel waves to ready PRs. Under `/kickoff` the sub-plan comment substitutes for the full plan
 in `docs/plans/`. Merging stays human and gates the next wave. Caps, routing,
 and report contracts live in `.claude/skills/kickoff/SKILL.md` and the agent
