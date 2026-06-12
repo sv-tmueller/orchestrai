@@ -16,6 +16,8 @@ ready-made agent team for Claude Code.
 - `.claude/skills/kickoff/` - `/kickoff`: fans refined, sized issues out to
   the agent team in parallel waves, through implement, test, and review, to a
   ready PR per issue.
+- `.claude/skills/grill-me/` - `/grill-me`: stress-tests a plan one question
+  at a time before kickoff (from mattpocock/skills, MIT).
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
