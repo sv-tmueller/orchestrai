@@ -18,6 +18,9 @@ ready-made agent team for Claude Code.
   ready PR per issue.
 - `.claude/skills/grill-me/` - `/grill-me`: stress-tests a plan one question
   at a time before kickoff (from mattpocock/skills, MIT).
+- `.claude/skills/to-issues/` - `/to-issues`: turns an approved plan into
+  sized, dependency-ordered issues ready for `/kickoff` (adapted from
+  mattpocock/skills, MIT).
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
