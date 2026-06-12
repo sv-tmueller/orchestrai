@@ -61,6 +61,11 @@ mkdir -p ~/.claude/skills
 cp -r /tmp/ct/.claude/skills/sync-template ~/.claude/skills/
 ```
 
+If you launch Claude Code through a `CLAUDE_CONFIG_DIR` alias (separate
+personal and work config dirs), each config dir has its own user-scope
+skills: copy into `$CLAUDE_CONFIG_DIR/skills/` instead, once per config dir
+you use.
+
 Then open the old repo in Claude Code and run `/sync-template`. The first
 run has no version stamp, so it ports everything conservatively and stamps
 the repo; later runs apply only the template's delta.

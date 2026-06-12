@@ -45,9 +45,10 @@ If the delta is empty, say so and stop.
 
 - Ensure the workflow labels exist (`size:S/M/L/XL`, `in-progress`,
   `needs-human`); create missing ones with `gh label create`.
-- If `~/.claude/skills/sync-template/` exists on this machine and is older
-  than the template's copy, update it too; it is the bootstrap for repos
-  that do not carry this skill yet.
+- If a user-scope copy of this skill exists on this machine (under
+  `$CLAUDE_CONFIG_DIR/skills/` or `~/.claude/skills/`) and is older than the
+  template's copy, update it too; it is the bootstrap for repos that do not
+  carry this skill yet.
 
 ## 4. Ship it
 
