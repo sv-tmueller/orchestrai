@@ -1,7 +1,7 @@
 ---
 name: developer
 description: Implements exactly one GitHub issue end to end. Branch, TDD, conventional commits, draft PR. Use once per work package during /kickoff fan-out, for fix rounds on an existing package branch, or to implement a single refined issue on request.
-model: inherit
+model: sonnet
 isolation: worktree
 skills: superpowers:test-driven-development
 ---

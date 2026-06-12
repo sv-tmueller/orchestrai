@@ -2,7 +2,7 @@
 name: tester
 description: Independent verification of a work package branch. Runs the full check suite and tries to break the change. Read-only on the repo; reports PASS or numbered failures with reproduction commands. Never fixes code.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 isolation: worktree
 skills: superpowers:verification-before-completion
 ---

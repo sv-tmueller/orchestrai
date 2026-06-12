@@ -140,6 +140,31 @@ Labels: `in-progress` (package dispatched; resume, do not restart) and
 `needs-human` (parked: question, blocker, or exhausted fix loop), on top of
 the sizing set.
 
+## Model policy
+
+A strong orchestrator with efficient workers. The lever is where each model
+runs, not raw effort everywhere.
+
+- Orchestrator (the lead session, including `/kickoff`): Opus 4.8 at max
+  effort. Opus does not over-spawn under ultracode the way Fable 5 does, and it
+  weighs less against Max-plan quota. Keep the lead here.
+- `ultracode`: use it as a per-prompt keyword, never as a session-wide effort
+  setting. Session-wide turns every task into a workflow and chains several per
+  request; the keyword scopes orchestration to the one task that needs it.
+- Role agents (set in each agent's frontmatter `model:`): `developer` and
+  `tester` run `sonnet` (efficient implementation and verification);
+  `architect` and `reviewer` run `opus` (the judgment roles).
+- Workflows: pin worker stages to a cheap model in the script and reserve the
+  strong model for synthesis or critique. The `review-changes` workflow in
+  `.claude/workflows/` is the worked example: a fixed set of Sonnet reviewers
+  plus one Opus critic, bounded by construction so it cannot fan out into the
+  100-agent review that an unpinned session model produces.
+- Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It overrides both the per-call model
+  and the frontmatter `model:`, flattening every subagent to one model and
+  defeating the split above. Use it only as a temporary per-session seatbelt
+  (for example `claude-sonnet-4-6` before one heavy ad-hoc run), knowing it
+  downgrades the reviewer too.
+
 ## How to pick up a task
 
 1. `gh issue list --state open` (add `--label phase:<current>` if you use phase
@@ -168,6 +193,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
   skills/            project skills, /kickoff
+  workflows/         bounded orchestration scripts (review-changes)
   settings.json      project settings; enables the superpowers plugin
 docs/
   architecture/      stack and policy decisions, data model, domain math
