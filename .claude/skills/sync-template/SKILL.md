@@ -26,7 +26,7 @@ If the delta is empty, say so and stop.
 
 ## 2. File classes, in scope only
 
-- Machinery (`.claude/agents/`, `.claude/skills/`): copy the template
+- Machinery (`.claude/agents/`, `.claude/skills/`, `.claude/workflows/`): copy the template
   version over the local file. Guard first: if the local file differs from
   BOTH the old template version (from the stamp) and the new one, it was
   modified locally; do not overwrite, list it in the PR as a conflict for
