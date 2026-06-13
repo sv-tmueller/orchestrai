@@ -161,12 +161,12 @@ const allAreas = scoutFailed ? [] : map.areas
 // returns more. Overflow areas are reported as dropped, not silently lost, so the
 // N + 3 bound holds by construction rather than by the scout obeying the prompt.
 const areas = allAreas.slice(0, MAX_AREAS)
-// Two distinct drop sources, kept separate so ceilingReached and suggestedNextAction
-// name the right cause. selfDrop: paths the scout chose not to map (within cap).
-// overflowDrop: areas the script cut because the scout returned more than MAX_AREAS.
-const selfDrop = map && Array.isArray(map.dropped) ? map.dropped : []
-const overflowDrop = allAreas.slice(MAX_AREAS).map((a) => a.name)
-const scoutDropped = selfDrop.concat(overflowDrop)
+// The scout drops paths only when the repo exceeds the ceiling, so there is one
+// shortfall cause. Combine the scout's own dropped list with any areas the script
+// clamps beyond MAX_AREAS, and report it as a single signal.
+const scoutDropped = (scoutFailed ? [] : Array.isArray(map.dropped) ? map.dropped : []).concat(
+  allAreas.slice(MAX_AREAS).map((a) => a.name)
+)
 
 phase('Review')
 const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n')
@@ -203,18 +203,11 @@ const raw = areaResults
   .flatMap((r) => r.findings)
   .concat(archResult ? archResult.findings : [])
 
-// ceilingReached is true only when the script cut areas due to MAX_AREAS overflow;
-// scout self-drop (the scout chose not to map a path despite having room) is a
-// separate cause with a different remedy.
-const ceilingReached = overflowDrop.length > 0
-const suggestedNextAction =
-  ceilingReached && selfDrop.length
-    ? `Coverage is partial for two reasons. (1) The script cut ${overflowDrop.length} area(s) that exceeded the ${MAX_AREAS}-area ceiling; re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). (2) The scout self-dropped ${selfDrop.length} path(s) within the cap; scope a follow-up run with args.path to cover them. Uncovered: ${scoutDropped.join(', ')}.`
-    : ceilingReached
-    ? `Coverage is partial: ${overflowDrop.length} area(s) exceeded the ${MAX_AREAS}-area ceiling and were not reviewed. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). Uncovered: ${overflowDrop.join(', ')}.`
-    : selfDrop.length
-    ? `Coverage is partial: the scout did not map ${selfDrop.length} path(s) within the area cap. Scope a follow-up run with args.path to cover them. Uncovered: ${selfDrop.join(', ')}.`
-    : ''
+// A non-empty scoutDropped means the repo did not fully fit. One cause, one remedy.
+const ceilingReached = scoutDropped.length > 0
+const suggestedNextAction = ceilingReached
+  ? `Coverage is partial: ${scoutDropped.length} path(s) did not fit the ${MAX_AREAS}-area ceiling. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}) or scope follow-up runs to the leftover with args.path. Uncovered: ${scoutDropped.join(', ')}.`
+  : ''
 
 phase('Consolidate')
 const coverageNote =
