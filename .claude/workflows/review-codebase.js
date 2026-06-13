@@ -147,7 +147,10 @@ const map = await agent(
   { label: 'scout', phase: 'Scout', model: 'sonnet', schema: MAP_SCHEMA }
 )
 
-const allAreas = map && Array.isArray(map.areas) ? map.areas : []
+// If the scout fails, no area workers run; flag it so the critic cannot approve
+// a review where only the architecture worker saw the repo.
+const scoutFailed = !map || !Array.isArray(map.areas)
+const allAreas = scoutFailed ? [] : map.areas
 // Hard ceiling: never spawn more than MAX_AREAS area workers, even if the scout
 // returns more. Overflow areas are reported as dropped, not silently lost, so the
 // N + 3 bound holds by construction rather than by the scout obeying the prompt.
@@ -184,6 +187,7 @@ const workersFailed = areas
   .filter((_, i) => !areaResults[i])
   .map((a) => a.name)
   .concat(archResult ? [] : ['architecture'])
+  .concat(scoutFailed ? ['scout (returned no area map; no area workers ran)'] : [])
 
 const raw = areaResults
   .filter(Boolean)
@@ -198,6 +202,9 @@ const suggestedNextAction = ceilingReached
 
 phase('Consolidate')
 const coverageNote =
+  (scoutFailed
+    ? ` CRITICAL: the scout returned no valid area map, so NO area workers ran and only the architecture worker saw the repo. This is a failed, not a clean, review: do not return approve on this basis; report it as incomplete and advise re-running.`
+    : '') +
   (workersFailed.length
     ? ` These workers did not return, so their scope is NOT covered: ${workersFailed.join(', ')}.`
     : '') +
