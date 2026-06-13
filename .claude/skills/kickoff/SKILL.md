@@ -26,10 +26,13 @@ For each issue, `gh issue view <n> --comments`, and
   already exists, then report it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: report it as awaiting merge and skip it. Otherwise read the
-  sub-plan comment and the PR comments (verdicts and fix rounds live there)
-  to find the stage it stopped at, and re-enter there; when in doubt,
-  re-enter at the tester. Skip the architect when a sub-plan comment exists.
+  complete: report it as awaiting merge and skip it. If the issue carries
+  `in-progress` but has no open PR and no branch on origin, clear the label
+  and restart from the developer stage. Otherwise (a PR or branch exists)
+  read the sub-plan comment and the PR comments (verdicts and fix rounds live
+  there) to find the stage it stopped at, and re-enter there; re-enter at
+  the tester only when the stage cannot be determined from the PR comments.
+  Skip the architect when a sub-plan comment exists.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -51,7 +54,8 @@ stages are serial:
 1. Architect: SUB_PLAN for the issue. Post it as an issue comment. On
    NEEDS_DECISION: inside an /advisor batch, decide it yourself when it stays
    within the signed-off scope, logging the decision on the batch issue;
-   otherwise park the package (below) and continue the others.
+   outside an /advisor batch, park the package (below) and surface the
+   question in the wave-end report, then continue the others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
 3. On DONE or DONE_WITH_CONCERNS: dispatch the tester with the branch and
@@ -65,23 +69,30 @@ stages are serial:
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
    number, then the same fix loop with the must-fix findings, then re-test,
    then re-review.
-7. On APPROVE with the full suite green: mark the PR ready (`gh pr ready`),
-   remove `in-progress`, and post a summary comment on the issue, including
-   should-fix findings and untested claims for the human review.
+7. On APPROVE, with the last tester verdict PASS: mark the PR ready (`gh pr
+   ready`), remove `in-progress`, and post a summary comment on the issue,
+   including should-fix findings and untested claims for the human review. If
+   the last tester verdict is not PASS (fix round not yet re-tested), complete
+   the test loop first before shipping.
 
 Routing rules:
 
 - NEEDS_CONTEXT: answer from the issue, the sub-plan, and the repo docs. If
   you cannot, park the package.
-- BLOCKED, or the developer pushes back on a finding: dispatch the architect
-  for ARBITRATION. Post the outcome as a PR comment and include it in the
-  next dispatch; an overruled finding is settled, do not re-raise it.
+- BLOCKED: park the package (below) immediately; BLOCKED means the developer
+  cannot proceed, not a disagreement.
+- Developer pushes back on a finding: dispatch the architect for ARBITRATION.
+  Post the outcome as a PR comment and include it in the next dispatch; an
+  overruled finding is settled, do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
-- Cap: 3 fix rounds per stage, counted from the PR comments. On exhaustion,
-  park the package.
+- Cap: 3 fix rounds per stage, counted from the PR comments. Tester and
+  reviewer each have their own independent counter. A step-6 re-test FAIL
+  (tester fails after a reviewer fix round) re-enters the step-4 loop and
+  increments the tester counter. On exhaustion of either counter, park the
+  package.
 - Parking: post the open question or the exact state to the issue or PR,
   swap `in-progress` for `needs-human`, and move on to the other packages.
 - Inside an /advisor batch, mirror lead decisions and package outcomes
@@ -89,7 +100,7 @@ Routing rules:
 
 ## 4. Wave end
 
-Definition of done per package: tester PASS on the full suite, reviewer
+Definition of done per package: last tester verdict is PASS, reviewer
 APPROVE, PR ready with `Closes #N`, summary comment posted.
 
 Report to the user: PRs ready for review, packages parked (`needs-human`,
