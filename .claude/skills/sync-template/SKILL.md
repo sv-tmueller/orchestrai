@@ -13,8 +13,8 @@ Template repo: $ARGUMENTS (default `sv-tmueller/claude-template`).
 
 ## 1. Get the delta
 
-Clone the template to /tmp (full history; it is small). Read
-`.claude/template-version` here:
+Clone the template to a fresh temp dir (`CLONE=$(mktemp -d)`; full history;
+it is small). Read `.claude/template-version` here:
 
 - Stamp present and valid in the clone's history: the delta is
   `git log --oneline <stamp>..HEAD` and `git diff <stamp> HEAD` in the
@@ -51,9 +51,14 @@ If the delta is empty, say so and stop.
 - Ensure the workflow labels exist (`size:S/M/L/XL`, `in-progress`,
   `needs-human`); create missing ones with `gh label create`.
 - If a user-scope copy of this skill exists on this machine (under
-  `$CLAUDE_CONFIG_DIR/skills/` or `~/.claude/skills/`) and is older than the
-  template's copy, update it too; it is the bootstrap for repos that do not
-  carry this skill yet.
+  `$CLAUDE_CONFIG_DIR/skills/` or `~/.claude/skills/`), apply the same
+  three-way guard as Section 2: old = `git show <stamp>:<path>` in `$CLONE`,
+  new = the file in `$CLONE` at HEAD, local = the user-scope copy. If
+  local == old, overwrite with new. If local differs from both old and new,
+  the user-scope copy was customized; do not overwrite, note it in the PR.
+  If local already matches new, no action needed. In unknown-base mode (no
+  stamp), do not overwrite; note it in the PR. This copy is the bootstrap
+  for repos that do not carry this skill yet.
 
 ## 4. Ship it
 
@@ -65,3 +70,4 @@ If the delta is empty, say so and stop.
 4. Open a PR with `Closes #<n>`. The body lists the template commits
    applied, the files touched per class, and any conflicts or skipped prose
    from the guards above. Merging stays with the user.
+5. Remove `$CLONE` (`rm -rf "$CLONE"`).
