@@ -13,25 +13,25 @@ ready-made agent team for Claude Code.
 - `.claude/agents/` - four role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only).
-- `.claude/skills/advisor/` - `/advisor`: the operating model on top of the
+- `.claude/skills/tm-advisor/` - `/tm-advisor`: the operating model on top of the
   team. Refines a raw need into a batch of work packages, takes one sign-off,
   runs the batch uninterrupted through the kickoff pipeline, and reports.
   State lives in a batch tracking issue, so a dropped session resumes. Design:
   `docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`.
-- `.claude/skills/kickoff/` - `/kickoff`: fans refined, sized issues out to
+- `.claude/skills/tm-kickoff/` - `/tm-kickoff`: fans refined, sized issues out to
   the agent team in parallel waves, through implement, test, and review, to a
   ready PR per issue.
-- `.claude/skills/grill-me/` - `/grill-me`: stress-tests a plan one question
+- `.claude/skills/tm-grill-me/` - `/tm-grill-me`: stress-tests a plan one question
   at a time before kickoff (from mattpocock/skills, MIT).
-- `.claude/skills/to-issues/` - `/to-issues`: turns an approved plan into
-  sized, dependency-ordered issues ready for `/kickoff` (adapted from
+- `.claude/skills/tm-to-issues/` - `/tm-to-issues`: turns an approved plan into
+  sized, dependency-ordered issues ready for `/tm-kickoff` (adapted from
   mattpocock/skills, MIT).
-- `.claude/skills/sync-template/` - `/sync-template`: pulls later template
+- `.claude/skills/tm-sync-template/` - `/tm-sync-template`: pulls later template
   versions into a repo created from this one (machinery copied, prose merged
   by judgment, labels ensured) and opens a PR.
-- `.claude/workflows/` - bounded orchestration scripts. `review-changes`
+- `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
-  `review-codebase` audits the whole repo with a Sonnet scout that splits it into
+  `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
   areas (scaled to the repo, capped at a ceiling), per-area Sonnet workers, an
   architecture worker, and one Opus critic. Both pin models in-script so the cost
   is bounded by construction.
@@ -60,8 +60,8 @@ Copying only `CLAUDE.md` works but does not carry the agents and skills.
 ## Updating existing repos
 
 Repos created from a template share no git history with it, so updates flow
-through `/sync-template` instead of `git merge`. In a repo that already
-carries the skill, run `/sync-template` and review the PR it opens. For
+through `/tm-sync-template` instead of `git merge`. In a repo that already
+carries the skill, run `/tm-sync-template` and review the PR it opens. For
 older repos that predate the skill (or have no `.claude/` at all), install
 it once at user scope, which makes it available in every repo on the
 machine:
@@ -69,7 +69,7 @@ machine:
 ```bash
 git clone https://github.com/sv-tmueller/claude-template.git /tmp/ct
 mkdir -p ~/.claude/skills
-cp -r /tmp/ct/.claude/skills/sync-template ~/.claude/skills/
+cp -r /tmp/ct/.claude/skills/tm-sync-template ~/.claude/skills/
 ```
 
 If you launch Claude Code through a `CLAUDE_CONFIG_DIR` alias (separate
@@ -77,7 +77,7 @@ personal and work config dirs), each config dir has its own user-scope
 skills: copy into `$CLAUDE_CONFIG_DIR/skills/` instead, once per config dir
 you use.
 
-Then open the old repo in Claude Code and run `/sync-template`. The first
+Then open the old repo in Claude Code and run `/tm-sync-template`. The first
 run has no version stamp, so it ports everything conservatively and stamps
 the repo; later runs apply only the template's delta.
 

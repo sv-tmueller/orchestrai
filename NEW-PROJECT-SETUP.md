@@ -23,7 +23,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
       `/plugin install superpowers@claude-plugins-official`.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
-- [ ] Stamp the template version, so `/sync-template` can apply future
+- [ ] Stamp the template version, so `/tm-sync-template` can apply future
       template updates incrementally:
       ```
       gh api repos/sv-tmueller/claude-template/commits/main --jq .sha > .claude/template-version
@@ -64,4 +64,4 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
       lines for dependencies.
 - [ ] For a single issue: post a short sub-plan on the issue, branch, open a
       draft PR (`Closes #N`), then expand it to a full plan in `docs/plans/`.
-- [ ] For a batch of refined issues: run `/kickoff` (see CLAUDE.md "Agent team").
+- [ ] For a batch of refined issues: run `/tm-kickoff` (see CLAUDE.md "Agent team").

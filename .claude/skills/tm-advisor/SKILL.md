@@ -1,5 +1,5 @@
 ---
-name: advisor
+name: tm-advisor
 description: "Run a need through the advisor loop: refine it with the user, propose a batch of work packages, get one sign-off, dispatch the agent team uninterrupted, and report. User-invocable only."
 disable-model-invocation: true
 argument-hint: "<the need | blank to resume an open batch>"
@@ -21,7 +21,7 @@ Depth is proportional to the need:
 - Small and concrete (a bug list, a mechanical change): a few clarifying
   questions at most.
 - A feature, or anything with design ambiguity: stress-test it with
-  `/grill-me` or superpowers brainstorming first, and capture the approved
+  `/tm-grill-me` or superpowers brainstorming first, and capture the approved
   design under `docs/superpowers/specs/` before slicing.
 - Packages the user hands over ready-made (for example from plan mode) skip
   refinement; check only that they are sized and independent.
@@ -62,9 +62,9 @@ On approval:
 ## 4. Run
 
 Run the packages through the kickoff per-package pipeline
-(`.claude/skills/kickoff/SKILL.md`): at most 3 concurrent, starting the next
+(`.claude/skills/tm-kickoff/SKILL.md`): at most 3 concurrent, starting the next
 queued package as one finishes. Skip kickoff's wave-plan confirmation; the
-sign-off already covered it. Differences from a plain `/kickoff` run:
+sign-off already covered it. Differences from a plain `/tm-kickoff` run:
 
 - In-scope decisions are yours. When a question stays within the signed-off
   scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
@@ -84,14 +84,14 @@ sign-off already covered it. Differences from a plain `/kickoff` run:
 When every package is ready or parked, post the report to the batch issue:
 PRs ready for review, every decision made during the run, parked packages
 with their open questions, and anything deferred. Give the user the same as
-a chat digest, ending with: "merge these PRs, then invoke /advisor again to
+a chat digest, ending with: "merge these PRs, then invoke /tm-advisor again to
 close this batch and propose the next one."
 
 After posting, the advisor is done for this session.
 
 ## 6. Resume
 
-With no arguments, `/advisor` enters the resume path:
+With no arguments, `/tm-advisor` enters the resume path:
 
 1. Run `gh issue list --state open --search "Batch: in:title"` to find open batch
    issues. If there are multiple, use the most recently created one. If two

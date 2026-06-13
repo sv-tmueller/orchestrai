@@ -1,5 +1,5 @@
 ---
-name: kickoff
+name: tm-kickoff
 description: Fan refined, sized GitHub issues out to the agent team. Runs each work package through implement, test, and review to a ready PR, in parallel waves. User-invocable only.
 disable-model-invocation: true
 argument-hint: <issue numbers | label:<name>>
@@ -41,20 +41,20 @@ For each issue, `gh issue view <n> --comments`, and
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
 by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
 PRs) and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended. Inside an /advisor batch the batch
+run; after it, run the wave unattended. Inside an /tm-advisor batch the batch
 sign-off replaces this confirmation; do not ask twice.
 
 ## 3. Per-package pipeline
 
 Run up to 3 packages concurrently; dispatch their agents in parallel. A
-larger queue (up to 6 inside an /advisor batch) starts the next package as
+larger queue (up to 6 inside an /tm-advisor batch) starts the next package as
 one finishes. Worktree isolation keeps packages apart. Within a package the
 stages are serial:
 
 1. Architect: SUB_PLAN for the issue. Post it as an issue comment. On
-   NEEDS_DECISION: inside an /advisor batch, decide it yourself when it stays
+   NEEDS_DECISION: inside an /tm-advisor batch, decide it yourself when it stays
    within the signed-off scope, logging the decision on the batch issue;
-   outside an /advisor batch, park the package (below) and surface the
+   outside an /tm-advisor batch, park the package (below) and surface the
    question in the wave-end report, then continue the others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
@@ -95,7 +95,7 @@ Routing rules:
   package.
 - Parking: post the open question or the exact state to the issue or PR,
   swap `in-progress` for `needs-human`, and move on to the other packages.
-- Inside an /advisor batch, mirror lead decisions and package outcomes
+- Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 
 ## 4. Wave end
@@ -106,4 +106,4 @@ APPROVE, PR ready with `Closes #N`, summary comment posted.
 Report to the user: PRs ready for review, packages parked (`needs-human`,
 with their open questions), and issues deferred to later waves or stopped at
 the gate. The next wave needs this wave merged, and merging is the user's to
-do, so end with: "merge these PRs, then run /kickoff again."
+do, so end with: "merge these PRs, then run /tm-kickoff again."

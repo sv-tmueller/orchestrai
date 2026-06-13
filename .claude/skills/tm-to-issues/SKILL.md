@@ -1,9 +1,9 @@
 ---
-name: to-issues
-description: Break an approved plan, spec, or design into independently implementable GitHub issues using vertical slices, sized and dependency-ordered, ready for /kickoff. Use when the user wants to convert a plan or spec into issues, create implementation tickets, or break down work.
+name: tm-to-issues
+description: Break an approved plan, spec, or design into independently implementable GitHub issues using vertical slices, sized and dependency-ordered, ready for /tm-kickoff. Use when the user wants to convert a plan or spec into issues, create implementation tickets, or break down work.
 ---
 
-Break the plan into issues that `/kickoff` can run: thin vertical slices
+Break the plan into issues that `/tm-kickoff` can run: thin vertical slices
 (tracer bullets). Each slice is a complete, verifiable path through every
 layer it touches, never a horizontal layer on its own.
 
