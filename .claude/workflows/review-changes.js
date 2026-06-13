@@ -17,7 +17,13 @@ export const meta = {
 // Invoke with an optional base ref:
 //   Workflow({ name: 'review-changes', args: { base: 'origin/main' } })
 
-const base = (args && args.base) || 'origin/main'
+// Validate base against git-ref-safe chars; fall back to the default if it
+// contains shell metacharacters. Protects both the git command string and the
+// agent prompts that interpolate the value.
+function safeRef(value, fallback) {
+  return typeof value === 'string' && /^[\w.\/\-]+$/.test(value) ? value : fallback
+}
+const base = safeRef(args && args.base, 'origin/main')
 
 const DIMENSIONS = [
   {
@@ -87,7 +93,7 @@ const REPORT_SCHEMA = {
       description: 'findings judged false-positive or out of scope, with the reason',
     },
   },
-  required: ['verdict', 'summary', 'mustFix'],
+  required: ['verdict', 'summary', 'mustFix', 'shouldFix', 'nits'],
 }
 
 const diffHint =

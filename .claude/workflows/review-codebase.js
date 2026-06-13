@@ -39,7 +39,13 @@ function parseArgs(a) {
   return {}
 }
 const opts = parseArgs(args)
-const root = opts.path || '.'
+// Validate root against path-safe chars; fall back to '.' if it contains shell
+// metacharacters. Protects both the git command string and the agent prompts
+// that interpolate the value.
+function safeRef(value, fallback) {
+  return typeof value === 'string' && /^[\w.\/\-]+$/.test(value) ? value : fallback
+}
+const root = safeRef(opts.path, '.')
 const MAX_AREAS = opts.areas || 24
 
 const FINDING = {
@@ -129,7 +135,7 @@ const REPORT_SCHEMA = {
       required: ['areasReviewed', 'areasDropped', 'workersFailed', 'ceilingReached'],
     },
   },
-  required: ['verdict', 'summary', 'reportPath', 'mustFix', 'coverage'],
+  required: ['verdict', 'summary', 'reportPath', 'mustFix', 'shouldFix', 'nits', 'coverage'],
 }
 
 const scope = `Work from the repo root scoped to "${root}". List source files with \`git ls-files -- ${root}\` (it already respects .gitignore); ignore vendored and generated trees (node_modules, dist, build, vendor, .git, coverage) and lockfiles.`
@@ -155,9 +161,12 @@ const allAreas = scoutFailed ? [] : map.areas
 // returns more. Overflow areas are reported as dropped, not silently lost, so the
 // N + 3 bound holds by construction rather than by the scout obeying the prompt.
 const areas = allAreas.slice(0, MAX_AREAS)
-const scoutDropped = (map && Array.isArray(map.dropped) ? map.dropped : []).concat(
-  allAreas.slice(MAX_AREAS).map((a) => a.name)
-)
+// Two distinct drop sources, kept separate so ceilingReached and suggestedNextAction
+// name the right cause. selfDrop: paths the scout chose not to map (within cap).
+// overflowDrop: areas the script cut because the scout returned more than MAX_AREAS.
+const selfDrop = map && Array.isArray(map.dropped) ? map.dropped : []
+const overflowDrop = allAreas.slice(MAX_AREAS).map((a) => a.name)
+const scoutDropped = selfDrop.concat(overflowDrop)
 
 phase('Review')
 const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n')
@@ -194,11 +203,18 @@ const raw = areaResults
   .flatMap((r) => r.findings)
   .concat(archResult ? archResult.findings : [])
 
-// The repo did not fit the ceiling: surface it loudly so the caller can act.
-const ceilingReached = scoutDropped.length > 0
-const suggestedNextAction = ceilingReached
-  ? `Coverage is partial: ${scoutDropped.length} path(s) exceeded the ${MAX_AREAS}-area ceiling and were not reviewed. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}) or scope follow-up runs to the leftover with args.path. Uncovered: ${scoutDropped.join(', ')}.`
-  : ''
+// ceilingReached is true only when the script cut areas due to MAX_AREAS overflow;
+// scout self-drop (the scout chose not to map a path despite having room) is a
+// separate cause with a different remedy.
+const ceilingReached = overflowDrop.length > 0
+const suggestedNextAction =
+  ceilingReached && selfDrop.length
+    ? `Coverage is partial for two reasons. (1) The script cut ${overflowDrop.length} area(s) that exceeded the ${MAX_AREAS}-area ceiling; re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). (2) The scout self-dropped ${selfDrop.length} path(s) within the cap; scope a follow-up run with args.path to cover them. Uncovered: ${scoutDropped.join(', ')}.`
+    : ceilingReached
+    ? `Coverage is partial: ${overflowDrop.length} area(s) exceeded the ${MAX_AREAS}-area ceiling and were not reviewed. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). Uncovered: ${overflowDrop.join(', ')}.`
+    : selfDrop.length
+    ? `Coverage is partial: the scout did not map ${selfDrop.length} path(s) within the area cap. Scope a follow-up run with args.path to cover them. Uncovered: ${selfDrop.join(', ')}.`
+    : ''
 
 phase('Consolidate')
 const coverageNote =
@@ -208,7 +224,9 @@ const coverageNote =
   (workersFailed.length
     ? ` These workers did not return, so their scope is NOT covered: ${workersFailed.join(', ')}.`
     : '') +
-  (ceilingReached ? ` COVERAGE IS PARTIAL. ${suggestedNextAction}` : '')
+  // Gate on any dropped path (union of self-drop and overflow), not only
+  // ceilingReached, so self-drop cases are also surfaced to the critic.
+  (scoutDropped.length ? ` COVERAGE IS PARTIAL. ${suggestedNextAction}` : '')
 
 const report = await agent(
   `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the reviews/ directory if it does not exist, and write reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the must-fix, should-fix, and nit findings grouped by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}, and coverage.suggestedNextAction to ${JSON.stringify(suggestedNextAction)}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
