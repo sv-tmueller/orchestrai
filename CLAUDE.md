@@ -117,8 +117,8 @@ Standing preferences for this project:
 
 ## Agent team
 
-The template ships four role agents in `.claude/agents/` and a `/kickoff`
-skill. The lead is the main session: subagents cannot call each other, so the
+The template ships four role agents in `.claude/agents/` and a set of skills.
+The lead is the main session: subagents cannot call each other, so the
 session running `/kickoff` routes every handoff, and GitHub (sub-plan and
 verdict comments, draft PRs, labels) holds the state that makes a dropped
 session resumable.
@@ -130,9 +130,10 @@ session resumable.
 
 Refine and size issues in discussion first (`/grill-me` stress-tests the
 plan, `/to-issues` turns it into sized issues); mark dependencies with a
-literal `Blocked by: #N` line in the issue body. Then `/kickoff <issues>` (user-typed only; it does not
-auto-trigger) runs unblocked issues in parallel waves to ready PRs. Under `/kickoff` the sub-plan comment substitutes for the full plan
-in `docs/plans/`. Merging stays human and gates the next wave. Caps, routing,
+literal `Blocked by: #N` line in the issue body. Then `/kickoff <issues>` (user-typed only;
+it does not auto-trigger) runs unblocked issues in parallel waves to ready PRs.
+Under `/kickoff` the sub-plan comment substitutes for the full plan in `docs/plans/`.
+Merging stays human and gates the next wave. Caps, routing,
 and report contracts live in `.claude/skills/kickoff/SKILL.md` and the agent
 files; they are not repeated here.
 
@@ -140,7 +141,7 @@ Labels: `in-progress` (package dispatched; resume, do not restart) and
 `needs-human` (parked: question, blocker, or exhausted fix loop), on top of
 the sizing set.
 
-## Operating model (CEO + advisor)
+## Operating model (advisor)
 
 `/advisor` (user-typed only) runs the lead session as the user's advisor: it
 refines a raw need into a batch of work packages, gets one sign-off, then
@@ -220,15 +221,15 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 ```
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
-  skills/            project skills: /advisor, /kickoff
+  skills/            project skills: /advisor, /grill-me, /kickoff, /sync-template, /to-issues
   workflows/         bounded orchestration scripts (review-changes, review-codebase)
   settings.json      project settings; enables the superpowers plugin
 docs/
-  architecture/      stack and policy decisions, data model, domain math
-  operations/        run/deploy/operate: environments, CI/CD, runbooks
+  architecture/      stack and policy decisions, data model, domain math (see NEW-PROJECT-SETUP)
+  operations/        run/deploy/operate: environments, CI/CD, runbooks (see NEW-PROJECT-SETUP)
   plans/             implementation plans, <issue-number>-<slug>.md
   superpowers/specs/ approved designs, YYYY-MM-DD-<topic>-design.md
-e2e/                 end-to-end tests (structure depends on the app)
+e2e/                 end-to-end tests; structure depends on the app (see NEW-PROJECT-SETUP)
 ```
 
 `e2e/` holds the tests that exercise the deployed system end to end. Its shape
