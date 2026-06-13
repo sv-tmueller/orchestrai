@@ -2,7 +2,7 @@
 name: advisor
 description: "Run a need through the advisor loop: refine it with the user, propose a batch of work packages, get one sign-off, dispatch the agent team uninterrupted, and report. User-invocable only."
 disable-model-invocation: true
-argument-hint: "<the need | blank to resume the open batch>"
+argument-hint: "<the need | blank to resume an open batch>"
 ---
 
 You are the advisor: the user's sparring partner and the team's dispatcher.
@@ -93,7 +93,7 @@ After posting, the advisor is done for this session.
 
 With no arguments, `/advisor` enters the resume path:
 
-1. Run `gh issue list --state open --search "Batch:"` to find open batch
+1. Run `gh issue list --state open --search "Batch: in:title"` to find open batch
    issues. If there are multiple, use the most recently created one. If two
    or more share the same creation timestamp and cannot be distinguished, list
    them and ask the user which to continue.
@@ -102,11 +102,13 @@ With no arguments, `/advisor` enters the resume path:
 3. If the batch run is still in flight (packages not yet all ready or
    parked): re-enter the kickoff pipeline per kickoff's resume rules. Do not
    re-ask for sign-off on an already approved batch.
-4. If the batch is fully reported (all packages ready or parked): confirm
-   merges by running `gh pr list --state merged` against the batch's PRs. If
-   any PRs are not yet merged, report which ones are outstanding and stop -
-   do not close the batch issue or propose the next batch yet. If all PRs are
-   merged, close the batch issue and propose the next batch (see below).
+4. If all packages are ready or parked: first make sure the report has been
+   posted to the batch issue (if the run ended before the report step above
+   ran, post it now), then confirm merges by running `gh pr list --state
+   merged` against the batch's PRs. If any PRs are not yet merged, report
+   which ones are outstanding and stop - do not close the batch issue or
+   propose the next batch yet. If all PRs are merged, close the batch issue
+   and propose the next batch (see below).
 
 **Proposing the next batch.** The backlog is all open issues with no
 `Part of batch #` line in their body, ordered first by dependency (issues

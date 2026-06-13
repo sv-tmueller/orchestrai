@@ -76,10 +76,12 @@ A batch holds up to 6 independent size:S/M packages, run as a queue with at
 most 3 concurrent (the existing kickoff cap protects context and quota).
 The advisor proposes fewer when the need is small.
 
-### 6. Lifecycle: report, watch, propose next
+### 6. Lifecycle: report, then resume on re-invocation
 
 At batch end the advisor posts the report to the batch issue and the chat
-digest, then subscribes to the batch PRs. Once the CEO merges them, it
+digest, then it is done for that session (a session cannot watch PRs across
+turns). When the user merges and re-invokes `/advisor` with no arguments, it
+reads the batch issue, confirms the PRs merged, closes the batch issue, and
 proposes the next batch from the backlog. Dispatch still requires sign-off;
 merging is never implicit approval. A new session reconstructs state from
 the open batch issue.
@@ -94,7 +96,7 @@ immediately, since nothing is progressing.
 
 - A new user-invocable skill (working name `/advisor`) encoding the loop:
   intake, refine, propose, sign-off, file issues + batch issue, run kickoff
-  waves, report, watch.
+  waves, report, resume.
 - A short "Operating model" section in CLAUDE.md defining the advisor role
   and the escalation line.
 - Minor /kickoff amendments: batch queue of up to 6, in-scope
