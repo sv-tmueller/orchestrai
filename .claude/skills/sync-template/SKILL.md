@@ -13,8 +13,12 @@ Template repo: $ARGUMENTS (default `sv-tmueller/claude-template`).
 
 ## 1. Get the delta
 
-Clone the template to a fresh temp dir (`CLONE=$(mktemp -d)`; full history;
-it is small). Read `.claude/template-version` here:
+Clone the template to a fresh temp dir: run `mktemp -d` and clone into the
+path it prints (full history; it is small). This skill's steps run as
+separate shell commands, and shell variables do not persist across them, so
+note the literal path (call it CLONE below) and substitute it verbatim in
+every later reference; do not rely on `$CLONE` still being set. Read
+`.claude/template-version` here:
 
 - Stamp present and valid in the clone's history: the delta is
   `git log --oneline <stamp>..HEAD` and `git diff <stamp> HEAD` in the
@@ -28,7 +32,7 @@ If the delta is empty, say so and stop.
 
 - Machinery (`.claude/agents/`, `.claude/skills/`, `.claude/workflows/`): three-way
   guard before copying. Get the three versions: old = `git show <stamp>:<path>` in
-  the template clone; new = the checked-out file in the template clone (HEAD);
+  the clone (CLONE); new = the checked-out file in the clone at HEAD;
   local = the file in this repo. If local == old, overwrite with new. If local
   differs from BOTH old and new, the file was modified locally; do not overwrite,
   list it in the PR as a conflict for the user. (If local already matches new, no
@@ -52,8 +56,8 @@ If the delta is empty, say so and stop.
   `needs-human`); create missing ones with `gh label create`.
 - If a user-scope copy of this skill exists on this machine (under
   `$CLAUDE_CONFIG_DIR/skills/` or `~/.claude/skills/`), apply the same
-  three-way guard as Section 2: old = `git show <stamp>:<path>` in `$CLONE`,
-  new = the file in `$CLONE` at HEAD, local = the user-scope copy. If
+  three-way guard as Section 2: old = `git show <stamp>:<path>` in the clone
+  (CLONE), new = the file in CLONE at HEAD, local = the user-scope copy. If
   local == old, overwrite with new. If local differs from both old and new,
   the user-scope copy was customized; do not overwrite, note it in the PR.
   If local already matches new, no action needed. In unknown-base mode (no
@@ -70,4 +74,6 @@ If the delta is empty, say so and stop.
 4. Open a PR with `Closes #<n>`. The body lists the template commits
    applied, the files touched per class, and any conflicts or skipped prose
    from the guards above. Merging stays with the user.
-5. Remove `$CLONE` (`rm -rf "$CLONE"`).
+5. Remove the clone: `rm -rf` the recorded CLONE path. If an earlier step
+   failed before reaching here, still remove it; mktemp makes the path
+   unique, so a leftover never collides, but clean it up anyway.
