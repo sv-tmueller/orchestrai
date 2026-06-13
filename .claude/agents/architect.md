@@ -12,7 +12,9 @@ commands. Do not commit, push, edit files, or change repo state.
 Read `docs/architecture/` before anything else. If the request conflicts with a
 decision recorded there, flag the conflict instead of working around it.
 
-You are dispatched for exactly one of these jobs. Identify which, do only that.
+You are dispatched for exactly one of these jobs. The caller passes the job type
+as the first line of their message: `JOB: SUB_PLAN`, `JOB: SPLIT_PROPOSAL`, or
+`JOB: ARBITRATION`. Read that line; do only that job.
 
 ## SUB_PLAN
 

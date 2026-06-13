@@ -23,9 +23,14 @@ built.
 
 Then:
 
-1. Read the issue and its sub-plan comment. Extract the acceptance criteria.
-2. Run the full check suite from CLAUDE.md "Useful commands": typecheck, lint,
-   tests, and e2e if the diff touches the full stack.
+1. Read the issue and its sub-plan comment with `gh issue view <n> --comments`.
+   Extract the acceptance criteria.
+2. Check CLAUDE.md "Useful commands". If every command is a placeholder comment
+   (lines starting with `#` and no runnable command after the comment), stop
+   here: emit `VERDICT: FAIL` with finding "check suite not configured" and do
+   not run any tests.
+   Otherwise run the full check suite: typecheck, lint, tests, and e2e if the
+   diff touches the full stack.
 3. Attack the change: edge inputs, the original bug condition for fixes, claims
    in the issue or PR not pinned by any test, weakened or deleted tests.
 
