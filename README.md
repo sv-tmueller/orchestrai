@@ -30,8 +30,11 @@ ready-made agent team for Claude Code.
   versions into a repo created from this one (machinery copied, prose merged
   by judgment, labels ensured) and opens a PR.
 - `.claude/workflows/` - bounded orchestration scripts. `review-changes`
-  reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic,
-  models pinned in-script so the cost is bounded by construction.
+  reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
+  `review-codebase` audits the whole repo with a Sonnet scout that splits it into
+  areas (scaled to the repo, capped at a ceiling), per-area Sonnet workers, an
+  architecture worker, and one Opus critic. Both pin models in-script so the cost
+  is bounded by construction.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).

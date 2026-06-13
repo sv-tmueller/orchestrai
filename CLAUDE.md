@@ -182,6 +182,11 @@ runs, not raw effort everywhere.
   `.claude/workflows/` is the worked example: a fixed set of Sonnet reviewers
   plus one Opus critic, bounded by construction so it cannot fan out into the
   100-agent review that an unpinned session model produces.
+  `review-codebase` applies the same discipline to a whole-repo audit: a Sonnet
+  scout splits the repo into N areas (sized to the repo, capped at a ceiling),
+  Sonnet workers review each area plus repo-wide structure, and one Opus critic
+  consolidates. The agent count is N + 3, so it scales with repo size up to the
+  ceiling and never fans out unboundedly.
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It overrides both the per-call model
   and the frontmatter `model:`, flattening every subagent to one model and
   defeating the split above. Use it only as a temporary per-session seatbelt
@@ -216,7 +221,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
   skills/            project skills: /advisor, /kickoff
-  workflows/         bounded orchestration scripts (review-changes)
+  workflows/         bounded orchestration scripts (review-changes, review-codebase)
   settings.json      project settings; enables the superpowers plugin
 docs/
   architecture/      stack and policy decisions, data model, domain math
