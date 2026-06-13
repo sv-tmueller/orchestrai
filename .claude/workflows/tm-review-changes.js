@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'review-changes',
+  name: 'tm-review-changes',
   description:
     'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits an expensive session model or fans out unboundedly.',
   phases: [
@@ -15,7 +15,7 @@ export const meta = {
 // session never leaks into the workers.
 //
 // Invoke with an optional base ref:
-//   Workflow({ name: 'review-changes', args: { base: 'origin/main' } })
+//   Workflow({ name: 'tm-review-changes', args: { base: 'origin/main' } })
 
 // Validate base against git-ref-safe chars; fall back to the default if it
 // contains shell metacharacters. Protects both the git command string and the

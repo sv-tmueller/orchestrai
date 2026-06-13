@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'review-codebase',
+  name: 'tm-review-codebase',
   description:
     'Token-bounded full-repo review: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker reviews each area plus one Sonnet architecture worker audits repo-wide structure, and one Opus critic verifies, writes a dated report, and consolidates. Models are pinned per stage in-script, so it never inherits an expensive session model, and the agent count scales with repo size only up to a hard ceiling.',
   phases: [
@@ -23,7 +23,7 @@ export const meta = {
 // a scoped path.
 //
 // Invoke with optional args:
-//   Workflow({ name: 'review-codebase', args: { path: 'src', areas: 24 } })
+//   Workflow({ name: 'tm-review-codebase', args: { path: 'src', areas: 24 } })
 
 // args may arrive as an object or, depending on the caller, as a JSON string.
 // Normalize so { path, areas } work either way.

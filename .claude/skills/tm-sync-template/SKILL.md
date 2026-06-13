@@ -1,5 +1,5 @@
 ---
-name: sync-template
+name: tm-sync-template
 description: Pull the latest claude-template machinery and process updates into this repo and open a PR. Works in repos created from any template version, including repos with no .claude/ at all. User-invocable only.
 disable-model-invocation: true
 argument-hint: "[template-repo]"
