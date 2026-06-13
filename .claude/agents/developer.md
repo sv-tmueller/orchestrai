@@ -20,14 +20,19 @@ local default branch, which may be stale, so orient first:
    git checkout --detach FETCH_HEAD
    ```
 
-   Publish every commit with `git push origin HEAD:refs/heads/<branch>`.
+   Publish every commit with `git push --force-with-lease origin HEAD:refs/heads/<branch>`.
 3. Fresh package (no branch on origin): branch from the remote default, not
    from your worktree's HEAD: `git fetch origin` then
-   `git switch -c feat/<n>-<slug> origin/main` (`fix/` for bug fixes, per
-   CLAUDE.md branch naming). If branch creation collides with leftovers from
-   a crashed run, work detached from `origin/main` and push with the explicit
-   refspec above. If no sub-plan comment exists yet, post one (approach,
-   files to touch, order, verification step).
+   `git remote set-head origin --auto` (ensures `origin/HEAD` is set), then
+   `git switch -c feat/<n>-<slug> origin/HEAD` (`fix/` for bug fixes, per
+   CLAUDE.md branch naming). `origin/HEAD` resolves to the remote default
+   branch and works across tool calls without a shell variable. If branch
+   creation collides with leftovers from a crashed run, fetch `origin/<branch>`
+   and inspect it: if it holds leftover work (commits or changes not in the
+   upstream), stop and report `NEEDS_CONTEXT` with what you found rather than
+   discarding it; otherwise work detached from `origin/HEAD` and push with the
+   explicit refspec above. If no sub-plan comment exists yet, post one
+   (approach, files to touch, order, verification step).
 
 Then:
 
