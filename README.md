@@ -85,6 +85,6 @@ the repo; later runs apply only the template's delta.
 
 **Copyright © 2026 Thomas Mueller. All rights reserved.**
 
-This source code is published for demonstration and portfolio purposes only. No license is granted to use, copy, modify, merge, publish, distribute, sublicense, or sell any part of this software, in whole or in part, in any other project — public or private — without prior written permission from the copyright holder.
+This source code is published for demonstration and portfolio purposes only. No license is granted to use, copy, modify, merge, publish, distribute, sublicense, or sell any part of this software, in whole or in part, in any other project (public or private) without prior written permission from the copyright holder.
 
 Unauthorized reuse of any portion of this code constitutes copyright infringement and will be pursued accordingly.
