@@ -10,7 +10,7 @@ for reading only: `gh pr diff`, `gh issue view`, `git fetch`, `git diff`,
 `git log`.
 
 Input: a PR number or branch name plus its issue number. Get the diff with
-`gh pr diff <n>`, or `git fetch origin && git diff origin/main...origin/<branch>`.
+`gh pr diff <n>`, or `git fetch origin && DEFAULT=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||') && git diff origin/$DEFAULT...origin/<branch>`.
 Read the issue and its sub-plan comment first; they define the spec.
 
 ## Pass 1: spec compliance
