@@ -6,8 +6,8 @@ argument-hint: "[template-repo]"
 ---
 
 Sync this repo with its template. Repos created from a GitHub template share
-no git history with it, so this is a managed copy and judgment merge, not a
-git merge.
+no git history with it, so this is a manual, file-by-file merge guided by the
+diff, not a git merge.
 
 Template repo: $ARGUMENTS (default `sv-tmueller/claude-template`).
 
@@ -17,8 +17,10 @@ Clone the template to a fresh temp dir: run `mktemp -d` and clone into the
 path it prints (full history; it is small). This skill's steps run as
 separate shell commands, and shell variables do not persist across them, so
 note the literal path (call it CLONE below) and substitute it verbatim in
-every later reference; do not rely on `$CLONE` still being set. Read
-`.claude/template-version` here:
+every later reference; do not rely on `$CLONE` still being set. Read the
+stamp from this repo's `.claude/template-version` (the template SHA this repo
+was last synced to, not the clone's HEAD), then compute the delta against it
+in the clone:
 
 - Stamp present and valid in the clone's history: the delta is
   `git log --oneline <stamp>..HEAD` and `git diff <stamp> HEAD` in the
@@ -44,7 +46,7 @@ If the delta is empty, say so and stop.
   `enabledPlugins` entries) update; project keys (permissions, hooks, env)
   stay.
 - Prose (`CLAUDE.md`, `README.md`, `.gitignore`): apply only the template's
-  delta hunks, by judgment, into the project's customized text. Never
+  delta hunks, by hand, into the project's customized text. Never
   clobber project content. In unknown-base mode, port template sections that
   are clearly missing; when unsure, leave the file alone and note it in the
   PR.
