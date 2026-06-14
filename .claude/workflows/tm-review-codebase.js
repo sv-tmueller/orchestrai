@@ -48,6 +48,9 @@ function safeRef(value, fallback) {
 const root = safeRef(opts.path, '.')
 const MAX_AREAS = Number.isInteger(opts.areas) && opts.areas > 0 ? opts.areas : 24
 
+// FINDING and FINDINGS_SCHEMA are a shared base intentionally duplicated with
+// tm-review-changes.js (the workflow runtime has no shared imports); this copy
+// adds `area` and `dimension`. Keep the two definitions in sync.
 const FINDING = {
   type: 'object',
   additionalProperties: false,
@@ -161,12 +164,14 @@ const allAreas = scoutFailed ? [] : map.areas
 // returns more. Overflow areas are reported as dropped, not silently lost, so the
 // N + 3 bound holds by construction rather than by the scout obeying the prompt.
 const areas = allAreas.slice(0, MAX_AREAS)
-// The scout drops paths only when the repo exceeds the ceiling, so there is one
-// shortfall cause. Combine the scout's own dropped list with any areas the script
-// clamps beyond MAX_AREAS, and report it as a single signal.
-const scoutDropped = (scoutFailed ? [] : Array.isArray(map.dropped) ? map.dropped : []).concat(
-  allAreas.slice(MAX_AREAS).map((a) => a.name)
-)
+// Two distinct shortfall causes, tracked separately so the remedy matches the
+// cause: script overflow (the scout returned more than MAX_AREAS areas, so the
+// script clamped the extras) versus scout self-drop (the scout itself could not
+// fit some paths into MAX_AREAS readable areas). scoutDropped is their union, for
+// the single coverage list the schema reports.
+const scriptOverflow = allAreas.slice(MAX_AREAS).map((a) => a.name)
+const scoutSelfDropped = scoutFailed ? [] : Array.isArray(map.dropped) ? map.dropped : []
+const scoutDropped = scoutSelfDropped.concat(scriptOverflow)
 
 phase('Review')
 const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n')
@@ -203,16 +208,23 @@ const raw = areaResults
   .flatMap((r) => r.findings)
   .concat(archResult ? archResult.findings : [])
 
-// A non-empty scoutDropped means the repo did not fully fit. One cause, one remedy.
+// A non-empty scoutDropped means the repo did not fully fit; word the remedy to
+// the cause (raising the cap fixes a clamp, but not a scout that already judged
+// the repo too big for MAX_AREAS readable areas).
 const ceilingReached = scoutDropped.length > 0
-const suggestedNextAction = ceilingReached
-  ? `Coverage is partial: ${scoutDropped.length} path(s) did not fit the ${MAX_AREAS}-area ceiling. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}) or scope follow-up runs to the leftover with args.path. Uncovered: ${scoutDropped.join(', ')}.`
-  : ''
+const suggestedNextAction = !ceilingReached
+  ? ''
+  : scriptOverflow.length
+    ? `Coverage is partial: the scout proposed more than the ${MAX_AREAS}-area ceiling, so ${scriptOverflow.length} area(s) were clamped. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). Clamped: ${scriptOverflow.join(', ')}.`
+    : `Coverage is partial: the repo is larger than ${MAX_AREAS} areas can cover at a readable size, so the scout left ${scoutSelfDropped.length} path(s) out. Scope follow-up runs to the leftover with args.path, or raise the cap (args.areas) if those areas are small. Uncovered: ${scoutSelfDropped.join(', ')}.`
 
 phase('Consolidate')
 const coverageNote =
   (scoutFailed
     ? ` CRITICAL: the scout returned no valid area map, so NO area workers ran and only the architecture worker saw the repo. This is a failed, not a clean, review: do not return approve on this basis; report it as incomplete and advise re-running.`
+    : '') +
+  (!scoutFailed && areas.length === 0
+    ? ` CRITICAL: the scout returned zero areas, so NO area workers ran and only the architecture worker saw the repo. Treat this as architecture-only and incomplete, not a clean review; do not return approve on this basis.`
     : '') +
   (workersFailed.length
     ? ` These workers did not return, so their scope is NOT covered: ${workersFailed.join(', ')}.`
@@ -222,7 +234,7 @@ const coverageNote =
   (scoutDropped.length ? ` COVERAGE IS PARTIAL. ${suggestedNextAction}` : '')
 
 const report = await agent(
-  `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the must-fix, should-fix, and nit findings grouped by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}, and coverage.suggestedNextAction to ${JSON.stringify(suggestedNextAction)}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}, and coverage.suggestedNextAction to ${suggestedNextAction}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
   { label: 'consolidate', phase: 'Consolidate', model: 'opus', schema: REPORT_SCHEMA }
 )
 

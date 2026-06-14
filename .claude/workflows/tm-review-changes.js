@@ -11,7 +11,7 @@ export const meta = {
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is exactly DIMENSIONS.length Sonnet workers plus
 // one Opus critic. It cannot become the 100-agent fan-out that an unpinned
-// session-model review produces. Models are pinned per stage, so a Fable or Opus
+// session-model review produces. Models are pinned per stage, so a Fable 5 or Opus
 // session never leaks into the workers.
 //
 // Invoke with an optional base ref:
@@ -53,6 +53,9 @@ const DIMENSIONS = [
   },
 ]
 
+// FINDING and FINDINGS_SCHEMA are a shared base intentionally duplicated with
+// tm-review-codebase.js (the workflow runtime has no shared imports); that copy
+// adds `area` and `dimension`. Keep the two definitions in sync.
 const FINDING = {
   type: 'object',
   additionalProperties: false,
