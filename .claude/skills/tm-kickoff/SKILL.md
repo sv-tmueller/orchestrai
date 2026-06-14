@@ -13,6 +13,10 @@ escalations.
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
 label). With no arguments, ask which issues to run.
 
+If the packages argument begins with `label:`, run
+`gh issue list --state open --label '<name>'` and treat the returned issue
+numbers as the packages list before proceeding.
+
 ## 1. Gate
 
 For each issue, `gh issue view <n> --comments`, and
@@ -22,8 +26,9 @@ For each issue, `gh issue view <n> --comments`, and
   the report; resuming a `needs-human` package is the user's call.
 - The issue must be sized. Unsized: park it (below); never guess a size.
 - `size:L` or `size:XL` stops kickoff for that issue: dispatch the architect
-  for a SPLIT_PROPOSAL and post it on the issue, unless a proposal comment
-  already exists, then report it to the user.
+  for a SPLIT_PROPOSAL (prefix the message with `JOB: SPLIT_PROPOSAL`) and
+  post it on the issue, unless a proposal comment already exists, then report
+  it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
   complete: report it as awaiting merge and skip it. If the issue carries
@@ -51,11 +56,12 @@ larger queue (up to 6 inside an /tm-advisor batch) starts the next package as
 one finishes. Worktree isolation keeps packages apart. Within a package the
 stages are serial:
 
-1. Architect: SUB_PLAN for the issue. Post it as an issue comment. On
-   NEEDS_DECISION: inside an /tm-advisor batch, decide it yourself when it stays
-   within the signed-off scope, logging the decision on the batch issue;
-   outside an /tm-advisor batch, park the package (below) and surface the
-   question in the wave-end report, then continue the others.
+1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
+   Post it as an issue comment. On NEEDS_DECISION: inside an /tm-advisor batch,
+   decide it yourself when it stays within the signed-off scope, logging the
+   decision on the batch issue; outside an /tm-advisor batch, park the package
+   (below) and surface the question in the wave-end report, then continue the
+   others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
 3. On DONE or DONE_WITH_CONCERNS: dispatch the tester with the branch and
@@ -67,8 +73,9 @@ stages are serial:
 5. On PASS: post the verdict as a PR comment, then dispatch the reviewer
    with the PR, the issue number, and the tester's UNTESTED CLAIMS, if any.
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
-   number, then the same fix loop with the must-fix findings, then re-test,
-   then re-review.
+   number, then the same fix loop as step 4 with the must-fix findings, then
+   re-test, then re-review forwarding the tester's UNTESTED CLAIMS from the
+   new re-test (not the previous round's claims).
 7. On APPROVE, with the last tester verdict PASS: mark the PR ready (`gh pr
    ready`), remove `in-progress`, and post a summary comment on the issue,
    including should-fix findings and untested claims for the human review. If
@@ -81,9 +88,10 @@ Routing rules:
   you cannot, park the package.
 - BLOCKED: park the package (below) immediately; BLOCKED means the developer
   cannot proceed, not a disagreement.
-- Developer pushes back on a finding: dispatch the architect for ARBITRATION.
-  Post the outcome as a PR comment and include it in the next dispatch; an
-  overruled finding is settled, do not re-raise it.
+- Developer pushes back on a finding: dispatch the architect for ARBITRATION
+  (prefix the message with `JOB: ARBITRATION`). Post the outcome as a PR
+  comment and include it in the next dispatch; an overruled finding is settled,
+  do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
 - Never re-dispatch an unchanged prompt; something in the task must change
