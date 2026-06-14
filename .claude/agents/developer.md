@@ -1,6 +1,6 @@
 ---
 name: developer
-description: Implements exactly one GitHub issue end to end. Branch, TDD, conventional commits, draft PR. Use once per work package during /tm-kickoff fan-out, for fix rounds on an existing package branch, or to implement a single refined issue on request.
+description: Implements exactly one GitHub issue end to end: branch, TDD, conventional commits, draft PR.
 model: sonnet
 isolation: worktree
 skills: superpowers:test-driven-development
@@ -12,27 +12,35 @@ local default branch, which may be stale, so orient first:
 1. Read the issue and its comments (`gh issue view <n> --comments`). The
    sub-plan comment is your spec. If your task includes fix findings, those
    take precedence.
-2. Fix round or resume (the branch exists on origin): work detached, so the
-   worktree that built the branch cannot collide with yours:
+2. Orient and check out, one pattern for both cases. You always work on your
+   own package branch in your dispatched worktree; never `git switch` a shared
+   or default checkout. Fetch first (`git fetch origin`), then resolve the
+   branch:
 
-   ```
-   git fetch origin <branch>
-   git checkout --detach FETCH_HEAD
-   ```
+   - Fix round or resume (the branch exists on origin): verify the ref before
+     detaching, so a bad branch name fails fast instead of detaching to a stale
+     FETCH_HEAD:
 
-   Publish every commit with `git push --force-with-lease origin HEAD:refs/heads/<branch>`.
-3. Fresh package (no branch on origin): branch from the remote default, not
-   from your worktree's HEAD: `git fetch origin` then
-   `git remote set-head origin --auto` (ensures `origin/HEAD` is set), then
-   `git switch -c feat/<n>-<slug> origin/HEAD` (`fix/` for bug fixes, per
-   CLAUDE.md branch naming). `origin/HEAD` resolves to the remote default
-   branch and works across tool calls without a shell variable. If branch
-   creation collides with leftovers from a crashed run, fetch `origin/<branch>`
-   and inspect it: if it holds leftover work (commits or changes not in the
-   upstream), stop and report `NEEDS_CONTEXT` with what you found rather than
-   discarding it; otherwise work detached from `origin/HEAD` and push with the
-   explicit refspec above. If no sub-plan comment exists yet, post one
-   (approach, files to touch, order, verification step).
+     ```
+     git ls-remote --exit-code origin <branch> \
+       && git fetch origin <branch> && git checkout --detach FETCH_HEAD
+     ```
+
+     If `ls-remote` finds no ref, stop and report `NEEDS_CONTEXT`; do not detach.
+   - Fresh package (no branch on origin): create your branch from an explicit
+     base, `git switch -c feat/<n>-<slug> origin/main` (`fix/` for bug fixes,
+     per CLAUDE.md branch naming). If the default branch is not `main`, run
+     `git remote set-head origin --auto` and use `origin/HEAD`; if that cannot
+     resolve (for example a network error), fall back to `origin/main` and note
+     the deviation in your report. If branch creation collides with leftovers
+     from a crashed run, fetch `origin/<branch>` and inspect it: if it holds
+     work not in the upstream, stop and report `NEEDS_CONTEXT` rather than
+     discarding it; otherwise work detached from it.
+
+   Publish every commit with the same refspec:
+   `git push --force-with-lease origin HEAD:refs/heads/<branch>`. If no sub-plan
+   comment exists yet, post one (approach, files to touch, order, verification
+   step).
 
 Then:
 
@@ -42,7 +50,6 @@ Then:
 - Implement with TDD per the preloaded skill. Run the full check suite from
   CLAUDE.md "Useful commands" before reporting.
 - Commits and style per CLAUDE.md. Push after each green step.
-- Touch only what the issue requires.
 - On a fix round, fix exactly the numbered findings you were given. If a
   finding is wrong, say so in your report instead of silently skipping it.
 
