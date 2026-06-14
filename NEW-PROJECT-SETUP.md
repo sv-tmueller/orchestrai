@@ -29,6 +29,24 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
       gh api repos/sv-tmueller/claude-template/commits/main --jq .sha > .claude/template-version
       ```
       Commit the file.
+- [ ] (Optional) If this project builds UI, enable the design plugins. They are
+      not on by default, so the template stays generic and free of third-party
+      defaults. Add each to `.claude/settings.json` under `enabledPlugins` and
+      install it:
+      - `frontend-design@claude-plugins-official` (distinctive frontend UI;
+        official marketplace, like superpowers):
+        `/plugin install frontend-design@claude-plugins-official`.
+      - `ui-ux-pro-max@ui-ux-pro-max-skill` (UI/UX design intelligence: styles,
+        palettes, font pairings). Third-party, from
+        `nextlevelbuilder/ui-ux-pro-max-skill`: add the marketplace
+        (`/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill`), then
+        `/plugin install ui-ux-pro-max@ui-ux-pro-max-skill`.
+      - `impeccable@impeccable` (frontend interface design and critique).
+        Third-party, from `pbakaus/impeccable`: add the marketplace
+        (`/plugin marketplace add pbakaus/impeccable`), then
+        `/plugin install impeccable@impeccable`.
+      Vet the two third-party plugins before enabling them in a project others
+      build on; their install steps live in their repos and may change.
 
 ## 3. Docs structure
 
