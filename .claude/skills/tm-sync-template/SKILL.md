@@ -22,11 +22,14 @@ stamp from this repo's `.claude/template-version` (the template SHA this repo
 was last synced to, not the clone's HEAD), then compute the delta against it
 in the clone:
 
+- Stamp is the literal string `unknown`, or the file is absent or empty:
+  enter unknown-base mode immediately. Do not attempt a `git log unknown..HEAD`
+  ref lookup.
 - Stamp present and valid in the clone's history: the delta is
   `git log --oneline <stamp>..HEAD` and `git diff <stamp> HEAD` in the
   template clone. Only files in that diff are in scope.
-- No stamp, or unknown SHA (legacy repo): unknown-base mode. Every template
-  file is in scope; be conservative on prose.
+- Stamp present but not a valid ref in the clone (legacy repo): unknown-base
+  mode. Every template file is in scope; be conservative on prose.
 
 If the delta is empty, say so and stop.
 
@@ -42,15 +45,18 @@ If the delta is empty, say so and stop.
   so the three-way test cannot run; treat every machinery file as a conflict, do
   not overwrite, list it in the PR. Never delete local agents or skills the
   template does not have.
-- `.claude/settings.json`: merge by key. Template-shipped keys (such as its
-  `enabledPlugins` entries) update; project keys (permissions, hooks, env)
+- `.claude/settings.json`: merge recursively by key. Nested objects (such as
+  `enabledPlugins`) are merged key-by-key; project-added keys are preserved at
+  any depth. Template-shipped keys update; project keys (permissions, hooks, env)
   stay.
 - Prose (`CLAUDE.md`, `README.md`, `.gitignore`): apply only the template's
   delta hunks, by hand, into the project's customized text. Never
   clobber project content. In unknown-base mode, port template sections that
   are clearly missing; when unsure, leave the file alone and note it in the
   PR.
-- `NEW-PROJECT-SETUP.md`: skip if the project deleted it after bootstrap.
+- `NEW-PROJECT-SETUP.md`: if the project deleted it after bootstrap, skip it.
+  If it still exists, treat it like Prose: apply only the template's delta
+  hunks; do not clobber project content.
 
 ## 3. Non-file state
 
