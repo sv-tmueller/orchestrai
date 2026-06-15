@@ -1,5 +1,7 @@
 .DS_Store
 .claude/settings.local.json
+# Transient worktrees the harness creates for isolation: worktree agents (see #78); never commit.
+.claude/worktrees/
 .env
 .env.*
 !.env.example
