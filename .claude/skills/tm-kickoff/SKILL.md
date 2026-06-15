@@ -108,14 +108,19 @@ Routing rules:
 
 ## Worktree cleanup (deterministic)
 
-The `developer` and `tester` run with Agent `isolation: worktree`. The harness
-registers an isolated worktree under `.claude/worktrees/` per dispatch and may
-leave it behind when the agent returns; the agents publish to origin, so their
-work is safe there regardless. The `developer` no longer creates a local branch
-or moves a shared HEAD (it works detached and pushes a refspec, per
-`developer.md`), which removes the branch-ref and shared-HEAD leak at the
-source. The residue the harness can still leave is the registered worktree, so
-the lead sweeps it.
+The `developer` and `tester` run with Agent `isolation: worktree`, but the
+isolation does not reliably separate the working tree: a dispatched agent's
+`git checkout`/`git switch` can land on the lead's shared checkout. That is the
+mechanical cause of the tangle, and it hits every checkout-running agent, not
+just one (observed live on issue #78: the `tester`'s `git checkout --detach
+FETCH_HEAD` left the lead's checkout detached at the branch tip). The agents
+publish to origin, so their work is safe there regardless; what leaks into the
+lead's checkout is a moved HEAD, sometimes a local branch, and a worktree
+registered under `.claude/worktrees/`. The `developer` fresh path uses a
+detached checkout instead of `git switch -c`, so it no longer leaves a stale
+local branch (the worst residue, a clobber risk against the good remote branch);
+the moved HEAD and the registered worktree are harness-side and cannot be
+prevented by agent commands, so the lead reverses them deterministically.
 
 At wave end, with no agents in flight, run from the lead's main checkout:
 
