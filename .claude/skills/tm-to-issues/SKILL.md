@@ -38,6 +38,10 @@ file paths or code snippets; they go stale.
 
 - [ ] ...
 - [ ] ...
+
+## Non-goals
+
+- ...
 ```
 
 ---

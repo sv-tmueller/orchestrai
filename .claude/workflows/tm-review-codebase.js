@@ -132,7 +132,7 @@ const REPORT_SCHEMA = {
         ceilingReached: { type: 'boolean' },
         suggestedNextAction: {
           type: 'string',
-          description: 'when ceilingReached, how to cover the rest: re-run with a higher areas cap or a scoped path',
+          description: 'precomputed by the orchestrator and returned unchanged; present only when ceilingReached is true',
         },
       },
       required: ['areasReviewed', 'areasDropped', 'workersFailed', 'ceilingReached'],
@@ -233,8 +233,12 @@ const coverageNote =
   // ceilingReached, so self-drop cases are also surfaced to the critic.
   (scoutDropped.length ? ` COVERAGE IS PARTIAL. ${suggestedNextAction}` : '')
 
+const suggestedNextActionClause = ceilingReached
+  ? `, and coverage.suggestedNextAction to ${JSON.stringify(suggestedNextAction)}`
+  : ''
+
 const report = await agent(
-  `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}, and coverage.suggestedNextAction to ${suggestedNextAction}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
   { label: 'consolidate', phase: 'Consolidate', model: 'opus', schema: REPORT_SCHEMA }
 )
 

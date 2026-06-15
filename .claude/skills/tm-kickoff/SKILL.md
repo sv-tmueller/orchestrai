@@ -56,10 +56,10 @@ The run does not stop to ask the user. In-scope questions are decided and
 logged; everything else parks-and-continues. Interrupt the user only if every
 package parks at once.
 
-Run up to 3 packages concurrently; dispatch their agents in parallel. A
-larger queue (up to 6 inside an /tm-advisor batch) starts the next package as
-one finishes. Worktree isolation keeps packages apart. Within a package the
-stages are serial:
+Run up to 3 packages concurrently; dispatch their agents in parallel. When
+the queue is larger (up to 6 in an /tm-advisor batch), start the next queued
+package as one finishes. Worktree isolation keeps packages apart. Within a
+package the stages are serial:
 
 1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
    Post it as an issue comment. On NEEDS_DECISION: inside an /tm-advisor batch,
@@ -78,9 +78,10 @@ stages are serial:
 5. On PASS: post the verdict as a PR comment, then dispatch the reviewer
    with the PR, the issue number, and the tester's UNTESTED CLAIMS, if any.
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
-   number, then the same fix loop as step 4 with the must-fix findings, then
-   re-test, then re-review forwarding the tester's UNTESTED CLAIMS from the
-   new re-test (not the previous round's claims).
+   number, then send the must-fix findings to a fresh developer dispatch in
+   the same format as step 4, then re-test, then re-review forwarding the
+   tester's UNTESTED CLAIMS from the new re-test (not the previous round's
+   claims).
 7. On APPROVE, with the last tester verdict PASS: mark the PR ready (`gh pr
    ready`), remove `in-progress`, and post a summary comment on the issue,
    including should-fix findings and untested claims for the human review. If
@@ -106,8 +107,8 @@ Routing rules:
   (tester fails after a reviewer fix round) re-enters the step-4 loop and
   increments the tester counter. On exhaustion of either counter, park the
   package.
-- Parking: post the open question or the exact state to the issue or PR,
-  swap `in-progress` for `needs-human`, and move on to the other packages.
+- Parking: post the reason on the issue, apply `needs-human` (remove
+  `in-progress` if present), and move on to the other packages.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 

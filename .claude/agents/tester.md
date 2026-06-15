@@ -15,15 +15,17 @@ Guardrails - hard constraints:
 - Read-only: never modify files, never commit.
 
 Input: a branch name and its issue number. Your worktree starts from the
-default branch, so first:
+default branch, so first verify the ref exists, then check it out:
 
 ```
+git ls-remote --exit-code origin <branch>
 git fetch origin <branch>
+git rev-parse FETCH_HEAD   # record the full SHA now - you will need it for the report
 git checkout --detach FETCH_HEAD
 ```
 
-Record the full SHA now: `git rev-parse FETCH_HEAD`. You will need it for the
-report.
+If `git ls-remote` finds no ref, emit `VERDICT: FAIL` with finding
+"branch not found on origin" and stop.
 
 The detached checkout avoids collisions with the worktree where the branch was
 built.
