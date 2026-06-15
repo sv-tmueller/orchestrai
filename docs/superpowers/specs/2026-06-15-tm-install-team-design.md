@@ -142,6 +142,18 @@ throwaway temp dir, never `~/.claude-work`:
 5. With no `superpowers` in a target config, confirm the enable instructions
    print.
 
+The dry run proves the copy mechanics, not that the team loads from a config
+dir. That loading is documented: user-scope workflows are read from
+`~/.claude/workflows/` and are "available in every project," and
+`CLAUDE_CONFIG_DIR` relocates every `~/.claude` path (so the real location is
+`<config-dir>/workflows/`); skills and agents load from the same user dir.
+Because the revert follow-up is destructive, confirm it once empirically before
+that step: in a real session under the target config (for example a
+`claude-work` session) opened in a repo that does not carry the team, check that
+`/tm-advisor` is offered, an agent dispatches, and a `tm-review-*` workflow is
+found. Sources: `code.claude.com/docs/en/workflows.md`,
+`code.claude.com/docs/en/claude-directory.md`.
+
 ## Follow-up work (not this issue)
 
 - **Revert the committed team from personal repos.** Once `tm-install-team`
@@ -149,8 +161,9 @@ throwaway temp dir, never `~/.claude-work`:
   `.claude/{agents,skills,workflows}` in personal consuming repos is redundant
   and can be removed (`git rm -r ...` + PR per repo). Keep each repo's
   `CLAUDE.md`. Do not strip the template repo. This is a dependent batch: it
-  must come after this issue is merged and the install has been run, or the
-  repos would be stranded. It needs the list of personal repos
+  must come after this issue is merged, the install has been run, and a smoke
+  test (see Verification) has confirmed the team loads from the config dir, or
+  the repos would be stranded. It needs the list of personal repos
   (`gh repo list`).
 - **tm-sync-template Section 3 cleanup.** `tm-sync-template` keeps a user-scope
   copy of itself current as a bootstrap. Once `tm-install-team` manages the
