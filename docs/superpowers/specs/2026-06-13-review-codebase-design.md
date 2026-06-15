@@ -12,7 +12,7 @@ Status: approved (brainstorming), ready for implementation plan
 
 ## Context
 
-`/review-changes` reviews the branch diff: a fixed set of Sonnet workers, one per
+`/tm-review-changes` reviews the branch diff: a fixed set of Sonnet workers, one per
 dimension, plus one Opus critic. It is bounded because a diff is small. It cannot
 see anything the diff does not touch.
 
@@ -21,23 +21,23 @@ auditing an inherited or drifting repo, a pre-release sweep, or finding latent
 defects and structural problems that no recent diff would surface.
 
 A naive "review everything" is unbounded. A whole repo does not fit one agent's
-context, and the dimension-per-worker shape of review-changes does not scale (a
+context, and the dimension-per-worker shape of tm-review-changes does not scale (a
 single "bugs" worker cannot read an entire repo). This workflow ships in the
 template and runs in downstream repos of unknown size, so the bound has to hold
 regardless of how large the target repo is.
 
 ## Goals
 
-- A `/review-codebase` workflow that reviews an entire repo (or a named subtree).
+- A `/tm-review-codebase` workflow that reviews an entire repo (or a named subtree).
 - Bounded by construction and model-pinned per stage, the same discipline as
-  `review-changes`, so it never inherits an expensive session model or fans out
+  `tm-review-changes`, so it never inherits an expensive session model or fans out
   into a 100-agent review.
 - Surfaces both latent defects and whole-repo structural problems.
 - Produces a durable, dated markdown report plus a short chat summary.
 
 ## Non-goals
 
-- No GitHub issue creation. Turn must-fix findings into issues with `/to-issues`
+- No GitHub issue creation. Turn must-fix findings into issues with `/tm-to-issues`
   afterward.
 - No auto-fix. Workers are read-only; the only file written is the report.
 - No per-file fan-out, no loops, no history or blame analysis.
@@ -46,7 +46,7 @@ regardless of how large the target repo is.
 
 Three choices were settled during brainstorming:
 
-1. Focus: both defects and structure (not just the review-changes lens, not
+1. Focus: both defects and structure (not just the tm-review-changes lens, not
    structure-only).
 2. Bounding: a scout maps the repo into a capped set of areas; one worker reviews
    each area in depth, plus one dedicated worker audits repo-wide structure.
@@ -77,8 +77,8 @@ The architecture worker receives the scout's repo-map for global context; area
 workers receive only their own name and paths. Scout and all workers are pinned
 to Sonnet (cheap, parallel). The critic is pinned to Opus
 (synthesis and judgment). This is the model split the CLAUDE.md model policy
-prescribes; review-codebase becomes a second worked example next to
-review-changes.
+prescribes; tm-review-codebase becomes a second worked example next to
+tm-review-changes.
 
 ### Stages in detail
 
@@ -114,11 +114,11 @@ areas, the leftover is reported, not silently skipped: `coverage.ceilingReached`
 is set, `coverage.areasDropped` lists the uncovered paths, and
 `coverage.suggestedNextAction` tells the caller to re-run with a higher `areas`
 cap or a scoped `path`. This is the same no-silent-truncation discipline as the
-review-changes coverage fix.
+tm-review-changes coverage fix.
 
 ## What each reviewer looks for
 
-Area workers reuse the five review-changes dimensions, worded for whole files
+Area workers reuse the five tm-review-changes dimensions, worded for whole files
 rather than a diff, reusing the existing briefs where possible for consistency:
 
 - bugs (adversarial correctness, edge cases, error paths, races, resource leaks)
@@ -140,16 +140,17 @@ The architecture worker covers the whole-repo concerns a diff cannot show:
 
 ## Report contract
 
-The critic writes `docs/reviews/<YYYY-MM-DD>-codebase-review.md`, grouped by severity
-then area, ending with a coverage section that lists areas reviewed, areas
-dropped by the cap, and any worker that failed to return. The chat shows a short
-verdict and summary plus the report path.
+The critic writes `docs/reviews/<YYYY-MM-DD>-codebase-review.md`, organized into
+severity sections (must-fix, then should-fix, then nit), each organized by area,
+ending with a coverage section that lists areas reviewed, areas dropped by the
+cap, and any worker that failed to return. The chat shows a short verdict and
+summary plus the report path.
 
-The finding shape reuses the review-changes `FINDING` (file, line, severity,
+The finding shape reuses the tm-review-changes `FINDING` (file, line, severity,
 problem, fix) and adds `area` and `dimension`. The returned summary reuses the
-review-changes `REPORT_SCHEMA` shape (verdict, summary, mustFix, shouldFix, nits,
-dismissed) and adds a `coverage` object (areas reviewed, areas dropped, failed
-workers) and `reportPath`.
+tm-review-changes `REPORT_SCHEMA` shape (verdict, summary, mustFix, shouldFix, nits,
+dismissed) and adds a `coverage` object (areas reviewed, areas dropped,
+`ceilingReached`, `suggestedNextAction`, failed workers) and `reportPath`.
 
 ## Mechanics and constraints
 
@@ -160,18 +161,18 @@ workers) and `reportPath`.
 - Optional args: `path` (scope to a subdirectory, default the whole repo),
   `areas` (override the ceiling, default 24). args may arrive as an object or, via
   some callers, as a JSON string, so the script normalizes both. Both have safe
-  defaults so `/review-codebase` with no args works in any repo.
+  defaults so `/tm-review-codebase` with no args works in any repo.
 
 ## Template and process notes
 
-- The workflow lives at `.claude/workflows/review-codebase.js`. It must be synced
-  to consumers with `/sync-template`.
-- CLAUDE.md needs a one-line addition in the model-policy section (review-codebase
-  as a second bounded example) and in the workflow list.
+- The workflow lives at `.claude/workflows/tm-review-codebase.js`. It must be
+  synced to consumers with `/tm-sync-template`.
+- CLAUDE.md needs a one-line addition in the model-policy section
+  (tm-review-codebase as a second bounded example) and in the workflow list.
 - Per the repo process this is a GitHub issue first. It fits the
   `feat/33-efficient-model-routing` theme or stands as its own issue, then spec
   (this document) to plan to implementation.
-- Verification is a real run of `/review-codebase` on this template repo,
+- Verification is a real run of `/tm-review-codebase` on this template repo,
   confirming the agent count stays at N + 3 and the report is coherent. JS
   workflows have no unit-test harness, so the run is the test.
 

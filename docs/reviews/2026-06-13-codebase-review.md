@@ -1,5 +1,13 @@
 # Codebase review - 2026-06-13
 
+> **Historical record.** All skill and workflow paths in this report (e.g.
+> `/advisor`, `/kickoff`, `/grill-me`, `/review-changes`, `/review-codebase`,
+> `/sync-template`, `review-codebase.js`) predate the tm- rename (commit
+> 6940104). Their current equivalents carry the `tm-` prefix:
+> `/tm-advisor`, `/tm-kickoff`, `/tm-grill-me`, `/tm-review-changes`,
+> `/tm-review-codebase`, `/tm-sync-template`, `tm-review-codebase.js`.
+> The finding headers and text are preserved verbatim.
+
 **Verdict: changes-requested**
 
 Full-repo review of the claude-template: the `.claude/` agent team and skills,

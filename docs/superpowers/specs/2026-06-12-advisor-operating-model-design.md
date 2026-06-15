@@ -1,15 +1,15 @@
 # Advisor operating model (CEO + advisor + autonomous team)
 
 Status: approved design, 2026-06-12. Grilled and signed off decision by
-decision in session. Implemented: `/advisor` skill, CLAUDE.md "Operating
-model" section, /kickoff amendments (issue #36).
+decision in session. Implemented: `/tm-advisor` skill, CLAUDE.md "Operating
+model" section, /tm-kickoff amendments (issue #36).
 
 ## Goal
 
 Let the user act as CEO: state a need, sign off once, and get 2-4 hours of
 uninterrupted autonomous work back as ready PRs, with every step and decision
 documented. The existing agent team (architect, developer, tester, reviewer
-under /kickoff) stays as the execution layer. The new piece is the advisor:
+under /tm-kickoff) stays as the execution layer. The new piece is the advisor:
 a sparring partner that turns raw needs into signed-off work package batches
 and runs them without further interruption.
 
@@ -20,10 +20,10 @@ and runs them without further interruption.
   to the advisor ready-made; the advisor then files and dispatches without
   re-refining.
 - **Advisor (the main session).** Not a subagent. Refines needs with the CEO,
-  proposes batches, files issues, orchestrates /kickoff waves, decides
+  proposes batches, files issues, orchestrates /tm-kickoff waves, decides
   in-scope questions, keeps the batch record, reports.
 - **Team (existing).** architect, developer, tester, reviewer per
-  `.claude/agents/`, orchestrated as in `.claude/skills/kickoff/SKILL.md`.
+  `.claude/agents/`, orchestrated as in `.claude/skills/tm-kickoff/SKILL.md`.
 
 ## Decisions
 
@@ -46,7 +46,7 @@ approval covers filing the issues AND dispatching. Nothing lands on GitHub
 before the yes; the CEO decides once per batch.
 
 Refinement depth is proportional: a small need gets a few clarifying
-questions; a feature with design ambiguity gets /grill-me and, if warranted,
+questions; a feature with design ambiguity gets /tm-grill-me and, if warranted,
 a spec doc first.
 
 ### 3. Escalation line: scope
@@ -80,9 +80,11 @@ The advisor proposes fewer when the need is small.
 
 At batch end the advisor posts the report to the batch issue and the chat
 digest, then it is done for that session (a session cannot watch PRs across
-turns). When the user merges and re-invokes `/advisor` with no arguments, it
+turns). When the user merges and re-invokes `/tm-advisor` with no arguments, it
 reads the batch issue, confirms the PRs merged, closes the batch issue, and
-proposes the next batch from the backlog. Dispatch still requires sign-off;
+proposes the next batch from the backlog (open issues not part of any batch -
+no `Part of batch #` line and no `Batch:` title prefix - ordered by dependency
+then creation date). Dispatch still requires sign-off;
 merging is never implicit approval. A new session reconstructs state from
 the open batch issue.
 
@@ -94,12 +96,12 @@ immediately, since nothing is progressing.
 
 ### 8. Codification
 
-- A new user-invocable skill (working name `/advisor`) encoding the loop:
+- A new user-invocable skill (`/tm-advisor`) encoding the loop:
   intake, refine, propose, sign-off, file issues + batch issue, run kickoff
   waves, report, resume.
 - A short "Operating model" section in CLAUDE.md defining the advisor role
   and the escalation line.
-- Minor /kickoff amendments: batch queue of up to 6, in-scope
+- Minor /tm-kickoff amendments: batch queue of up to 6, in-scope
   NEEDS_DECISION routed to the advisor instead of parking, decisions and
   verdicts mirrored to the batch issue.
 
