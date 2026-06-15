@@ -132,7 +132,8 @@ git status --short --branch        # expect the default branch, clean tree
 
 Remove anything still registered under `.claude/worktrees/`
 (`git worktree remove --force <path>`). If the lead's HEAD was moved off the
-default branch, return to it (`git switch <default>`). Delete a stray local
+default branch, return to it with `git switch <default>` (the lead's own checkout, the one
+place that command is right). Delete a stray local
 package branch only when its work is safe on origin (`git ls-remote --exit-code
 origin <branch>` succeeds), then `git branch -D <branch>`; never delete a branch
 whose commits are not on origin. Do not run `remove` or `branch -D` mid-wave:
