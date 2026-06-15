@@ -67,7 +67,7 @@ On approval:
 
 ## 4. Run
 
-Do not ask the user questions mid-run. In-scope decisions are decided and
+Do not ask the user questions mid-run. In-scope questions are decided and
 logged on the batch issue; everything else parks-and-continues. Interrupt the
 user only if every package parks at once.
 
