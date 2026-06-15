@@ -10,7 +10,9 @@ for reading only: `gh pr diff`, `gh issue view`, `git fetch`, `git diff`,
 `git log`.
 
 Input: a PR number or branch name plus its issue number. Get the diff with
-`gh pr diff <n>`, or `git remote set-head origin --auto && git fetch origin && git diff origin/HEAD...origin/<branch>`.
+`gh pr diff <n>` (preferred); fall back to
+`git remote set-head origin --auto && git fetch origin && git diff origin/HEAD...origin/<branch>`
+only when no PR exists.
 Read the issue and its sub-plan comment first; they define the spec.
 
 ## Pass 1: spec compliance
@@ -22,7 +24,7 @@ findings, even when the extra code is good.
 ## Pass 2: code quality
 
 Only after pass 1 is clean. Correctness first, then the principles: simplicity
-first (could 200 lines be 50?), surgical changes, verifiable behavior. Match
+first (could 200 lines be 50?), surgical changes, goal-driven execution. Match
 against the CLAUDE.md code style and writing style sections. A weakened or
 deleted test is always a blocking finding.
 

@@ -6,7 +6,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 
 ## 1. Repository and protection
 
-- [ ] Create the repo (`gh repo create <name> --template sv-tmueller/claude-template`).
+- [ ] Create the repo (`gh repo create <name> --template sv-tmueller/claude-template --clone`).
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
 - [ ] Create the labels the workflow uses: the sizing set `size:S`, `size:M`,
@@ -19,16 +19,20 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 
 - [ ] Open the repo in Claude Code and trust the folder. Accept the superpowers
       plugin prompt that `.claude/settings.json` triggers. If no prompt appears
-      (a known gap, claude-code#32606), run
+      (a known gap, https://github.com/anthropics/claude-code/issues/32606), run
       `/plugin install superpowers@claude-plugins-official`.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
+- [ ] Check the skills are registered: `/skills` should list tm-advisor,
+      tm-kickoff, tm-grill-me, tm-to-issues, and tm-sync-template.
 - [ ] Stamp the template version, so `/tm-sync-template` can apply future
       template updates incrementally:
       ```
       gh api repos/sv-tmueller/claude-template/commits/main --jq .sha > .claude/template-version
       ```
-      Commit the file.
+      Commit the file. (The file ships as `unknown` in the template; that is
+      intentional - `/tm-sync-template` treats any non-SHA value as an unknown
+      base and prompts for a conservative merge until you stamp it here.)
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so the template stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and

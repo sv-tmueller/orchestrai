@@ -22,9 +22,9 @@ repeat them; it adds only what is specific to this project.
 Read these before proposing changes that touch their area:
 
 - `docs/architecture/` - stack and policy decisions, the data model, the domain
-  math. Locked unless explicitly revisited.
+  math. Locked unless explicitly revisited. (see NEW-PROJECT-SETUP)
 - `docs/operations/` - how to run, deploy, and operate the system: environments,
-  CI/CD, runbooks, secrets policy.
+  CI/CD, runbooks, secrets policy. (see NEW-PROJECT-SETUP)
 - `docs/plans/` - implementation plans, one per task as `<issue-number>-<slug>.md`.
 - `docs/superpowers/specs/` - approved designs from brainstorming, as
   `YYYY-MM-DD-<topic>-design.md`.
@@ -86,11 +86,7 @@ later (see "How to pick up a task").
 
 ### Code style
 
-Project-specific rules go here. Examples to adapt or delete:
-
-- Strict typing; no escape hatches without a `// reason:` comment.
-- Money, units, and identifiers use their dedicated types, never raw primitives.
-- No hard-coded user-facing strings; use the i18n layer.
+Add project-specific style rules here and remove this line before the first implementation session.
 
 ### Writing style (commits, PRs, docs, comments)
 
@@ -170,7 +166,7 @@ A strong orchestrator with efficient workers. The lever is where each model
 runs, not raw effort everywhere.
 
 - Orchestrator (the lead session, including `/tm-kickoff`): Opus 4.8 at max
-  effort. Opus does not over-spawn under ultracode the way Fable 5 does, and it
+  effort. Opus does not over-spawn under ultracode the way Fable 5 (`claude-fable-5`) does, and it
   weighs less against Max-plan quota. Keep the lead here.
 - `ultracode`: use it as a per-prompt keyword, never as a session-wide effort
   setting. Session-wide turns every task into a workflow and chains several per
@@ -224,6 +220,8 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-sync-template, /tm-to-issues
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase)
   settings.json      project settings; enables the superpowers plugin
+                       enabledPlugins is template-managed (synced by /tm-sync-template);
+                       permissions, hooks, env, and defaultMode are project-owned
 docs/
   architecture/      stack and policy decisions, data model, domain math (see NEW-PROJECT-SETUP)
   operations/        run/deploy/operate: environments, CI/CD, runbooks (see NEW-PROJECT-SETUP)
@@ -271,7 +269,7 @@ not rediscover them.
   (sv-tmueller/claude-template) first, then `/tm-sync-template` it back here;
   local-only edits are overwritten by the next sync.
 - Don't introduce a new dependency without saying why in the PR body.
-- (Add project-specific traps here: the mistakes that quietly break this codebase.)
+<!-- Add project-specific traps here: the mistakes that quietly break this codebase. -->
 
 ## When in doubt
 
