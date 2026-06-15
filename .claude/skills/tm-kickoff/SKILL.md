@@ -106,10 +106,40 @@ Routing rules:
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 
+## Worktree cleanup (deterministic)
+
+The `developer` and `tester` run with Agent `isolation: worktree`. The harness
+registers an isolated worktree under `.claude/worktrees/` per dispatch and may
+leave it behind when the agent returns; the agents publish to origin, so their
+work is safe there regardless. The `developer` no longer creates a local branch
+or moves a shared HEAD (it works detached and pushes a refspec, per
+`developer.md`), which removes the branch-ref and shared-HEAD leak at the
+source. The residue the harness can still leave is the registered worktree, so
+the lead sweeps it.
+
+At wave end, with no agents in flight, run from the lead's main checkout:
+
+```
+git worktree prune                 # safe anytime; drops entries for gone worktrees
+git worktree list                  # expect only the main repo
+git status --short --branch        # expect the default branch, clean tree
+```
+
+Remove anything still registered under `.claude/worktrees/`
+(`git worktree remove --force <path>`). If the lead's HEAD was moved off the
+default branch, return to it (`git switch <default>`). Delete a stray local
+package branch only when its work is safe on origin (`git ls-remote --exit-code
+origin <branch>` succeeds), then `git branch -D <branch>`; never delete a branch
+whose commits are not on origin. Do not run `remove` or `branch -D` mid-wave:
+they must not touch a worktree another concurrent package is still using.
+
 ## 4. Wave end
 
 Definition of done per package: last tester verdict is PASS, reviewer
 APPROVE, PR ready with `Closes #N`, summary comment posted.
+
+Before reporting, run the worktree cleanup above (no agents in flight) so the
+lead's checkout is left on the default branch with a clean tree.
 
 Report to the user: PRs ready for review, packages parked (`needs-human`,
 with their open questions), and issues deferred to later waves or stopped at
