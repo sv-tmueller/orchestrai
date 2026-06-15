@@ -253,7 +253,7 @@ not rediscover them.
 # dev / run
 # typecheck
 # lint
-# test            (run before commit)
+npm test          # unit tests (node:vm, zero deps); run before commit
 # e2e             (run before pushing full-stack changes)
 # gh issue create
 # gh pr create --draft
