@@ -26,9 +26,16 @@ ready-made agent team for Claude Code.
 - `.claude/skills/tm-to-issues/` - `/tm-to-issues`: turns an approved plan into
   sized, dependency-ordered issues ready for `/tm-kickoff` (adapted from
   mattpocock/skills, MIT).
-- `.claude/skills/tm-sync-template/` - `/tm-sync-template`: pulls later template
-  versions into a repo created from this one (machinery copied, prose merged
-  by judgment, labels ensured) and opens a PR.
+- `.claude/skills/tm-install-team/` - `/tm-install-team`: installs or updates the
+  team into one or more user config dirs (`/tm-install-team ~/.claude-personal
+  ~/.claude-work`), so it is available in every repo under that config without
+  being committed anywhere. Copies the operational skills, agents, and
+  workflows, and checks superpowers is enabled. The user-scope path for repos
+  you do not want to carry the team (an org repo).
+- `.claude/skills/tm-sync-template/` - `/tm-sync-template`: for repos that keep
+  the team committed, pulls later template versions into a repo created from
+  this one (machinery copied, prose merged by judgment, labels ensured) and
+  opens a PR. Run it inside such a repo; it is not installed user-scope.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
@@ -57,29 +64,32 @@ gh repo create <new-repo> --template sv-tmueller/claude-template --private --clo
 
 Copying only `CLAUDE.md` works but does not carry the agents and skills.
 
-## Updating existing repos
+## Getting the team into your repos
 
-Repos created from a template share no git history with it, so updates flow
-through `/tm-sync-template` instead of `git merge`. In a repo that already
-carries the skill, run `/tm-sync-template` and review the PR it opens. For
-older repos that predate the skill (or have no `.claude/` at all), install
-it once at user scope, which makes it available in every repo on the
-machine:
+Two ways, depending on whether the team should be committed to the repo.
+
+**User scope (recommended), nothing committed.** Install the team into your
+Claude Code config dir(s) once and it is available in every repo you open under
+that config, including repos you must not commit it to (an org's private repo).
+From a checkout of this template:
 
 ```bash
-git clone https://github.com/sv-tmueller/claude-template.git /tmp/ct
-mkdir -p ~/.claude/skills
-cp -r /tmp/ct/.claude/skills/tm-sync-template ~/.claude/skills/
+git pull                                          # get the latest first
+/tm-install-team ~/.claude-personal ~/.claude-work
 ```
 
-If you launch Claude Code through a `CLAUDE_CONFIG_DIR` alias (separate
-personal and work config dirs), each config dir has its own user-scope
-skills: copy into `$CLAUDE_CONFIG_DIR/skills/` instead, once per config dir
-you use.
+It copies the operational skills, agents, and workflows into each
+`<config-dir>/{skills,agents,workflows}/` and tells you if superpowers needs
+enabling there. Re-run after a `git pull` to update. A repo that carries its own
+committed team overrides the user-scope copy, so the two never clash.
 
-Then open the old repo in Claude Code and run `/tm-sync-template`. The first
-run has no version stamp, so it ports everything conservatively and stamps
-the repo; later runs apply only the template's delta.
+**Committed in the repo, version-pinned.** A repo created from this template
+carries the team in `.claude/`. Because such repos share no git history with the
+template, updates flow through `/tm-sync-template` (run it inside the repo: it
+copies machinery, merges prose, ensures labels, and opens a PR), not
+`git merge`. The first run has no version stamp, so it ports everything
+conservatively and stamps the repo; later runs apply only the delta. Use this
+only where you want the team versioned alongside that repo.
 
 ## License
 

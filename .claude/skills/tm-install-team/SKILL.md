@@ -37,7 +37,12 @@ For each confirmed target T, create `T/agents`, `T/skills`, `T/workflows` if
 they are missing (`mkdir -p`), then process these source items:
 
 - `.claude/agents/*.md`    -> `T/agents/<name>`     (files)
-- `.claude/skills/tm-*`    -> `T/skills/<name>`      (whole skill directories)
+- `.claude/skills/tm-*` EXCEPT `tm-sync-template` and `tm-install-team`
+  -> `T/skills/<name>` (whole skill directories: the operational skills
+  tm-advisor, tm-grill-me, tm-kickoff, tm-to-issues. The two excluded skills
+  maintain the template and are run only from a template checkout, so installing
+  them into a consuming config dir would be a footgun, running `/tm-sync-template`
+  in an org repo would sync the template into that repo and open a PR.)
 - `.claude/workflows/*.js` -> `T/workflows/<name>`   (files; skip the
   `.claude/workflows/__tests__/` directory)
 
