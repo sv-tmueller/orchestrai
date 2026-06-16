@@ -82,9 +82,9 @@ enabling there. Re-run after a `git pull` to update. A repo that carries its own
 committed team overrides the user-scope copy, so the two never clash.
 
 **Committed in the repo.** A repo created from this template carries the team
-in `.claude/`. To update it after a `git pull` on the template, re-run
-`/tm-install-team` targeting that repo's `.claude/` directory as if it were a
-config dir.
+in `.claude/`. To update it after a `git pull` on the template, copy the
+updated files manually from the template checkout into the repo's `.claude/`
+and open a PR.
 
 ## License
 

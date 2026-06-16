@@ -187,6 +187,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-install-team, /tm-kickoff, /tm-to-issues
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase)
   settings.json      project settings; enables the superpowers plugin
+                       enabledPlugins is template-managed;
                        permissions, hooks, env, and defaultMode are project-owned
 ```
 
