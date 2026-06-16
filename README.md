@@ -32,7 +32,7 @@ ready-made agent team for Claude Code.
   team into one or more user config dirs (`/tm-install-team ~/.claude-personal
   ~/.claude-work`), so it is available in every repo under that config without
   being committed anywhere. Copies the operational skills, agents, and
-  workflows, and checks superpowers is enabled. The user-scope path for repos
+  workflows, and `team-guide.md`, and checks superpowers is enabled. The user-scope path for repos
   you do not want to carry the team (an org repo).
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
@@ -60,7 +60,7 @@ gh repo create <new-repo> --template sv-tmueller/claude-template --private --clo
 # then work through NEW-PROJECT-SETUP.md
 ```
 
-Copying only `CLAUDE.md` works but does not carry the agents and skills.
+Copying only `CLAUDE.md` works but does not carry the agents and skills, and leaves its `@.claude/team-guide.md` import dangling.
 
 ## Getting the team into your repos
 
@@ -78,7 +78,12 @@ git pull                                          # get the latest first
 
 It copies the operational skills, agents, and workflows into each
 `<config-dir>/{skills,agents,workflows}/` and tells you if superpowers needs
-enabling there. Re-run after a `git pull` to update. A repo that carries its own
+enabling there. It also copies `team-guide.md` to `<config-dir>/team-guide.md`.
+For the guide to load, add a `@team-guide.md` line to `<config-dir>/CLAUDE.md`
+yourself; the install prints this and does not edit `CLAUDE.md`. Note that a
+config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking with
+it, so re-import the four global coding principles in the same file if you rely
+on them. Re-run after a `git pull` to update. A repo that carries its own
 committed team overrides the user-scope copy, so the two never clash.
 
 **Committed in the repo.** A repo created from this template carries the team
