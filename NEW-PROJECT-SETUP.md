@@ -9,9 +9,12 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] Create the repo (`gh repo create <name> --template sv-tmueller/claude-template --clone`).
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
-- [ ] Create the labels the workflow uses: the sizing set `size:S`, `size:M`,
-      `size:L`, `size:XL` (see team-guide.md "Sizing") plus `in-progress` and
-      `needs-human` (see team-guide.md "Agent team").
+- [ ] (Optional) Create the labels the workflow uses: the sizing set `size:S`,
+      `size:M`, `size:L`, `size:XL` (see team-guide.md "Sizing") plus
+      `in-progress` and `needs-human` (see team-guide.md "Agent team").
+      `/tm-kickoff` and `/tm-advisor` create these six automatically on first
+      run, so this step is only needed if you file sized issues (for example
+      via `/tm-to-issues`) before the first kickoff or advisor run.
 - [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
       `type:feat`, `type:fix`.
 
