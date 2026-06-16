@@ -19,6 +19,19 @@ numbers as the packages list before proceeding.
 
 ## 1. Gate
 
+Ensure the canonical label set exists on this repo before any dispatch:
+
+```
+gh label create "size:S"       --color "c2e0c6" --description "Under 1 hour. One focused change." --force
+gh label create "size:M"       --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
+gh label create "size:L"       --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
+gh label create "size:XL"      --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
+gh label create "in-progress"  --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
+gh label create "needs-human"  --color "B60205" --description "Agent loop exhausted or blocked; human decision needed." --force
+```
+
+`--force` upserts: it creates each label when absent and sets identical values when present, so a second run (including the advisor→kickoff double-run in a batch) is a true no-op and exits 0.
+
 For each issue, `gh issue view <n> --comments`, and
 `gh pr list --state open --search "Closes #<n>"` to find an existing PR.
 
