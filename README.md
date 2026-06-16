@@ -4,9 +4,11 @@ A starting point for new projects: a `CLAUDE.md`, a bootstrap checklist, and a
 ready-made agent team for Claude Code.
 
 - `CLAUDE.md` - standing guidance for Claude Code sessions: what the repo is,
-  where decisions live, the issue -> branch -> PR -> main workflow, sub-plan
-  checkpoints, TDD and e2e, writing style, workflow defaults, and the agent
-  team.
+  where decisions live, code style, useful commands.
+- `.claude/team-guide.md` - generic team process guidance (agent team, advisor
+  model, model policy, sizing, the issues/branches/commits conventions,
+  how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md and
+  installed user-global by `/tm-install-team`.
 - `NEW-PROJECT-SETUP.md` - the once-per-repo checklist: branch protection,
   docs structure, CI/CD and e2e wiring, labels, and filling in the `CLAUDE.md`
   placeholders.
@@ -32,10 +34,6 @@ ready-made agent team for Claude Code.
   being committed anywhere. Copies the operational skills, agents, and
   workflows, and checks superpowers is enabled. The user-scope path for repos
   you do not want to carry the team (an org repo).
-- `.claude/skills/tm-sync-template/` - `/tm-sync-template`: for repos that keep
-  the team committed, pulls later template versions into a repo created from
-  this one (machinery copied, prose merged by judgment, labels ensured) and
-  opens a PR. Run it inside such a repo; it is not installed user-scope.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
@@ -83,13 +81,10 @@ It copies the operational skills, agents, and workflows into each
 enabling there. Re-run after a `git pull` to update. A repo that carries its own
 committed team overrides the user-scope copy, so the two never clash.
 
-**Committed in the repo, version-pinned.** A repo created from this template
-carries the team in `.claude/`. Because such repos share no git history with the
-template, updates flow through `/tm-sync-template` (run it inside the repo: it
-copies machinery, merges prose, ensures labels, and opens a PR), not
-`git merge`. The first run has no version stamp, so it ports everything
-conservatively and stamps the repo; later runs apply only the delta. Use this
-only where you want the team versioned alongside that repo.
+**Committed in the repo.** A repo created from this template carries the team
+in `.claude/`. To update it after a `git pull` on the template, re-run
+`/tm-install-team` targeting that repo's `.claude/` directory as if it were a
+config dir.
 
 ## License
 

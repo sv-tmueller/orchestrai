@@ -24,15 +24,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, tm-to-issues, and tm-sync-template.
-- [ ] Stamp the template version, so `/tm-sync-template` can apply future
-      template updates incrementally:
-      ```
-      gh api repos/sv-tmueller/claude-template/commits/main --jq .sha > .claude/template-version
-      ```
-      Commit the file. (The file ships as `unknown` in the template; that is
-      intentional - `/tm-sync-template` treats any non-SHA value as an unknown
-      base and prompts for a conservative merge until you stamp it here.)
+      tm-kickoff, tm-grill-me, tm-to-issues, and tm-install-team.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so the template stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and
@@ -76,8 +68,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 
 - [ ] Fill "What this repo is" (what, who, status).
 - [ ] Fill "Useful commands" with the real install/dev/test/lint/e2e commands.
-- [ ] Tailor "Code style" and "What not to do" to this project; delete the rest.
-- [ ] Confirm "Workflow defaults" still match how you want to work here.
+- [ ] Tailor "Code style" to this project; delete the placeholder line.
 
 ## 6. First slice of work
 

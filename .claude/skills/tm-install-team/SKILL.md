@@ -17,14 +17,15 @@ clone.
 
 Targets: $ARGUMENTS (one or more config dirs, for example
 `~/.claude-personal ~/.claude-work`). If empty, default to the active
-`$CLAUDE_CONFIG_DIR`. Treat each target independently: run sections 1-5 once per
+`$CLAUDE_CONFIG_DIR`. Treat each target independently: run sections 1-6 once per
 target.
 
 ## 1. Guard: confirm source and targets
 
 - Confirm the source. This repo must carry the team: check that
-  `.claude/agents/`, `.claude/skills/`, and `.claude/workflows/` all exist
-  here. If not, stop; you are not in the template checkout.
+  `.claude/agents/`, `.claude/skills/`, `.claude/workflows/`, and
+  `.claude/team-guide.md` all exist here. If not, stop; you are not in the
+  template checkout.
 - Resolve each target to an absolute path (expand a leading `~`). For each,
   print the resolved path and the list of items that will be written, then ask
   the user to confirm before any write. Never write to a target the user has
@@ -37,14 +38,14 @@ For each confirmed target T, create `T/agents`, `T/skills`, `T/workflows` if
 they are missing (`mkdir -p`), then process these source items:
 
 - `.claude/agents/*.md`    -> `T/agents/<name>`     (files)
-- `.claude/skills/tm-*` EXCEPT `tm-sync-template` and `tm-install-team`
+- `.claude/skills/tm-*` EXCEPT `tm-install-team`
   -> `T/skills/<name>` (whole skill directories: the operational skills
-  tm-advisor, tm-grill-me, tm-kickoff, tm-to-issues. The two excluded skills
-  maintain the template and are run only from a template checkout, so installing
-  them into a consuming config dir would be a footgun, running `/tm-sync-template`
-  in an org repo would sync the template into that repo and open a PR.)
+  tm-advisor, tm-grill-me, tm-kickoff, tm-to-issues. The excluded skill
+  maintains the template and is run only from a template checkout, so installing
+  it into a consuming config dir would be a footgun.)
 - `.claude/workflows/*.js` -> `T/workflows/<name>`   (files; skip the
   `.claude/workflows/__tests__/` directory)
+- `.claude/team-guide.md`  -> `T/team-guide.md`      (file)
 
 Decide per item by comparing source SRC to destination DST:
 
@@ -64,7 +65,28 @@ for the report. Then write the template HEAD SHA to `T/.tm-team-version`:
 
     git rev-parse HEAD > T/.tm-team-version
 
-## 4. Check superpowers (detect and instruct, do not mutate)
+## 4. Print team-guide import instruction (detect and instruct, do not mutate)
+
+`team-guide.md` lands at `T/team-guide.md`. For the guidance to load in every
+session under T, the user must add one import line to `T/CLAUDE.md`. Check
+whether `T/CLAUDE.md` already contains `@team-guide.md`. If it does not, print
+the following instruction (and note it is required for the team guide to load):
+
+    Add this line to T/CLAUDE.md so the team guide loads in every session under
+    this config dir:
+
+        @team-guide.md
+
+    Do not let install-team edit CLAUDE.md itself.
+
+Replace `T` in the printed instruction with the resolved path. Do not edit
+`T/CLAUDE.md` yourself.
+
+Note: if the user has an existing user-global `tm-sync-template` skill at
+`T/skills/tm-sync-template`, it can be removed: the skill is deprecated and no
+longer installed. Run `rm -rf T/skills/tm-sync-template` once.
+
+## 5. Check superpowers (detect and instruct, do not mutate)
 
 The team's `developer` and `tester` agents declare `skills: superpowers:...`
 in frontmatter and `tm-advisor` uses superpowers brainstorming, so the team
@@ -79,12 +101,13 @@ for the team to work fully:
 
 Do not edit `settings.json` and do not run `/plugin` yourself.
 
-## 5. Report
+## 6. Report
 
-For each target, report: the resolved path; files copied; files skipped as
-identical; conflicts, and for each whether it was overwritten or left; the
-version stamp as `old -> new` (or `none -> new` on first install); and whether
-superpowers needs enabling. End with one line: re-run
+For each target, report: the resolved path; files copied (including
+`team-guide.md`); files skipped as identical; conflicts, and for each whether
+it was overwritten or left; whether the team-guide import instruction was
+printed; the version stamp as `old -> new` (or `none -> new` on first install);
+and whether superpowers needs enabling. End with one line: re-run
 `/tm-install-team <targets>` after `git pull` to update.
 
 This skill never writes to any repo working tree. Removing a now-redundant

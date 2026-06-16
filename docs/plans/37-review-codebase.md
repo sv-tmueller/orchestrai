@@ -43,7 +43,7 @@ The authoritative test is a live run, the same gate `tm-review-changes` and the 
 - Create: `.claude/workflows/tm-review-codebase.js` - the workflow. One file, one responsibility, sibling to `tm-review-changes.js`. Around 150 lines.
 - Modify: `CLAUDE.md` - two one-line touch-ups (model-policy worked example, repo-layout workflow list).
 - ~~Modify: `.gitignore` - ignore generated `reviews/` output.~~ (Reversed by Amendment 2026-06-14: reports are tracked documentation committed to `docs/reviews/`.)
-- No change needed: `.claude/skills/tm-sync-template/SKILL.md` already copies `.claude/workflows/`, so the new workflow propagates to downstream repos automatically.
+- No change needed to propagation: `.claude/workflows/` is included in the copy set for `/tm-install-team`, so the new workflow reaches consumers on the next install.
 
 ## Conventions to match (from tm-review-changes.js)
 
@@ -171,10 +171,9 @@ to:
   > not build output. They are written to `docs/reviews/` and committed so the
   > audit history stays in the record. Do NOT add `/reviews/` to `.gitignore`.
 
-- [ ] **Step 4: Confirm sync-template needs no change**
+- [ ] **Step 4: Confirm propagation via tm-install-team**
 
-Run: `grep -n "workflows" .claude/skills/tm-sync-template/SKILL.md`
-Expected: the machinery copy list already includes `.claude/workflows/`. No edit needed; the new workflow propagates on the next `/tm-sync-template`.
+The `.claude/workflows/` directory is included in `tm-install-team`'s copy set. No additional change needed; the new workflow reaches consumers on the next `/tm-install-team` run.
 
 - [ ] **Step 5: Commit the docs**
 

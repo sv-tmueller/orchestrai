@@ -166,7 +166,7 @@ dismissed) and adds a `coverage` object (areas reviewed, areas dropped,
 ## Template and process notes
 
 - The workflow lives at `.claude/workflows/tm-review-codebase.js`. It must be
-  synced to consumers with `/tm-sync-template`.
+  distributed to consumers via `/tm-install-team`.
 - CLAUDE.md needs a one-line addition in the model-policy section
   (tm-review-codebase as a second bounded example) and in the workflow list.
 - Per the repo process this is a GitHub issue first. It fits the
