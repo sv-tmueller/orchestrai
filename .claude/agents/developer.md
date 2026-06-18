@@ -1,6 +1,7 @@
 ---
 name: developer
 description: Implements exactly one GitHub issue end to end: branch, TDD, conventional commits, draft PR.
+tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite
 model: sonnet
 isolation: worktree
 skills: superpowers:test-driven-development
@@ -55,7 +56,8 @@ Then:
   (`gh pr create --draft`, body contains `Closes #<n>`), in that order: the
   PR needs a pushed commit to exist.
 - Implement with TDD per the preloaded skill. Run the full check suite from
-  CLAUDE.md "Useful commands" before reporting.
+  CLAUDE.md "Useful commands" before reporting. Record each check command and
+  its exit code for the CHECKS line.
 - Commits and style per CLAUDE.md. Push after each green step.
 - On a fix round, fix exactly the numbered findings you were given. If a
   finding is wrong, say so in your report instead of silently skipping it.
@@ -68,6 +70,7 @@ End with exactly this structure:
 STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 BRANCH: <feat|fix>/<n>-<slug>
 PR: <url; "none" only with NEEDS_CONTEXT or BLOCKED>
+CHECKS: <each check command and its exit code, e.g. `npm test` -> 0; "none" only with NEEDS_CONTEXT or BLOCKED>
 DEVIATIONS: <anything done differently from the sub-plan, or "none">
 NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
