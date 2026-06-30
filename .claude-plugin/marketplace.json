@@ -1,0 +1,13 @@
+{
+  "name": "claude-template",
+  "owner": {
+    "name": "Thomas Mueller"
+  },
+  "plugins": [
+    {
+      "name": "quinnslab",
+      "source": "./",
+      "description": "Orchestrator team: 4 role agents, the tm- operational skills, and the review workflows."
+    }
+  ]
+}
