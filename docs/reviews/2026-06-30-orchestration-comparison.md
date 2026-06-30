@@ -6,16 +6,18 @@ Related: #122 (batch), #123 (package), #119 (the Model-policy clarification this
 
 Keep Sonnet-5-led sessions on the team/workflow machinery at max effort by
 default, the same default `.claude/team-guide.md` already sets for Opus-led
-sessions. The reason does not depend on anything we have not measured: the
-team pipeline pins judgment-heavy stages (architect, reviewer, and the
-critic stage in both `tm-review-*` workflows) to Opus regardless of which
-model leads the session. Ultracode-authored workflows do not pin per-stage
-models by default and run on the session model throughout. So a Sonnet-5-led team
+sessions. The structural part of this argument needs no live data: the team
+pipeline pins judgment-heavy stages (architect, reviewer, and the critic
+stage in both `tm-review-*` workflows) to Opus regardless of which model
+leads the session. Ultracode-authored workflows do not pin per-stage models
+by default and run on the session model throughout. So a Sonnet-5-led team
 pipeline run still gets Opus-quality review; a Sonnet-5-led ultracode run
-does not escalate at all. That gap holds whether or not Sonnet 5 turns out to
-over-spawn under ultracode, which is a separate, currently open question this
-report does not answer. The recommendation below is provisional and should be
-revisited once real data exists (see the appendix).
+does not escalate by default. That gap holds whether or not Sonnet 5 turns
+out to over-spawn under ultracode, which is a separate, currently open
+question this report does not answer. Given that open question, this is the
+conservative default under uncertainty, not a proven conclusion: the
+recommendation below is provisional and should be revisited once real data
+exists (see the appendix).
 
 ## What this compares
 
@@ -114,8 +116,11 @@ Two questions this report cannot answer from documentation or code alone:
   much it matters in practice (wall-clock time, total tokens, defects
   caught) depends on a task large enough to actually need multi-stage
   orchestration. The current backlog has no such task: the open-issue list
-  is empty, and every finding in `docs/reviews/2026-06-30-codebase-review.md`
-  is size:S. A live comparison run today would measure the case where the
+  is otherwise empty, and the findings in
+  `docs/reviews/2026-06-30-codebase-review.md` read as small, single-location
+  fixes (the one filed so far, #125, is size:S), not the kind of
+  multi-stage work that would exercise orchestration choices. A live
+  comparison run today would measure the case where the
   two modes barely differ, not the case the question is actually about.
 
 For reference, one real data point on the bounded side exists from today's
