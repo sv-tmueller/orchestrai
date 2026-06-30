@@ -218,3 +218,61 @@ recommendation above follows from a structural argument (judgment
 escalation) that holds independent of the open spawning-tendency question,
 but it is still a provisional default, not a finding, and should be revised
 once the appendix's methodology produces real data.
+
+## Addendum: a measured trial on the spawning-tendency question
+
+A later session the same day ran a live trial bearing directly on the first
+"genuinely unknown" question above. It does not follow the appendix's
+paired-worktree, issue-implementation methodology, so it is a different
+task shape from what the appendix recommends; it is offered as a real data
+point on spawning tendency, not as the paired comparison the appendix calls
+for.
+
+**What ran.** Both arms reviewed this repository, concurrently, from the
+same base commit:
+
+- **Arm A:** the production `tm-review-codebase` workflow, unchanged - Sonnet
+  area/architecture workers, one Opus critic, bounded to `areas + 3` agents
+  by construction.
+- **Arm B:** a hand-authored stand-in for an ultracode-style dynamic
+  workflow - every stage on the session model (Sonnet 5, no per-stage
+  pinning), a scout free to pick its own area count with no ceiling, each
+  area reviewed by five separate dimension-lens agents instead of one
+  integrated pass, and every finding put through 3-vote adversarial
+  verification. This mirrors the fan-out and verify patterns ultracode is
+  documented to compose by default, authored by the session rather than
+  produced by a live ultracode session deciding freely, which is the gap
+  between this trial and the appendix's proposed method.
+
+**What happened.** Arm A completed cleanly: 6 areas, 9 agents total
+(1 scout + 6 area workers + 1 architecture worker + 1 critic), verdict
+approve. Arm B reached 6 areas too (30 review agents) but generated 85 raw
+findings before its 3-vote verification stage (up to 255 agents) collapsed
+under repeated `"You've hit your org's monthly spend limit"` failures;
+synthesis and the planned judging pass both failed for the same reason and
+returned no report. Combined, the two arms used 297 agents and about 5.64M
+subagent tokens over roughly 51 minutes; Arm A accounted for 9 of those 297
+agents. Arm B alone, unfinished, consumed the rest and still produced
+nothing usable.
+
+**Reading this against the open questions above.** On spawning tendency:
+this is one data point that an unbounded, unpinned construction run on
+Sonnet 5 can over-spawn severely, the same failure mode `team-guide.md`
+already documents for Fable 5 under ultracode - though, per the caveat
+above, this measures the construction's behavior on Sonnet 5, not a live
+ultracode session's own free-form choice on Sonnet 5, which the appendix's
+methodology would still be needed to confirm directly. On the second
+question (whether this repo has a task large enough to make a live
+comparison informative): this trial used the same review-task category the
+"genuinely unknown" section assumed was too small to differentiate the two
+modes, and the two modes did not barely differ - one completed and one
+exhausted an organization-wide spend cap. That updates this report's
+assumption that a same-day, same-repo trial would necessarily be
+uninformative; it does not by itself validate the modes on the
+issue-implementation task shape the appendix recommends, which remains
+unrun.
+
+This is a single trial, the same caution the appendix already states for
+its own proposed method. It does not resolve the spawning-tendency
+question on its own, but it is evidence against assuming Sonnet 5 behaves
+like Opus here by default.

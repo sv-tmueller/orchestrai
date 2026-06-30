@@ -143,11 +143,17 @@ runs, not raw effort everywhere.
   `tm-review-*` workflows) to Opus regardless of which model leads, so a
   Sonnet-5-led run still gets Opus-quality review; a Sonnet-5-led ultracode
   run does not escalate by default, since ultracode workflows do not pin
-  per-stage models unless told to. Whether Sonnet 5 also over-spawns under
-  ultracode the way Fable 5 does is untested. This default is provisional,
-  pending real data: see
-  `docs/reviews/2026-06-30-orchestration-comparison.md` for the reasoning and
-  a methodology to validate it.
+  per-stage models unless told to. A same-day measured trial found that an
+  unbounded, unpinned dynamic workflow (the same shape ultracode authors by
+  default) run on Sonnet 5 against this repo's own review task attempted 287
+  agents against the bounded `tm-review-codebase` script's 9, exhausting the
+  org's monthly spend cap before it produced a usable result; see the
+  addendum in `docs/reviews/2026-06-30-orchestration-comparison.md`. That is
+  one trial on one task shape (a hand-authored stand-in for ultracode's
+  fan-out patterns, not a live ultracode session's own free-form choice), so
+  this default stays provisional pending the appendix's paired-worktree
+  methodology, but it weighs against assuming Sonnet 5 behaves like Opus
+  here.
 - `ultracode`: use it as a per-prompt keyword, not as a session-wide effort
   setting, and not as a substitute for the team machinery above. There is no
   `/ultracode` slash command: it is either a keyword you type in a prompt or
