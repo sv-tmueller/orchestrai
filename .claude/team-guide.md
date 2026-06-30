@@ -142,9 +142,10 @@ runs, not raw effort everywhere.
   judgment-heavy stages (architect, reviewer, and the critic stage in both
   `tm-review-*` workflows) to Opus regardless of which model leads, so a
   Sonnet-5-led run still gets Opus-quality review; a Sonnet-5-led ultracode
-  run does not escalate at all, since ultracode workflows carry no per-stage
-  pinning. Whether Sonnet 5 also over-spawns under ultracode the way Fable 5
-  does is untested. This default is provisional, pending real data: see
+  run does not escalate by default, since ultracode workflows do not pin
+  per-stage models unless told to. Whether Sonnet 5 also over-spawns under
+  ultracode the way Fable 5 does is untested. This default is provisional,
+  pending real data: see
   `docs/reviews/2026-06-30-orchestration-comparison.md` for the reasoning and
   a methodology to validate it.
 - `ultracode`: use it as a per-prompt keyword, not as a session-wide effort

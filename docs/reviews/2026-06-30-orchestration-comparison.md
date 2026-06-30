@@ -9,8 +9,8 @@ default, the same default `.claude/team-guide.md` already sets for Opus-led
 sessions. The reason does not depend on anything we have not measured: the
 team pipeline pins judgment-heavy stages (architect, reviewer, and the
 critic stage in both `tm-review-*` workflows) to Opus regardless of which
-model leads the session. Ultracode-authored workflows carry no per-stage
-pinning and default to the session model throughout. So a Sonnet-5-led team
+model leads the session. Ultracode-authored workflows do not pin per-stage
+models by default and run on the session model throughout. So a Sonnet-5-led team
 pipeline run still gets Opus-quality review; a Sonnet-5-led ultracode run
 does not escalate at all. That gap holds whether or not Sonnet 5 turns out to
 over-spawn under ultracode, which is a separate, currently open question this
@@ -60,13 +60,19 @@ model happens to be leading:
 None of this depends on the lead's model. A Sonnet-5-led `/tm-kickoff` run is
 bounded by the same construction as an Opus-led one.
 
-Ultracode has the opposite property, also by construction, not by
-observation. Per `.claude/team-guide.md`'s Model-policy section: as a session
-setting, ultracode "has Claude plan a dynamic workflow for every substantial
-task, chaining several per request," and "the workflows it invents have no
-per-stage model pinning, so their stages run on the session model." There is
-no script-level cap on how many workflows chain, and no pin forcing any stage
-to a stronger model than the one leading.
+Ultracode's non-pinning is a default, not a constraint the mechanism
+enforces. The Workflow runtime supports per-stage model overrides (an
+`agent()` call accepts a `model` option, the same mechanism
+`tm-review-changes.js` and `tm-review-codebase.js` use to pin their own
+stages); an ultracode-authored workflow could set it. Per
+`.claude/team-guide.md`'s Model-policy section, it simply does not by
+default: as a session setting, ultracode "has Claude plan a dynamic workflow
+for every substantial task, chaining several per request," and "the
+workflows it invents have no per-stage model pinning, so their stages run on
+the session model." There is also no script-level cap on how many workflows
+chain. Both are observed default-authoring tendencies, the same epistemic
+category as the Sonnet-5 spawning question below, not structural guarantees
+the way the team pipeline's pinning is.
 
 ## What is new here: the judgment-escalation asymmetry
 
@@ -85,6 +91,14 @@ ultracode over the team pipeline on a Sonnet-5-led session therefore gives up
 the Opus-quality review the team pipeline provides for free. That cost did
 not exist in the Opus-led case and is not mentioned in the current
 Model-policy section.
+
+This is a property of how the two modes are wired today, not an inherent
+limit of either approach. Nothing stops an ultracode-authored workflow from
+pinning a stage to Opus, or a lead session from running on Opus while still
+using ultracode; the mechanism allows both. The asymmetry holds for the
+specific comparison this report scopes: Sonnet 5 leading, ultracode authoring
+with its observed default of not pinning, against the team pipeline as
+committed.
 
 ## What is genuinely unknown
 
