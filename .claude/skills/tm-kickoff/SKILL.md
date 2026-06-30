@@ -33,7 +33,8 @@ gh label create "needs-human"  --color "B60205" --description "Agent loop exhaus
 `--force` upserts: it creates each label when absent and sets identical values when present, so a second run (including the advisor→kickoff double-run in a batch) is a true no-op and exits 0.
 
 For each issue, `gh issue view <n> --comments`, and
-`gh pr list --state open --search "Closes #<n>"` to find an existing PR.
+`gh pr list --state open --limit 100 --json number,isDraft,closingIssuesReferences --jq '.[] | select(.closingIssuesReferences[]?.number == <n>)'`
+to find an existing PR.
 
 - Closed issues and issues labeled `needs-human` are skipped and listed in
   the report; resuming a `needs-human` package is the user's call.
