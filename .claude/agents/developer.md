@@ -1,6 +1,6 @@
 ---
 name: developer
-description: Implements exactly one GitHub issue end to end: branch, TDD, conventional commits, draft PR.
+description: Implements exactly one GitHub issue end to end (branch, TDD, conventional commits, draft PR).
 tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite
 model: sonnet
 isolation: worktree

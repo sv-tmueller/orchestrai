@@ -43,6 +43,10 @@ ready-made agent team for Claude Code.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
+- `.claude-plugin/marketplace.json` - the marketplace catalog, pointing the
+  `sv-tmueller` plugin at the `.claude/` root. The plugin manifest itself lives
+  at `.claude/.claude-plugin/plugin.json` (see "Getting the team into your
+  repos" below).
 
 Generalized from two project `CLAUDE.md` files (a Python advisory bot and a
 TypeScript web app), keeping the shared backbone and dropping the project
@@ -64,7 +68,7 @@ Copying only `CLAUDE.md` works but does not carry the agents and skills, and lea
 
 ## Getting the team into your repos
 
-Two ways, depending on whether the team should be committed to the repo.
+Three ways, depending on whether the team should be committed to the repo.
 
 **User scope (recommended), nothing committed.** Install the team into your
 Claude Code config dir(s) once and it is available in every repo you open under
@@ -90,6 +94,33 @@ committed team overrides the user-scope copy, so the two never clash.
 in `.claude/`. To update it after a `git pull` on the template, copy the
 updated files manually from the template checkout into the repo's `.claude/`
 and open a PR.
+
+**Plugin install, via the marketplace.** This repo is also a single-plugin
+marketplace (`.claude-plugin/marketplace.json`), so any machine with Claude
+Code can install the team without cloning or copying anything:
+
+```text
+/plugin marketplace add sv-tmueller/claude-template
+/plugin install sv-tmueller@claude-template
+```
+
+This installs the 4 agents and all 7 skills under the `sv-tmueller` namespace,
+for example `/sv-tmueller:tm-advisor` and `/sv-tmueller:tm-kickoff`. The two
+review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
+wrapper skills, since a plugin does not auto-register `workflows/`.
+`/sv-tmueller:tm-install-team` ships too (default-directory discovery does not
+exclude it) but is a no-op outside a checkout of this template: it has
+nothing to copy from.
+
+A plugin cannot install another plugin for you: the `developer` and `tester`
+agents and `tm-advisor` depend on obra's superpowers plugin, so enable it
+yourself first if it is not already, the same prerequisite `/tm-install-team`
+documents for the user-scope path above:
+
+```text
+/plugin marketplace add anthropics/claude-plugins-official
+/plugin install superpowers@claude-plugins-official
+```
 
 ## License
 
