@@ -1,6 +1,6 @@
 ---
 name: tm-review-codebase
-description: Token-bounded full-repo review, run as a workflow (Sonnet scout and area workers plus one Opus critic that writes a dated report). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-codebase workflow directly by name. User-invocable only.
+description: Token-bounded full-repo review, run as a workflow (Sonnet scout and area workers plus one Fable critic that writes a dated report). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-codebase workflow directly by name. User-invocable only.
 disable-model-invocation: true
 ---
 

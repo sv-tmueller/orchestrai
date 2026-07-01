@@ -1,6 +1,6 @@
 ---
 name: tm-review-changes
-description: Token-bounded code review of the current diff, run as a workflow (fixed Sonnet reviewers plus one Opus critic). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-changes workflow directly by name. User-invocable only.
+description: Token-bounded code review of the current diff, run as a workflow (fixed Sonnet reviewers plus one Fable critic). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-changes workflow directly by name. User-invocable only.
 disable-model-invocation: true
 argument-hint: "[base ref, default origin/main]"
 ---

@@ -1,11 +1,11 @@
 export const meta = {
   name: 'tm-review-codebase',
   description:
-    'Token-bounded full-repo review: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker reviews each area plus one Sonnet architecture worker audits repo-wide structure, and one Opus critic verifies, writes a dated report, and consolidates. Models are pinned per stage in-script, so it never inherits an expensive session model, and the agent count scales with repo size only up to a hard ceiling.',
+    'Token-bounded full-repo review: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker reviews each area plus one Sonnet architecture worker audits repo-wide structure, and one Fable critic verifies, writes a dated report, and consolidates. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling.',
   phases: [
     { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', model: 'sonnet' },
     { title: 'Review', detail: 'one Sonnet worker per area plus one architecture worker', model: 'sonnet' },
-    { title: 'Consolidate', detail: 'one Opus critic verifies, writes the report, consolidates', model: 'opus' },
+    { title: 'Consolidate', detail: 'one Fable critic verifies, writes the report, consolidates', model: 'fable' },
   ],
 }
 
@@ -14,8 +14,9 @@ export const meta = {
 // 1 architecture worker) + 1 critic = N + 3 agents, with N <= MAX_AREAS. The
 // count scales with repo size but never exceeds MAX_AREAS + 3, no matter how
 // large the repo is or how many areas the scout proposes. There is no per-file
-// fan-out and no loop. Models are pinned per stage, so a high-cost session model
-// never leaks into the scout or the workers.
+// fan-out and no loop. Models are pinned per stage, so the session model never
+// leaks into the scout or the workers; the single critic runs Fable 5 at max
+// effort (flip its pin to 'opus' under the Opus 4.8 fallback, see team-guide).
 //
 // When the repo is too big for MAX_AREAS areas to cover, the leftover paths are
 // reported (coverage.ceilingReached, coverage.areasDropped, and a suggested next
@@ -239,7 +240,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await agent(
   `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'opus', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'max', schema: REPORT_SCHEMA }
 )
 
 return report

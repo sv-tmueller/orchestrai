@@ -1,18 +1,19 @@
 export const meta = {
   name: 'tm-review-changes',
   description:
-    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits an expensive session model or fans out unboundedly.',
+    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Fable critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
   phases: [
     { title: 'Review', detail: 'one Sonnet worker per dimension', model: 'sonnet' },
-    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', model: 'opus' },
+    { title: 'Consolidate', detail: 'one Fable critic verifies and merges findings', model: 'fable' },
   ],
 }
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is exactly DIMENSIONS.length Sonnet workers plus
-// one Opus critic. It cannot become the 100-agent fan-out that an unpinned
-// session-model review produces. Models are pinned per stage, so a Fable 5 or Opus
-// session never leaks into the workers.
+// one Fable critic. It cannot become the 100-agent fan-out that an unpinned
+// session-model review produces. Models are pinned per stage, so the session
+// model never leaks into the workers; the single critic runs Fable 5 at max
+// effort (flip its pin to 'opus' under the Opus 4.8 fallback, see team-guide).
 //
 // Invoke with an optional base ref:
 //   Workflow({ name: 'tm-review-changes', args: { base: 'origin/main' } })
@@ -126,7 +127,7 @@ const coverageNote = dropped.length
 phase('Consolidate')
 const report = await agent(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'opus', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'max', schema: REPORT_SCHEMA }
 )
 
 return report

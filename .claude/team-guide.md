@@ -80,7 +80,7 @@ Standing preferences for this project:
 
 ## Agent team
 
-The template ships four role agents in `.claude/agents/` and a set of skills.
+The template ships five role agents in `.claude/agents/` and a set of skills.
 The lead is the main session: subagents cannot call each other, so the
 session running `/tm-kickoff` routes every handoff, and GitHub (sub-plan and
 verdict comments, draft PRs, labels) holds the state that makes a dropped
@@ -91,6 +91,12 @@ pipeline lives in `docs/team-architecture.md`.
 - `developer` - one issue end to end in an isolated worktree.
 - `tester` - independent verification on the branch, read-only.
 - `reviewer` - spec pass then quality pass, read-only.
+- `fact-checker` - audits the claims in a report or PR description against
+  reproducible evidence, read-only. Per-claim verdicts: VERIFIED with the
+  command that proves it, CONTRADICTED, UNVERIFIED, or LABELED (the author
+  marked it as an assumption). Dispatch it when a report's claims matter but
+  carry no evidence; a CONTRADICTED claim is never dropped, it goes back to
+  the agent that made it.
 
 Refine and size issues in discussion first (`/tm-grill-me` stress-tests the
 plan, `/tm-to-issues` turns it into sized issues); mark dependencies with a
@@ -130,62 +136,67 @@ session-wide:
 
 ## Model policy
 
-A strong orchestrator with efficient workers. The lever is where each model
-runs, not raw effort everywhere.
+The strongest model in every plan/decision seat, efficient workers everywhere
+else. The lever is where each model runs, not raw effort everywhere.
 
-- Orchestrator (the lead session, including `/tm-kickoff`): Opus 4.8 at max
-  effort. Opus does not over-spawn under ultracode the way Fable 5 (`claude-fable-5`) does, and it
-  weighs less against Max-plan quota. Keep the lead here.
-- Sonnet 5 as orchestrator (provisional): if the lead session runs Sonnet 5
-  instead of Opus 4.8, keep it on the team and workflow machinery at max
-  effort by default too, not session-wide ultracode. The team pipeline pins
-  judgment-heavy stages (architect, reviewer, and the critic stage in both
-  `tm-review-*` workflows) to Opus regardless of which model leads, so a
-  Sonnet-5-led run still gets Opus-quality review; a Sonnet-5-led ultracode
-  run does not escalate by default, since ultracode workflows do not pin
-  per-stage models unless told to. A same-day measured trial found that an
-  unbounded, unpinned dynamic workflow (the same shape ultracode authors by
-  default) run on Sonnet 5 against this repo's own review task attempted 287
-  agents against the bounded `tm-review-codebase` script's 9, exhausting the
-  org's monthly spend cap before it produced a usable result; see the
-  addendum in `docs/reviews/2026-06-30-orchestration-comparison.md`. That is
-  one trial on one task shape (a hand-authored stand-in for ultracode's
-  fan-out patterns, not a live ultracode session's own free-form choice), so
-  this default stays provisional pending the appendix's paired-worktree
-  methodology, but it weighs against assuming Sonnet 5 behaves like Opus
-  here.
-- `ultracode`: use it as a per-prompt keyword, not as a session-wide effort
-  setting, and not as a substitute for the team machinery above. There is no
+- Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
+  Fable 5 (`claude-fable-5`) at max effort. The lead routes every handoff,
+  refines batches, and makes the dispatch decisions, so it gets the strongest
+  model. This is affordable only because the lead stays on the bounded tm-
+  machinery: Fable's known failure mode is over-spawning under session-wide
+  ultracode, which this policy rules out (next bullet). Fable costs 2x Opus
+  4.8 per token and weighs correspondingly against Max-plan quota; the lead's
+  own token share is small next to the Sonnet-pinned workers, which keeps the
+  premium bounded.
+- Fallback: Opus 4.8 at max effort. Claude Code has no automatic model
+  fallback for the lead or for subagents; the fallback is a procedure. When
+  Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
+  workload, switch the lead with `/model claude-opus-4-8`, and for a longer
+  outage flip the `fable` pins to `opus` in the two agent frontmatters
+  (`architect`, `reviewer`) and the critic stage of both `tm-review-*`
+  workflows. Flip them back when Fable returns.
+- No session-wide `ultracode`, ever, under this policy. There is no
   `/ultracode` slash command: it is either a keyword you type in a prompt or
   the `ultracode` option in the `/effort` menu. As a session setting it sends
-  `xhigh` reasoning (one notch below `max` on Opus 4.8's `low < medium < high
-  < xhigh < max` ladder) and has Claude plan a dynamic workflow for every
-  substantive task, chaining several per request; as a keyword it scopes that
-  orchestration to the one task you type it on. The workflows it invents have
-  no per-stage model pinning, so their stages run on whichever model is
-  leading the session, not the Sonnet workers the `tm-review-*` scripts pin.
-  Session-wide `ultracode` is therefore unbounded and buys less reasoning
-  than `max` for more cost on Opus: keep `/effort` at `max`, and use the
-  keyword only for a one-off heavy task with no tm- script. (Source:
-  code.claude.com/docs/en/model-config.md, "Adjust effort level".)
-- Role agents (set in each agent's frontmatter `model:`): `developer` and
-  `tester` run `sonnet` (efficient implementation and verification);
-  `architect` and `reviewer` run `opus` (the judgment roles).
+  `xhigh` reasoning (one notch below `max`) and has Claude author a dynamic
+  workflow for every substantive task; those invented workflows carry no
+  per-stage model pinning, so every stage would run at Fable rates, and Fable
+  over-spawns under exactly this shape. The measured trial behind this rule
+  (287 agents attempted by an unbounded dynamic workflow against the bounded
+  `tm-review-codebase` script's 9, spend cap exhausted) is in
+  `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
+  `max` and use the tm- scripts; reach for the `ultracode` keyword only for a
+  one-off heavy task with no tm- script, and prefer dropping the lead to Opus
+  4.8 for that one prompt. (Source: code.claude.com/docs/en/model-config.md,
+  "Adjust effort level".)
+- Role agents (set in each agent's frontmatter `model:`): `architect` and
+  `reviewer` run `fable` (the plan/decision roles; `opus` is the documented
+  fallback); `developer`, `tester`, and `fact-checker` run `sonnet`, which
+  resolves to Sonnet 5 (code generation, verification, and claim auditing
+  are execution roles, not decision roles). The `fact-checker` stays on
+  Sonnet rather than Haiku because claim extraction is the step that fails
+  silently: a model that misses an unsupported claim defeats the role's
+  purpose, and the agent runs rarely enough that the cost difference does
+  not matter. Subagents inherit the session's effort, so a max-effort lead
+  gives the judgment agents max effort too.
 - Workflows: pin worker stages to a cheap model in the script and reserve the
   strong model for synthesis or critique. The `tm-review-changes` workflow in
   `.claude/workflows/` is the worked example: a fixed set of Sonnet reviewers
-  plus one Opus critic, bounded by construction so it cannot fan out into the
-  100-agent review that an unpinned session model produces.
-  `tm-review-codebase` applies the same discipline to a whole-repo audit: a Sonnet
-  scout splits the repo into N areas (sized to the repo, capped at a ceiling),
-  Sonnet workers review each area plus repo-wide structure, and one Opus critic
-  consolidates. The agent count is N + 3, so it scales with repo size up to the
-  ceiling and never fans out unboundedly.
+  plus one Fable critic pinned to max effort, bounded by construction so it
+  cannot fan out into the 100-agent review that an unpinned session model
+  produces. `tm-review-codebase` applies the same discipline to a whole-repo
+  audit: a Sonnet scout splits the repo into N areas (sized to the repo,
+  capped at a ceiling), Sonnet workers review each area plus repo-wide
+  structure, and one Fable critic consolidates. The agent count is N + 3, so
+  it scales with repo size up to the ceiling and never fans out unboundedly.
+  Because every stage is pinned, a cheaper-led session (for example Sonnet 5
+  as lead) still gets Fable-quality judgment, and a Fable-led session never
+  pays Fable rates for worker stages.
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It overrides both the per-call model
   and the frontmatter `model:`, flattening every subagent to one model and
   defeating the split above. Use it only as a temporary per-session seatbelt
   (for example `claude-sonnet-4-6` before one heavy ad-hoc run), knowing it
-  downgrades the reviewer too.
+  downgrades the architect and reviewer too.
 
 ## How to pick up a task
 
