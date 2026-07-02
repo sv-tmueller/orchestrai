@@ -88,8 +88,9 @@ placeholder text, leaving the rest of the file untouched:
   the project does, who uses it, and its current status (pre-implementation,
   MVP, in production). Write 2-3 sentences.
 - **"Useful commands"** (`Record the exact commands...` sentinel): ask for
-  the real install, dev, typecheck, lint, test, and e2e commands, and fill
-  the `bash` block with them.
+  the real install, dev, typecheck, lint, test, and e2e commands, delete the
+  caption line that carries the sentinel, and fill the `bash` block with
+  them.
 - **"Code style"** (`Add project-specific style rules here` sentinel): ask
   for any project-specific style rules, then delete the placeholder line
   whether or not the user has rules to add.
