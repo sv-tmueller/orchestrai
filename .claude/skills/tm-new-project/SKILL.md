@@ -1,6 +1,6 @@
 ---
 name: tm-new-project
-description: Run the once-per-repo new-project setup as a guided flow: create the workflow labels, the docs tree, and fill the CLAUDE.md placeholders by interview; print the human-only steps (branch protection, CI, design-plugin vetting); and retire NEW-PROJECT-SETUP.md once its checklist is done. User-invocable only.
+description: "Run the once-per-repo new-project setup as a guided flow: create the workflow labels, the docs tree, and fill the CLAUDE.md placeholders by interview; print the human-only steps (branch protection, CI, design-plugin vetting); and retire NEW-PROJECT-SETUP.md once its checklist is done. User-invocable only."
 disable-model-invocation: true
 ---
 
@@ -89,7 +89,7 @@ placeholder text, leaving the rest of the file untouched:
   MVP, in production). Write 2-3 sentences.
 - **"Useful commands"** (`Record the exact commands...` sentinel): ask for
   the real install, dev, typecheck, lint, test, and e2e commands, delete the
-  caption line that carries the sentinel, and fill the `bash` block with
+  caption sentence (both wrapped lines), and fill the `bash` block with
   them.
 - **"Code style"** (`Add project-specific style rules here` sentinel): ask
   for any project-specific style rules, then delete the placeholder line
