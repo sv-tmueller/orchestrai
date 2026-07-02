@@ -82,3 +82,10 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] For a single issue: post a short sub-plan on the issue, branch, open a
       draft PR (`Closes #N`), then expand it to a full plan in `docs/plans/`.
 - [ ] For a batch of refined issues: run `/tm-kickoff` (see team-guide.md "Agent team").
+
+## 7. Clean up
+
+- [ ] Remove all `(see NEW-PROJECT-SETUP)` pointers from `CLAUDE.md`, in
+      "Where decisions live" and "Repo layout".
+- [ ] Delete this file, `NEW-PROJECT-SETUP.md`, once every box above is
+      checked.

@@ -61,7 +61,7 @@ Use it as a GitHub template repo, or copy the whole tree including `.claude/`:
 
 ```bash
 gh repo create <new-repo> --template sv-tmueller/claude-template --private --clone
-# then work through NEW-PROJECT-SETUP.md
+# then work through NEW-PROJECT-SETUP.md; delete it once every box is checked
 ```
 
 Copying only `CLAUDE.md` works but does not carry the agents and skills, and leaves its `@.claude/team-guide.md` import dangling.
