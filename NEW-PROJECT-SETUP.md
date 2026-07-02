@@ -1,5 +1,8 @@
 # New-project setup
 
+Prefer a guided flow? Run `/tm-new-project` to automate what it can here and
+print exact commands for the rest.
+
 Run once when starting a new repo from this template. Create the repo from the
 GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 `CLAUDE.md` placeholders as you go.
@@ -27,7 +30,8 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, tm-to-issues, and tm-install-team.
+      tm-kickoff, tm-grill-me, tm-to-issues, tm-install-team, and
+      tm-new-project.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so the template stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and

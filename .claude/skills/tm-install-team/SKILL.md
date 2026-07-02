@@ -40,9 +40,9 @@ they are missing (`mkdir -p`), then process these source items:
 - `.claude/agents/*.md`    -> `T/agents/<name>`     (files)
 - `.claude/skills/tm-*` EXCEPT `tm-install-team`
   -> `T/skills/<name>` (whole skill directories: the operational skills
-  tm-advisor, tm-grill-me, tm-kickoff, tm-to-issues. The excluded skill
-  maintains the template and is run only from a template checkout, so installing
-  it into a consuming config dir would be a footgun.)
+  tm-advisor, tm-grill-me, tm-kickoff, tm-new-project, tm-to-issues. The
+  excluded skill maintains the template and is run only from a template
+  checkout, so installing it into a consuming config dir would be a footgun.)
 - `.claude/workflows/*.js` -> `T/workflows/<name>`   (files; skip the
   `.claude/workflows/__tests__/` directory)
 - `.claude/team-guide.md`  -> `T/team-guide.md`      (file)
