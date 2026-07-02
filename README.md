@@ -34,6 +34,12 @@ ready-made agent team for Claude Code.
   being committed anywhere. Copies the operational skills, agents,
   workflows, and `team-guide.md`, and checks superpowers is enabled. The user-scope path for repos
   you do not want to carry the team (an org repo).
+- `.claude/skills/tm-new-project/` - `/tm-new-project`: runs the
+  `NEW-PROJECT-SETUP.md` checklist as a guided flow. Creates the workflow
+  labels and docs tree, interviews the user to fill the `CLAUDE.md`
+  placeholders, prints the human-only steps (branch protection, CI,
+  design-plugin vetting), and retires `NEW-PROJECT-SETUP.md` once its
+  checklist is done.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
@@ -104,7 +110,7 @@ Code can install the team without cloning or copying anything:
 /plugin install sv-tmueller@claude-template
 ```
 
-This installs the 4 agents and all 7 skills under the `sv-tmueller` namespace,
+This installs the 4 agents and all 8 skills under the `sv-tmueller` namespace,
 for example `/sv-tmueller:tm-advisor` and `/sv-tmueller:tm-kickoff`. The two
 review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
 wrapper skills, since plugin `workflows/` is not an official component type.
