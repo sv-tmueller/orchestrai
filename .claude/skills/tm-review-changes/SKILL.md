@@ -9,8 +9,10 @@ Run the `tm-review-changes` workflow against the current diff. This skill
 exists only so the plugin install (`sv-tmueller@claude-template`) can reach the
 workflow: the committed-repo and `/tm-install-team` config-dir roots already
 expose it directly as `/tm-review-changes` because Claude Code auto-discovers
-`.claude/workflows/*.js`, and a plugin does not get that auto-discovery for
-`workflows/` (it is not an official plugin component type).
+`.claude/workflows/*.js`, and plugin `workflows/` is not an official component
+type; any direct registration is undocumented. Retire this wrapper if plugin
+`workflows/` becomes an officially documented component type (see the
+component table in code.claude.com/docs/en/plugins-reference.md).
 
 Input: $ARGUMENTS (an optional base ref, default `origin/main`).
 

@@ -107,7 +107,10 @@ Code can install the team without cloning or copying anything:
 This installs the 4 agents and all 7 skills under the `sv-tmueller` namespace,
 for example `/sv-tmueller:tm-advisor` and `/sv-tmueller:tm-kickoff`. The two
 review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
-wrapper skills, since a plugin does not auto-register `workflows/`.
+wrapper skills, since plugin `workflows/` is not an official component type.
+Current Claude Code builds may also register the two workflows directly under
+the plugin namespace, producing duplicate menu entries; this is undocumented
+behavior, and the wrapper skills remain the supported path.
 `/sv-tmueller:tm-install-team` ships too (default-directory discovery does not
 exclude it) but is a no-op outside a checkout of this template: it has
 nothing to copy from.
