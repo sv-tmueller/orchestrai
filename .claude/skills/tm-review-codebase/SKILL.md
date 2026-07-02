@@ -8,8 +8,10 @@ Run the `tm-review-codebase` workflow against the whole repo. This skill
 exists only so the plugin install (`sv-tmueller@claude-template`) can reach the
 workflow: the committed-repo and `/tm-install-team` config-dir roots already
 expose it directly as `/tm-review-codebase` because Claude Code auto-discovers
-`.claude/workflows/*.js`, and a plugin does not get that auto-discovery for
-`workflows/` (it is not an official plugin component type).
+`.claude/workflows/*.js`, and plugin `workflows/` is not an official component
+type; any direct registration is undocumented. Retire this wrapper if plugin
+`workflows/` becomes an officially documented component type (see the
+component table in code.claude.com/docs/en/plugins-reference.md).
 
 1. Check whether you are running from a plugin install: `echo "$CLAUDE_PLUGIN_ROOT"`.
 2. If `CLAUDE_PLUGIN_ROOT` is set (non-empty), invoke the Workflow tool with
