@@ -11,9 +11,10 @@ export const meta = {
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is exactly DIMENSIONS.length Sonnet workers plus
 // one Fable critic. It cannot become the 100-agent fan-out that an unpinned
-// session-model review produces. Models are pinned per stage, so the session
-// model never leaks into the workers; the single critic runs Fable 5 at max
-// effort (flip its pin to 'opus' under the Opus 4.8 fallback, see team-guide).
+// session-model review produces. Models and effort are pinned per
+// stage, so the session model and effort never leak into the workers; the
+// single critic runs Fable 5 at xhigh effort (flip its model pin to 'opus'
+// under the Opus 4.8 fallback, see team-guide).
 //
 // Invoke with an optional base ref:
 //   Workflow({ name: 'tm-review-changes', args: { base: 'origin/main' } })
@@ -108,7 +109,7 @@ const reviews = await parallel(
   DIMENSIONS.map((d) => () =>
     agent(
       `You review one dimension of a code change and report findings only; you never edit.\n\nDimension: ${d.brief}\n\n${diffHint}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.`,
-      { label: `review:${d.key}`, phase: 'Review', model: 'sonnet', schema: FINDINGS_SCHEMA }
+      { label: `review:${d.key}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: FINDINGS_SCHEMA }
     )
   )
 )
@@ -127,7 +128,7 @@ const coverageNote = dropped.length
 phase('Consolidate')
 const report = await agent(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'max', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
 )
 
 return report

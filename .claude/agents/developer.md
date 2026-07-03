@@ -3,6 +3,7 @@ name: developer
 description: Implements exactly one GitHub issue end to end (branch, TDD, conventional commits, draft PR).
 tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite
 model: sonnet
+effort: high
 isolation: worktree
 skills: superpowers:test-driven-development
 ---

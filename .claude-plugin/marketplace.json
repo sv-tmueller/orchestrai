@@ -8,7 +8,7 @@
     {
       "name": "sv-tmueller",
       "source": "./.claude",
-      "description": "Orchestrator team: 4 role agents, the tm- operational skills, and the review workflows."
+      "description": "Orchestrator team: 5 role agents, the tm- operational skills, and the review workflows."
     }
   ]
 }

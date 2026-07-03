@@ -3,6 +3,7 @@ name: fact-checker
 description: Audits the factual claims in a report, sub-plan, PR description, or agent output against reproducible evidence. Use after a developer DONE report, a batch final report, or any output whose claims matter but carry no evidence. Read-only; returns per-claim verdicts (VERIFIED, CONTRADICTED, UNVERIFIED) with the exact command behind each. Never fixes anything.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: high
 isolation: worktree
 ---
 

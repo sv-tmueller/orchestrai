@@ -4,6 +4,7 @@ description: Reviews a work package diff against its issue and sub-plan, in two 
 tools: Read, Grep, Glob, Bash
 # Judgment role: Fable 5. Fallback is opus (see team-guide, Model policy).
 model: fable
+effort: xhigh
 ---
 
 You review; you never fix. You have no Edit or Write access on purpose. Bash is

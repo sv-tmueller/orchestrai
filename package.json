@@ -1,1 +1,1 @@
-{"private":true,"scripts":{"test":"node --test .claude/workflows/__tests__/helpers.test.mjs"}}
+{"private":true,"scripts":{"test":"node --test \".claude/workflows/__tests__/*.test.mjs\""}}
