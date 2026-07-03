@@ -6,7 +6,7 @@ argument-hint: "[base ref, default origin/main]"
 ---
 
 Run the `tm-review-changes` workflow against the current diff. This skill
-exists only so the plugin install (`orchestrai@claude-template`) can reach the
+exists only so the plugin install (`orchestrai@orchestrai`) can reach the
 workflow: the committed-repo root already exposes it directly as
 `/tm-review-changes` because Claude Code auto-discovers
 `.claude/workflows/*.js`, and plugin `workflows/` is not an official component
