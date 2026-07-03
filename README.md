@@ -1,4 +1,4 @@
-# claude-template
+# OrchestrAI
 
 A starting point for new projects: a `CLAUDE.md`, a bootstrap checklist, and a
 ready-made agent team for Claude Code.
@@ -79,7 +79,7 @@ org's private repo):
 
 ```text
 /plugin marketplace add sv-tmueller/orchestrai
-/plugin install orchestrai@claude-template
+/plugin install orchestrai@orchestrai
 ```
 
 This installs the 5 agents and all 7 skills under the `orchestrai` namespace,
@@ -92,7 +92,7 @@ behavior, and the wrapper skills remain the supported path.
 
 A plugin cannot place `team-guide.md` where a config-dir `CLAUDE.md` can
 import it, so wire that import yourself: add
-`@plugins/marketplaces/claude-template/.claude/team-guide.md` to
+`@plugins/marketplaces/orchestrai/.claude/team-guide.md` to
 `<config-dir>/CLAUDE.md` (the path is relative to that file; the marketplace
 clone auto-updates, so the import always tracks the latest guide). Note that
 a config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking

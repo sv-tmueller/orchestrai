@@ -5,7 +5,7 @@ disable-model-invocation: true
 ---
 
 Run the `tm-review-codebase` workflow against the whole repo. This skill
-exists only so the plugin install (`orchestrai@claude-template`) can reach the
+exists only so the plugin install (`orchestrai@orchestrai`) can reach the
 workflow: the committed-repo root already exposes it directly as
 `/tm-review-codebase` because Claude Code auto-discovers
 `.claude/workflows/*.js`, and plugin `workflows/` is not an official component
