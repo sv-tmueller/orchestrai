@@ -156,6 +156,14 @@ else. The lever is where each model runs, not raw effort everywhere.
   outage flip the `fable` pins to `opus` in the two agent frontmatters
   (`architect`, `reviewer`) and the critic stage of both `tm-review-*`
   workflows. Flip them back when Fable returns.
+- Cost-based fallback trigger, separate from the availability fallback above:
+  if Fable 5 stops being included under the Max-plan subscription and shifts
+  to metered API billing, do not switch to Opus automatically. The
+  "affordable" reasoning above is weighed against Max-plan quota, not real
+  dollars, so it stops applying the moment billing changes. Measure the
+  lead's actual $/session cost at API rates first, then decide whether to
+  keep Fable or move the lead to Opus 4.8 permanently, and log the decision
+  and the measured cost here when made.
 - No session-wide `ultracode`, ever, under this policy. There is no
   `/ultracode` slash command: it is either a keyword you type in a prompt or
   the `ultracode` option in the `/effort` menu. As a session setting it sends
