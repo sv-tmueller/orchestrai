@@ -67,7 +67,8 @@ later (see "How to pick up a task").
 
 Standing preferences for this project:
 
-- Effort: maximum. Use deepest reasoning.
+- Effort: xhigh session default. It governs only the lead; every agent seat
+  pins its own effort (see Model policy).
 - Permission mode: Auto (acceptEdits) during development (user-controlled).
   <!-- Modes (set with /permissions or settings.json "defaultMode"): default = prompt on
        first use of each tool; acceptEdits = auto-accept edits, prompt other actions
@@ -140,7 +141,7 @@ The strongest model in every plan/decision seat, efficient workers everywhere
 else. The lever is where each model runs, not raw effort everywhere.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Fable 5 (`claude-fable-5`) at max effort. The lead routes every handoff,
+  Fable 5 (`claude-fable-5`) at xhigh effort. The lead routes every handoff,
   refines batches, and makes the dispatch decisions, so it gets the strongest
   model. This is affordable only because the lead stays on the bounded tm-
   machinery: Fable's known failure mode is over-spawning under session-wide
@@ -148,7 +149,7 @@ else. The lever is where each model runs, not raw effort everywhere.
   4.8 per token and weighs correspondingly against Max-plan quota; the lead's
   own token share is small next to the Sonnet-pinned workers, which keeps the
   premium bounded.
-- Fallback: Opus 4.8 at max effort. Claude Code has no automatic model
+- Fallback: Opus 4.8 at xhigh effort. Claude Code has no automatic model
   fallback for the lead or for subagents; the fallback is a procedure. When
   Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
   workload, switch the lead with `/model claude-opus-4-8`, and for a longer
@@ -165,7 +166,7 @@ else. The lever is where each model runs, not raw effort everywhere.
   (287 agents attempted by an unbounded dynamic workflow against the bounded
   `tm-review-codebase` script's 9, spend cap exhausted) is in
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
-  `max` and use the tm- scripts; reach for the `ultracode` keyword only for a
+  `xhigh` and use the tm- scripts; reach for the `ultracode` keyword only for a
   one-off heavy task with no tm- script, and prefer dropping the lead to Opus
   4.8 for that one prompt. (Source: code.claude.com/docs/en/model-config.md,
   "Adjust effort level".)
@@ -177,12 +178,20 @@ else. The lever is where each model runs, not raw effort everywhere.
   Sonnet rather than Haiku because claim extraction is the step that fails
   silently: a model that misses an unsupported claim defeats the role's
   purpose, and the agent runs rarely enough that the cost difference does
-  not matter. Subagents inherit the session's effort, so a max-effort lead
-  gives the judgment agents max effort too.
-- Workflows: pin worker stages to a cheap model in the script and reserve the
-  strong model for synthesis or critique. The `tm-review-changes` workflow in
-  `.claude/workflows/` is the worked example: a fixed set of Sonnet reviewers
-  plus one Fable critic pinned to max effort, bounded by construction so it
+  not matter. Each agent also pins its own effort in frontmatter (`sonnet`
+  seats `high`, `fable` seats `xhigh`), so seat effort never depends on the
+  session's `/effort` setting.
+- Effort ceiling: `xhigh`. Nothing runs at `max`. Evidence (DeepSWE v1.1
+  leaderboard, July 2026): Fable 5 at max scores the same as at high for
+  roughly 1.8x the cost, and Sonnet 5 at max is dominated by Fable 5 at every
+  plotted effort level. Effort inherits to any seat that does not pin it, so
+  the old session-wide max ran the Sonnet workers at the chart's worst value
+  point. The effort-policy test in `npm test` fails any agent or workflow
+  stage that omits its pin or reintroduces max.
+- Workflows: pin worker stages to a cheap model at `high` effort in the script
+  and reserve the strong model for synthesis or critique. The `tm-review-changes`
+  workflow in `.claude/workflows/` is the worked example: a fixed set of Sonnet
+  reviewers plus one Fable critic pinned to xhigh effort, bounded by construction so it
   cannot fan out into the 100-agent review that an unpinned session model
   produces. `tm-review-codebase` applies the same discipline to a whole-repo
   audit: a Sonnet scout splits the repo into N areas (sized to the repo,

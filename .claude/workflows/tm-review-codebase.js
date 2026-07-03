@@ -14,9 +14,10 @@ export const meta = {
 // 1 architecture worker) + 1 critic = N + 3 agents, with N <= MAX_AREAS. The
 // count scales with repo size but never exceeds MAX_AREAS + 3, no matter how
 // large the repo is or how many areas the scout proposes. There is no per-file
-// fan-out and no loop. Models are pinned per stage, so the session model never
-// leaks into the scout or the workers; the single critic runs Fable 5 at max
-// effort (flip its pin to 'opus' under the Opus 4.8 fallback, see team-guide).
+// fan-out and no loop. Models and effort are pinned per stage, so the
+// session model and effort never leak into the scout or the workers; the
+// single critic runs Fable 5 at xhigh effort (flip its model pin to 'opus'
+// under the Opus 4.8 fallback, see team-guide).
 //
 // When the repo is too big for MAX_AREAS areas to cover, the leftover paths are
 // reported (coverage.ceilingReached, coverage.areasDropped, and a suggested next
@@ -154,7 +155,7 @@ const dimensions = `Review across these dimensions:
 phase('Scout')
 const map = await agent(
   `You map a repository into coherent review areas. You do not review code in this step.\n\n${scope}\n\nFirst gauge the repo's size (for example \`git ls-files -- ${root} | wc -l\`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach ${MAX_AREAS} areas. Return at most ${MAX_AREAS} areas, ranked by importance (size and how central they are to the system). If the repo is larger than ${MAX_AREAS} areas can cover at a readable size, return the ${MAX_AREAS} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.`,
-  { label: 'scout', phase: 'Scout', model: 'sonnet', schema: MAP_SCHEMA }
+  { label: 'scout', phase: 'Scout', model: 'sonnet', effort: 'high', schema: MAP_SCHEMA }
 )
 
 // If the scout fails, no area workers run; flag it so the critic cannot approve
@@ -180,14 +181,14 @@ const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n'
 const reviewThunks = areas.map((a) => () =>
   agent(
     `You review one area of a codebase and report findings only. You never edit.\n\nArea: ${a.name}\nPaths: ${a.paths.join(', ')}\n\nRead these files in full, with surrounding context where needed. ${dimensions}\n\nReport every finding with area ("${a.name}"), dimension, file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the area is clean, return an empty findings array. Stay within your area.`,
-    { label: `area:${a.name}`, phase: 'Review', model: 'sonnet', schema: FINDINGS_SCHEMA }
+    { label: `area:${a.name}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: FINDINGS_SCHEMA }
   )
 )
 
 reviewThunks.push(() =>
   agent(
     `You audit a repository's structure and report findings only. You never edit. Use dimension "architecture".\n\n${scope}\n\nRead the directory layout, module boundaries, imports, and dependency manifests. Read signatures and imports rather than full file bodies, so you can hold the whole tree in view. The area map is:\n${repoMap}\n\nFlag: module boundaries and layering that have drifted, the same logic duplicated across modules, dead or orphaned code, dependency health (unused, outdated, risky), and test-coverage gaps at the suite level. Report each finding with area (the module name or "repo"), dimension ("architecture"), file, line or "n/a", severity, the problem, and the fix.`,
-    { label: 'architecture', phase: 'Review', model: 'sonnet', schema: FINDINGS_SCHEMA }
+    { label: 'architecture', phase: 'Review', model: 'sonnet', effort: 'high', schema: FINDINGS_SCHEMA }
   )
 )
 
@@ -240,7 +241,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await agent(
   `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after the verdict that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'max', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
 )
 
 return report
