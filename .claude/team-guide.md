@@ -234,7 +234,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 ```
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
-  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-install-team, /tm-kickoff, /tm-new-project, /tm-to-issues
+  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project, /tm-to-issues
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase)
   settings.json      project settings; enables the superpowers plugin
                        enabledPlugins is template-managed;
@@ -254,9 +254,9 @@ list. New project commands follow the same rule: name them `tm-<thing>`.
   change touches the stack.
 - Don't bypass git hooks (`--no-verify`). If a hook fails, fix the cause.
 - Don't improve `.claude/` machinery only in this repo. Change the template
-  (sv-tmueller/claude-template) first, then re-run `/tm-install-team` in the
-  config dirs to distribute the update; local-only edits in a config dir are
-  overwritten by the next install.
+  (sv-tmueller/orchestrai) first, then run `/plugin update` in each config dir
+  to pick it up. The config-dir CLAUDE.md imports `team-guide.md` from the
+  marketplace clone, so that file updates automatically once the plugin does.
 - Don't introduce a new dependency without saying why in the PR body.
 <!-- Add project-specific traps here: the mistakes that quietly break this codebase. -->
 

@@ -1,14 +1,14 @@
 ---
 name: tm-review-changes
-description: Token-bounded code review of the current diff, run as a workflow (fixed Sonnet reviewers plus one Fable critic). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-changes workflow directly by name. User-invocable only.
+description: Token-bounded code review of the current diff, run as a workflow (fixed Sonnet reviewers plus one Fable critic). Plugin-only wrapper; the committed-repo root invokes the tm-review-changes workflow directly by name. User-invocable only.
 disable-model-invocation: true
 argument-hint: "[base ref, default origin/main]"
 ---
 
 Run the `tm-review-changes` workflow against the current diff. This skill
-exists only so the plugin install (`sv-tmueller@claude-template`) can reach the
-workflow: the committed-repo and `/tm-install-team` config-dir roots already
-expose it directly as `/tm-review-changes` because Claude Code auto-discovers
+exists only so the plugin install (`orchestrai@claude-template`) can reach the
+workflow: the committed-repo root already exposes it directly as
+`/tm-review-changes` because Claude Code auto-discovers
 `.claude/workflows/*.js`, and plugin `workflows/` is not an official component
 type; any direct registration is undocumented. Retire this wrapper if plugin
 `workflows/` becomes an officially documented component type (see the

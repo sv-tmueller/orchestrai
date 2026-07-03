@@ -9,7 +9,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 
 ## 1. Repository and protection
 
-- [ ] Create the repo (`gh repo create <name> --template sv-tmueller/claude-template --clone`).
+- [ ] Create the repo (`gh repo create <name> --template sv-tmueller/orchestrai --clone`).
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
 - [ ] (Optional) Create the labels the workflow uses: the sizing set `size:S`,
@@ -30,8 +30,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, tm-to-issues, tm-install-team, and
-      tm-new-project.
+      tm-kickoff, tm-grill-me, tm-to-issues, and tm-new-project.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so the template stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and

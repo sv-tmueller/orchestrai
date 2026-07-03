@@ -1,12 +1,15 @@
 {
   "name": "claude-template",
-  "description": "Single-plugin marketplace for the sv-tmueller orchestrator team.",
+  "description": "Single-plugin marketplace for the orchestrai orchestrator team.",
   "owner": {
     "name": "Thomas Mueller"
   },
+  "renames": {
+    "sv-tmueller": "orchestrai"
+  },
   "plugins": [
     {
-      "name": "sv-tmueller",
+      "name": "orchestrai",
       "source": "./.claude",
       "description": "Orchestrator team: 5 role agents, the tm- operational skills, and the review workflows."
     }
