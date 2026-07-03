@@ -1,13 +1,13 @@
 ---
 name: tm-review-codebase
-description: Token-bounded full-repo review, run as a workflow (Sonnet scout and area workers plus one Fable critic that writes a dated report). Plugin-only wrapper; the committed-repo and config-dir roots invoke the tm-review-codebase workflow directly by name. User-invocable only.
+description: Token-bounded full-repo review, run as a workflow (Sonnet scout and area workers plus one Fable critic that writes a dated report). Plugin-only wrapper; the committed-repo root invokes the tm-review-codebase workflow directly by name. User-invocable only.
 disable-model-invocation: true
 ---
 
 Run the `tm-review-codebase` workflow against the whole repo. This skill
-exists only so the plugin install (`sv-tmueller@claude-template`) can reach the
-workflow: the committed-repo and `/tm-install-team` config-dir roots already
-expose it directly as `/tm-review-codebase` because Claude Code auto-discovers
+exists only so the plugin install (`orchestrai@claude-template`) can reach the
+workflow: the committed-repo root already exposes it directly as
+`/tm-review-codebase` because Claude Code auto-discovers
 `.claude/workflows/*.js`, and plugin `workflows/` is not an official component
 type; any direct registration is undocumented. Retire this wrapper if plugin
 `workflows/` becomes an officially documented component type (see the

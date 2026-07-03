@@ -7,8 +7,9 @@ ready-made agent team for Claude Code.
   where decisions live, code style, useful commands.
 - `.claude/team-guide.md` - generic team process guidance (agent team, advisor
   model, model policy, sizing, the issues/branches/commits conventions,
-  how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md and
-  installed user-global by `/tm-install-team`.
+  how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md; a
+  config dir imports it from the marketplace clone instead (see "Getting the
+  team into your repos" below).
 - `NEW-PROJECT-SETUP.md` - the once-per-repo checklist: branch protection,
   docs structure, CI/CD and e2e wiring, labels, and filling in the `CLAUDE.md`
   placeholders.
@@ -28,12 +29,6 @@ ready-made agent team for Claude Code.
 - `.claude/skills/tm-to-issues/` - `/tm-to-issues`: turns an approved plan into
   sized, dependency-ordered issues ready for `/tm-kickoff` (adapted from
   mattpocock/skills, MIT).
-- `.claude/skills/tm-install-team/` - `/tm-install-team`: installs or updates the
-  team into one or more user config dirs (`/tm-install-team ~/.claude-personal
-  ~/.claude-work`), so it is available in every repo under that config without
-  being committed anywhere. Copies the operational skills, agents,
-  workflows, and `team-guide.md`, and checks superpowers is enabled. The user-scope path for repos
-  you do not want to carry the team (an org repo).
 - `.claude/skills/tm-new-project/` - `/tm-new-project`: runs the
   `NEW-PROJECT-SETUP.md` checklist as a guided flow. Creates the workflow
   labels and docs tree, interviews the user to fill the `CLAUDE.md`
@@ -50,7 +45,7 @@ ready-made agent team for Claude Code.
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
 - `.claude-plugin/marketplace.json` - the marketplace catalog, pointing the
-  `sv-tmueller` plugin at the `.claude/` root. The plugin manifest itself lives
+  `orchestrai` plugin at the `.claude/` root. The plugin manifest itself lives
   at `.claude/.claude-plugin/plugin.json` (see "Getting the team into your
   repos" below).
 
@@ -66,7 +61,7 @@ every project; this template references them rather than repeating them.
 Use it as a GitHub template repo, or copy the whole tree including `.claude/`:
 
 ```bash
-gh repo create <new-repo> --template sv-tmueller/claude-template --private --clone
+gh repo create <new-repo> --template sv-tmueller/orchestrai --private --clone
 # then work through NEW-PROJECT-SETUP.md; delete it once every box is checked
 ```
 
@@ -74,62 +69,50 @@ Copying only `CLAUDE.md` works but does not carry the agents and skills, and lea
 
 ## Getting the team into your repos
 
-Three ways, depending on whether the team should be committed to the repo.
+Two ways, depending on whether the team should be committed to the repo.
 
-**User scope (recommended), nothing committed.** Install the team into your
-Claude Code config dir(s) once and it is available in every repo you open under
-that config, including repos you must not commit it to (an org's private repo).
-From a checkout of this template:
-
-```bash
-git pull                                          # get the latest first
-/tm-install-team ~/.claude-personal ~/.claude-work
-```
-
-It copies the operational skills, agents, and workflows into each
-`<config-dir>/{skills,agents,workflows}/` and tells you if superpowers needs
-enabling there. It also copies `team-guide.md` to `<config-dir>/team-guide.md`.
-For the guide to load, add a `@team-guide.md` line to `<config-dir>/CLAUDE.md`
-yourself; the install prints this and does not edit `CLAUDE.md`. Note that a
-config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking with
-it, so re-import the four global coding principles in the same file if you rely
-on them. Re-run after a `git pull` to update. A repo that carries its own
-committed team overrides the user-scope copy, so the two never clash.
-
-**Committed in the repo.** A repo created from this template carries the team
-in `.claude/`. To update it after a `git pull` on the template, copy the
-updated files manually from the template checkout into the repo's `.claude/`
-and open a PR.
-
-**Plugin install, via the marketplace.** This repo is also a single-plugin
-marketplace (`.claude-plugin/marketplace.json`), so any machine with Claude
-Code can install the team without cloning or copying anything:
+**Plugin install, via the marketplace (recommended).** This repo is a
+single-plugin marketplace (`.claude-plugin/marketplace.json`), so any machine
+with Claude Code can install the team without cloning or copying anything,
+including a user config dir for repos you must not commit the team to (an
+org's private repo):
 
 ```text
-/plugin marketplace add sv-tmueller/claude-template
-/plugin install sv-tmueller@claude-template
+/plugin marketplace add sv-tmueller/orchestrai
+/plugin install orchestrai@claude-template
 ```
 
-This installs the 4 agents and all 8 skills under the `sv-tmueller` namespace,
-for example `/sv-tmueller:tm-advisor` and `/sv-tmueller:tm-kickoff`. The two
+This installs the 5 agents and all 7 skills under the `orchestrai` namespace,
+for example `/orchestrai:tm-advisor` and `/orchestrai:tm-kickoff`. The two
 review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
 wrapper skills, since plugin `workflows/` is not an official component type.
 Current Claude Code builds may also register the two workflows directly under
 the plugin namespace, producing duplicate menu entries; this is undocumented
 behavior, and the wrapper skills remain the supported path.
-`/sv-tmueller:tm-install-team` ships too (default-directory discovery does not
-exclude it) but is a no-op outside a checkout of this template: it has
-nothing to copy from.
+
+A plugin cannot place `team-guide.md` where a config-dir `CLAUDE.md` can
+import it, so wire that import yourself: add
+`@plugins/marketplaces/claude-template/.claude/team-guide.md` to
+`<config-dir>/CLAUDE.md` (the path is relative to that file; the marketplace
+clone auto-updates, so the import always tracks the latest guide). Note that
+a config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking
+with it, so re-import the four global coding principles in the same file if
+you rely on them. A repo that carries its own committed team overrides the
+plugin's copy, so the two never clash.
 
 A plugin cannot install another plugin for you: the `developer` and `tester`
 agents and `tm-advisor` depend on obra's superpowers plugin, so enable it
-yourself first if it is not already, the same prerequisite `/tm-install-team`
-documents for the user-scope path above:
+yourself first if it is not already:
 
 ```text
 /plugin marketplace add anthropics/claude-plugins-official
 /plugin install superpowers@claude-plugins-official
 ```
+
+**Committed in the repo.** A repo created from this template carries the team
+in `.claude/`. To update it after a `git pull` on the template, copy the
+updated files manually from the template checkout into the repo's `.claude/`
+and open a PR.
 
 ## License
 
