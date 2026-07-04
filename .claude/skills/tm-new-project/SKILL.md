@@ -103,9 +103,12 @@ These need a browser or a human decision; print them, do not run them.
 direct pushes, require a PR, require status checks to pass before merge.
 
 **Tests and CI/CD.** Decide the e2e approach for this app and scaffold
-`e2e/`. Add a CI workflow that runs typecheck, lint, unit tests, build, and
-e2e. Make the relevant CI jobs required status checks on `main` (the setting
-above). If you deploy, make e2e a pre-deploy gate.
+`e2e/`. Copy `templates/ci.yml` (in this skill's directory) to
+`.github/workflows/ci.yml` and fill in the real commands. Keep its cost
+controls: pinned `timeout-minutes` on every job, a `concurrency` group with
+`cancel-in-progress: true`, and e2e/build skipped on draft PRs. Make the
+relevant CI jobs required status checks on `main` (the setting above). If
+you deploy, make e2e a pre-deploy gate.
 
 **Claude Code plugins.** Accept the superpowers plugin prompt that
 `.claude/settings.json` triggers. If no prompt appears (a known gap,
