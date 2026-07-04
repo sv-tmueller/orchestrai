@@ -55,6 +55,20 @@ later (see "How to pick up a task").
   locally before pushing any change that touches the full stack. Unit-green is not
   e2e-green.
 
+### CI cost policy
+
+- Agents verify locally first; CI is the final gate, not the first check.
+  Developer and tester already run the full suite locally, so CI confirms
+  results, it does not discover problems.
+- e2e in CI runs on ready-for-review PRs and on pushes to `main` only. Draft
+  PRs run cheaper checks instead (typecheck, lint, unit).
+- Every CI job pins `timeout-minutes`. A `concurrency` group with
+  `cancel-in-progress: true` is mandatory on every workflow.
+- Making a repo public to escape the free-minutes limit is forbidden. Fix the
+  workflow instead.
+- See the CI template under `.claude/skills/tm-new-project/` for the worked
+  example.
+
 ### Writing style (commits, PRs, docs, comments)
 
 - No em dashes. Use regular hyphens, commas, or parentheses.

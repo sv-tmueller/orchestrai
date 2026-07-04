@@ -56,9 +56,10 @@ e2e/                 end-to-end tests; structure depends on the app (see NEW-PRO
 
 `e2e/` holds the tests that exercise the deployed system end to end. Its shape
 depends on the application: a web app uses Playwright specs plus fixtures and
-helpers; a CLI or service uses its own driver. Wire it into CI as a required job
-and as a pre-deploy gate. It is the safety net unit tests cannot be: a branch can
-be unit-green and still break the full stack.
+helpers; a CLI or service uses its own driver. In CI, e2e runs on ready-for-review
+PRs and on pushes to main; draft PRs run cheaper checks instead (see the CI cost
+policy in `.claude/team-guide.md`). It is the safety net unit tests cannot be: a
+branch can be unit-green and still break the full stack.
 
 ## Useful commands
 
