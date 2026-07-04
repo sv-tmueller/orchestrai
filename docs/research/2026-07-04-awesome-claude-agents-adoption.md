@@ -75,8 +75,11 @@ Their routing runs through two of the three orchestrators:
   `model: opus`) consumes that and returns a strict "Agent Routing Map":
   `Task N: <description> -> AGENT: @agent-<name>`, plus an execution order
   that caps parallel work at 2 but does not cap total sequential agents (the
-  worked example in their own README runs 7 tasks across 5 different
-  agents for one feature). Their `CLAUDE.md` makes following that map
+  worked example in `tech-lead-orchestrator.md` itself fans one feature across
+  7 tasks and 4 agents that actually execute them - code-archaeologist,
+  django-backend-expert, django-api-developer, react-component-architect -
+  with a 5th, code-reviewer, listed under "Available Agents for This Project"
+  but never assigned a task). Their `CLAUDE.md` makes following that map
   mandatory ("USE ONLY the agents explicitly recommended by tech-lead",
   "NEVER select agents independently").
 - `team-configurator` runs once per project (or after a stack change), reads
@@ -150,7 +153,7 @@ detected stack matches.
 **Weighed against the cost thesis.** Swapping *which* developer prompt runs
 for a given issue does not, by itself, add fan-out: it is still one developer
 dispatched per issue, same as today, so it does not violate the
-`tm-review-codebase.js`-style bound (`N` capped in code) or the "287 vs 9"
+`tm-review-codebase.js`-style bound (`N` capped in code) or the "9 of 297"
 argument in `docs/reviews/2026-06-30-orchestration-comparison.md`, which is
 about how many agents a run spawns, not how many agent *definitions* exist in
 the repo. The risk is different: definition sprawl. Their own repo is the
