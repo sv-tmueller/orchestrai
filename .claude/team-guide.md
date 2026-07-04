@@ -169,8 +169,9 @@ else. The lever is where each model runs, not raw effort everywhere.
   Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
   workload, switch the lead with `/model claude-opus-4-8`, and for a longer
   outage flip the `fable` pins to `opus` in the two agent frontmatters
-  (`architect`, `reviewer`) and the critic stage of both `tm-review-*`
-  workflows. Flip them back when Fable returns.
+  (`architect`, `reviewer`) and the Fable-critic stage of every `tm-` workflow
+  (`tm-review-changes`, `tm-review-codebase`, `tm-map-codebase`). Flip them
+  back when Fable returns.
 - Cost-based fallback trigger, separate from the availability fallback above:
   if Fable 5 stops being included under the Max-plan subscription and shifts
   to metered API billing, do not switch to Opus automatically. The
@@ -221,6 +222,10 @@ else. The lever is where each model runs, not raw effort everywhere.
   capped at a ceiling), Sonnet workers review each area plus repo-wide
   structure, and one Fable critic consolidates. The agent count is N + 3, so
   it scales with repo size up to the ceiling and never fans out unboundedly.
+  `tm-map-codebase` reuses the same scout/worker/critic shape for a purely
+  descriptive map (purpose, entry points, data and control flow, no
+  findings): it drops the architecture worker, so the agent count is N + 2,
+  bounded and scaling with repo size the same way.
   Because every stage is pinned, a cheaper-led session (for example Sonnet 5
   as lead) still gets Fable-quality judgment, and a Fable-led session never
   pays Fable rates for worker stages.
@@ -258,7 +263,7 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 .claude/
   agents/            role agents: architect, developer, tester, reviewer
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project, /tm-to-issues
-  workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase)
+  workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
   settings.json      project settings; enables the superpowers plugin
                        enabledPlugins is template-managed;
                        permissions, hooks, env, and defaultMode are project-owned

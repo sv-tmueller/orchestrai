@@ -45,7 +45,8 @@ Add project-specific style rules here and remove this line before the first impl
 
 ```
 docs/
-  architecture/      stack and policy decisions, data model, domain math (see NEW-PROJECT-SETUP)
+  architecture/      stack and policy decisions, data model, domain math (see NEW-PROJECT-SETUP);
+                       also dated codebase maps from /tm-map-codebase
   operations/        run/deploy/operate: environments, CI/CD, runbooks (see NEW-PROJECT-SETUP)
   plans/             implementation plans, <issue-number>-<slug>.md
   reviews/           dated codebase-review reports from /tm-review-codebase
