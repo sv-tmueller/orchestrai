@@ -4,12 +4,10 @@ Orientation for Claude Code sessions in this repo. Read this first.
 
 ## What this repo is
 
-Describe in 2-3 sentences what this project does, who uses it, and its current
-status (pre-implementation, MVP 1.0, in production). Point to the README for the
-user-facing pitch and to the current implementation plan under `docs/plans/`.
-
-Keep the status honest. If nothing is scaffolded yet, say so, so future sessions
-do not assume a toolchain or test suite that does not exist.
+orchestrai is a personal AI-team-orchestrator plugin, applied across the
+user's own repos. It is not a template for spinning up new, unrelated
+projects; see `docs/architecture/operating-model.md` for that identity
+decision and the README for the user-facing pitch.
 
 ## Working principles
 
@@ -22,9 +20,9 @@ repeat them; it adds only what is specific to this project.
 Read these before proposing changes that touch their area:
 
 - `docs/architecture/` - stack and policy decisions, the data model, the domain
-  math. Locked unless explicitly revisited. (see NEW-PROJECT-SETUP)
+  math. Locked unless explicitly revisited.
 - `docs/operations/` - how to run, deploy, and operate the system: environments,
-  CI/CD, runbooks, secrets policy. (see NEW-PROJECT-SETUP)
+  CI/CD, runbooks, secrets policy.
 - `docs/plans/` - implementation plans, one per task as `<issue-number>-<slug>.md`.
 - `docs/superpowers/specs/` - approved designs from brainstorming, as
   `YYYY-MM-DD-<topic>-design.md`.
@@ -39,20 +37,22 @@ The generic team process guidance lives in `.claude/team-guide.md` and loads via
 
 ## Code style
 
-Add project-specific style rules here and remove this line before the first implementation session.
+Follow the "Writing style" section in `.claude/team-guide.md` for commits,
+PRs, docs, and comments. The JS in this repo follows the zero-dependency test
+style (see "Useful commands").
 
 ## Repo layout
 
 ```
 docs/
-  architecture/      stack and policy decisions, data model, domain math (see NEW-PROJECT-SETUP);
+  architecture/      stack and policy decisions, data model, domain math;
                        also dated codebase maps from /tm-map-codebase
-  operations/        run/deploy/operate: environments, CI/CD, runbooks (see NEW-PROJECT-SETUP)
+  operations/        run/deploy/operate: environments, CI/CD, runbooks
   plans/             implementation plans, <issue-number>-<slug>.md
   reviews/           dated codebase-review reports from /tm-review-codebase
   superpowers/specs/ approved designs, YYYY-MM-DD-<topic>-design.md
   team-architecture.md  flat-star agent-team diagrams and rationale
-e2e/                 end-to-end tests; structure depends on the app (see NEW-PROJECT-SETUP)
+e2e/                 end-to-end tests; structure depends on the app
 ```
 
 `e2e/` holds the tests that exercise the deployed system end to end. Its shape
@@ -64,16 +64,11 @@ branch can be unit-green and still break the full stack.
 
 ## Useful commands
 
-Record the exact commands once the project is scaffolded, so future sessions do
-not rediscover them.
-
 ```bash
-# install
-# dev / run
-# typecheck
-# lint
 npm test          # unit tests (node:vm, zero deps); run before commit
-# e2e             (run before pushing full-stack changes)
 # gh issue create
 # gh pr create --draft
 ```
+
+There is no application runtime, so install, dev, typecheck, and lint are N/A;
+there is no `e2e/` suite yet.

@@ -18,10 +18,13 @@ The plugin exists for five purposes:
    achievable result.
 5. Offer a portable structure the user can apply across any of their repos.
 
-The plugin is the primary identity. Template-scaffolding is demoted to a
-secondary capability, and its leftover framing (in CLAUDE.md,
-`NEW-PROJECT-SETUP.md`, and `tm-new-project`) still exists in the tree and is
-reconciled in Batch 2, not by this doc. See section 3.
+The plugin is the primary identity. The template-copy path is retired, not
+merely demoted: CLAUDE.md no longer frames it as a fallback identity, and its
+own leftover framing (placeholder sentinels, `(see NEW-PROJECT-SETUP)`
+pointers) is corrected by this change. The scaffolding files that implement
+that path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) still
+exist in the tree; their physical retirement is deferred to the usability
+batch. See section 3.
 
 ## 2. How it operates (the loop, summary altitude)
 
@@ -55,15 +58,16 @@ side effect. Owned by `.claude/workflows/` (`tm-map-codebase.js`,
 `tm-review-changes.js`, `tm-review-codebase.js`) and the `docs/` layout in
 `CLAUDE.md`.
 
-## 3. Reconciliation: leftover template framing (Batch 2)
+## 3. Transition state: identity retired, scaffolding not yet removed
 
-This doc records the identity decision. It makes no edits to the files
-below; reconciling them is explicit, deferred follow-up for Batch 2:
+This doc records the identity decision and, alongside it, CLAUDE.md now
+carries that decision through. What's done as of this change:
 
-- `CLAUDE.md`'s three placeholder sentinels (the project-description
-  paragraph, the "Code style" placeholder line, and the "(see
-  NEW-PROJECT-SETUP)" pointers in the repo-layout section).
-- `NEW-PROJECT-SETUP.md`.
-- `.claude/skills/tm-new-project/SKILL.md`.
+- The identity above is recorded as retire, not demote.
+- CLAUDE.md's three placeholder sentinels ("What this repo is", "Code
+  style", "Useful commands") are filled with real content.
+- The `(see NEW-PROJECT-SETUP)` pointers are removed from CLAUDE.md.
 
-None of these files are touched by this change.
+What's still open: `NEW-PROJECT-SETUP.md` and
+`.claude/skills/tm-new-project/` remain physically present in the tree.
+Removing them is deferred to the usability batch, not this change.
