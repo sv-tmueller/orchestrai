@@ -91,9 +91,12 @@ placeholder text, leaving the rest of the file untouched:
   the real install, dev, typecheck, lint, test, and e2e commands, delete the
   caption sentence (both wrapped lines), and fill the `bash` block with
   them.
-- **"Code style"** (`Add project-specific style rules here` sentinel): ask
-  for any project-specific style rules, then delete the placeholder line
-  whether or not the user has rules to add.
+- **"Code style"** (`Add project-specific style rules here` sentinel): first
+  ask for the project's tech stack (languages, frameworks, key libraries),
+  recorded from the answer, not detected by scanning any manifest. Then ask
+  for any project-specific style rules. Replace the placeholder with style
+  rules appropriate to that stack, plus any the user gave; if there is
+  neither a stack nor rules, delete the placeholder as before.
 
 ## 5. Print human-only steps
 
