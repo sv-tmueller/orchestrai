@@ -155,3 +155,21 @@ and open a PR.
 This source code is published for demonstration and portfolio purposes only. No license is granted to use, copy, modify, merge, publish, distribute, sublicense, or sell any part of this software, in whole or in part, in any other project (public or private) without prior written permission from the copyright holder.
 
 Unauthorized reuse of any portion of this code constitutes copyright infringement and will be pursued accordingly.
+
+### Third-party material
+
+Two skills carry their own MIT attribution because they are adapted from an
+MIT-licensed source: `.claude/skills/tm-grill-me/SKILL.md` (near-verbatim,
+from `mattpocock/skills`) and `.claude/skills/tm-to-issues/SKILL.md`
+(substantially adapted, from the same source). Their attribution footers and
+the source project's full MIT license text are in `THIRD_PARTY_NOTICES.md`.
+This does not change the license of the rest of the repo above; it is a
+normal mixed-license pattern where a small amount of MIT-derived material
+keeps its own attribution inside an otherwise all-rights-reserved codebase.
+
+The research on `vijaythecoder/awesome-claude-agents`
+(`docs/research/2026-07-04-awesome-claude-agents-adoption.md`) and the
+flat-star diagram credit to `owainlewis/youtube-tutorials`
+(`docs/team-architecture.md`) use only ideas and observations from those
+sources, not file copies, so no attribution is required for them beyond the
+credit already given in place.
