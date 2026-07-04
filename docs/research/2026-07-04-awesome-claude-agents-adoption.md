@@ -58,8 +58,8 @@ agents" (3 + 13 + 4 + 4, where "13" is laravel+django+rails+react+vue only)
 and never mentions the `specialized/python/` folder at all, in either the
 folder listing or the total. The README is stale against the actual repo
 content: the catalog grew by 9 agents without the top-level count or
-narrative being updated. Worth noting as a caution for section 4: an
-open-ended per-stack catalog drifts out of sync with its own documentation.
+narrative being updated. A caution for section 3: an open-ended per-stack
+catalog drifts out of sync with its own documentation.
 
 Our structure is 5 agents total, fixed, none of them stack-specific.
 
@@ -130,7 +130,7 @@ convention ("max 2 parallel"); ours is enforced by construction (an
 
 | # | Idea (source) | How it maps to us | Verdict |
 |---|---|---|---|
-| 1 | Stack detection before routing (`project-analyst`) | We have no equivalent. `tm-new-project` detects setup state, not a tech stack (see correction above). A real stack-detection step would only matter if we had stack-specific work to route to, which we do not today (see section 4). | **Adapt** - worth doing, but scoped small: record the stack as an interview answer in `tm-new-project`, not a code-scanning agent, until there is a concrete consumer for the detection (see next-adoptions #1). |
+| 1 | Stack detection before routing (`project-analyst`) | We have no equivalent. `tm-new-project` detects setup state, not a tech stack (see correction above). A real stack-detection step would only matter if we had stack-specific work to route to, which we do not today (see section 3). | **Adapt** - worth doing, but scoped small: record the stack as an interview answer in `tm-new-project`, not a code-scanning agent, until there is a concrete consumer for the detection (see next-adoptions #1). |
 | 2 | In-place, timestamped, prose-preserving section rewrite (`team-configurator`) | We already produce dated, append-only artifacts (`tm-map-codebase` writes a new dated file under `docs/architecture/`, `tm-review-codebase` writes a new dated file under `docs/reviews/`). Their pattern is different: it rewrites one section of one living file in place instead of writing a new file each run. We have no current file that needs "same file, refreshed section" semantics. | **Adapt (flag for later)** - no current driver. Keep the pattern in mind for exactly one shape: a single canonical doc that must reflect the *current* state (not history), if one shows up. Not on the near-term list because principle 2 (no speculative abstractions) rules out building it before a real need exists. |
 | 3 | Structured `Task N -> AGENT: @name` routing-map table with an explicit execution order (`tech-lead-orchestrator`) | Our `SUB_PLAN` comments already cover "approach, files, order, verification" in prose, because our roles are fixed (one developer, one tester, one reviewer per issue) - there is nothing to route between. The table earns its keep only if a package ever needs more than the fixed roles. | **Adapt** - reuse the table format only if the framework-specialist layer in section 3 (or any future multi-specialist package) ships; until then this is inert. |
 | 4 | Three-phase workflow with a human approval gate before execution (`CLAUDE.md`'s Research -> Approval -> Planning -> Execution) | We already gate execution on a human: `/tm-advisor`'s one sign-off per batch, and `/tm-kickoff`'s draft PR that a human merges. Their pattern validates our existing gate rather than adding a new one. | **Keep** - no change; this is confirmation, not a gap. |
