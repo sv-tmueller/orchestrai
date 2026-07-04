@@ -3,6 +3,13 @@
 Status: approved design, 2026-06-15. Brainstormed and signed off decision by
 decision in session. Issue #98. Not yet implemented.
 
+> **Superseded:** the skill designed here was built (issue #98) and later
+> retired in favor of installing the team via the plugin marketplace, with
+> `team-guide.md` imported into the config dir's `CLAUDE.md` from the
+> marketplace clone. See commit 6dd9c69 (PR #144, "rebrand plugin to
+> orchestrai and retire tm-install-team", closes #143). This design is kept as
+> a historical record and does not describe a shipping skill.
+
 ## Goal
 
 Make the orchestrator team (agents, `tm-*` skills, review workflows) available
