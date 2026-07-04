@@ -66,7 +66,10 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 ## 4. Tests and CI/CD
 
 - [ ] Decide the e2e approach for this app and scaffold `e2e/`.
-- [ ] Add a CI workflow that runs typecheck, lint, unit tests, build, and e2e.
+- [ ] Copy `.claude/skills/tm-new-project/templates/ci.yml` to
+      `.github/workflows/ci.yml` and fill in the real commands. Keep its cost
+      controls: pinned `timeout-minutes` on every job, a `concurrency` group
+      with `cancel-in-progress: true`, and e2e/build skipped on draft PRs.
 - [ ] Make the relevant CI jobs required status checks on `main`.
 - [ ] If you deploy, make e2e a pre-deploy gate.
 

@@ -1,0 +1,71 @@
+# Reference CI workflow for repos generated from this template.
+#
+# Copy this file to `.github/workflows/ci.yml`, then replace every
+# placeholder `run:` command with this repo's real install, typecheck,
+# lint, unit test, build, and e2e commands. The structure encodes the CI
+# cost policy: staged jobs, pinned timeouts, concurrency cancellation, and
+# a draft-PR skip for build/e2e. See team-guide.md's CI cost policy section
+# for the reasoning.
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+# Known GitHub interaction: a required check that paths-ignore skips reports
+# "Expected" and never completes, which can block a docs-only PR from
+# merging. Fixing this needs a no-op mirror workflow; that is out of scope
+# for this template.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: echo "replace with this repo's real install command"
+      - name: Typecheck
+        run: echo "replace with this repo's real typecheck command"
+      - name: Lint
+        run: echo "replace with this repo's real lint command"
+      - name: Unit tests
+        run: echo "replace with this repo's real unit test command"
+
+  build:
+    name: Build
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # build exists only to serve e2e, so it shares e2e's draft-PR skip.
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: echo "replace with this repo's real build command"
+
+  e2e:
+    name: End-to-end tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Skip on draft PRs; run on ready-for-review PRs and pushes to main.
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+      - name: e2e
+        run: echo "replace with this repo's real e2e command"
