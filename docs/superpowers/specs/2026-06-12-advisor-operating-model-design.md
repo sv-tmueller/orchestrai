@@ -72,7 +72,7 @@ It parks a package (`needs-human`) only for:
 
 ### 4. Batch tracking issue
 
-Each sign-off creates one GitHub issue for the batch holding: the approved
+Each dispatch creates one GitHub issue for the batch holding: the approved
 proposal (the contract), links to the package issues, every advisor decision
 with reasoning, parked questions, and the final report. A dropped session
 resumes from it. Closed when all batch PRs are merged. Package-level detail
@@ -95,6 +95,15 @@ no `Part of batch #` line and no `Batch:` title prefix - ordered by dependency
 then creation date). Dispatch still requires sign-off;
 merging is never implicit approval. A new session reconstructs state from
 the open batch issue.
+
+**Amendment (2026-07-04, batch #160).** Manual closure of the batch
+issue is valid. The batch issue is a run record; the user may close it
+by hand once every PR is merged. Re-running /tm-advisor is optional
+bookkeeping (confirm merges, close the batch issue, release parked
+issues) plus the next-batch proposal, not a required step. To make the
+hand-close safe, the backlog scan treats an issue whose
+`Part of batch #N` line points at a closed batch as backlog; only
+membership in an open batch excludes an issue.
 
 ### 7. Parking pings: hold for the report
 
