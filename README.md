@@ -13,9 +13,10 @@ ready-made agent team for Claude Code.
 - `NEW-PROJECT-SETUP.md` - the once-per-repo checklist: branch protection,
   docs structure, CI/CD and e2e wiring, labels, and filling in the `CLAUDE.md`
   placeholders.
-- `.claude/agents/` - four role agents: architect (approach, read-only),
+- `.claude/agents/` - five role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
-  verification, read-only), reviewer (spec pass then quality pass, read-only).
+  verification, read-only), reviewer (spec pass then quality pass, read-only),
+  fact-checker (audits report and PR claims against evidence, read-only).
 - `.claude/skills/tm-advisor/` - `/tm-advisor`: the operating model on top of the
   team. Refines a raw need into a batch of work packages, takes one sign-off,
   runs the batch uninterrupted through the kickoff pipeline, and reports.
@@ -36,10 +37,10 @@ ready-made agent team for Claude Code.
   design-plugin vetting), and retires `NEW-PROJECT-SETUP.md` once its
   checklist is done.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
-  reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
+  reviews a diff with a fixed set of Sonnet reviewers plus one Fable critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
   areas (scaled to the repo, capped at a ceiling), per-area Sonnet workers, an
-  architecture worker, and one Opus critic. Both pin models in-script so the cost
+  architecture worker, and one Fable critic. Both pin models in-script so the cost
   is bounded by construction.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
@@ -55,6 +56,39 @@ specifics.
 
 The four global coding principles live in `~/.claude/CLAUDE.md` and apply to
 every project; this template references them rather than repeating them.
+
+## How the team works
+
+The diagram below is the combined overview; `docs/team-architecture.md` has the
+detailed flat-star and per-package diagrams.
+
+```mermaid
+graph TD
+    H["Human<br/>files and sizes issues, merges PRs"] --> L
+    L["Lead - main session<br/>fable, xhigh<br/>routes every handoff"]
+
+    L -->|"1 sub-plan"| A["architect<br/>fable, xhigh<br/>read-only - approach"]
+    A -.->|"sub-plan"| L
+    L -->|"2 implement"| D["developer<br/>sonnet, high<br/>worktree - TDD - draft PR"]
+    D -.->|"branch + PR"| L
+    L -->|"3 test"| T["tester<br/>sonnet, high<br/>read-only - re-runs suite"]
+    T -.->|"verdict"| L
+    L -->|"4 review"| R["reviewer<br/>fable, xhigh<br/>read-only - spec then quality"]
+    R -.->|"verdict"| L
+    L -.->|"fix loop"| D
+    L -->|"on demand"| F["fact-checker<br/>sonnet, high<br/>read-only - audits claims"]
+    F -.->|"grounded / ungrounded"| L
+
+    L -->|"5 ready PR"| G[("GitHub<br/>sub-plans, verdicts, labels")]
+    G -->|"6 human merges"| H
+
+    subgraph WF["Review workflows"]
+        RC["tm-review-changes<br/>Sonnet reviewers, high<br/>+ 1 Fable critic, xhigh"]
+        RB["tm-review-codebase<br/>Sonnet scout + area workers, high<br/>+ 1 Fable critic, xhigh"]
+    end
+
+    L -->|"run as slash commands"| WF
+```
 
 ## Using it
 
