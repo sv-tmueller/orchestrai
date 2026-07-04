@@ -87,7 +87,7 @@ graph TD
         RB["tm-review-codebase<br/>Sonnet scout + area workers, high<br/>+ 1 Fable critic, xhigh"]
     end
 
-    R --> WF
+    L -->|"run as slash commands"| WF
 ```
 
 ## Using it
