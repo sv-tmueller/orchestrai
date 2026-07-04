@@ -49,6 +49,14 @@ Refinement depth is proportional: a small need gets a few clarifying
 questions; a feature with design ambiguity gets /tm-grill-me and, if warranted,
 a spec doc first.
 
+**Amendment (2026-07-04, batch #152).** The sign-off offers two approval
+outcomes plus revise. Dispatch works as above. File only files the package
+issues to the backlog per the tm-to-issues conventions, with no batch
+tracking issue and no `Part of batch #` line, reports the issue numbers
+and how to dispatch later (/tm-kickoff or a future /tm-advisor batch),
+and stops. Rejected: a batch issue marked "filed, not dispatched"; it adds
+resume semantics and hides the issues from the next-batch backlog scan.
+
 ### 3. Escalation line: scope
 
 During a run the advisor decides anything within the signed-off scope and

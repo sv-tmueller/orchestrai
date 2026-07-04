@@ -52,12 +52,26 @@ Present the batch in chat, per package:
 - size label
 - explicit non-goals
 
-Then stop for sign-off. Nothing lands on GitHub before the user approves.
-This is the only confirmation in the loop; after it, run unattended.
+End every proposal with this sign-off block:
+
+## Sign-off
+
+Reply with one of:
+
+1. **dispatch** - file the batch tracking issue and the package issues,
+   then run the batch unattended through the kickoff pipeline and report.
+2. **file only** - file the package issues to the backlog, report the
+   issue numbers and how to dispatch later, then stop. No batch issue,
+   no run.
+3. **revise** - say what to change; the proposal comes back adjusted.
+
+Then stop and wait. Nothing lands on GitHub before outcome 1 or 2. This
+is the only confirmation in the loop: dispatch runs unattended after it;
+file only ends after filing and the report.
 
 ## 3. File
 
-On approval, first ensure the canonical label set exists on this repo (`gh label create` is a GitHub write and must not run before sign-off):
+On outcome 1 or 2, first ensure the canonical label set exists on this repo (`gh label create` is a GitHub write and must not run before sign-off):
 
 ```
 gh label create "size:S"       --color "c2e0c6" --description "Under 1 hour. One focused change." --force
@@ -70,11 +84,33 @@ gh label create "needs-human"  --color "B60205" --description "Agent loop exhaus
 
 `--force` upserts: it creates each label when absent and sets identical values when present, so a second run (for example when kickoff's Gate step runs the same block later in the same batch) is a true no-op and exits 0. Then:
 
+**On dispatch:**
+
 1. Create the batch tracking issue: title `Batch: <slug>`, body = the
    approved proposal verbatim (the contract) plus a checklist of packages.
 2. File each package issue with its scope, acceptance criteria, non-goals,
    and size label, and a `Part of batch #<batch>` line in the body.
 3. Update the batch issue checklist with the filed issue numbers.
+
+**On file only:** file each package issue with its scope, acceptance
+criteria, non-goals, and size label, following the tm-to-issues body
+template. No batch tracking issue and no `Part of batch #` line; the
+issues go to the plain backlog, where /tm-kickoff or the next-batch scan
+(section 6) picks them up. Close in chat with:
+
+```
+## What happened
+- Filed #NN  - <package title>
+- Filed #NN  - <package title>
+- No batch issue created; nothing dispatched.
+
+## Next steps
+1. Dispatch later with /tm-kickoff <the numbers above>, or
+2. Run /tm-advisor to propose them as a batch (it creates the batch
+   issue at dispatch time)
+```
+
+Then stop. Sections 4 (Run) and 5 (Report) apply only on dispatch.
 
 ## 4. Run
 
@@ -196,5 +232,5 @@ is never implicit approval. End the proposal with:
 - Batch #NN closed. All PRs merged.
 
 ## Next steps
-1. Approve the proposed batch above to dispatch
+1. Answer the sign-off above: dispatch, file only, or revise
 ```

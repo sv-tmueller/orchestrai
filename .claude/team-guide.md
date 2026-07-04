@@ -124,8 +124,9 @@ session-wide:
 - A batch is up to 6 independent `size:S`/`size:M` issues, run through the
   kickoff pipeline 3 at a time. Merging stays human; dependent work waits
   for the next batch.
-- One sign-off per batch covers filing the issues and dispatching. Nothing
-  lands on GitHub before it.
+- One sign-off per batch, with two approval outcomes: dispatch (file the
+  batch and package issues, then run) or file only (package issues to
+  the backlog, no batch issue, no run). Nothing lands on GitHub before it.
 - The escalation line is scope. Within the signed-off scope and acceptance
   criteria the advisor decides and logs the decision on the batch issue.
   Scope or acceptance-criteria changes, new dependencies or costs,
