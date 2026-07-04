@@ -134,6 +134,12 @@ describe('safeRef', () => {
     const b = sliceFnSrc('tm-review-codebase.js', 'safeRef')
     assert.equal(a, b, 'safeRef diverged between the two workflow files')
   })
+
+  test('the third copy (tm-map-codebase.js) is byte-identical to tm-review-codebase.js', () => {
+    const a = sliceFnSrc('tm-review-codebase.js', 'safeRef')
+    const b = sliceFnSrc('tm-map-codebase.js', 'safeRef')
+    assert.equal(a, b, 'safeRef diverged in tm-map-codebase.js')
+  })
 })
 
 // ===========================================================================
@@ -184,6 +190,12 @@ describe('parseArgs', () => {
     // This documents the current behaviour; a future hardening may change it.
     const arr = [1, 2]
     assertLoose.deepEqual(parseArgs(arr), arr)
+  })
+
+  test('is byte-identical between tm-review-codebase.js and tm-map-codebase.js', () => {
+    const a = sliceFnSrc('tm-review-codebase.js', 'parseArgs')
+    const b = sliceFnSrc('tm-map-codebase.js', 'parseArgs')
+    assert.equal(a, b, 'parseArgs diverged in tm-map-codebase.js')
   })
 })
 

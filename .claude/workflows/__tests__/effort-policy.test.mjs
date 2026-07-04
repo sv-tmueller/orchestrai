@@ -19,7 +19,7 @@ const workflowsDir = join(__dir, '..')
 const agentsDir = join(__dir, '..', '..', 'agents')
 
 const EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh' }
-const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js']
+const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
 // ===========================================================================
 // 1. Agent frontmatter: every role agent pins model and the matching effort
