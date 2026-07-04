@@ -1,0 +1,27 @@
+---
+name: tm-map-codebase
+description: Token-bounded full-repo map, run as a workflow (Sonnet scout and area workers plus one Fable critic that writes a dated architecture map). Plugin-only wrapper; the committed-repo root invokes the tm-map-codebase workflow directly by name. User-invocable only.
+disable-model-invocation: true
+---
+
+Run the `tm-map-codebase` workflow against the whole repo. This skill exists
+only so the plugin install (`orchestrai@orchestrai`) can reach the workflow:
+the committed-repo root already exposes it directly as `/tm-map-codebase`
+because Claude Code auto-discovers `.claude/workflows/*.js`, and plugin
+`workflows/` is not an official component type; any direct registration is
+undocumented. Retire this wrapper if plugin `workflows/` becomes an
+officially documented component type (see the component table in
+code.claude.com/docs/en/plugins-reference.md).
+
+1. Check whether you are running from a plugin install: `echo "$CLAUDE_PLUGIN_ROOT"`.
+2. If `CLAUDE_PLUGIN_ROOT` is set (non-empty), invoke the Workflow tool with
+   `scriptPath` set to
+   `${CLAUDE_PLUGIN_ROOT}/workflows/tm-map-codebase.js`. No `.claude/`
+   segment: `source: "./.claude"` in `marketplace.json` makes the plugin root
+   `.claude/` itself, so `workflows/` sits directly under
+   `CLAUDE_PLUGIN_ROOT`.
+3. Otherwise, invoke the Workflow tool with `name: "tm-map-codebase"`,
+   which resolves the saved workflow at `.claude/workflows/tm-map-codebase.js`
+   the normal way.
+
+Report whatever the workflow returns; do not re-map files yourself.
