@@ -118,7 +118,7 @@ tm-review-changes coverage fix.
 
 ## What each reviewer looks for
 
-Area workers reuse the five tm-review-changes dimensions, worded for whole files
+Area workers reuse five of the tm-review-changes dimensions, worded for whole files
 rather than a diff, reusing the existing briefs where possible for consistency:
 
 - bugs (adversarial correctness, edge cases, error paths, races, resource leaks)
