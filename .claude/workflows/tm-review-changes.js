@@ -27,6 +27,11 @@ function safeRef(value, fallback) {
 }
 const base = safeRef(args && args.base, 'origin/main')
 
+// This list is diff-scoped and intentionally longer than tm-review-codebase's
+// per-area dimension list: docs and perf need diff context (what changed, and
+// whether the matching doc or hot path moved with it) that a whole-repo area
+// pass does not have. tm-review-codebase covers doc drift repo-wide through
+// its architecture worker instead; see that file's `dimensions` comment.
 const DIMENSIONS = [
   {
     key: 'bugs',
@@ -52,6 +57,16 @@ const DIMENSIONS = [
     key: 'style',
     brief:
       'Project style (CLAUDE.md code style and writing style). Em dashes, AI-cliche phrases, hard-coded user-facing strings, raw primitives where dedicated types exist, comments that restate code, escape hatches with no // reason: comment.',
+  },
+  {
+    key: 'docs',
+    brief:
+      'Doc drift introduced by this diff. Behavior, commands, or config that changed with no matching update to README, CLAUDE.md, or the relevant spec under docs/. Enforces the CLAUDE.md rule that when code and a doc disagree, the doc is corrected in the same PR. Flag only drift this diff introduces, not pre-existing gaps.',
+  },
+  {
+    key: 'perf',
+    brief:
+      'Performance regressions introduced by this diff. Algorithmic complexity regressions, N+1 query patterns, unnecessary work in hot paths, unbounded memory growth.',
   },
 ]
 

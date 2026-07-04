@@ -241,7 +241,8 @@ describe('MAX_AREAS coercion logic', () => {
 })
 
 // ===========================================================================
-// 4a. covered/dropped partition (tm-review-changes.js lines 120-121)
+// 4a. covered/dropped partition (the covered/dropped partition after the
+// Review phase, tm-review-changes.js)
 //
 // Logic kernel:
 //   const covered = DIMENSIONS.filter((_, i) => reviews[i])
@@ -254,7 +255,7 @@ describe('covered/dropped partition', () => {
   const DIMS = ['bugs', 'security', 'scope', 'tests', 'style']
 
   function partition(reviews) {
-    // Logic kernel of: tm-review-changes.js lines 120-121
+    // Logic kernel of the covered/dropped partition after the Review phase, tm-review-changes.js
     const covered = DIMS.filter((_, i) => reviews[i])
     const dropped = DIMS.filter((_, i) => !reviews[i])
     return { covered, dropped }

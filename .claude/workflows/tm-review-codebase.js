@@ -145,6 +145,10 @@ const REPORT_SCHEMA = {
 
 const scope = `Work from the repo root scoped to "${root}". List source files with \`git ls-files -- ${root}\` (it already respects .gitignore); ignore vendored and generated trees (node_modules, dist, build, vendor, .git, coverage) and lockfiles.`
 
+// This list stays at five and does not track tm-review-changes.js's dimension
+// list: docs and perf there are diff-scoped (they need to know what changed).
+// Here, doc drift is covered repo-wide by the architecture worker below, and
+// there is no repo-wide perf dimension.
 const dimensions = `Review across these dimensions:
 - bugs: adversarial correctness. Logic errors, wrong or missing edge-case handling, broken error paths, races and ordering bugs, off-by-one, misused or wrongly-assumed APIs, null and boundary handling, resource leaks.
 - security: untrusted input reaching a sink (injection, path traversal, SSRF, unsafe deserialization), missing authn or authz, secrets or credentials in code or logs, unsafe defaults, weak crypto, risky dependencies.
@@ -187,7 +191,7 @@ const reviewThunks = areas.map((a) => () =>
 
 reviewThunks.push(() =>
   agent(
-    `You audit a repository's structure and report findings only. You never edit. Use dimension "architecture".\n\n${scope}\n\nRead the directory layout, module boundaries, imports, and dependency manifests. Read signatures and imports rather than full file bodies, so you can hold the whole tree in view. The area map is:\n${repoMap}\n\nFlag: module boundaries and layering that have drifted, the same logic duplicated across modules, dead or orphaned code, dependency health (unused, outdated, risky), and test-coverage gaps at the suite level. Report each finding with area (the module name or "repo"), dimension ("architecture"), file, line or "n/a", severity, the problem, and the fix.`,
+    `You audit a repository's structure and report findings only. You never edit. Use dimension "architecture".\n\n${scope}\n\nRead the directory layout, module boundaries, imports, and dependency manifests. Read signatures and imports rather than full file bodies, so you can hold the whole tree in view. The area map is:\n${repoMap}\n\nFlag: module boundaries and layering that have drifted, the same logic duplicated across modules, dead or orphaned code, dependency health (unused, outdated, risky), test-coverage gaps at the suite level, and doc drift between README/CLAUDE.md claims and the actual repo state (commands that no longer exist, a described layout that does not match the real one, stale status claims). Report each finding with area (the module name or "repo"), dimension ("architecture"), file, line or "n/a", severity, the problem, and the fix.`,
     { label: 'architecture', phase: 'Review', model: 'sonnet', effort: 'high', schema: FINDINGS_SCHEMA }
   )
 )
