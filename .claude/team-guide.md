@@ -187,7 +187,7 @@ else. The lever is where each model runs, not raw effort everywhere.
   workflow for every substantive task; those invented workflows carry no
   per-stage model pinning, so every stage would run at Fable rates, and Fable
   over-spawns under exactly this shape. The measured trial behind this rule
-  (287 agents attempted by an unbounded dynamic workflow against the bounded
+  (288 agents attempted by an unbounded dynamic workflow against the bounded
   `tm-review-codebase` script's 9, spend cap exhausted) is in
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
   `xhigh` and use the tm- scripts; reach for the `ultracode` keyword only for a
