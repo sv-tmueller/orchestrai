@@ -2,10 +2,10 @@
 #
 # Copy this file to `.github/workflows/ci.yml`, then replace every
 # placeholder `run:` command with this repo's real install, typecheck,
-# lint, unit test, build, and e2e commands. The structure encodes the cost
-# policy decided in issue #153: staged jobs, pinned timeouts, concurrency
-# cancellation, and a draft-PR skip for build/e2e. See team-guide.md's CI
-# cost policy section for the reasoning.
+# lint, unit test, build, and e2e commands. The structure encodes the CI
+# cost policy: staged jobs, pinned timeouts, concurrency cancellation, and
+# a draft-PR skip for build/e2e. See team-guide.md's CI cost policy section
+# for the reasoning.
 
 name: CI
 

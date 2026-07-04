@@ -71,6 +71,6 @@ describe('tm-new-project CI template', () => {
   })
 
   test('the pull_request trigger includes ready_for_review', () => {
-    assert.match(src, /types:\s*\[opened, synchronize, reopened, ready_for_review\]/)
+    assert.match(src, /types:\s*\[[^\]]*\bready_for_review\b[^\]]*\]/)
   })
 })
