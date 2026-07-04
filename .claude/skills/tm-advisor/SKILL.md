@@ -54,6 +54,7 @@ Present the batch in chat, per package:
 
 End every proposal with this sign-off block:
 
+```
 ## Sign-off
 
 Reply with one of:
@@ -64,6 +65,7 @@ Reply with one of:
    issue numbers and how to dispatch later, then stop. No batch issue,
    no run.
 3. **revise** - say what to change; the proposal comes back adjusted.
+```
 
 Then stop and wait. Nothing lands on GitHub before outcome 1 or 2. This
 is the only confirmation in the loop: dispatch runs unattended after it;
@@ -152,9 +154,12 @@ report and the chat digest with:
 - #NN parked (needs-human): <the open question>
 
 ## Next steps
-1. Review & merge: #NN, #NN
+1. Review & merge: #NN, #NN (merging closes each package issue via its
+   Closes #N)
 2. Decide on #NN (retry or close)
-3. Run /tm-advisor to close this batch and propose the next
+3. Close this batch issue by hand once everything is merged (it is the
+   run record), or run /tm-advisor to confirm the merges, close it, and
+   propose the next batch
 ```
 
 After posting, the advisor is done for this session.
@@ -184,7 +189,9 @@ With no arguments, `/tm-advisor` enters the resume path:
 
    ## Next steps
    1. Resolve or close: #NN, #NN
-   2. Run /tm-advisor to continue
+   2. Close this batch issue by hand once the PRs are merged, or run
+      /tm-advisor to confirm the merges, close it, and propose the next
+      batch
    ```
 
    Do not close the batch issue until every package either has a merged PR or
@@ -201,8 +208,10 @@ With no arguments, `/tm-advisor` enters the resume path:
    - PR #NN ready  - <package title>
 
    ## Next steps
-   1. Merge the outstanding PRs: #NN, #NN
-   2. Run /tm-advisor to continue
+   1. Merge the outstanding PRs: #NN, #NN (merging closes the package
+      issues via Closes #N)
+   2. Close this batch issue by hand, or run /tm-advisor to confirm the
+      merges, close it, and propose the next batch
    ```
 
    When all PRs are confirmed merged, close the batch issue and propose the
@@ -219,10 +228,13 @@ With no arguments, `/tm-advisor` enters the resume path:
 gh issue list --state open --search "NOT Batch: in:title"
 ```
 
-Then filter out any issue whose body still contains a `Part of batch #` line
-(those belong to an active batch and must not be re-proposed). Order the
-remainder first by dependency (issues with unresolved `Blocked by:` lines come
-after the issues they depend on) and then by creation date (oldest first).
+Then check every issue whose body contains a `Part of batch #N` line: if
+batch issue #N is open, filter the issue out (it belongs to an active
+batch and must not be re-proposed); if #N is closed, keep it as backlog.
+Closing a batch by hand therefore releases its remaining issues to this
+scan. Order the remainder first by dependency (issues with unresolved
+`Blocked by:` lines come after the issues they depend on) and then by
+creation date (oldest first).
 Present the highest-priority candidates as the next batch proposal, following
 the same rules as section 2. Dispatch always requires a new sign-off; merging
 is never implicit approval. End the proposal with:
