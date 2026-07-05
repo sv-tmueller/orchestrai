@@ -23,9 +23,11 @@ seat, a dedicated performance-investigation seat, a small report-format
 enrichment for `tm-review-codebase.js`'s report, and a habit (fetch current
 library docs before implementing against an unfamiliar API) worth adding to
 `developer.md`. None of these require a new orchestration pattern; each fits
-the flat star as a lead-routed dispatch or a workflow-prompt edit. All four
-are new: they come from `agents/core/`, the one agent group the prior research
-pass on this same source repo did not read (see below).
+the flat star as a lead-routed dispatch or a workflow-prompt edit. Candidates
+1 through 3 come from the unread `agents/core/`, the one agent group the prior
+research pass on this same source repo did not read; candidate 4 draws on
+`docs/dependencies.md` plus the sampled specialized files (see below). None of
+the four duplicates the prior doc's five process ideas.
 
 ## Relation to the prior research doc
 
