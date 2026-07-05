@@ -83,6 +83,7 @@ you deploy, make e2e a pre-deploy gate.
 **Claude Code plugins.** Accept the superpowers plugin prompt that
 `.claude/settings.json` triggers. If no prompt appears (a known gap,
 https://github.com/anthropics/claude-code/issues/32606), run
+`/plugin marketplace add anthropics/claude-plugins-official`, then
 `/plugin install superpowers@claude-plugins-official`.
 
 (Optional, UI projects only) Enable the design plugins. They are not on by
