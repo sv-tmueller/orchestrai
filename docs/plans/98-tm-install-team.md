@@ -1,5 +1,12 @@
 # tm-install-team Implementation Plan
 
+> **Superseded:** the `tm-install-team` skill this plan built was later retired
+> in favor of installing the team via the plugin marketplace, with
+> `team-guide.md` imported into the config dir's `CLAUDE.md` from the
+> marketplace clone. See commit 6dd9c69 (PR #144, "rebrand plugin to
+> orchestrai and retire tm-install-team", closes #143). This plan is kept as a
+> historical record and is not a description of a shipping skill.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `/tm-install-team` skill that copies/updates the orchestrator team (agents, `tm-*` skills, review workflows) into one or more user config dirs, so the team works in repos it must not be committed to.
