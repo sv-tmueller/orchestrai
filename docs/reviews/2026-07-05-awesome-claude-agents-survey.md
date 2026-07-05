@@ -12,7 +12,7 @@ Related: #163 (package), #197 (batch).
 
 ## Bottom line
 
-Most of this repo does not transfer. It ships 24 stack-specialist agents plus
+Most of this repo does not transfer. It ships 22 stack-specialist agents plus
 three orchestrator agents built around a peer-routing model our operating
 model deliberately rejects (see "Their model vs ours"). Their `code-reviewer`
 duplicates our `reviewer`, their `tech-lead-orchestrator` duplicates our lead,
@@ -43,17 +43,35 @@ survey's four candidates all come from that unread ground, so none of them
 duplicate the prior doc's five process ideas or its framework-specialist
 evaluation.
 
-Where the two docs cover the same files, they agree: both treat
-`tech-lead-orchestrator` as a duplicate of the lead's routing role, both treat
-`project-analyst`/`team-configurator`-style stack auto-detection as
-unnecessary (the prior doc for lack of a current consumer, this one because
-orientation already happens by reading `docs/architecture/`), and both treat
-`code-reviewer` as a duplicate of `reviewer` and `tm-review-changes.js`. This
-survey's "Considered and rejected" section repeats those verdicts briefly for
-completeness rather than re-arguing them; the prior doc has the fuller
-reasoning, including the file-count discrepancy in their own README (24
-claimed vs. 33 on disk) and the "adopt-with-constraints" analysis of the
-specialized/ layer.
+Where the two docs cover the same files, they do not land on the same
+verdicts. The prior doc's own verdicts were Adapt, not reject: it treats
+`project-analyst`'s stack-detection idea as worth adopting in a scoped-down
+form (record the stack as a `tm-new-project` interview answer, not a
+code-scanning agent, until a concrete consumer exists), the
+`team-configurator` in-place-rewrite pattern as worth keeping in mind for a
+future canonical doc with no current driver, and the
+`tech-lead-orchestrator` `Task N -> AGENT: @name` routing-map table as worth
+reusing only if a framework-specialist layer ever ships. It never evaluates
+`code-reviewer` for duplication at all: that file gets two procedural
+mentions only, in the tech-lead-orchestrator worked example and a
+`model:`-only spot-check.
+
+This survey's own verdicts, in "Considered and rejected" below, are stated on
+its own terms and are not a restatement of the prior doc's Adapt calls:
+`tech-lead-orchestrator` duplicates the lead session's own routing role,
+`project-analyst` stack detection is unnecessary because agents already
+orient by reading `docs/architecture/` and the plugin runs against the
+user's own known repos, `team-configurator` conflicts with
+`docs/architecture/operating-model.md`'s retirement of the
+template/auto-scaffold path, and `code-reviewer` duplicates `reviewer` and
+`tm-review-changes.js`. The prior doc's Adapt verdicts are conditional (worth
+it later, if a driver or consumer shows up); this survey's verdicts are
+current-state rejections given how this repo orients and operates today, so
+the two land differently on `project-analyst` and `team-configurator` rather
+than agreeing. `code-reviewer` has no prior verdict to compare against. The
+prior doc has the fuller reasoning behind its own verdicts, including the
+file-count discrepancy in their own README (24 claimed vs. 33 on disk) and
+the "adopt-with-constraints" analysis of the specialized/ layer.
 
 One place the two need reconciling rather than just agreeing: the prior doc's
 central blocker for the framework-specialist layer is "this repo is a
@@ -79,9 +97,9 @@ files under `docs/` (`best-practices.md`, `creating-agents.md`,
 `dependencies.md`, 356 lines together). Read in full: all 4 agents in
 `agents/core/`, all 3 in `agents/orchestrators/`, all 4 in `agents/universal/`
 (11 agent files, 896 lines together). Sampled, one or two per stack, out of
-the 24 files in `agents/specialized/`: `django/django-backend-expert.md`,
+the 22 files in `agents/specialized/`: `django/django-backend-expert.md`,
 `react/react-component-architect.md`, and `python/python-expert.md`. The
-remaining ~21 specialized files were not read; they follow the same template
+remaining 19 specialized files were not read; they follow the same template
 shape as the three sampled (a stack-expert system prompt with heavy inline
 code examples, no delegation restrictions, no model pin), which is why the
 selection criteria treat that tree as noise by default.
@@ -100,7 +118,7 @@ what's improvised:
   must consult and obey; ours has no such intermediary; the lead session is
   the router, full stop, and consults `architect` only for approach
   decisions, never for "which agent handles this."
-- **Model pins.** Across all 35 agent files, exactly one (`tech-lead-orchestrator`)
+- **Model pins.** Across all 33 agent files, exactly one (`tech-lead-orchestrator`)
   pins a model (`opus`), and it has no effort pin. Every other agent inherits
   whatever model the session is running under. Our five seats and every
   workflow stage pin both model and effort in the frontmatter or the
@@ -208,7 +226,7 @@ existing agent file. Suggested size: **S**.
 - **`backend-developer` / `frontend-developer`** (`agents/universal/`) - polyglot generic implementers; duplicate `developer`, which already detects and follows a repo's existing stack.
 - **`api-architect`** (`agents/universal/api-architect.md`) - contract-first API design as a standalone deliverable; the concrete value (calling out API-contract details up front) already fits inside `architect`'s existing `JOB: SUB_PLAN`, not a new seat.
 - **`tailwind-css-expert`** (`agents/universal/tailwind-css-expert.md`) - stack-specific to Tailwind; noise unless a given target repo actually uses it, and then it is no more than `developer` with a framework-specific prompt.
-- **The 24-file `agents/specialized/` tree** - framework experts (Laravel, Django, Rails, React, Vue) organized one file per concern; each is `developer` with a stack-specific system prompt and inline code examples, not a qualitatively new capability. Relevant only if a specific target repo uses that exact stack, and even then the gain is a longer prompt, not a new seat.
+- **The 22-file `agents/specialized/` tree** - framework experts (Laravel, Django, Rails, React, Vue) organized one file per concern; each is `developer` with a stack-specific system prompt and inline code examples, not a qualitatively new capability. Relevant only if a specific target repo uses that exact stack, and even then the gain is a longer prompt, not a new seat.
 - **"Router vs expert" description-writing pattern** (`docs/best-practices.md`) - their advice tunes agent `description` text so Claude's auto-invocation picks the right agent from conversation cues. We don't use auto-invocation; the lead dispatches agents explicitly by type, so this guidance has no seat to attach to.
 
 ## Next step
