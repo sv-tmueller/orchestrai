@@ -1,7 +1,9 @@
 # OrchestrAI
 
-A starting point for new projects: a `CLAUDE.md`, a bootstrap checklist, and a
-ready-made agent team for Claude Code.
+A personal AI-team-orchestrator plugin for Claude Code: a `CLAUDE.md`, a
+bootstrap checklist, and a ready-made agent team, adopted into your existing
+repos via the Claude Code marketplace (see "Getting the team into your repos"
+below).
 
 - `CLAUDE.md` - standing guidance for Claude Code sessions: what the repo is,
   where decisions live, code style, useful commands.
@@ -10,9 +12,10 @@ ready-made agent team for Claude Code.
   how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md; a
   config dir imports it from the marketplace clone instead (see "Getting the
   team into your repos" below).
-- `NEW-PROJECT-SETUP.md` - the once-per-repo checklist: branch protection,
-  docs structure, CI/CD and e2e wiring, labels, and filling in the `CLAUDE.md`
-  placeholders.
+- `NEW-PROJECT-SETUP.md` - the once-per-repo adoption checklist: branch
+  protection, installing the plugin, docs structure, CI/CD and e2e wiring,
+  and the first slice of work. Stays in the repo as a living checklist; it
+  is not deleted once checked off.
 - `.claude/agents/` - five role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only),
@@ -32,10 +35,9 @@ ready-made agent team for Claude Code.
   mattpocock/skills, MIT).
 - `.claude/skills/tm-new-project/` - `/tm-new-project`: runs the
   `NEW-PROJECT-SETUP.md` checklist as a guided flow. Creates the workflow
-  labels and docs tree, interviews the user to fill the `CLAUDE.md`
-  placeholders, prints the human-only steps (branch protection, CI,
-  design-plugin vetting), and retires `NEW-PROJECT-SETUP.md` once its
-  checklist is done.
+  labels and docs tree, then prints the human-only steps (branch protection,
+  CI, plugin install, design-plugin vetting). Idempotent, and does not
+  delete `NEW-PROJECT-SETUP.md`.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
   reviews a diff with a fixed set of Sonnet reviewers plus one Fable critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
@@ -55,7 +57,7 @@ TypeScript web app), keeping the shared backbone and dropping the project
 specifics.
 
 The four global coding principles live in `~/.claude/CLAUDE.md` and apply to
-every project; this template references them rather than repeating them.
+every project; this plugin references them rather than repeating them.
 
 ## How the team works
 
@@ -89,17 +91,6 @@ graph TD
 
     L -->|"run as slash commands"| WF
 ```
-
-## Using it
-
-Use it as a GitHub template repo, or copy the whole tree including `.claude/`:
-
-```bash
-gh repo create <new-repo> --template sv-tmueller/orchestrai --private --clone
-# then work through NEW-PROJECT-SETUP.md; delete it once every box is checked
-```
-
-Copying only `CLAUDE.md` works but does not carry the agents and skills, and leaves its `@.claude/team-guide.md` import dangling.
 
 ## Getting the team into your repos
 
@@ -143,10 +134,11 @@ yourself first if it is not already:
 /plugin install superpowers@claude-plugins-official
 ```
 
-**Committed in the repo.** A repo created from this template carries the team
-in `.claude/`. To update it after a `git pull` on the template, copy the
-updated files manually from the template checkout into the repo's `.claude/`
-and open a PR.
+**Committed in the repo.** Copy the whole `.claude/` tree from this repo into
+yours instead of installing the plugin, for a repo where the team must be
+committed rather than installed from the marketplace. To update it later,
+copy the changed files from this repo's `.claude/` into the target repo's
+`.claude/` and open a PR.
 
 ## License
 
