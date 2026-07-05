@@ -20,7 +20,7 @@ and the specialized/ tree is stack-specific noise unless the user's own repos
 match that stack. Four things are worth taking, each a small, concrete gap in
 what our five seats and three workflows already cover: a dedicated doc-writing
 seat, a dedicated performance-investigation seat, a small report-format
-enrichment for the two `tm-review-*` workflows, and a habit (fetch current
+enrichment for `tm-review-codebase.js`'s report, and a habit (fetch current
 library docs before implementing against an unfamiliar API) worth adding to
 `developer.md`. None of these require a new orchestration pattern; each fits
 the flat star as a lead-routed dispatch or a workflow-prompt edit. All four
@@ -34,14 +34,20 @@ source repo one day earlier, for the same issue (#163) under an earlier batch
 (#169). Its file list read `agents/orchestrators/*` (all three) and two
 `agents/universal/` and `agents/specialized/` files in full
 (`backend-developer.md`, `django-backend-expert.md`), plus a `model:`-only
-spot-check of four more, one of them `code-reviewer.md`. It never opened
-`agents/core/` (`code-archaeologist`, `documentation-specialist`,
-`performance-optimizer`) beyond that one spot-check, and never opened
+spot-check of four more: `code-reviewer.md`, `react-nextjs-expert.md`,
+`python-expert.md`, and `api-architect.md`. It never opened `agents/core/`
+(`code-archaeologist`, `documentation-specialist`, `performance-optimizer`)
+beyond that spot-check of `code-reviewer.md`, and never opened
 `docs/dependencies.md` or the remaining `agents/universal/` files
-(`api-architect.md`, `frontend-developer.md`, `tailwind-css-expert.md`). This
-survey's four candidates all come from that unread ground, so none of them
-duplicate the prior doc's five process ideas or its framework-specialist
-evaluation.
+(`frontend-developer.md`, `tailwind-css-expert.md`). Candidates 1 through 3
+(`documentation-specialist`, `performance-optimizer`, `code-archaeologist`)
+come from that unread `agents/core/` ground. Candidate 4 draws on
+`docs/dependencies.md` (also unread) plus the sampled `django-backend-expert.md`
+and `python-expert.md`, both of which the prior doc did touch (the former read
+in full, the latter spot-checked for `model:` only), but only for its own
+model-pin and framework-specialist analysis, never for a "fetch current docs"
+habit. None of the four duplicates the prior doc's five process ideas or its
+framework-specialist evaluation.
 
 Where the two docs cover the same files, they do not land on the same
 verdicts. The prior doc's own verdicts were Adapt, not reject: it treats
@@ -192,15 +198,21 @@ file plus a defined report schema, more than a prompt edit).
 
 Their `code-archaeologist` report format opens with a compact "Health Score
 (0-10)" and "Top 3 Risks" before the detailed sections. Our
-`tm-review-codebase.js` and `tm-map-codebase.js` critic stages already write a
-verdict and summary first, but nothing gives a reader who only skims the top
-of the file a fast severity or risk signal across runs over time. Adaptation:
-add two short fields to the critic's report prompt in both workflows (not a
-new schema property, just two more sentences in the existing "verdict and
-summary first" instruction) - a one-line health impression and up to three
-named top risks, written directly into the report's opening section. This is
-a prompt-only change to two existing files, not a new seat or schema. Suggested
-size: **S**.
+`tm-review-codebase.js` critic already writes "the verdict and summary first"
+into its dated report file, but nothing gives a reader who only skims the top
+of the file a fast severity or risk signal across runs over time.
+`tm-review-changes.js`'s critic writes no report file at all (it returns a
+structured `verdict`/`summary`/`mustFix`/`shouldFix`/`nits` object, with no
+`reportPath` and no prose section to extend), and `tm-map-codebase.js`'s
+critic writes no verdict either (its schema is `summary`, `reportPath`,
+`openQuestions`, `coverage`, and its prompt explicitly rules out findings,
+severities, and recommendations, per the map's no-findings contract). This
+candidate targets `tm-review-codebase.js` only. Adaptation: add two short
+fields to that critic's report prompt (not a new schema property, just two
+more sentences in the existing "verdict and summary first" instruction) - a
+one-line health impression and up to three named top risks, written directly
+into the report's opening section. This is a prompt-only change to one
+existing file, not a new seat or schema. Suggested size: **S**.
 
 ### 4. "Fetch current docs before implementing" step (from `docs/dependencies.md` and the sampled specialized agents)
 
@@ -213,9 +225,11 @@ equivalent instruction today; nothing stops it from implementing against a
 remembered but outdated API shape. Adaptation: add a short instruction to
 `developer.md`'s orientation step: when an issue touches a library or API the
 developer is not confident is current, WebFetch the library's own docs before
-writing code against it. No new seat, no new tool grant (`WebFetch` is
-already available to `developer` via its tool list), a doc-only edit to one
-existing agent file. Suggested size: **S**.
+writing code against it. `developer.md`'s `tools:` line
+(`Read, Grep, Glob, Bash, Write, Edit, TodoWrite`) does not list `WebFetch`
+today, and an explicit tools list excludes everything unlisted, so adoption
+adds `WebFetch` to that line alongside the instruction text. No new seat, a
+doc-only edit to one existing agent file. Suggested size: **S**.
 
 ## Considered and rejected
 
