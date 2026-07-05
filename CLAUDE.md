@@ -52,15 +52,7 @@ docs/
   reviews/           dated codebase-review reports from /tm-review-codebase
   superpowers/specs/ approved designs, YYYY-MM-DD-<topic>-design.md
   team-architecture.md  flat-star agent-team diagrams and rationale
-e2e/                 end-to-end tests; structure depends on the app
 ```
-
-`e2e/` holds the tests that exercise the deployed system end to end. Its shape
-depends on the application: a web app uses Playwright specs plus fixtures and
-helpers; a CLI or service uses its own driver. In CI, e2e runs on ready-for-review
-PRs and on pushes to main; draft PRs run cheaper checks instead (see the CI cost
-policy in `.claude/team-guide.md`). It is the safety net unit tests cannot be: a
-branch can be unit-green and still break the full stack.
 
 ## Useful commands
 
@@ -70,5 +62,4 @@ npm test          # unit tests (node:vm, zero deps); run before commit
 # gh pr create --draft
 ```
 
-There is no application runtime, so install, dev, typecheck, and lint are N/A;
-there is no `e2e/` suite yet.
+There is no application runtime, so install, dev, typecheck, and lint are N/A.
