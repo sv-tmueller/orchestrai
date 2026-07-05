@@ -12,4 +12,4 @@ If a question can be answered by exploring the codebase, explore the codebase in
 ---
 
 Source: [mattpocock/skills](https://github.com/mattpocock/skills)
-(`skills/productivity/grill-me`), MIT License, Copyright (c) 2026 Matt Pocock.
+(`skills/productivity/grilling`), MIT License, Copyright (c) 2026 Matt Pocock.
