@@ -3,13 +3,10 @@
 Prefer a guided flow? Run `/tm-new-project` to automate what it can here and
 print exact commands for the rest.
 
-Run once when starting a new repo from this template. Create the repo from the
-GitHub template (or copy the whole tree, including `.claude/`) and fill in the
-`CLAUDE.md` placeholders as you go.
+Run once when adopting the orchestrai plugin into an existing repo.
 
-## 1. Repository and protection
+## 1. Branch protection
 
-- [ ] Create the repo (`gh repo create <name> --template sv-tmueller/orchestrai --clone`).
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
 - [ ] (Optional) Create the labels the workflow uses: the sizing set `size:S`,
@@ -23,16 +20,21 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 
 ## 2. Claude Code
 
-- [ ] Open the repo in Claude Code and trust the folder. Accept the superpowers
-      plugin prompt that `.claude/settings.json` triggers. If no prompt appears
-      (a known gap, https://github.com/anthropics/claude-code/issues/32606), run
+- [ ] Install the orchestrai plugin via the marketplace (see the README's
+      "Getting the team into your repos"):
+      `/plugin marketplace add sv-tmueller/orchestrai`, then
+      `/plugin install orchestrai@orchestrai`. It depends on the superpowers
+      plugin: accept the prompt that `.claude/settings.json` triggers, or if
+      no prompt appears (a known gap,
+      https://github.com/anthropics/claude-code/issues/32606), run
+      `/plugin marketplace add anthropics/claude-plugins-official`, then
       `/plugin install superpowers@claude-plugins-official`.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
       tm-kickoff, tm-grill-me, tm-to-issues, and tm-new-project.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
-      not on by default, so the template stays generic and free of third-party
+      not on by default, so adoption stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and
       install it:
       - `frontend-design@claude-plugins-official` (distinctive frontend UI;
@@ -73,13 +75,7 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] Make the relevant CI jobs required status checks on `main`.
 - [ ] If you deploy, make e2e a pre-deploy gate.
 
-## 5. CLAUDE.md
-
-- [ ] Fill "What this repo is" (what, who, status).
-- [ ] Fill "Useful commands" with the real install/dev/test/lint/e2e commands.
-- [ ] Tailor "Code style" to this project; delete the placeholder line.
-
-## 6. First slice of work
+## 5. First slice of work
 
 - [ ] Brainstorm the first design via `superpowers:brainstorming`; save the spec to
       `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`.
@@ -88,10 +84,3 @@ GitHub template (or copy the whole tree, including `.claude/`) and fill in the
 - [ ] For a single issue: post a short sub-plan on the issue, branch, open a
       draft PR (`Closes #N`), then expand it to a full plan in `docs/plans/`.
 - [ ] For a batch of refined issues: run `/tm-kickoff` (see team-guide.md "Agent team").
-
-## 7. Clean up
-
-- [ ] Remove all `(see NEW-PROJECT-SETUP)` pointers from `CLAUDE.md`, in
-      "Where decisions live" and "Repo layout".
-- [ ] Delete this file, `NEW-PROJECT-SETUP.md`, once every box above is
-      checked.
