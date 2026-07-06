@@ -106,11 +106,11 @@ Supports: "`developer`, `tester`, `fact-checker`, `docs-writer`, and
 Haiku."
 
 Code generation, verification, claim auditing, doc authoring, and
-measurement are execution roles, not decision roles. The `fact-checker`
-stays on Sonnet rather than Haiku because claim extraction is the step that
-fails silently: a model that misses an unsupported claim defeats the role's
-purpose, and the agent runs rarely enough that the cost difference does not
-matter.
+measurement are execution roles, not decision roles. The `sonnet` alias
+resolves to Sonnet 5. The `fact-checker` stays on Sonnet rather than Haiku
+because claim extraction is the step that fails silently: a model that
+misses an unsupported claim defeats the role's purpose, and the agent runs
+rarely enough that the cost difference does not matter.
 
 ### Effort ceiling: the DeepSWE evidence
 
@@ -118,7 +118,9 @@ Supports: "Effort ceiling: `xhigh`. Nothing runs at `max`."
 
 Evidence (DeepSWE v1.1 leaderboard, July 2026): Fable 5 at max scores the
 same as at high for roughly 1.8x the cost, and Sonnet 5 at max is dominated
-by Fable 5 at every plotted effort level.
+by Fable 5 at every plotted effort level. Effort inherits to any seat that
+does not pin it, so the old session-wide max ran the Sonnet workers at the
+chart's worst value point.
 
 ### Workflows: the three worked examples
 
@@ -138,3 +140,11 @@ scout/worker/critic shape for a purely descriptive map (purpose, entry
 points, data and control flow, no findings): it drops the architecture
 worker, so the agent count is N + 2, bounded and scaling with repo size the
 same way.
+
+### CLAUDE_CODE_SUBAGENT_MODEL: what it overrides
+
+Supports: "Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every
+subagent to one model, defeating the split above."
+
+It overrides both the per-call model and the frontmatter `model:`,
+flattening every subagent to one model and defeating the split above.

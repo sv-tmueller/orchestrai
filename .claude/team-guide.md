@@ -192,8 +192,8 @@ Rationale: docs/team-guide-rationale.md.
   the strong model for synthesis or critique, bounded by construction so it
   cannot fan out unboundedly (`.claude/workflows/*.js`;
   docs/superpowers/specs/2026-06-13-review-codebase-design.md). A
-  cheaper-led session still gets Fable-quality judgment at worker stages; a
-  Fable-led session never pays Fable rates for them.
+  cheaper-led session still gets Fable-quality judgment; a Fable-led session
+  never pays Fable rates for worker stages.
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every subagent to one
   model, defeating the split above. Use only as a temporary seatbelt (e.g.
   `claude-sonnet-4-6` before one heavy ad-hoc run); it downgrades the
