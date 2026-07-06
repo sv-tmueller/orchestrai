@@ -11,7 +11,7 @@
     {
       "name": "orchestrai",
       "source": "./.claude",
-      "description": "Orchestrator team: 5 role agents, the tm- operational skills, and the review workflows."
+      "description": "Orchestrator team: the role agents, the tm- operational skills, and the review workflows."
     }
   ]
 }
