@@ -61,6 +61,13 @@ From the default run's "Data inventory" section:
 - `cache_creation` on the 5-minute TTL: 38,086,187; on the 1-hour TTL:
   41,131,216 (48% / 52% split)
 
+Expected drift on re-run: the housekeeping counters above (project
+directories scanned, file counts, total bytes, lines scanned) will grow on a
+later re-run, because the transcript dataset is append-only outside the
+closed window. Every window-gated number - the 14-day window's usage lines,
+dedup counts, and all tables from section 3 onward - reproduces exactly
+regardless of when the script runs.
+
 **Sanity check** (per the task's practical note): the largest per-project
 `cache_read` totals (hundreds of millions of tokens from a few thousand
 lines, e.g. 334,422,606 across 2,749 lines for one `fixum-budget` project
@@ -106,11 +113,12 @@ cache_creation 79,582,989; cache_read 2,002,167,680; grand total
 2,094,701,299 tokens over 20,558 deduped lines and 14 days, across the 25
 active project directories.
 
-**By day** (full table in "Totals by day"): burn varies roughly 10x day to
-day (2026-06-26 is the quietest day at 216,376 cache_creation and 1,207,161
-cache_read; 2026-07-04 is the heaviest single day for cache_creation at
-8,694,276, and 2026-06-22 is the heaviest for cache_read at 323,946,132),
-tracking active work days rather than a steady background rate.
+**By day** (full table in "Totals by day"): burn swings far more than 10x
+day to day. 2026-06-26 is the quietest day and 2026-06-22 is the heaviest for
+every bucket: cache_creation ranges from 216,376 to 13,180,407 (60.9x),
+cache_read ranges from 1,207,161 to 323,946,132 (268.4x), and the
+all-bucket total ranges from 1,514,902 to 338,902,570 (223.7x), tracking
+active work days rather than a steady background rate.
 
 **Lead vs agentType** (full table in "Totals by attribution"): `lead` alone
 accounts for 1,105,250 input / 9,757,736 output / 41,496,802 cache_creation /
@@ -126,17 +134,23 @@ plugin-prefixed forms (`orchestrai:*`, `sv-tmueller:*`) are real distinct
 artifact.
 
 **Cache efficiency by project** (full table in "Cache efficiency by
-project"): 23 of 25 projects have a `cache_read / (cache_read +
-cache_creation)` hit ratio above 0.92; the two below (`-Users-TM-Desktop-30-Github`
-at 0.661 and `-Users-TM-Desktop-claudecode` at 0.742) each have 5 or fewer
-deduped lines, too small a sample to read as a real efficiency problem.
+project"): 20 of 25 projects have a `cache_read / (cache_read +
+cache_creation)` hit ratio above 0.92; five are at or below. Two of the five
+are genuinely too small a sample to read as a problem
+(`-Users-TM-Desktop-30-Github` at 0.661, 2 deduped lines; `-Users-TM-Desktop-claudecode`
+at 0.742, 5 lines). The other three sit on sample sizes large enough that
+small-n does not excuse the dip: `-Users-TM-Desktop-30-Github-claude-multiprofile--claude-worktrees-agent-a05bac448301ebe5b`
+at 0.859 (11 lines), `-Users-TM-Desktop-github-rainmaker-bot` at 0.839 (18
+lines), and the CloudDocs mirror of `trading-bot` at 0.859 (9 lines) - a real,
+if modest, efficiency gap on those three, not noise.
 
 **Session peaks** (full table in "Top sessions by peak context", `peak` =
 max of `input + cache_read + cache_creation` on one deduped line): the top 15
-sessions all belong to `lead` attribution; the single highest is 1,634,150
-tokens on one line (`-Users-TM-Desktop-github-one-pager`), the second is
-1,630,625 (`-Users-TM-Desktop-github-fixum-budget`), and 10 of the 15 exceed
-570,000. orchestrai's own highest lead session peaks at 583,848 (13th of 15).
+sessions all belong to `lead` attribution and all 15 exceed 570,000 tokens;
+the single highest is 1,634,150 tokens on one line
+(`-Users-TM-Desktop-github-one-pager`), the second is 1,630,625
+(`-Users-TM-Desktop-github-fixum-budget`), and 10 of the 15 exceed ~610,000.
+orchestrai's own highest lead session peaks at 583,848 (13th of 15).
 This is the largest single number this investigation measured, by 1-2 orders
 of magnitude over every other driver below, and is developed further as a
 finding in section 5.
@@ -184,7 +198,7 @@ cache_creation` of its earliest deduped line) gives 404,659 tokens total.
 The batch's total token volume in that window, lead plus all subagents
 across all buckets, is 29,821,474. Bootstrap cost is therefore 1.36% of the
 batch's burn. Per-role bootstrap cost is tight and consistent across
-dispatches of the same role (architect 12,308-12,487; developer
+dispatches of the same role (architect 12,308-12,416; developer
 21,357-22,314; tester 17,707-17,973; reviewer 12,357-12,664), confirming this
 is a fixed, small per-dispatch tax, not a source of runaway growth.
 
@@ -232,42 +246,47 @@ tokens (n=653), so the chain is ~37.7% of a fresh subagent's opening context.
 A real, minor-to-moderate contributor to bootstrap cost, but bootstrap cost
 itself is a small fraction of total burn (driver 1).
 
-**Driver 5 - MCP schema overhead: LABELED, inconclusive (data gap).** Both
-config directories' `enabledPlugins` (`~/.claude/settings.json` and
-`~/.claude-personal/settings.json`) include the `supabase` MCP server, and no
-project directory in either root carries a per-project `mcpServers`
-override, so there is no natural "with MCP" vs "without MCP" project pair in
-the sampled data to cross-check first-request context against. The actual
-injected tool-schema size is negotiated at runtime between Claude Code and
-the MCP server process; measuring it directly would mean starting that
-server, which is out of scope for a zero-dependency, no-live-process script.
-This driver is not cleared or confirmed; it is an open gap, flagged as a
-follow-up rather than a conclusion.
+**Driver 5 - MCP schema overhead: LABELED, inconclusive (data gap).** The
+recorded command (section 7) checks only the two global config files: both
+`~/.claude/settings.json` and `~/.claude-personal/settings.json` list
+`supabase` in `enabledPlugins`. That command does not enumerate per-project
+`mcpServers` overrides, and several of the sampled project paths no longer
+exist on disk to check directly, so this report cannot say whether any
+project carries a per-project override; there is no natural "with MCP" vs
+"without MCP" project pair in the sampled data to cross-check first-request
+context against. The actual injected tool-schema size is negotiated at
+runtime between Claude Code and the MCP server process; measuring it
+directly would mean starting that server, which is out of scope for a
+zero-dependency, no-live-process script. This driver is not cleared or
+confirmed; it is an open gap, flagged as a follow-up rather than a
+conclusion.
 
 **Additional finding - single-session context bloat: the largest measured
 driver, outside the original five.** Section 3's session-peak numbers (up to
-1,634,150 tokens on a single line, all in `lead` sessions, 10 of the top 15
-over 570,000, hit ratios of 0.94-0.98 on those same sessions) show the
+1,634,150 tokens on a single line, all in `lead` sessions, all 15 of the top
+15 over 570,000, hit ratios of 0.9266-0.9891 on those same sessions) show the
 dominant cost is long-lived sessions accumulating unbounded conversation
-history that gets re-read from cache on every turn. This is 25-70x driver
-4's injection-chain estimate and roughly three to four orders of magnitude
-over a single subagent's typical bootstrap cost (driver 1). orchestrai's own
-highest lead session (583,848) is markedly below the plan-wide top entries
-(up to 1,634,150), consistent with the worktree-per-package convention
-(driver 1, recommendation 2) already bounding the worst case for this
-project's own kickoff pipeline; other personal projects that run one
-long-lived session across many tasks do not have that bound and show the
-highest peaks in the whole sample.
+history that gets re-read from cache on every turn. Against driver 4's
+~6,220-token injection-chain estimate, the top-15 peaks are 92.3x-262.7x
+larger; against driver 1's per-dispatch bootstrap range (12,308-22,314),
+they are 25.7x-132.8x larger, i.e. roughly 1.5-2.1 orders of magnitude, not
+three to four. orchestrai's own highest lead session (583,848) is markedly
+below the plan-wide top entries (up to 1,634,150), consistent with the
+worktree-per-package convention (driver 1, recommendation 2) already
+bounding the worst case for this project's own kickoff pipeline; other
+personal projects that run one long-lived session across many tasks do not
+have that bound and show the highest peaks in the whole sample.
 
 ## 6. Recommendations, ranked by estimated savings
 
 1. **Bound single-session context growth: compact, `/clear`, or restart
    before a session's peak context reaches the hundreds of thousands of
    tokens.** Traceable to the session-peak finding in section 3/5: individual
-   turns already reach up to 1,634,150 tokens, 25-70x every other measured
-   driver. This is the largest lever found in this investigation, because it
-   is the only driver operating at the million-token scale rather than the
-   thousand-token scale.
+   turns already reach up to 1,634,150 tokens, 92.3x-262.7x driver 4's
+   injection-chain estimate and 25.7x-132.8x driver 1's per-dispatch
+   bootstrap cost. This is the largest lever found in this investigation,
+   because it is the only driver operating at the million-token scale rather
+   than the thousand-token scale.
 
 2. **Keep (and extend) the tm-kickoff worktree-per-package convention:
    dispatch fresh, short-lived subagent sessions per issue rather than one
