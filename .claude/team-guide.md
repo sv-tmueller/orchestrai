@@ -202,13 +202,12 @@ else. The lever is where each model runs, not raw effort everywhere.
   fallback); `developer`, `tester`, `fact-checker`, and `docs-writer` run
   `sonnet`, which resolves to Sonnet 5 (code generation, verification, claim
   auditing, and doc authoring are execution roles, not decision roles). The
-  `fact-checker` stays on
-  Sonnet rather than Haiku because claim extraction is the step that fails
-  silently: a model that misses an unsupported claim defeats the role's
-  purpose, and the agent runs rarely enough that the cost difference does
-  not matter. Each agent also pins its own effort in frontmatter (`sonnet`
-  seats `high`, `fable` seats `xhigh`), so seat effort never depends on the
-  session's `/effort` setting.
+  `fact-checker` stays on Sonnet rather than Haiku because claim extraction is
+  the step that fails silently: a model that misses an unsupported claim
+  defeats the role's purpose, and the agent runs rarely enough that the cost
+  difference does not matter. Each agent also pins its own effort in
+  frontmatter (`sonnet` seats `high`, `fable` seats `xhigh`), so seat effort
+  never depends on the session's `/effort` setting.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Evidence (DeepSWE v1.1
   leaderboard, July 2026): Fable 5 at max scores the same as at high for
   roughly 1.8x the cost, and Sonnet 5 at max is dominated by Fable 5 at every
