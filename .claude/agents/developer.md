@@ -1,7 +1,7 @@
 ---
 name: developer
 description: Implements exactly one GitHub issue end to end (branch, TDD, conventional commits, draft PR).
-tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite
+tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite, WebFetch
 model: sonnet
 effort: high
 isolation: worktree
@@ -50,6 +50,10 @@ local default branch, which may be stale, so orient first:
    `git push --force-with-lease origin HEAD:refs/heads/<branch>`. If no sub-plan
    comment exists yet, post one (approach, files to touch, order, verification
    step).
+3. If the issue touches a library or API whose current shape you are not
+   confident about, fetch that library's own current docs (WebFetch) before
+   writing code against it, so you do not implement against a stale
+   training-data version.
 
 Then:
 
