@@ -20,7 +20,9 @@ below).
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only),
   fact-checker (audits report and PR claims against evidence, read-only),
-  docs-writer (authors user-facing docs from a gap analysis, on demand).
+  docs-writer (authors user-facing docs from a gap analysis, on demand),
+  perf-investigator (measures a baseline and target for a reported slowness,
+  read-only except for measurement).
 - `.claude/skills/tm-advisor/` - `/tm-advisor`: the operating model on top of the
   team. Refines a raw need into a batch of work packages, takes one sign-off,
   runs the batch uninterrupted through the kickoff pipeline, and reports.
@@ -83,6 +85,8 @@ graph TD
     F -.->|"grounded / ungrounded"| L
     L -->|"on demand"| DW["docs-writer<br/>sonnet, high<br/>gap analysis + author docs"]
     DW -.->|"files written"| L
+    L -->|"on demand"| P["perf-investigator<br/>sonnet, high<br/>measurement-only - baseline and target"]
+    P -.->|"baseline / bottleneck / target"| L
 
     L -->|"5 ready PR"| G[("GitHub<br/>sub-plans, verdicts, labels")]
     G -->|"6 human merges"| H
