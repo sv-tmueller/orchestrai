@@ -37,22 +37,26 @@ graph TD
     L -->|"branch + issue"| T["tester (sonnet)<br/>read-only - re-runs suite, attacks change"]
     L -->|"PR + issue + untested claims"| R["reviewer (fable)<br/>read-only - spec pass then quality pass"]
     L -->|"report text + branch or PR"| F["fact-checker (sonnet)<br/>read-only - audits claims against evidence"]
+    L -->|"dispatch: docs to write"| DW["docs-writer (sonnet)<br/>gap analysis, then author user-facing docs"]
 
     A -.->|"SUB_PLAN / NEEDS_DECISION"| L
     D -.->|"STATUS / BRANCH / PR / CHECKS"| L
     T -.->|"VERDICT / FINDINGS"| L
     R -.->|"VERDICT / FINDINGS"| L
     F -.->|"GROUNDED / UNGROUNDED per claim"| L
+    DW -.->|"FILES / GAPS_NOT_FILLED / ASSUMPTIONS"| L
 
     L <-->|"sub-plans, PR verdicts, labels = resumable state"| G[("GitHub")]
 ```
 
-Five peers under one lead, no third level. Evidence flows back to the lead, which
+Six peers under one lead, no third level. Evidence flows back to the lead, which
 routes it into the next agent. GitHub holds the state that makes a dropped
-session resumable. The `fact-checker` sits outside the per-package pipeline:
-the lead dispatches it on demand when a report's claims are load-bearing but
-carry no evidence, and routes any CONTRADICTED claim back to the agent that
-made it.
+session resumable. The `fact-checker` and `docs-writer` sit outside the
+per-package pipeline: the lead dispatches `fact-checker` on demand when a
+report's claims are load-bearing but carry no evidence, and routes any
+CONTRADICTED claim back to the agent that made it; it dispatches `docs-writer`
+on demand, for example after a `tm-map-codebase` run, when user-facing docs
+are missing or stale.
 
 ## The per-package pipeline
 
