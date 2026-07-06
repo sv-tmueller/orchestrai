@@ -271,7 +271,8 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 
 ```
 .claude/
-  agents/            role agents: architect, developer, tester, reviewer
+  agents/            role agents: architect, developer, tester, reviewer,
+                       fact-checker, docs-writer, perf-investigator
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project, /tm-to-issues
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
   settings.json      project settings; enables the superpowers plugin
