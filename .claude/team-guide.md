@@ -92,6 +92,20 @@ Standing preferences for this project:
   verification-before-completion).
 - Parallel work: fan out subagents for independent research or implementation
   streams. Default to parallel over serial.
+- Session hygiene: bound lead-session context growth before it reaches the
+  hundreds of thousands of tokens (compact, `/clear`, or restart), and prefer
+  fresh short-lived dispatches per issue over one long session across many
+  tasks. Before (measured): the top 15 lead-session peaks per turn all exceed
+  570,000 tokens, the highest is 1,634,150; orchestrai's own top lead session
+  is 583,848, already below those plan-wide peaks because the kickoff
+  pipeline dispatches fresh sessions per issue. After (estimate, not a
+  measurement): assuming a 200,000-token compact-or-clear threshold, the
+  worst measured turn shrinks about 8.2x (about 88% less) and the top-15
+  floor shrinks about 2.9x (about 65% less) per turn. Cache-read volume on
+  those turns drops by roughly the same factors, since the peaks are almost
+  all cache_read (hit ratios 0.9266 to 0.9891). The estimate assumes the
+  threshold holds exactly and ignores compaction's own one-time cost
+  (docs/research/2026-07-06-token-burn-investigation.md).
 
 ## Agent team
 
@@ -170,9 +184,13 @@ else. The lever is where each model runs, not raw effort everywhere.
   model. This is affordable only because the lead stays on the bounded tm-
   machinery: Fable's known failure mode is over-spawning under session-wide
   ultracode, which this policy rules out (next bullet). Fable costs 2x Opus
-  4.8 per token and weighs correspondingly against Max-plan quota; the lead's
-  own token share is small next to the Sonnet-pinned workers, which keeps the
-  premium bounded.
+  4.8 per token and weighs correspondingly against Max-plan quota. Across the
+  14-day, 25-project aggregate, Fable's own token share stays small (5.5% raw,
+  18.7% weighted proxy), but within a single kickoff batch it flips: in batch
+  #201, Fable-priced roles (lead, architect, reviewer) took 57.5% raw and
+  93.3% weighted proxy of that batch's tokens. The premium is bounded in
+  aggregate, not per batch
+  (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
 - Fallback: Opus 4.8 at xhigh effort. Claude Code has no automatic model
   fallback for the lead or for subagents; the fallback is a procedure. When
   Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
