@@ -95,7 +95,7 @@ Standing preferences for this project:
 
 ## Agent team
 
-The template ships five role agents in `.claude/agents/` and a set of skills.
+The template ships the role agents in `.claude/agents/` and a set of skills.
 The lead is the main session: subagents cannot call each other, so the
 session running `/tm-kickoff` routes every handoff, and GitHub (sub-plan and
 verdict comments, draft PRs, labels) holds the state that makes a dropped
@@ -112,6 +112,12 @@ pipeline lives in `docs/team-architecture.md`.
   marked it as an assumption). Dispatch it when a report's claims matter but
   carry no evidence; a CONTRADICTED claim is never dropped, it goes back to
   the agent that made it.
+- `perf-investigator` - establishes a measured baseline and target for a
+  reported slowness before anyone touches code, read-only except for
+  measurement and profiling. Dispatch it only when a package's job is
+  specifically a performance investigation, outside the per-package
+  pipeline; its report hands the baseline to the developer before
+  implementation and the re-measure commands to the tester afterward.
 
 Refine and size issues in discussion first (`/tm-grill-me` stress-tests the
 plan, `/tm-to-issues` turns it into sized issues); mark dependencies with a
@@ -196,15 +202,15 @@ else. The lever is where each model runs, not raw effort everywhere.
   "Adjust effort level".)
 - Role agents (set in each agent's frontmatter `model:`): `architect` and
   `reviewer` run `fable` (the plan/decision roles; `opus` is the documented
-  fallback); `developer`, `tester`, and `fact-checker` run `sonnet`, which
-  resolves to Sonnet 5 (code generation, verification, and claim auditing
-  are execution roles, not decision roles). The `fact-checker` stays on
-  Sonnet rather than Haiku because claim extraction is the step that fails
-  silently: a model that misses an unsupported claim defeats the role's
-  purpose, and the agent runs rarely enough that the cost difference does
-  not matter. Each agent also pins its own effort in frontmatter (`sonnet`
-  seats `high`, `fable` seats `xhigh`), so seat effort never depends on the
-  session's `/effort` setting.
+  fallback); `developer`, `tester`, `fact-checker`, and `perf-investigator`
+  run `sonnet`, which resolves to Sonnet 5 (code generation, verification,
+  claim auditing, and measurement are execution roles, not decision roles).
+  The `fact-checker` stays on Sonnet rather than Haiku because claim
+  extraction is the step that fails silently: a model that misses an
+  unsupported claim defeats the role's purpose, and the agent runs rarely
+  enough that the cost difference does not matter. Each agent also pins its
+  own effort in frontmatter (`sonnet` seats `high`, `fable` seats `xhigh`),
+  so seat effort never depends on the session's `/effort` setting.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Evidence (DeepSWE v1.1
   leaderboard, July 2026): Fable 5 at max scores the same as at high for
   roughly 1.8x the cost, and Sonnet 5 at max is dominated by Fable 5 at every
