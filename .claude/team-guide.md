@@ -22,11 +22,9 @@ Every issue carries a t-shirt size label, estimated in human working hours:
   sub-plans (below).
 - `size:XL` - a full day, about 8 hours. Too big to start as one issue. Split it.
 
-Hours are the yardstick, but the reason to keep issues small is the session: a
-large issue risks hitting the session limit mid-task and bloats context until
-quality drops. Size the issue when you file it, then re-check while planning. If
-the full plan shows the work is bigger than its label, re-label and split rather
-than push through.
+Size the issue when you file it, then re-check while planning. If the full
+plan shows the work is bigger than its label, re-label and split rather than
+push through (rationale: docs/team-guide-rationale.md).
 
 ### Sub-plans (checkpoint before deep work)
 
@@ -58,8 +56,6 @@ later (see "How to pick up a task").
 ### CI cost policy
 
 - Agents verify locally first; CI is the final gate, not the first check.
-  Developer and tester already run the full suite locally, so CI confirms
-  results, it does not discover problems.
 - e2e in CI runs on ready-for-review PRs and on pushes to `main` only. Draft
   PRs run cheaper checks instead (typecheck, lint, unit).
 - Every CI job pins `timeout-minutes`. A `concurrency` group with
@@ -83,10 +79,8 @@ Standing preferences for this project:
 
 - Effort: xhigh session default. It governs only the lead; every agent seat
   pins its own effort (see Model policy).
-- Permission mode: Auto (acceptEdits) during development (user-controlled).
-  <!-- Modes (set with /permissions or settings.json "defaultMode"): default = prompt on
-       first use of each tool; acceptEdits = auto-accept edits, prompt other actions
-       ("Auto", the mode above); plan = read-only; bypassPermissions = no prompts. -->
+- Permission mode: Auto (acceptEdits) during development (user-controlled;
+  mode reference: docs/team-guide-rationale.md).
 - Superpowers: use relevant skills proactively (brainstorming, writing-plans,
   test-driven-development, subagent-driven-development, executing-plans,
   verification-before-completion).
@@ -95,46 +89,33 @@ Standing preferences for this project:
 - Session hygiene: bound lead-session context growth before it reaches the
   hundreds of thousands of tokens (compact, `/clear`, or restart), and prefer
   fresh short-lived dispatches per issue over one long session across many
-  tasks. Before (measured): the top 15 lead-session peaks per turn all exceed
-  570,000 tokens, the highest is 1,634,150; orchestrai's own top lead session
-  is 583,848, already below those plan-wide peaks because the kickoff
-  pipeline dispatches fresh sessions per issue. After (estimate, not a
-  measurement): assuming a 200,000-token compact-or-clear threshold, the
-  worst measured turn shrinks about 8.2x (about 88% less) and the top-15
-  floor shrinks about 2.9x (about 65% less) per turn. Cache-read volume on
-  those turns drops by roughly the same factors, since the peaks are almost
-  all cache_read (hit ratios 0.9266 to 0.9891). The estimate assumes the
-  threshold holds exactly and ignores compaction's own one-time cost
-  (docs/research/2026-07-06-token-burn-investigation.md).
+  tasks. Measured baseline and the compact-or-clear estimate:
+  docs/team-guide-rationale.md.
 
 ## Agent team
 
-The template ships the role agents in `.claude/agents/` and a set of skills.
-The lead is the main session: subagents cannot call each other, so the
-session running `/tm-kickoff` routes every handoff, and GitHub (sub-plan and
-verdict comments, draft PRs, labels) holds the state that makes a dropped
-session resumable. A diagram of this flat-star model and the per-package
-pipeline lives in `docs/team-architecture.md`.
+The template ships the role agents in `.claude/agents/` and a set of skills;
+the lead session routes every handoff and GitHub holds the state that makes
+a dropped session resumable (flat-star model, diagram, and per-package
+pipeline: `docs/team-architecture.md`).
 
 - `architect` - advisory, read-only: sub-plans, split proposals, arbitration.
 - `developer` - one issue end to end in an isolated worktree.
 - `tester` - independent verification on the branch, read-only.
 - `reviewer` - spec pass then quality pass, read-only.
-- `fact-checker` - audits the claims in a report or PR description against
-  reproducible evidence, read-only. Per-claim verdicts: VERIFIED with the
-  command that proves it, CONTRADICTED, UNVERIFIED, or LABELED (the author
-  marked it as an assumption). Dispatch it when a report's claims matter but
-  carry no evidence; a CONTRADICTED claim is never dropped, it goes back to
-  the agent that made it.
+- `fact-checker` - audits claims in a report or PR description against
+  reproducible evidence, read-only (verdict taxonomy:
+  `.claude/agents/fact-checker.md`). Dispatch when claims matter but carry
+  no evidence; a CONTRADICTED claim is never dropped, it goes back to the
+  agent that made it.
 - `docs-writer` - authors or updates user-facing docs (README, guides, API
-  docs) from a gap analysis. Dispatch it on demand, for example after a
-  `tm-map-codebase` run, when user-facing docs are missing or stale.
+  docs) from a gap analysis. Dispatch on demand (for example after
+  `tm-map-codebase`) when docs are missing or stale.
 - `perf-investigator` - establishes a measured baseline and target for a
   reported slowness before anyone touches code, read-only except for
-  measurement and profiling. Dispatch it only when a package's job is
-  specifically a performance investigation, outside the per-package
-  pipeline; its report hands the baseline to the developer before
-  implementation and the re-measure commands to the tester afterward.
+  measurement and profiling. Dispatch only for a package whose job is
+  specifically a performance investigation, outside the per-package pipeline
+  (handoff choreography: `docs/team-architecture.md`).
 
 Refine and size issues in discussion first (`/tm-grill-me` stress-tests the
 plan, `/tm-to-issues` turns it into sized issues); mark dependencies with a
@@ -153,10 +134,8 @@ the sizing set.
 
 `/tm-advisor` (user-typed only) runs the lead session as the user's advisor: it
 refines a raw need into a batch of work packages, gets one sign-off, then
-runs the team uninterrupted and reports. The full design is
-`docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`; the
-mechanics live in `.claude/skills/tm-advisor/SKILL.md`. The rules that matter
-session-wide:
+runs the team uninterrupted and reports (mechanics:
+`.claude/skills/tm-advisor/SKILL.md`). The rules that matter session-wide:
 
 - A batch is up to 6 independent `size:S`/`size:M` issues, run through the
   kickoff pipeline 3 at a time. Merging stays human; dependent work waits
@@ -177,91 +156,48 @@ session-wide:
 
 The strongest model in every plan/decision seat, efficient workers everywhere
 else. The lever is where each model runs, not raw effort everywhere.
+Rationale: docs/team-guide-rationale.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Fable 5 (`claude-fable-5`) at xhigh effort. The lead routes every handoff,
-  refines batches, and makes the dispatch decisions, so it gets the strongest
-  model. This is affordable only because the lead stays on the bounded tm-
-  machinery: Fable's known failure mode is over-spawning under session-wide
-  ultracode, which this policy rules out (next bullet). Fable costs 2x Opus
-  4.8 per token and weighs correspondingly against Max-plan quota. Across the
-  14-day, 25-project aggregate, Fable's own token share stays small (5.5% raw,
-  18.7% weighted proxy), but within a single kickoff batch it flips: in batch
-  #201, Fable-priced roles (lead, architect, reviewer) took 57.5% raw and
-  93.3% weighted proxy of that batch's tokens. The premium is bounded in
-  aggregate, not per batch
+  Fable 5 (`claude-fable-5`) at xhigh effort. Affordable only because the
+  lead stays on the bounded tm- machinery. Fable costs 2x Opus 4.8 per
+  token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Fallback: Opus 4.8 at xhigh effort. Claude Code has no automatic model
-  fallback for the lead or for subagents; the fallback is a procedure. When
-  Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
-  workload, switch the lead with `/model claude-opus-4-8`, and for a longer
-  outage flip the `fable` pins to `opus` in the two agent frontmatters
-  (`architect`, `reviewer`) and the Fable-critic stage of every `tm-` workflow
-  (`tm-review-changes`, `tm-review-codebase`, `tm-map-codebase`). Flip them
-  back when Fable returns.
-- Cost-based fallback trigger, separate from the availability fallback above:
-  if Fable 5 stops being included under the Max-plan subscription and shifts
-  to metered API billing, do not switch to Opus automatically. The
-  "affordable" reasoning above is weighed against Max-plan quota, not real
-  dollars, so it stops applying the moment billing changes. Measure the
-  lead's actual $/session cost at API rates first, then decide whether to
-  keep Fable or move the lead to Opus 4.8 permanently, and log the decision
-  and the measured cost here when made.
-- No session-wide `ultracode`, ever, under this policy. There is no
-  `/ultracode` slash command: it is either a keyword you type in a prompt or
-  the `ultracode` option in the `/effort` menu. As a session setting it sends
-  `xhigh` reasoning (one notch below `max`) and has Claude author a dynamic
-  workflow for every substantive task; those invented workflows carry no
-  per-stage model pinning, so every stage would run at Fable rates, and Fable
-  over-spawns under exactly this shape. The measured trial behind this rule
-  (288 agents attempted by an unbounded dynamic workflow against the bounded
-  `tm-review-codebase` script's 9, spend cap exhausted) is in
+- Fallback: Opus 4.8 at xhigh effort (a procedure, not automatic). When
+  Fable 5 is unavailable, rate-limited, quota-exhausted, or
+  refuses the workload, switch the lead with `/model claude-opus-4-8`; for a
+  longer outage flip the `fable` pins to `opus` in the `architect` and
+  `reviewer` frontmatters and the Fable-critic stage of every `tm-` workflow
+  (`.claude/workflows/`). Flip back when Fable returns.
+- Cost-based fallback trigger: if Fable 5 stops being included under the
+  Max-plan subscription and shifts to metered API billing, do not switch to
+  Opus automatically. Measure the lead's actual $/session cost at API rates
+  first, then decide whether to keep Fable or move to Opus 4.8 permanently,
+  logging the decision and cost here.
+- No session-wide `ultracode` under this policy (a prompt keyword or
+  `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
-  `xhigh` and use the tm- scripts; reach for the `ultracode` keyword only for a
-  one-off heavy task with no tm- script, and prefer dropping the lead to Opus
-  4.8 for that one prompt. (Source: code.claude.com/docs/en/model-config.md,
-  "Adjust effort level".)
-- Role agents (set in each agent's frontmatter `model:`): `architect` and
-  `reviewer` run `fable` (the plan/decision roles; `opus` is the documented
-  fallback); `developer`, `tester`, `fact-checker`, `docs-writer`, and
-  `perf-investigator` run `sonnet`, which resolves to Sonnet 5 (code
-  generation, verification, claim auditing, doc authoring, and measurement
-  are execution roles, not decision roles). The `fact-checker` stays on
-  Sonnet rather than Haiku because claim extraction is the step that fails
-  silently: a model that misses an unsupported claim defeats the role's
-  purpose, and the agent runs rarely enough that the cost difference does
-  not matter. Each agent also pins its own effort in frontmatter (`sonnet`
-  seats `high`, `fable` seats `xhigh`), so seat effort never depends on the
+  `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
+  task with no tm- script, preferring an Opus lead for that prompt.
+- Role agents (frontmatter `model:`): `architect`/`reviewer` run `fable`
+  (`opus` is the documented fallback); `developer`, `tester`,
+  `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
+  (`fact-checker` stays on Sonnet, not Haiku). Each agent also pins its own
+  effort (`sonnet` -> `high`, `fable` -> `xhigh`), independent of the
   session's `/effort` setting.
-- Effort ceiling: `xhigh`. Nothing runs at `max`. Evidence (DeepSWE v1.1
-  leaderboard, July 2026): Fable 5 at max scores the same as at high for
-  roughly 1.8x the cost, and Sonnet 5 at max is dominated by Fable 5 at every
-  plotted effort level. Effort inherits to any seat that does not pin it, so
-  the old session-wide max ran the Sonnet workers at the chart's worst value
-  point. The effort-policy test in `npm test` fails any agent or workflow
-  stage that omits its pin or reintroduces max.
-- Workflows: pin worker stages to a cheap model at `high` effort in the script
-  and reserve the strong model for synthesis or critique. The `tm-review-changes`
-  workflow in `.claude/workflows/` is the worked example: a fixed set of Sonnet
-  reviewers plus one Fable critic pinned to xhigh effort, bounded by construction so it
-  cannot fan out into the 100-agent review that an unpinned session model
-  produces. `tm-review-codebase` applies the same discipline to a whole-repo
-  audit: a Sonnet scout splits the repo into N areas (sized to the repo,
-  capped at a ceiling), Sonnet workers review each area plus repo-wide
-  structure, and one Fable critic consolidates. The agent count is N + 3, so
-  it scales with repo size up to the ceiling and never fans out unboundedly.
-  `tm-map-codebase` reuses the same scout/worker/critic shape for a purely
-  descriptive map (purpose, entry points, data and control flow, no
-  findings): it drops the architecture worker, so the agent count is N + 2,
-  bounded and scaling with repo size the same way.
-  Because every stage is pinned, a cheaper-led session (for example Sonnet 5
-  as lead) still gets Fable-quality judgment, and a Fable-led session never
-  pays Fable rates for worker stages.
-- Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It overrides both the per-call model
-  and the frontmatter `model:`, flattening every subagent to one model and
-  defeating the split above. Use it only as a temporary per-session seatbelt
-  (for example `claude-sonnet-4-6` before one heavy ad-hoc run), knowing it
-  downgrades the architect and reviewer too.
+- Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
+  that does not pin it. The effort-policy test in `npm test` fails any agent
+  or workflow stage that omits its pin or reintroduces max.
+- Workflows: pin worker stages to a cheap model at `high` effort and reserve
+  the strong model for synthesis or critique, bounded by construction so it
+  cannot fan out unboundedly (`.claude/workflows/*.js`;
+  docs/superpowers/specs/2026-06-13-review-codebase-design.md). A
+  cheaper-led session still gets Fable-quality judgment at worker stages; a
+  Fable-led session never pays Fable rates for them.
+- Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every subagent to one
+  model, defeating the split above. Use only as a temporary seatbelt (e.g.
+  `claude-sonnet-4-6` before one heavy ad-hoc run); it downgrades the
+  architect and reviewer too.
 
 ## How to pick up a task
 
@@ -271,8 +207,7 @@ else. The lever is where each model runs, not raw effort everywhere.
    if it is unsized, size it first, and if it is `L` or `XL`, decompose it before
    starting.
 3. Post a short sub-plan on the issue (the checkpoint bullets above).
-4. Create a branch and open a draft PR linking the issue (`Closes #N`). This puts
-   the in-progress work in front of the user from minute one.
+4. Create a branch and open a draft PR linking the issue (`Closes #N`).
 5. Expand the sub-plan into a full plan via `superpowers:writing-plans`, saved to
    `docs/plans/<issue-number>-<slug>.md`. If the plan reveals the issue is bigger
    than its label, re-label and split it into sub-issues before implementing.
@@ -287,22 +222,13 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 
 ## Repo layout (team)
 
-```
-.claude/
-  agents/            role agents: architect, developer, tester, reviewer,
-                       fact-checker, docs-writer, perf-investigator
-  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project, /tm-to-issues
-  workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
-  settings.json      project settings; enables the superpowers plugin
-                       enabledPlugins is template-managed;
-                       permissions, hooks, env, and defaultMode are project-owned
-```
+`.claude/` holds `agents/`, `skills/`, `workflows/`, and `settings.json`
+(full annotated tree: docs/team-guide-rationale.md).
 
 Every skill and workflow built in this repo carries the `tm-` prefix
-(`/tm-advisor`, `/tm-kickoff`, `/tm-review-changes`, and so on). The prefix
-marks them as this project's own commands, so they are easy to tell apart from
-the out-of-the-box and plugin skills (superpowers and the like) in the same
-list. New project commands follow the same rule: name them `tm-<thing>`.
+(`/tm-advisor`, `/tm-kickoff`, `/tm-review-changes`, and so on), marking them
+as this project's own commands apart from out-of-the-box and plugin skills.
+New project commands follow the same rule: name them `tm-<thing>`.
 
 ## What not to do
 
