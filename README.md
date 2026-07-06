@@ -16,7 +16,7 @@ below).
   protection, installing the plugin, docs structure, CI/CD and e2e wiring,
   and the first slice of work. Stays in the repo as a living checklist; it
   is not deleted once checked off.
-- `.claude/agents/` - six role agents: architect (approach, read-only),
+- `.claude/agents/` - the role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only),
   fact-checker (audits report and PR claims against evidence, read-only),
@@ -110,7 +110,7 @@ org's private repo):
 /plugin install orchestrai@orchestrai
 ```
 
-This installs the 6 agents and all 7 skills under the `orchestrai` namespace,
+This installs the agents and all 7 skills under the `orchestrai` namespace,
 for example `/orchestrai:tm-advisor` and `/orchestrai:tm-kickoff`. The two
 review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
 wrapper skills, since plugin `workflows/` is not an official component type.

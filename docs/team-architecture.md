@@ -49,7 +49,7 @@ graph TD
     L <-->|"sub-plans, PR verdicts, labels = resumable state"| G[("GitHub")]
 ```
 
-Six peers under one lead, no third level. Evidence flows back to the lead, which
+Peers under one lead, no third level. Evidence flows back to the lead, which
 routes it into the next agent. GitHub holds the state that makes a dropped
 session resumable. The `fact-checker` and `docs-writer` sit outside the
 per-package pipeline: the lead dispatches `fact-checker` on demand when a

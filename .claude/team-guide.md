@@ -95,7 +95,7 @@ Standing preferences for this project:
 
 ## Agent team
 
-The template ships six role agents in `.claude/agents/` and a set of skills.
+The template ships the role agents in `.claude/agents/` and a set of skills.
 The lead is the main session: subagents cannot call each other, so the
 session running `/tm-kickoff` routes every handoff, and GitHub (sub-plan and
 verdict comments, draft PRs, labels) holds the state that makes a dropped
