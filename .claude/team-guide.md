@@ -112,6 +112,9 @@ pipeline lives in `docs/team-architecture.md`.
   marked it as an assumption). Dispatch it when a report's claims matter but
   carry no evidence; a CONTRADICTED claim is never dropped, it goes back to
   the agent that made it.
+- `docs-writer` - authors or updates user-facing docs (README, guides, API
+  docs) from a gap analysis. Dispatch it on demand, for example after a
+  `tm-map-codebase` run, when user-facing docs are missing or stale.
 - `perf-investigator` - establishes a measured baseline and target for a
   reported slowness before anyone touches code, read-only except for
   measurement and profiling. Dispatch it only when a package's job is
@@ -202,15 +205,16 @@ else. The lever is where each model runs, not raw effort everywhere.
   "Adjust effort level".)
 - Role agents (set in each agent's frontmatter `model:`): `architect` and
   `reviewer` run `fable` (the plan/decision roles; `opus` is the documented
-  fallback); `developer`, `tester`, `fact-checker`, and `perf-investigator`
-  run `sonnet`, which resolves to Sonnet 5 (code generation, verification,
-  claim auditing, and measurement are execution roles, not decision roles).
-  The `fact-checker` stays on Sonnet rather than Haiku because claim
-  extraction is the step that fails silently: a model that misses an
-  unsupported claim defeats the role's purpose, and the agent runs rarely
-  enough that the cost difference does not matter. Each agent also pins its
-  own effort in frontmatter (`sonnet` seats `high`, `fable` seats `xhigh`),
-  so seat effort never depends on the session's `/effort` setting.
+  fallback); `developer`, `tester`, `fact-checker`, `docs-writer`, and
+  `perf-investigator` run `sonnet`, which resolves to Sonnet 5 (code
+  generation, verification, claim auditing, doc authoring, and measurement
+  are execution roles, not decision roles). The `fact-checker` stays on
+  Sonnet rather than Haiku because claim extraction is the step that fails
+  silently: a model that misses an unsupported claim defeats the role's
+  purpose, and the agent runs rarely enough that the cost difference does
+  not matter. Each agent also pins its own effort in frontmatter (`sonnet`
+  seats `high`, `fable` seats `xhigh`), so seat effort never depends on the
+  session's `/effort` setting.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Evidence (DeepSWE v1.1
   leaderboard, July 2026): Fable 5 at max scores the same as at high for
   roughly 1.8x the cost, and Sonnet 5 at max is dominated by Fable 5 at every
