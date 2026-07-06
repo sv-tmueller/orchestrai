@@ -20,10 +20,13 @@ which covers 2026-06-22 through 2026-07-05 inclusive. The window is closed
 **PRIVACY BOUND, restated:** the script and this report use only aggregate
 counts, project directory names, model names, and timestamps. It never reads,
 prints, or quotes message content (text, tool inputs/outputs, thinking) from
-any transcript. The subagent sidecar's `agentType`, `spawnDepth`, `toolUseId`,
-and `worktreePath` fields are metadata, not content, and are used the same
-way. Every number below traces to a script output section (default run,
-`--json`, or a scoped `--start`/`--end`/`--project` run) or a one-line command
+any transcript. The script parses `type`, `timestamp`, `isSidechain`,
+`message.model`, `message.id`, and `message.usage` from each transcript line,
+and `agentType` from the subagent sidecar (`agent-*.meta.json`); the
+sidecar's other fields (`spawnDepth`, `toolUseId`, `worktreePath`) are
+metadata, not content, but the script does not read them. Every number below
+traces to a script output section (default run, `--json`, or a scoped
+`--start`/`--end`/`--project` run) or a one-line command
 recorded in section 7.
 
 Default invocation (full window, all projects):

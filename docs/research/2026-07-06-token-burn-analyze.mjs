@@ -2,10 +2,11 @@
 // Token burn analysis for issue #212 ("research: root-cause the fast
 // session-limit exhaustion on Max 5x").
 //
-// PRIVACY BOUND: this script reads only the usage-metadata fields named
-// below (model, token counts, timestamp, sessionId, cwd, isSidechain,
-// requestId, version, and the subagent sidecar's agentType/spawnDepth/
-// toolUseId/worktreePath). It never reads, prints, or derives anything from
+// PRIVACY BOUND: this script parses only `type`, `timestamp`, `isSidechain`,
+// `message.model`, `message.id`, and `message.usage` from each transcript
+// line, plus `agentType` from the subagent sidecar (`agent-*.meta.json`).
+// sessionId/project attribution comes from directory and file names, not
+// from message fields. It never reads, prints, or derives anything from
 // message content (text, tool inputs/outputs, thinking blocks). Output is
 // aggregate counts, project directory names, model names, and timestamps
 // only.
