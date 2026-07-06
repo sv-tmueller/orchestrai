@@ -16,10 +16,11 @@ below).
   protection, installing the plugin, docs structure, CI/CD and e2e wiring,
   and the first slice of work. Stays in the repo as a living checklist; it
   is not deleted once checked off.
-- `.claude/agents/` - five role agents: architect (approach, read-only),
+- `.claude/agents/` - the role agents: architect (approach, read-only),
   developer (one issue end to end, worktree-isolated), tester (independent
   verification, read-only), reviewer (spec pass then quality pass, read-only),
-  fact-checker (audits report and PR claims against evidence, read-only).
+  fact-checker (audits report and PR claims against evidence, read-only),
+  docs-writer (authors user-facing docs from a gap analysis, on demand).
 - `.claude/skills/tm-advisor/` - `/tm-advisor`: the operating model on top of the
   team. Refines a raw need into a batch of work packages, takes one sign-off,
   runs the batch uninterrupted through the kickoff pipeline, and reports.
@@ -80,6 +81,8 @@ graph TD
     L -.->|"fix loop"| D
     L -->|"on demand"| F["fact-checker<br/>sonnet, high<br/>read-only - audits claims"]
     F -.->|"grounded / ungrounded"| L
+    L -->|"on demand"| DW["docs-writer<br/>sonnet, high<br/>gap analysis + author docs"]
+    DW -.->|"files written"| L
 
     L -->|"5 ready PR"| G[("GitHub<br/>sub-plans, verdicts, labels")]
     G -->|"6 human merges"| H
@@ -107,7 +110,7 @@ org's private repo):
 /plugin install orchestrai@orchestrai
 ```
 
-This installs the 5 agents and all 7 skills under the `orchestrai` namespace,
+This installs the agents and all 7 skills under the `orchestrai` namespace,
 for example `/orchestrai:tm-advisor` and `/orchestrai:tm-kickoff`. The two
 review workflows (`tm-review-changes`, `tm-review-codebase`) ship as thin
 wrapper skills, since plugin `workflows/` is not an official component type.

@@ -2,7 +2,7 @@
   "name": "orchestrai",
   "displayName": "OrchestrAI",
   "version": "2.0.1",
-  "description": "Orchestrator team: 5 role agents, the tm- operational skills, and the review workflows.",
+  "description": "Orchestrator team: the role agents, the tm- operational skills, and the review workflows.",
   "author": {
     "name": "Thomas Mueller"
   }
