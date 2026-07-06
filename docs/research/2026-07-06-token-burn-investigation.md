@@ -114,8 +114,10 @@ cache_creation 79,582,989; cache_read 2,002,167,680; grand total
 active project directories.
 
 **By day** (full table in "Totals by day"): burn swings far more than 10x
-day to day. 2026-06-26 is the quietest day and 2026-06-22 is the heaviest for
-every bucket: cache_creation ranges from 216,376 to 13,180,407 (60.9x),
+day to day. 2026-06-26 is the quietest day and 2026-06-22 the heaviest for
+the output and both cache buckets; the small input bucket peaks on different
+days (minimum 6,251 on 2026-07-01, maximum 318,543 on 2026-07-04).
+cache_creation ranges from 216,376 to 13,180,407 (60.9x),
 cache_read ranges from 1,207,161 to 323,946,132 (268.4x), and the
 all-bucket total ranges from 1,514,902 to 338,902,570 (223.7x), tracking
 active work days rather than a steady background rate.
@@ -269,8 +271,8 @@ dominant cost is long-lived sessions accumulating unbounded conversation
 history that gets re-read from cache on every turn. Against driver 4's
 ~6,220-token injection-chain estimate, the top-15 peaks are 92.3x-262.7x
 larger; against driver 1's per-dispatch bootstrap range (12,308-22,314),
-they are 25.7x-132.8x larger, i.e. roughly 1.5-2.1 orders of magnitude, not
-three to four. orchestrai's own highest lead session (583,848) is markedly
+they are 25.7x-132.8x larger, i.e. roughly 1.4-2.1 orders of magnitude
+(log10 25.7 = 1.41, log10 132.8 = 2.12), not three to four. orchestrai's own highest lead session (583,848) is markedly
 below the plan-wide top entries (up to 1,634,150), consistent with the
 worktree-per-package convention (driver 1, recommendation 2) already
 bounding the worst case for this project's own kickoff pipeline; other
