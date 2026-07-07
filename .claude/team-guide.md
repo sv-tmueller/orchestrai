@@ -168,7 +168,12 @@ Rationale: docs/team-guide-rationale.md.
   refuses the workload, switch the lead with `/model claude-opus-4-8`; for a
   longer outage flip the `fable` pins to `opus` in the `architect` and
   `reviewer` frontmatters and the Fable-critic stage of every `tm-` workflow
-  (`.claude/workflows/`). Flip back when Fable returns.
+  (`.claude/workflows/`). Flip back when Fable returns. For a single
+  role-agent dispatch hitting Fable quota mid-batch, dispatch that one agent
+  with a per-call Opus override (the Agent tool's `model` param) instead of
+  flipping every pin. The ladder is Fable -> Opus; Sonnet is never a fallback
+  for a judgment seat, and only steps in, flagged, if Opus is also down, with
+  the review re-run on a judgment model afterward.
 - Cost-based fallback trigger: if Fable 5 stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
