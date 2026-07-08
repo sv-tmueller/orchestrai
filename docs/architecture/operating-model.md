@@ -26,6 +26,14 @@ that path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) still
 exist in the tree; their physical retirement is deferred to the usability
 batch. See section 3.
 
+**Substrate (host and model), evaluated 2026-07-08.** Running the team on a
+non-Claude host or a non-Anthropic model was evaluated and deferred. Claude
+Code and the Claude model family remain the substrate. The reasoning, the
+supported-resilience fallbacks, the single sanctioned re-entry path (a
+subscription-authed Codex worker seat driven by the Claude lead, not a gateway
+or a full port), and the triggers that would reopen this are in
+`docs/superpowers/specs/2026-07-08-codex-readiness-design.md`.
+
 ## 2. How it operates (the loop, summary altitude)
 
 The loop turns a topic into merged, verified work. Each stage below owns no
