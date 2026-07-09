@@ -95,8 +95,8 @@ gh label create "needs-human"  --color "B60205" --description "Agent loop exhaus
 3. Update the batch issue checklist with the filed issue numbers.
 
 **On file only:** file each package issue with its scope, acceptance
-criteria, non-goals, and size label, following the tm-to-issues body
-template. No batch tracking issue and no `Part of batch #` line; the
+criteria, non-goals, and size label, following the issue body template
+below. No batch tracking issue and no `Part of batch #` line; the
 issues go to the plain backlog, where /tm-kickoff or the next-batch scan
 (section 6) picks them up. Close in chat with:
 
@@ -110,6 +110,26 @@ issues go to the plain backlog, where /tm-kickoff or the next-batch scan
 1. Dispatch later with /tm-kickoff <the numbers above>, or
 2. Run /tm-advisor to propose them as a batch (it creates the batch
    issue at dispatch time)
+```
+
+### Issue body template
+
+Each package issue uses this body. On dispatch, add a `Part of batch
+#<batch>` line at the top; on file only, omit it.
+
+```
+## What to build
+
+The package's outcome in the project's own domain terms. State the
+behavior to deliver, not file paths or code, which drift.
+
+## Acceptance criteria
+
+- [ ] A checkable statement of done, one per observable behavior.
+
+## Non-goals
+
+- What this package deliberately leaves out, to hold the scope.
 ```
 
 Then stop. Sections 4 (Run) and 5 (Report) apply only on dispatch.
