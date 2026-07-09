@@ -65,11 +65,23 @@ Reply with one of:
    issue numbers and how to dispatch later, then stop. No batch issue,
    no run.
 3. **revise** - say what to change; the proposal comes back adjusted.
+4. **grill me** - stress-test this proposal with a one-question-at-a-time
+   interview (per /tm-grill-me) before you decide; the proposal comes back
+   sharpened, with the same four choices.
 ```
+
+On `grill me`, run the `/tm-grill-me` interview against the proposed batch,
+one question at a time, each with a recommended answer, focused on slicing,
+acceptance-criteria completeness, and hidden assumptions. It writes nothing
+to GitHub. When the interview ends, re-present the proposal (sharpened by
+what surfaced) with the same four-option sign-off. Being pre-dispatch, it
+does not affect the unattended-after-sign-off rule.
 
 Then stop and wait. Nothing lands on GitHub before outcome 1 or 2. This
 is the only confirmation in the loop: dispatch runs unattended after it;
-file only ends after filing and the report.
+file only ends after filing and the report. Only `dispatch` and `file only`
+write to GitHub; `revise` and `grill me` iterate the proposal and loop back
+to this same block.
 
 ## 3. File
 
@@ -264,5 +276,5 @@ is never implicit approval. End the proposal with:
 - Batch #NN closed. All PRs merged.
 
 ## Next steps
-1. Answer the sign-off above: dispatch, file only, or revise
+1. Answer the sign-off above: dispatch, file only, revise, or grill me
 ```
