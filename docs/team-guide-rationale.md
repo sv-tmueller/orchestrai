@@ -47,7 +47,7 @@ Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`, and
 .claude/
   agents/            role agents: architect, developer, tester, reviewer,
                        fact-checker, docs-writer, perf-investigator
-  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project, /tm-to-issues
+  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
   settings.json      project settings; enables the superpowers plugin
                        enabledPlugins is template-managed;

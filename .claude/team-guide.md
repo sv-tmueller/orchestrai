@@ -118,8 +118,8 @@ pipeline: `docs/team-architecture.md`).
   (handoff choreography: `docs/team-architecture.md`).
 
 Refine and size issues in discussion first (`/tm-grill-me` stress-tests the
-plan, `/tm-to-issues` turns it into sized issues); mark dependencies with a
-literal `Blocked by: #N` line in the issue body. Then `/tm-kickoff <issues>` (user-typed only;
+plan, `/tm-advisor` file only turns it into sized issues); mark dependencies
+with a literal `Blocked by: #N` line in the issue body. Then `/tm-kickoff <issues>` (user-typed only;
 it does not auto-trigger) runs unblocked issues in parallel waves to ready PRs.
 Under `/tm-kickoff` the sub-plan comment substitutes for the full plan in `docs/plans/`.
 Merging stays human and gates the next wave. Caps, routing,

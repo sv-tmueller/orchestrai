@@ -13,8 +13,9 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `size:M`, `size:L`, `size:XL` (see team-guide.md "Sizing") plus
       `in-progress` and `needs-human` (see team-guide.md "Agent team").
       `/tm-kickoff` and `/tm-advisor` create these six automatically on first
-      run, so this step is only needed if you file sized issues (for example
-      via `/tm-to-issues`) before the first kickoff or advisor run.
+      run, including `/tm-advisor` (file only). So this step is only needed if
+      you file sized issues by hand (for example via `gh issue create`)
+      before the first kickoff or advisor run.
 - [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
       `type:feat`, `type:fix`.
 
@@ -32,7 +33,7 @@ Run once when adopting the orchestrai plugin into an existing repo.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, tm-to-issues, and tm-new-project.
+      tm-kickoff, tm-grill-me, and tm-new-project.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so adoption stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and

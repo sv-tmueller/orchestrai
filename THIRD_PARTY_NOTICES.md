@@ -1,9 +1,9 @@
 # Third-party notices
 
 This repo is otherwise all-rights-reserved (see the License section in
-`README.md`), but two skill files incorporate content from an MIT-licensed
+`README.md`), but one skill file incorporates content from an MIT-licensed
 source. This file carries the notice that license requires; the affected
-files also carry a short attribution footer pointing back here.
+file also carries a short attribution footer pointing back here.
 
 ## mattpocock/skills
 
@@ -11,10 +11,6 @@ Source: [mattpocock/skills](https://github.com/mattpocock/skills)
 
 - `.claude/skills/tm-grill-me/SKILL.md` is a near-verbatim adaptation of
   their `skills/productivity/grilling/SKILL.md`.
-- `.claude/skills/tm-to-issues/SKILL.md` is a substantial adaptation of
-  their `skills/engineering/to-issues/SKILL.md`, with the issue-tracker
-  plumbing replaced by `gh`, this template's size labels, and its
-  `Blocked by:` convention.
 
 ```
 MIT License

@@ -33,9 +33,6 @@ below).
   ready PR per issue.
 - `.claude/skills/tm-grill-me/` - `/tm-grill-me`: stress-tests a plan one question
   at a time before kickoff (from mattpocock/skills, MIT).
-- `.claude/skills/tm-to-issues/` - `/tm-to-issues`: turns an approved plan into
-  sized, dependency-ordered issues ready for `/tm-kickoff` (adapted from
-  mattpocock/skills, MIT).
 - `.claude/skills/tm-new-project/` - `/tm-new-project`: runs the
   `NEW-PROJECT-SETUP.md` checklist as a guided flow. Creates the workflow
   labels and docs tree, then prints the human-only steps (branch protection,
@@ -157,14 +154,13 @@ Unauthorized reuse of any portion of this code constitutes copyright infringemen
 
 ### Third-party material
 
-Two skills carry their own MIT attribution because they are adapted from an
+One skill carries its own MIT attribution because it is adapted from an
 MIT-licensed source: `.claude/skills/tm-grill-me/SKILL.md` (near-verbatim,
-from `mattpocock/skills`) and `.claude/skills/tm-to-issues/SKILL.md`
-(substantially adapted, from the same source). Their attribution footers and
-the source project's full MIT license text are in `THIRD_PARTY_NOTICES.md`.
-This does not change the license of the rest of the repo above; it is a
-normal mixed-license pattern where a small amount of MIT-derived material
-keeps its own attribution inside an otherwise all-rights-reserved codebase.
+from `mattpocock/skills`). Its attribution footer and the source project's
+full MIT license text are in `THIRD_PARTY_NOTICES.md`. This does not change
+the license of the rest of the repo above; it is a normal mixed-license
+pattern where a small amount of MIT-derived material keeps its own
+attribution inside an otherwise all-rights-reserved codebase.
 
 The research on `vijaythecoder/awesome-claude-agents`
 (`docs/research/2026-07-04-awesome-claude-agents-adoption.md`) and the

@@ -38,7 +38,7 @@ packages before anything is filed. Owned by
 
 **Refine to sized, filed issues.** Signed-off packages become GitHub issues,
 sized and stress-tested. Owned by `.claude/team-guide.md` ("Issues and
-branches", "Sizing"), `/tm-grill-me`, and `/tm-to-issues`.
+branches", "Sizing"), `/tm-grill-me`, and `/tm-advisor` (file only).
 
 **Flat-star pipeline.** Each issue runs through architect, developer, tester,
 reviewer, with a fact-checker on demand, to a mergeable PR. Owned by
