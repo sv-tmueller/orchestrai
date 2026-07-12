@@ -70,6 +70,13 @@ The run does not stop to ask the user. In-scope questions are decided and
 logged; everything else parks-and-continues. Interrupt the user only if every
 package parks at once.
 
+Before every agent dispatch in this pipeline, including fix-round
+re-dispatches and arbitration or fact-checker dispatches, print the
+plan-status block described in team-guide.md. The items are fixed to the
+five pipeline stages below (sub-plan, develop, test, review, PR ready);
+annotate fix rounds on the current item. When dispatching agents for several
+packages in one message, print one block per package.
+
 Run up to 3 packages concurrently; dispatch their agents in parallel. When
 the queue is larger (up to 6 in an /tm-advisor batch), start the next queued
 package as one finishes. Worktree isolation keeps packages apart. Within a
