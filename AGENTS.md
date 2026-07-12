@@ -26,9 +26,8 @@ npm test
 ```
 
 This runs the unit tests with Node's built-in test runner. There are zero
-runtime dependencies. There is no application runtime in this repo, so
-install, dev, typecheck, and lint steps do not apply. Run `npm test` before
-any commit.
+runtime dependencies. There is no application runtime, so install, dev,
+typecheck, and lint are N/A. Run `npm test` before any commit.
 
 ## Writing style
 
@@ -65,7 +64,7 @@ non-Claude seat may read it for context but never executes or modifies it.
 
 - Every unit of work is a GitHub issue first. Nothing new gets built without
   an issue.
-- Branch per issue: `feat/<issue-number>-<short-slug>` or
+- Branch from `main` per issue: `feat/<issue-number>-<short-slug>` or
   `fix/<issue-number>-<short-slug>`.
 - Merge via PR. The PR references the issue with `Closes #N`. One topic per
   PR. Direct pushes to `main` are blocked.
