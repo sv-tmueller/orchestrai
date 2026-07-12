@@ -33,6 +33,13 @@ below).
   ready PR per issue.
 - `.claude/skills/tm-grill-me/` - `/tm-grill-me`: stress-tests a plan one question
   at a time before kickoff (from mattpocock/skills, MIT).
+- `.claude/skills/tm-ab-test/` - `/tm-ab-test`: runs a paired A/B comparison of
+  two orchestration-variant arms on one task, forked from the same base
+  commit and run sequentially (headless or human-supervised). Records agent
+  count, wall-clock time, token usage, diff size, and an independent review
+  per arm, then writes a dated report and appends a row to
+  `docs/reviews/ab-tests.md`. Sequences existing machinery only; no new
+  agent, no new workflow script.
 - `.claude/skills/tm-new-project/` - `/tm-new-project`: runs the
   `NEW-PROJECT-SETUP.md` checklist as a guided flow. Creates the workflow
   labels and docs tree, then prints the human-only steps (branch protection,
