@@ -30,9 +30,9 @@ appendix step 4 of `docs/reviews/2026-06-30-orchestration-comparison.md`.
 
 ## After the run
 
-- [ ] Fill in `templates/recording-checklist.md` for this arm: base commit,
-      window, token usage, agent/subagent count, diff size, the
-      `tm-review-changes` pass, and any acceptance-criteria drift.
-- [ ] Report status as "run supervised" in `templates/report.md`.
-- [ ] Hand the filled checklist back to the lead session for the report and
-      ledger entry.
+- [ ] Fill in `templates/recording-checklist.md` for this arm: arm status
+      ("supervised"), base commit, window, token usage, agent/subagent
+      count, diff size, the `tm-review-changes` pass, and any
+      acceptance-criteria drift.
+- [ ] Hand the filled checklist back to the lead session; the lead writes
+      the report and the ledger entry.

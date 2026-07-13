@@ -1,9 +1,15 @@
 # Recording checklist (per arm)
 
-Fill one copy of this checklist per arm. Every field has an exact command;
-nothing here is re-derived by hand. Covers the recording dimensions from
+Fill one copy of this checklist per arm. Every field has an exact command or
+derives from two fields that do; nothing here is re-derived by hand. Covers
+the recording dimensions from
 `docs/reviews/2026-06-30-orchestration-comparison.md`'s appendix, steps 2, 5,
 and 6.
+
+## Arm status
+
+- [ ] How this arm ran: headless or supervised. The lead copies this into
+      the report's per-arm status field.
 
 ## Fork point (appendix step 2)
 
@@ -15,18 +21,19 @@ and 6.
       result to the recorded base commit. If they differ, `main` has
       moved since the base was recorded: either stop and restart the
       pairing from the new base, or proceed and mark this run
-      base-drifted in `templates/report.md`.
+      base-drifted in the report written from `templates/report.md`.
 - [ ] Post-run audit: after the arm completes, run
-      `git merge-base origin/main <arm-branch>` to record its actual fork
-      point, and compare that to the recorded base commit. A mismatch
-      also marks this run base-drifted in `templates/report.md`, even if
-      the pre-dispatch gate above found no drift (a merge can land on
-      `main` while the arm is running, not just before it starts).
+      `git fetch origin && git merge-base origin/main <arm-branch>` to
+      record its actual fork point, and compare that to the recorded base
+      commit. A mismatch also marks this run base-drifted in the report
+      written from `templates/report.md`, even if the pre-dispatch gate
+      above found no drift (a merge can land on `main` while the arm is
+      running, not just before it starts).
 
 ## Arm window
 
-- [ ] Start: ISO timestamp when the arm begins.
-- [ ] End: ISO timestamp when the arm ends.
+- [ ] Start: `date -u +%Y-%m-%dT%H:%M:%SZ` when the arm begins.
+- [ ] End: `date -u +%Y-%m-%dT%H:%M:%SZ` when the arm ends.
 
 Arms run sequentially, so the windows never overlap.
 
@@ -72,5 +79,6 @@ Arms run sequentially, so the windows never overlap.
 
 - [ ] Arm end minus arm start, from the window above.
 
-Once every field above is filled for both arms, copy them into
-`templates/report.md` and append one row to `docs/reviews/ab-tests.md`.
+Once every field above is filled for both arms, copy them into the report
+written from `templates/report.md` and append one row to
+`docs/reviews/ab-tests.md`.
