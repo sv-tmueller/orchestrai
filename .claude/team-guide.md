@@ -126,6 +126,33 @@ Merging stays human and gates the next wave. Caps, routing,
 and report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent
 files; they are not repeated here.
 
+### Plan-status block before dispatch
+
+Before the lead spawns any subagent that works a plan or sub-plan, it prints
+a short status block: which steps are done, which step the new subagent is
+about to work on, which steps remain. This covers every tm-kickoff and
+tm-advisor pipeline stage, plus ad-hoc dispatches when a plan exists.
+
+```
+Plan status (issue #42):
+  [x] 1. sub-plan
+  [x] 2. develop
+  [>] 3. test   <- dispatching tester
+  [ ] 4. review
+  [ ] 5. PR ready
+```
+
+`[x]` marks a done step, `[>]` the current step (suffixed
+`<- dispatching <agent>`), `[ ]` a remaining step. A fix round annotates the
+current item, for example `[>] 3. test (fix round 2/3)`.
+
+An ad-hoc dispatch with no plan behind it prints one fixed line instead:
+`Dispatching <agent>: <purpose>`. Agents spawned inside workflow scripts are
+excluded; the workflow progress tree already covers them.
+
+When one message dispatches agents for several packages, print one block per
+package, consecutively, in the same shape. No combined-table variant.
+
 Labels: `in-progress` (package dispatched; resume, do not restart) and
 `needs-human` (parked: question, blocker, or exhausted fix loop), on top of
 the sizing set.

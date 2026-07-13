@@ -155,8 +155,9 @@ user only if every package parks at once.
 Run the packages through the kickoff per-package pipeline
 (`.claude/skills/tm-kickoff/SKILL.md`): at most 3 concurrent, starting the next
 queued package as one finishes. Skip kickoff's wave-plan confirmation; the
-sign-off already covered it. The advisor differs from a plain `/tm-kickoff` run
-in three ways:
+sign-off already covered it. Kickoff's pre-dispatch plan-status block applies
+unchanged: print it before every agent dispatch, one block per package. The
+advisor differs from a plain `/tm-kickoff` run in three ways:
 
 - **In-scope decisions are yours.** When a question stays within the signed-off
   scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
