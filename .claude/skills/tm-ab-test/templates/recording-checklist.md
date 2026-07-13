@@ -10,11 +10,18 @@ and 6.
 - [ ] Base commit: `git fetch origin`, then `git rev-parse origin/main`,
       recorded before either arm starts. Both arms fork from this same
       commit.
-- [ ] Drift check: `git merge-base <recorded-base-commit> <arm-branch>`
-      must print the recorded base commit. If it prints something else,
-      the arm drifted from the recorded base (for example, a merge landed
-      on `main` between arms). Record the actual fork point printed by the
-      command and mark this run base-drifted in `templates/report.md`.
+- [ ] Pre-dispatch gate: immediately before starting each arm, run
+      `git fetch origin && git rev-parse origin/main` and compare the
+      result to the recorded base commit. If they differ, `main` has
+      moved since the base was recorded: either stop and restart the
+      pairing from the new base, or proceed and mark this run
+      base-drifted in `templates/report.md`.
+- [ ] Post-run audit: after the arm completes, run
+      `git merge-base origin/main <arm-branch>` to record its actual fork
+      point, and compare that to the recorded base commit. A mismatch
+      also marks this run base-drifted in `templates/report.md`, even if
+      the pre-dispatch gate above found no drift (a merge can land on
+      `main` while the arm is running, not just before it starts).
 
 ## Arm window
 
