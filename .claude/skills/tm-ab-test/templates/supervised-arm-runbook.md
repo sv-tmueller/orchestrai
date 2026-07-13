@@ -8,8 +8,9 @@ appendix step 4 of `docs/reviews/2026-06-30-orchestration-comparison.md`.
 ## Before you start
 
 - [ ] Confirm the base commit recorded for this A/B run:
-      `<base-commit>` (`git rev-parse HEAD` at fork time). This arm must
-      fork from the same commit as every other arm.
+      `<base-commit>` (`git fetch origin`, then `git rev-parse origin/main`
+      at fork time). This arm must fork from the same commit as every
+      other arm.
 - [ ] Open a fresh session. Do not reuse the session that ran (or will run)
       any other arm; a shared session carries context across arms and
       contaminates the comparison.

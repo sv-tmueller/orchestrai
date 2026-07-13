@@ -7,8 +7,14 @@ and 6.
 
 ## Fork point (appendix step 2)
 
-- [ ] Base commit: `git rev-parse HEAD`, recorded before either arm starts.
-      Both arms fork from this same commit.
+- [ ] Base commit: `git fetch origin`, then `git rev-parse origin/main`,
+      recorded before either arm starts. Both arms fork from this same
+      commit.
+- [ ] Drift check: `git merge-base <recorded-base-commit> <arm-branch>`
+      must print the recorded base commit. If it prints something else,
+      the arm drifted from the recorded base (for example, a merge landed
+      on `main` between arms). Record the actual fork point printed by the
+      command and mark this run base-drifted in `templates/report.md`.
 
 ## Arm window
 

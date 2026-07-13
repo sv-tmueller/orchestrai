@@ -34,9 +34,11 @@ Ensure the `ab-test` label exists:
 gh label create "ab-test" --color "5319E7" --description "Scratch issue driving one arm of a tm-ab-test run." --force
 ```
 
-Record the base commit both arms fork from: `git rev-parse origin/main`
-(or `origin/HEAD` if the default branch is not `main`). Every arm forks a
-worktree from this exact commit.
+Record the base commit both arms fork from: `git fetch origin`, then
+`git rev-parse origin/main` (or `origin/HEAD` if the default branch is not
+`main`). Every arm forks a worktree from this exact commit, and no merge
+may land on `main` between arms; a merge mid-run moves the base out from
+under the later arm and invalidates the pairing.
 
 ## 2. Arm isolation
 
@@ -58,9 +60,15 @@ Branches are namespaced automatically: a developer dispatch on a scratch
 issue branches from that issue's own number, so arm A and arm B never
 collide on a branch name even when their task titles match.
 
-An arm that is not issue-driven (a direct workflow invocation, or a
-single-shot developer dispatch you drive by hand) needs no scratch issue;
-just record its base commit and window in the checklist.
+Every developer-dispatch arm gets a scratch issue, single-shot included.
+Per `.claude/agents/developer.md`, a developer dispatch always reads an
+issue's sub-plan comment as its spec, derives its branch from that issue's
+number, posts a sub-plan comment if none exists, and opens a PR with
+`Closes #<n>`. A raw developer arm run on the original task issue would do
+all of that on the task issue itself, breaking the "stays untouched"
+invariant below. Only a direct workflow invocation, which takes a base ref
+instead of an issue, needs no scratch issue; just record its base commit
+and window in the checklist.
 
 The original task issue stays untouched throughout: no label, no comment,
 until a human reads the report and picks a winner.

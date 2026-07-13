@@ -8,6 +8,9 @@ Task: #<task-issue-number>, `<task title>`.
 
 Base commit: `<base-commit>` (both arms forked from here).
 
+Base drift: none | base-drifted (arm <name>, actual fork point
+`<actual-fork-point-commit>`, per the checklist's drift check).
+
 ## Arm A: <name>
 
 Status: run headless | run supervised | not run.
