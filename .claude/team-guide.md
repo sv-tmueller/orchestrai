@@ -144,7 +144,9 @@ Plan status (issue #42):
 
 `[x]` marks a done step, `[>]` the current step (suffixed
 `<- dispatching <agent>`), `[ ]` a remaining step. A fix round annotates the
-current item, for example `[>] 3. test (fix round 2/3)`.
+current item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows
+the items are the pipeline stages (the skills pin them); an ad-hoc
+plan-backed dispatch uses the active plan's own steps as items.
 
 An ad-hoc dispatch with no plan behind it prints one fixed line instead:
 `Dispatching <agent>: <purpose>`. Agents spawned inside workflow scripts are
