@@ -93,13 +93,17 @@ dispatch, no architect/reviewer): $1.80. Ledger row:
 lines 63-77 weight all four scopes above using historical list-price
 tiers: `OPUS_INPUT = 15`, `OPUS_OUTPUT = 75`, Sonnet `3`/`15`, with Fable
 set to 2x that Opus figure (`30`/`150`). Current published pricing (bundled
-`claude-api` skill, `shared/models.md`, cached 2026-06-24): Opus 5
-`claude-opus-5` $5/$25 per MTok, Fable 5 `claude-fable-5` $10/$50, Opus 4.8
-`claude-opus-4-8` $5/$25 (still active), Sonnet 5 `claude-sonnet-5` $3/$15.
-Cross-checked against this repo's own citation in
-`docs/reviews/2026-06-30-orchestration-comparison.md` ("Corollary": Sonnet
-$3/$15 vs Opus 4.8 $5/$25, checked 2026-06-30) - the two sources agree on
-Sonnet and Opus 4.8.
+`claude-api` skill, `shared/models.md`, which self-describes as cached, not
+live, at line 7, with no embedded cache date): Opus 5 `claude-opus-5` $5/$25
+per MTok, Fable 5 `claude-fable-5` $10/$50, Opus 4.8 `claude-opus-4-8` $5/$25
+(still active). That file carries no Sonnet 5 pricing at all
+(`grep -n '\$' shared/models.md` returns only the Fable 5 and Opus 5 lines);
+Sonnet 5's $3/$15 comes from `shared/model-migration.md:1192` ("unchanged at
+the $3/$15 sticker"), `python/claude-api/README.md:502`, and this repo's own
+`docs/reviews/2026-06-30-orchestration-comparison.md:126-129` ("Corollary":
+Sonnet $3/$15 vs Opus 4.8 $5/$25, checked 2026-06-30). Those three sources
+agree with each other on Sonnet, and the last also agrees with
+`shared/models.md` on Opus 4.8's $5/$25.
 
 The Sonnet leg of the proxy table ($3/$15) already matches current
 pricing exactly, but the Opus/Fable leg does not: at the proxy table,
@@ -129,7 +133,7 @@ were never published for that batch. Under that assumption:
 - Opus 5 is exactly half of Fable 5's price in both directions, so
   replacing every Fable-priced seat with Opus 5 halves that slice's dollar
   contribution. Cutting an ~80-85% slice in half cuts total batch-level
-  spend by roughly 35-45%.
+  spend by roughly 40-42.5%.
 
 That range is the ceiling for option (b) (all three seats moved), at
 batch scope, in dollars, not confirmed Max-plan quota. It reuses
@@ -144,7 +148,7 @@ more than half of nearly every bucket across the whole dataset (a
 different scope, not batch #201's role split), so it is directional
 evidence that lead is plausibly the majority of the Fable-priced group,
 not a number to plug into the formula above. Option (c)'s savings are
-therefore real, bounded above by the same 35-45% ceiling, and smaller if
+therefore real, bounded above by the same 40-42.5% ceiling, and smaller if
 architect and reviewer carry a non-trivial share. Pricing it more
 precisely would need a role-scoped re-run of the token-burn script
 against a fresh batch (section 9).
@@ -152,15 +156,18 @@ against a fresh batch (section 9).
 ## 5. Availability and operating cost
 
 During this batch, two judgment-seat dispatches failed with `You've
-reached your Fable 5 limit`, each forcing a per-call Opus override
-(the Agent tool's `model` param, per the documented fallback procedure).
-Cross-referenced against commit `11003f9` ("docs: document per-call Opus
-override for a single Fable-blocked seat", #228, verified with
-`git show 11003f9`): that commit exists specifically because the same
-workaround already had to be written down once before, in a prior batch.
-Two Fable-limit events across two separate occasions is a recurrence, not
-a first; it is not a measured failure rate, and this document does not
-treat it as one.
+reached your Fable 5 limit`, each forcing a per-call Opus override (the
+Agent tool's `model` param, per the documented fallback procedure). Both
+events, with the exact error string, are recorded on batch issue #262
+alongside the decision to use the per-call override; that issue is the
+auditable record, since this document's sandbox has no GitHub access or
+session transcript to re-derive the claim from. Cross-referenced against
+commit `11003f9` ("docs: document per-call Opus override for a single
+Fable-blocked seat", #228, verified with `git show 11003f9`): that commit
+exists because the same workaround already had to be written down once
+before, in a prior batch. Two events across two separate occasions is a
+recurrence, not a first; it is not a measured failure rate, and this
+document does not treat it as one.
 
 Two standing costs from the pricing source (`claude-api` skill,
 `shared/models.md`):
@@ -177,7 +184,7 @@ Two standing costs from the pricing source (`claude-api` skill,
 
 Opus 5's prompt-cache minimum dropped to 512 tokens (from 1024 on
 Opus 4.8), but this repo's own measured bootstrap contexts run
-12k-22k tokens (drivers 1 and 4 of the token-burn investigation), so that
+12k-22k tokens (driver 1 of the token-burn investigation), so that
 change is marginal here and does not support the recommendation below.
 
 ## 6. Capability
@@ -227,8 +234,10 @@ Opus 5 today (section 2 notes the mid-session #263 rename that makes the
 prose track this). Worth reconciling in the same follow-up that adds the
 `opus` effort-policy entry.
 
-Prompt rework specific to any Opus 5 shift, tied to each documented
-behavior change:
+Prompt rework specific to any Opus 5 shift, tied to each documented behavior
+change (`claude-api` bundled skill, `shared/model-migration.md`, "Migrating
+to Claude Opus 5" > "Behavioral shifts (prompt-tunable)", lines 1029-1098; a
+vendor migration guide, the same weakest evidence class as section 6):
 
 - **Longer default output.** `reviewer.md`'s report contract fixes
   structure (`VERDICT`/`STAGE`/`FINDINGS`) but sets no length bound. A
@@ -285,7 +294,7 @@ review or sub-plan quality the pipeline already guarantees through
 Fable-pinned subagents.
 
 What caps this at medium rather than high: the precise dollar/quota
-savings from moving the lead alone are bounded (up to the 35-45%
+savings from moving the lead alone are bounded (up to the 40-42.5%
 batch-level ceiling in section 4) but not pinned, since driver-3 does not
 publish a lead-only breakdown; "affordable" in the current policy is a
 Max-plan quota claim, and nothing here measures whether Opus 5's lower
@@ -322,9 +331,14 @@ the recommended delegation cap in place.
   `docs/reviews/ab-tests.md`.
 - `docs/reviews/2026-06-30-orchestration-comparison.md` (Corollary,
   addendum, and the $3/$15 vs $5/$25 pricing cross-check).
-- `claude-api` bundled skill, `shared/models.md`, cached 2026-06-24. Not
-  a live query; the file itself recommends the Models API for anything
-  capability-related, which this document did not run.
+- `claude-api` bundled skill: `shared/models.md` (self-described as cached,
+  not live, at line 7, no embedded cache date; recommends the Models API for
+  anything capability-related, which this document did not run);
+  `shared/model-migration.md:1192` (Sonnet 5 pricing) and its "Migrating to
+  Claude Opus 5" > "Behavioral shifts (prompt-tunable)" section, lines
+  1029-1098 (section 7's behavior-shift claims, a vendor migration guide,
+  the same weakest evidence class as section 6's capability claims);
+  `python/claude-api/README.md:502` (Sonnet 5 pricing).
 - `.claude/team-guide.md`, `docs/team-guide-rationale.md`,
   `.claude/agents/architect.md`, `.claude/agents/reviewer.md`,
   `.claude/workflows/tm-review-changes.js`,
