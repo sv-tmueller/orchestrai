@@ -1,5 +1,14 @@
 # Opus 5 vs Fable 5 for the lead, architect, and reviewer seats - 2026-07-24
 
+**Summary: move the lead session from Fable 5 to Opus 5 now
+(`/model claude-opus-5`); leave architect, reviewer, and the workflow
+critics on Fable 5. Confidence: medium (section 8). One blocker: extending
+further to architect/reviewer/critics is blocked today by the
+effort-policy test having no `opus` tier (section 7); the lead-only move
+is not. It is a one-command, zero-code change, and instantly reversible -
+the strongest argument for acting despite the unmeasured capability risk
+in section 6.**
+
 A recommendation, not a policy change. Related: issue #264. Nothing here
 edits `.claude/team-guide.md`, any agent frontmatter, or any workflow stage.
 
@@ -31,10 +40,9 @@ carry out any change this document recommends.
 Note on that quote: issue #263 landed on this same branch while this
 document was being written and renamed the fallback model throughout
 `team-guide.md` from Opus 4.8 to Opus 5 (a stale comparison target, not a
-dollar-math error). The line above already reflects that edit; earlier
-drafts said "2x Opus 4.8 per token." Opus 4.8 and Opus 5 are priced
-identically ($5/$25 per MTok, section 4), so the "2x" figure is unchanged
-by the rename.
+dollar-math error). The line above reflects that edit; Opus 4.8 and
+Opus 5 are priced identically ($5/$25 per MTok, section 4), so the "2x"
+figure is unchanged by the rename.
 
 Two things to hold apart when reading "affordable":
 
@@ -96,23 +104,28 @@ set to 2x that Opus figure (`30`/`150`). Current published pricing (bundled
 `claude-api` skill, `shared/models.md`, which self-describes as cached, not
 live, at line 7, with no embedded cache date): Opus 5 `claude-opus-5` $5/$25
 per MTok, Fable 5 `claude-fable-5` $10/$50, Opus 4.8 `claude-opus-4-8` $5/$25
-(still active). That file carries no Sonnet 5 pricing at all
-(`grep -n '\$' shared/models.md` returns only the Fable 5 and Opus 5 lines);
-Sonnet 5's $3/$15 comes from `shared/model-migration.md:1192` ("unchanged at
-the $3/$15 sticker"), `python/claude-api/README.md:502`, and this repo's own
+(still active). That file carries no Sonnet 5 pricing at all (`grep -n '\$' shared/models.md`
+returns three lines: the Fable 5 and Opus 5 prices plus one unrelated
+`$ANTHROPIC_API_KEY` curl example); Sonnet 5's $3/$15 comes from
+`shared/model-migration.md:1192` ("unchanged at the $3/$15 sticker,
+introductory $2/$10 per MTok applies through 2026-08-31"),
+`python/claude-api/README.md:502`, and this repo's own
 `docs/reviews/2026-06-30-orchestration-comparison.md:126-129` ("Corollary":
 Sonnet $3/$15 vs Opus 4.8 $5/$25, checked 2026-06-30). Those three sources
 agree with each other on Sonnet, and the last also agrees with
-`shared/models.md` on Opus 4.8's $5/$25.
+`shared/models.md` on Opus 4.8's $5/$25. Today (2026-07-24) is inside the
+intro window; everything below uses the $3/$15 sticker as the durable
+figure (the window closes in about five weeks) and calls out the intro
+rate's effect separately where it changes the answer.
 
-The Sonnet leg of the proxy table ($3/$15) already matches current
-pricing exactly, but the Opus/Fable leg does not: at the proxy table,
-Opus is 5x Sonnet's input price ($15 vs $3); at current prices, Opus is
-1.67x ($5 vs $3), i.e. Sonnet is 1/5 of Opus in the proxy and 3/5 of Opus
-now. **Every dollar figure quoted above (18.7%, 93.3%, $7.55, $6.44)
-overstates the Fable/Opus share relative to current pricing.** Naively
-rescaling one of those figures (dividing $6.44 by some factor) is not
-done here: the single-package report only publishes already-weighted
+The Sonnet leg of the proxy table ($3/$15 sticker) already matches
+current pricing exactly, but the Opus/Fable leg does not: at the proxy
+table, Opus is 5x Sonnet's input price ($15 vs $3); at current prices,
+Opus is 1.67x ($5 vs $3), i.e. Sonnet is 1/5 of Opus in the proxy and 3/5
+of Opus now. **Every dollar figure quoted above (18.7%, 93.3%, $7.55,
+$6.44) overstates the Fable/Opus share relative to current pricing.**
+Naively rescaling one of those figures (dividing $6.44 by some factor) is
+not done here: the single-package report only publishes already-weighted
 dollars, not the raw per-model token counts a correct re-derivation
 needs. Batch #201's driver-3 finding is different: it publishes the raw
 split itself (57.5%/42.5%), so it can be re-derived.
@@ -121,24 +134,32 @@ split itself (57.5%/42.5%), so it can be re-derived.
 named up front: a uniform bucket mix across role classes (input, output,
 cache_creation, cache_read tokens in the same relative proportion for
 Fable-priced and Sonnet-priced roles), since per-role, per-bucket splits
-were never published for that batch. Under that assumption:
+were never published for that batch. Cross-check: at the proxy table's
+10x Fable/Sonnet ratio, uniform mix predicts a 93.1% weighted
+Fable-priced share (`(0.575 x 10) / (0.575 x 10 + 0.425)`) against the
+93.3% the investigation measured directly - a 0.2-point gap, within
+rounding, so the assumption holds. Under that assumption, at current
+sticker prices:
 
 - Raw split: 57.5% Fable-priced tokens, 42.5% Sonnet-priced.
-- Fable is 3.33x Sonnet at current prices ($10/$50 vs $3/$15, both
+- Fable is 3.33x Sonnet at sticker prices ($10/$50 vs $3/$15, both
   directions), against the proxy table's implied 10x.
-- Fable-priced share of weighted spend at current prices:
-  `(0.575 x 3.33) / (0.575 x 3.33 + 0.425)`, roughly 80-85%, down from the
-  proxy's 93.3%. Not stated to two decimals; the uniform-mix assumption
-  does not support that precision.
+- Fable-priced share of weighted spend: `(0.575 x 3.33) / (0.575 x 3.33 +
+  0.425)` = 81.9%, down from the proxy's 93.3%.
 - Opus 5 is exactly half of Fable 5's price in both directions, so
-  replacing every Fable-priced seat with Opus 5 halves that slice's dollar
-  contribution. Cutting an ~80-85% slice in half cuts total batch-level
-  spend by roughly 40-42.5%.
+  replacing every Fable-priced seat with Opus 5 halves that slice's
+  dollar contribution: cutting an 81.9% slice in half cuts total
+  batch-level spend by 40.9%.
 
-That range is the ceiling for option (b) (all three seats moved), at
-batch scope, in dollars, not confirmed Max-plan quota. It reuses
-`2026-07-06-token-burn-analyze.mjs`'s own published numbers plus the
-price correction above; no new analysis script was written.
+At the live $2/$10 intro Sonnet rate, Fable is 5x Sonnet instead of
+3.33x, giving an 87.1% share and a 43.6% saving - higher than the
+sticker-price figures above, not a ceiling above them. 40.9% is this
+document's durable, sticker-priced estimate for option (b) (all three
+seats moved), at batch scope, in dollars, not confirmed Max-plan quota;
+43.6% is what applies for the roughly five weeks the intro rate still
+runs. Both reuse `2026-07-06-token-burn-analyze.mjs`'s own published
+numbers plus the price correction above; no new analysis script was
+written.
 
 **Pricing option (c).** Batch #201's driver-3 finding reports lead +
 architect + reviewer as one combined group; it does not publish how much
@@ -148,8 +169,9 @@ more than half of nearly every bucket across the whole dataset (a
 different scope, not batch #201's role split), so it is directional
 evidence that lead is plausibly the majority of the Fable-priced group,
 not a number to plug into the formula above. Option (c)'s savings are
-therefore real, bounded above by the same 40-42.5% ceiling, and smaller if
-architect and reviewer carry a non-trivial share. Pricing it more
+therefore real, bounded above by the same 40.9% (sticker) to 43.6%
+(intro-rate) range, and smaller if architect and reviewer carry a
+non-trivial share. Pricing it more
 precisely would need a role-scoped re-run of the token-burn script
 against a fresh batch (section 9).
 
@@ -176,11 +198,10 @@ Two standing costs from the pricing source (`claude-api` skill,
   zero-data-retention). A policy cost the current assignment already
   pays, independent of anything measured here.
 - Opus 5 sits in a rate-limit bucket separate from the combined Opus 4.x
-  pool, so an Opus 5 primary with an Opus 4.8 fallback would be two
-  independent capacity pools, not one pool with a within-family fallback.
-  Whether that is a net resilience gain over the current Fable-primary,
-  Opus-4.8-fallback arrangement is not established here; both
-  arrangements already cross model families for their fallback.
+  pool (reused as the recommendation's availability argument, section 8).
+  Whether an Opus 5 primary with an Opus 4.8 fallback is a net resilience
+  gain over today's Fable-primary, Opus-4.8-fallback arrangement is not
+  established here; both already cross model families for their fallback.
 
 Opus 5's prompt-cache minimum dropped to 512 tokens (from 1024 on
 Opus 4.8), but this repo's own measured bootstrap contexts run
@@ -205,13 +226,23 @@ against Fable, not Opus 5 against Fable, so it does not bear here.
 
 ## 7. Change surface and prompt rework
 
-Full inventory, `grep -rn "fable\|Fable" .claude/ docs/`: `architect.md`
-and `reviewer.md` frontmatter (`model: fable` plus a fallback comment
-naming Opus), the three workflow critic stages
+Scope note: `grep -rn "fable\|Fable" .claude/ docs/` (below) does not
+cover the repo root, so this is a partial inventory, not a full one.
+`architect.md` and `reviewer.md` frontmatter (`model: fable` plus a
+fallback comment naming Opus), the three workflow critic stages
 (`tm-review-changes.js:146`, `tm-review-codebase.js:248`,
 `tm-map-codebase.js:236`), the three `SKILL.md` files describing the
 critic as Fable, and `team-guide.md`/`team-guide-rationale.md` as the
-policy's own prose (an edit site for any future change, not touched here).
+policy's own prose (edit sites for any future change, not touched here).
+
+Re-run from the repo root and two more lead-seat hardcodes surface, both
+stale as soon as the lead moves: `README.md` (7 hits; line 77,
+`fable, xhigh` on the lead node) and `docs/team-architecture.md:33`
+(`LEAD - main session (fable, xhigh effort)`) - the latter was already
+inside the `.claude`/`docs` scope above and simply left off the list.
+Neither is frontmatter or asserted in `npm test`, so neither is blocked
+by the effort-policy failure below, but both need editing alongside any
+lead-seat move.
 
 **Flag prominently:** `.claude/workflows/__tests__/effort-policy.test.mjs:21`
 defines `EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh' }` with no
@@ -225,7 +256,7 @@ until a follow-up issue adds an `opus` entry to `EFFORT_BY_MODEL`. That
 follow-up is not done in this package.
 
 One consequence worth flagging, verified directly: the same
-`shared/models.md` alias table (lines 116-134) maps the bare alias
+`shared/models.md` alias table (lines 114-138) maps the bare alias
 "opus" to `claude-opus-5`, not `claude-opus-4-8`. If Claude Code's own
 frontmatter `model: opus` resolves through the same alias table (not
 independently confirmed, but the two systems share Anthropic's model
@@ -255,13 +286,15 @@ vendor migration guide, the same weakest evidence class as section 6):
 - **Readier delegation, priced as a lead-seat risk.** `architect.md`/
   `reviewer.md` have no Task tool, so those two seats are structurally
   bounded regardless of model. The lead is not, and the lead is where the
-  one measured over-spawn failure in this repo's history came from
-  (`docs/reviews/2026-06-30-orchestration-comparison.md` addendum: an
-  unpinned, unbounded construction reached 297 agents and about 5.64M
-  subagent tokens over ~51 minutes and died on an organization-wide spend
-  cap, against the bounded arm's 9). That trial ran Sonnet 5, not Opus 5,
-  so it is evidence about unbounded construction risk in general, not a
-  measured Opus 5 spawning rate. If the lead moves to Opus 5, an explicit
+  one measured over-spawn failure in this repo's testing came from
+  (`docs/reviews/2026-06-30-orchestration-comparison.md` addendum: the
+  unbounded arm alone reached 288 of a combined 297 agents and about
+  5.64M subagent tokens over ~51 minutes and died on an organization-wide
+  spend cap, against the bounded arm's 9). That trial measured the
+  construction's behavior on Sonnet 5, not a live session's own free-form
+  choice, and not Opus 5 at all, so it is evidence about unbounded
+  construction risk in general, not a measured Opus 5 spawning rate. If
+  the lead moves to Opus 5, an explicit
   delegation cap is the mitigation this risk calls for, not a general
   policy change.
 - **Task-scope expansion.** Hits `architect.md`'s advisory role and
@@ -285,7 +318,14 @@ seats for quality reasons alone. The lead-only move is not blocked by
 that test (the lead's model is not frontmatter-pinned or asserted
 anywhere in `npm test`), captures a real and potentially majority share
 of the available savings (lead is the single largest token consumer in
-this repo's own aggregate data, section 4), and its blast radius is
+this repo's own aggregate data, section 4). That dollar range may not
+translate under this repo's Max-plan subscription, where nothing measures
+whether a lower per-token price buys more quota (below); what does bite
+here is availability - Opus 5 sits in its own rate-limit bucket, separate
+from the combined Opus 4.x pool (section 5), and this batch alone hit the
+Fable-5 limit twice. Moving the lead off the shared Fable pool removes
+that already-observed failure mode regardless of whether the dollar
+saving above translates into quota saved. Its blast radius is also
 contained: per `docs/reviews/2026-06-30-orchestration-comparison.md`'s
 Corollary, the pipeline pins architect and reviewer regardless of which
 model leads, so a lead-model change affects only the lead's own direct
@@ -293,15 +333,39 @@ judgment work (scoping, parking decisions, un-delegated writing), not the
 review or sub-plan quality the pipeline already guarantees through
 Fable-pinned subagents.
 
+That Corollary section doesn't stop at containment: run on Sonnet 5 vs
+Opus 4.8, it reached the opposite conclusion - keep the stronger model in
+the lead seat, since the lead's own un-delegated judgment is the one
+place model choice isn't backstopped by the pipeline. The same logic, run
+on this document's own numbers, would favor keeping Fable 5: section 6's
+only capability signal, vendor positioning, ranks Fable 5 above Opus 5,
+so a lead-only move accepts the same kind of judgment risk that report
+argued against taking. Two things distinguish this case rather than
+defeat it: that report's swap had no offsetting pressure and explicitly
+kept Opus as lead, where sections 4 and 5 here document real pressure
+absent there (a 2x per-token premium, two recorded Fable-limit failures);
+and the vendor positions Opus 5 itself as narrowing that gap ("a
+step-change over Claude Opus 4.8... at half the cost of Claude Fable 5",
+section 6), not a repeat of the older Opus-4.8-vs-Sonnet-5 comparison.
+Neither point is capability evidence; both are why confidence stays
+medium rather than treating containment alone as sufficient, and why
+section 9's revert trigger names exactly the judgment-quality signal the
+Corollary flags.
+
 What caps this at medium rather than high: the precise dollar/quota
-savings from moving the lead alone are bounded (up to the 40-42.5%
-batch-level ceiling in section 4) but not pinned, since driver-3 does not
-publish a lead-only breakdown; "affordable" in the current policy is a
-Max-plan quota claim, and nothing here measures whether Opus 5's lower
-per-token price actually buys more quota; the two Fable-limit events are
-a recurrence, not a measured rate, so the availability case is real but
-modest; and Opus 5's own spawning tendency as a lead is unmeasured
-(section 7's only data point is a Sonnet 5 trial).
+savings from moving the lead alone are bounded (around 40.9% at sticker
+pricing, 43.6% at the live intro rate, section 4) but not pinned, since
+driver-3 does not publish a lead-only breakdown; "affordable" in the
+current policy is a Max-plan quota claim, and nothing here measures
+whether Opus 5's lower per-token price actually buys more quota; the two
+Fable-limit events are a recurrence, not a measured rate, so the
+availability case is real but modest; Opus 5's own spawning tendency as a
+lead is unmeasured (section 7's only data point is a Sonnet 5 trial); no
+first-party comparison of Opus 5 against Fable 5 on this repo's own
+judgment tasks exists, and the only capability signal available, vendor
+positioning, ranks Fable 5 above Opus 5 (section 6); and the pricing this
+recommendation is built on is itself cached, not live, with no embedded
+cache date (section 4).
 
 ## 9. What would have to be true to revisit
 
