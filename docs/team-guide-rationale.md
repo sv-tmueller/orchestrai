@@ -68,8 +68,8 @@ until quality drops.
 
 ### Orchestrator: aggregate vs. per-batch token share
 
-Supports: "Fable costs 2x Opus 4.8 per token and weighs correspondingly
-against Max-plan quota. The premium is bounded in aggregate, not per batch."
+Supports: "Fable costs 2x Opus 5 per token. The premium is bounded in
+aggregate, not per batch."
 
 Across the 14-day, 25-project aggregate, Fable's own token share stays small
 (5.5% raw, 18.7% weighted proxy), but within a single kickoff batch it flips:
