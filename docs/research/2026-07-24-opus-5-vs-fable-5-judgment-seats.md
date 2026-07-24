@@ -2,12 +2,15 @@
 
 **Summary: move the lead session from Fable 5 to Opus 5 now (`/model
 claude-opus-5`); leave architect, reviewer, and the workflow critics on Fable
-5. Confidence: medium (section 8). One blocker: extending further to
-architect/reviewer/critics is blocked today by the effort-policy test having
-no `opus` tier (section 7); the lead-only move is not. It is a one-command
-model switch and cheap to reverse (section 7's inventory lists the prose that
-goes stale, none of it blocking) - the strongest argument for acting despite
-the unmeasured capability risk in section 6.**
+5. Confidence: medium (section 8), resting on an Opus-class floor claim, real
+but bounded savings, and availability (section 8) - not on cheap
+reversibility, which is a real but secondary point (a one-command model
+switch; section 7's inventory lists the prose that goes stale, none of it
+blocking) that lowers the cost of being wrong rather than driving the
+decision, despite the unmeasured capability risk in section 6. One blocker:
+extending further to architect/reviewer/critics is blocked today by the
+effort-policy test having no `opus` tier (section 7); the lead-only move is
+not.**
 
 A recommendation, not a policy change. Related: issue #264. Nothing here edits
 `.claude/team-guide.md`, any agent frontmatter, or any workflow stage.
@@ -68,9 +71,9 @@ Three concrete seat assignments, not general positions.
 
 A fourth combination (architect/reviewer to Opus 5, lead stays Fable) was
 rejected as a candidate: section 7 shows the frontmatter/critic-stage move is
-the one blocked by today's failing effort-policy test, while the lead's own
-model is not test-pinned at all. Leading with the change that needs no code
-fix first is the lower-risk split.
+the one that would fail the effort-policy test, while the lead's own model is
+not test-pinned at all. Leading with the change that needs no code fix first
+is the lower-risk split.
 
 ## 4. Cost, from this repo's numbers
 
@@ -106,8 +109,8 @@ no embedded cache date): Opus 5 `claude-opus-5` $5/$25 per MTok, Fable 5
 That file carries no Sonnet 5 pricing at all (`grep -n '\$' shared/models.md`
 returns three lines: the Fable 5 and Opus 5 prices plus one unrelated
 `$ANTHROPIC_API_KEY` curl example); Sonnet 5's $3/$15 comes from
-`shared/model-migration.md:1192` ("unchanged at the $3/$15 sticker,
-introductory $2/$10 per MTok applies through 2026-08-31"),
+`shared/model-migration.md:1192` ("unchanged at the $3/$15 sticker
+(introductory $2/$10 per MTok applies through 2026-08-31)"),
 `python/claude-api/README.md:502`, and this repo's own
 `docs/reviews/2026-06-30-orchestration-comparison.md:126-129` ("Corollary":
 Sonnet $3/$15 vs Opus 4.8 $5/$25, checked 2026-06-30). Those three sources
@@ -175,12 +178,18 @@ your Fable 5 limit`, each forcing a per-call Opus override (the Agent tool's
 `model` param, per the documented fallback procedure). Both events, with the
 exact error string, are recorded on batch issue #262 alongside the decision to
 use the per-call override, the auditable record since this document's sandbox
-has no GitHub access or session transcript to re-derive the claim from.
-Cross-referenced against commit `11003f9` ("docs: document per-call Opus
-override for a single Fable-blocked seat", #228): that commit exists because
-the same workaround already had to be written down once before, in a prior
-batch. Two events across two separate occasions is a recurrence, not a first;
-it is not a measured failure rate, and this document does not treat it as one.
+has no GitHub access or session transcript to re-derive the claim from. Two
+prior, separate occurrences exist. Commit `11003f9` ("docs: document per-call
+Opus override for a single Fable-blocked seat", #228) exists because the same
+workaround already had to be written down once before, in a prior batch.
+`docs/architecture/2026-07-05-codebase-map.md:6` records that the older
+2026-07-04 codebase map's synthesis stage "ran on the Opus 4.8 fallback while
+Fable 5 was quota-exhausted" (#179), confirmed by reading that source directly.
+Four events across three separate documented occasions (this batch's two, plus
+#228 and #179) is a recurrence, not a first; it is not a measured failure
+rate, and this document does not treat it as one - these remain individual
+recorded occurrences, not a rate measured over some denominator of total
+dispatches.
 
 Two standing costs from the pricing source (`claude-api` skill,
 `shared/models.md`):
@@ -234,11 +243,13 @@ editing alongside any lead-seat move.
 
 **Flag prominently:** `.claude/workflows/__tests__/effort-policy.test.mjs:21`
 defines `EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh' }` with no `opus`
-key. Read against the test body (lines 37-61): flipping any frontmatter or
-workflow-stage `model:` to `opus` fails with "pins model 'opus', which has no
-effort rule." The documented Fable-outage fallback (flip the pins to `opus`
-for a longer outage) is blocked by this repo's own test today. This is real
-rework, not a hypothetical: option (b), and the architect/reviewer half of
+key. Read against the test body: the frontmatter assertion (lines 37-61) and
+the workflow-stage assertion that consumes the same `EFFORT_BY_MODEL` (lines
+86-105) both fail the same way if `model:` is flipped to `opus`, with "pins
+model 'opus', which has no effort rule." The documented Fable-outage fallback
+(flip the pins to `opus` for a longer outage) is blocked by this repo's own
+test today. This is real rework, not a hypothetical: option (b), and the
+architect/reviewer half of
 option (c) if ever extended, cannot ship until a follow-up issue adds an
 `opus` entry to `EFFORT_BY_MODEL`. That follow-up is not done in this package.
 
@@ -294,79 +305,91 @@ leave architect, reviewer, and the three workflow critic stages on Fable 5
 until the effort-policy test gains an `opus` tier in a follow-up issue.
 Confidence: medium.**
 
-This is option (c), not (b): a full move is blocked today by a real, verified
-test failure (section 7), and the vendor's own capability claim (section 6)
-argues against moving the two structurally-bounded judgment seats for quality
+This is option (c), not (b): a full move would fail the effort-policy test
+today (section 7), and the vendor's own capability claim (section 6) argues
+against moving the two structurally-bounded judgment seats for quality
 reasons alone. The lead-only move is not blocked by that test (the lead's
-model is not frontmatter-pinned or asserted anywhere in `npm test`), captures
-a real and potentially majority share of the available savings (lead is the
-single largest token consumer in this repo's own aggregate data, section 4).
-That dollar range may not translate under this repo's Max-plan subscription,
-where nothing measures whether a lower per-token price buys more quota
-(below); what does bite here is availability - Opus 5 sits in its own
-rate-limit bucket, separate from the combined Opus 4.x pool (section 5), and
-this batch alone hit the Fable-5 limit twice. Moving the lead off the shared
-Fable pool reduces exposure to that already-observed failure mode (it does not
-remove it: architect, reviewer, and the critics stay on Fable and can still
-hit the limit), regardless of whether the dollar saving above translates into
-quota saved. Its blast radius is also contained: per
-`docs/reviews/2026-06-30-orchestration-comparison.md`'s Corollary, the
-pipeline pins architect and reviewer regardless of which model leads, so a
-lead-model change affects only the lead's own direct judgment work (scoping,
-parking decisions, un-delegated writing), not the review or sub-plan quality
-the pipeline already guarantees.
+model is not frontmatter-pinned or asserted anywhere in `npm test`), and it
+captures a real and potentially majority share of the available savings (lead
+is the single largest token consumer in this repo's own aggregate data,
+section 4). Weighed below against the sharpest existing rebuttal on file -
+`docs/reviews/2026-06-30-orchestration-comparison.md`'s Corollary, run on
+Sonnet 5 vs Opus 4.8, which reached the opposite conclusion (keep the
+stronger model in the lead seat, since the lead's own un-delegated judgment
+is the one place model choice isn't backstopped by the pipeline) - the case
+breaks into five parts:
 
-That Corollary section doesn't stop at containment: run on Sonnet 5 vs Opus
-4.8, it reached the opposite conclusion, keep the stronger model in the lead
-seat, since the lead's own un-delegated judgment is the one place model choice
-isn't backstopped by the pipeline. Its cost argument does not distinguish this
-case: the Corollary weighed comparable pressure (1.67x at sticker, 2.5x at the
-intro rate, against this document's 2.0x), said "Cost cuts the other way," and
-rejected the swap anyway, discounting its own case as unverified under the
-Max-plan subscription, the same discount section 8 applies here. What does
-distinguish this case is a floor claim, not a ranking claim: the Corollary's
-own conclusion, "keep Opus 4.8 as the default lead," argues against dropping
-the lead below Opus class, not that only the top-ranked model may hold the
-seat. This repo ran an Opus-class lead by policy until commit 7fd326e (#133)
-replaced it with Fable 5 (`git show 248d672 -- CLAUDE.md`); nothing in the
-record calls that inadequate, and #133 moved up because a stronger model
-appeared, not because Opus failed. Opus 5 is that model's successor at
-identical pricing and is already this repo's documented judgment-seat
-fallback, per commit ec14b7a (#263); this needs only "Opus 5 is at least Opus
-4.8's equal," nothing about the size of the gap to Fable 5.
+- **Cost, conceded rather than claimed.** The dollar range worked out in
+  section 4 may not translate under this repo's Max-plan subscription, where
+  nothing measures whether a lower per-token price buys more quota
+  (confidence cap, below), so this recommendation does not rest its case on
+  it. That mirrors the Corollary's own cost argument, which does not
+  distinguish this case: the Corollary weighed comparable pressure (1.67x at
+  sticker, 2.5x at the intro rate, against this document's 2.0x), said "Cost
+  cuts the other way," and rejected the swap anyway, discounting its own case
+  as unverified under the Max-plan subscription - the same discount this
+  section applies here.
+- **The floor claim.** What distinguishes this case from the Corollary's is a
+  floor claim, not a ranking claim: the Corollary's own conclusion, "the
+  judgment-escalation argument favors keeping Opus 4.8 as the default lead,"
+  argues against dropping the lead below Opus class, not that only the
+  top-ranked model may hold the seat. This repo ran an Opus-class lead by
+  policy until commit 7fd326e (#133) replaced it with Fable 5 (`git show
+  7fd326e -- .claude/team-guide.md`; commit 248d672, #87, three weeks
+  earlier, is cited elsewhere only as evidence of the pre-#133 Opus-4.8 lead
+  bullet, not as the replacing commit). Nothing in the record calls that
+  inadequate, and #133 moved up because a stronger model appeared, not
+  because Opus failed. Opus 5 is that model's successor at identical pricing
+  and is already this repo's documented judgment-seat fallback, per commit
+  ec14b7a (#263); this needs only "Opus 5 is at least Opus 4.8's equal,"
+  nothing about the size of the gap to Fable 5.
+- **Availability, genuinely new.** The Corollary has no availability fact or
+  argument anywhere. Precisely: the recorded events (section 5) span this
+  batch's two subagent judgment-seat dispatches (recovered by a per-call
+  Opus override, not lead-seat blocks), the prior occurrence behind commit
+  `11003f9` (#228), and the 2026-07-04 codebase map's synthesis-stage
+  fallback (#179) - four events across three separate documented occasions,
+  a recurrence, not a rate. Moving the lead off Fable reduces exhaustion
+  pressure on a shared pool the lead plausibly dominates (section 4); it does
+  not remove the failure mode, since architect, reviewer, and the critics
+  stay on Fable and can still hit the limit, regardless of whether the dollar
+  saving above translates into quota saved. The blast radius is also
+  contained: per the Corollary, the pipeline pins architect and reviewer
+  regardless of which model leads, so a lead-model change affects only the
+  lead's own direct judgment work (scoping, parking decisions, un-delegated
+  writing), not the review or sub-plan quality the pipeline already
+  guarantees.
+- **Policy conflict.** This collides with the Model policy's opening line,
+  "the strongest model in every plan/decision seat" (`.claude/team-guide.md`):
+  commit 7fd326e (#133), one day after the Corollary, moved the lead to Fable
+  for that reason, ratifying the Corollary's principle into standing policy
+  rather than superseding it. A lead-only move to Opus 5 is an exception to
+  that line, resolved by the policy's own fallback trigger ("unavailable,
+  rate-limited, quota-exhausted" as grounds to run the lead on Opus), except
+  that the exhaustion recurs rather than being one-off; the follow-up issue
+  implementing this amends the orchestrator bullet, a human sign-off item,
+  not a decision made here.
+- **Capability, conceded against.** The only capability signal still points
+  the other way: vendor positioning ranks Fable 5 above Opus 5 (section 6).
+  That concession stays tied to the confidence cap below, not argued around.
 
-Availability is genuinely new; the Corollary has no availability fact or
-argument anywhere. But precisely: the two recorded events (section 5) were
-subagent judgment-seat dispatches recovered by a per-call Opus override, not
-lead-seat blocks; with the prior occurrence behind commit 11003f9 they are a
-recurrence across three occasions, not a rate; and moving the lead off Fable
-reduces exhaustion pressure on a shared pool the lead plausibly dominates
-(section 4), it does not remove the failure mode noted above. This also
-collides with the Model policy's opening line, "the strongest model in every
-plan/decision seat" (`.claude/team-guide.md`): commit 7fd326e (#133), one day
-after the Corollary, moved the lead to Fable for that reason, ratifying the
-Corollary's principle into standing policy rather than superseding it. A
-lead-only move to Opus 5 is an exception to that line, resolved by the
-policy's own fallback trigger ("unavailable, rate-limited, quota-exhausted" as
-grounds to run the lead on Opus), except that the exhaustion recurs rather
-than being one-off; the follow-up issue implementing this amends the
-orchestrator bullet, a human sign-off item, not a decision made here. The only
-capability signal still points the other way, vendor positioning ranking Fable
-5 above Opus 5 (section 6); that concession stays tied to the confidence cap
-below, not argued around.
+What caps this at medium rather than high:
 
-What caps this at medium rather than high: the precise dollar/quota savings
-from moving the lead alone are bounded (around 40.9% at sticker pricing, 43.6%
-at the live intro rate, section 4) but not pinned, since driver-3 does not
-publish a lead-only breakdown; "affordable" in the current policy is a
-Max-plan quota claim, and nothing here measures whether Opus 5's lower
-per-token price actually buys more quota; the two Fable-limit events are a
-recurrence, not a rate, so the availability case is real but modest; Opus 5's
-own spawning tendency as a lead is unmeasured (section 7's only data point is
-a Sonnet 5 trial); no first-party comparison of Opus 5 against Fable 5 exists,
-and the only capability signal, vendor positioning, ranks Fable 5 above Opus 5
-(section 6); and the pricing here is itself cached, not live, with no embedded
-cache date (section 4).
+- The precise dollar/quota savings from moving the lead alone are bounded
+  (around 40.9% at sticker pricing, 43.6% at the live intro rate, section 4)
+  but not pinned, since driver-3 does not publish a lead-only breakdown.
+- "Affordable" in the current policy is a Max-plan quota claim, and nothing
+  here measures whether Opus 5's lower per-token price actually buys more
+  quota.
+- The four Fable-limit events, across three documented occasions, are a
+  recurrence, not a rate, so the availability case is real but modest.
+- Opus 5's own spawning tendency as a lead is unmeasured (section 7's only
+  data point is a Sonnet 5 trial).
+- No first-party comparison of Opus 5 against Fable 5 exists, and the only
+  capability signal, vendor positioning, ranks Fable 5 above Opus 5
+  (section 6).
+- The pricing here is itself cached, not live, with no embedded cache date
+  (section 4).
 
 ## 9. What would have to be true to revisit
 
@@ -375,8 +398,8 @@ effort-policy test gains an `opus` tier (a follow-up issue, not this package);
 a repo-scoped comparison (a `tm-ab-test` run per role, since none has run yet)
 shows Opus 5's judgment output on this repo's own sub-plans or reviews holds
 up against Fable 5's, not just against vendor positioning; or Fable-limit
-exhaustion events recur often enough to look like a rate rather than two
-isolated incidents.
+exhaustion events recur often enough to look like a rate rather than four
+isolated events across three documented occasions.
 
 **To revert the lead-only move:** the lead's own scoping and parking decisions
 visibly degrade on Opus 5, traceable to real batch outcomes (missed scope
@@ -406,12 +429,14 @@ measured for Sonnet 5, without the recommended delegation cap in place.
 - `.claude/team-guide.md`, `docs/team-guide-rationale.md`,
   `.claude/agents/architect.md`, `.claude/agents/reviewer.md`,
   `.claude/workflows/tm-review-changes.js`,
-  `.claude/workflows/__tests__/effort-policy.test.mjs`, and commit `11003f9`,
-  all read directly for this document.
+  `.claude/workflows/__tests__/effort-policy.test.mjs`,
+  `docs/architecture/2026-07-05-codebase-map.md` (the #179 availability
+  occurrence, section 5), and commit `11003f9`, all read directly for this
+  document.
 
 Limitations: the price correction in section 4 is arithmetic, not a re-run
 against real transcripts (transcripts were not reachable from this worktree);
 the batch #201 and single-package dollar figures both predate current pricing
 and were not independently re-derived beyond the one worked example;
-capability evidence is vendor-only; and the two availability events are
-anecdote, explicitly not a rate.
+capability evidence is vendor-only; and the four availability events across
+three documented occasions are anecdote, explicitly not a rate.
