@@ -43,10 +43,25 @@ so that commit is not reachable from this branch and `git show 089f754`
 will not resolve for anyone cloning today.
 
 **Where the document now reads stale.** Eight places assert or depend on the
-blocker that is now cleared: L10-13 (the summary), L72-76 (section 3), the
-line pair L240-242 and L244-254 (section 7, the "Flag prominently" block),
-L256-262 (the alias-table paragraph), L303-306 (the section 8
-recommendation), L308-311, and L396-397 (section 9's first extend-trigger).
+blocker that is now cleared. Line numbers are current as of this commit; a
+document that edits itself drifts, so each entry also carries a section
+heading and a quoted phrase to `grep` for if the number is wrong again:
+
+- L10-13, the summary: "the lead-only move is not" (blocked by the test).
+- L178-182, section 3 ("Options"): "the one that would fail the
+  effort-policy test".
+- L346-348, section 7 (the hardcode-inventory paragraph): "neither is
+  blocked by the effort-policy blocker below".
+- L350-360, section 7, the "Flag prominently" block: "blocked by this
+  repo's own test today".
+- L362-368, section 7, the alias-table paragraph: "the same
+  `shared/models.md` alias table".
+- L409-412, section 8, the recommendation: "until the effort-policy test
+  gains an `opus` tier".
+- L414-417, section 8 body: "This is option (c), not (b)".
+- L502-503, section 9, first extend-trigger: "the effort-policy test gains
+  an `opus` tier (a follow-up issue, not this package)".
+
 None of that prose is edited by this addendum; it stays as written on
 2026-07-24, and this list is here so a reader (or `grep`) can find each
 instance.
@@ -74,14 +89,16 @@ in the test being unfixed, only blocked by it as a practical matter. The
 recommendation itself, and its confidence level, are unchanged by this
 addendum.
 
-**The confidence check.** The six caps at L376-392 that hold section 8's
-confidence at medium are: the lead-only savings estimate is bounded but not
-pinned, the Max-plan quota translation is unmeasured, the four Fable-limit
-events are a recurrence and not a rate, Opus 5's own spawning tendency as a
-lead is unmeasured, no first-party capability comparison exists, and the
-pricing behind section 4 is cached, not live. None of the six cites the
+**The confidence check.** The six caps at L482-498, section 8 under "What
+caps this at medium rather than high", hold section 8's confidence at
+medium: the lead-only savings estimate is bounded but not pinned, the
+Max-plan quota translation is unmeasured, the four Fable-limit events are a
+recurrence and not a rate, Opus 5's own spawning tendency as a lead is
+unmeasured, no first-party capability comparison exists, and the pricing
+behind section 4 is cached, not live. None of the six cites the
 effort-policy test. Medium is untouched by this addendum, and that claim is
-checkable against L376-392 directly rather than asserted here.
+checkable against that same L482-498 block directly rather than asserted
+here.
 
 **Section 7 line drift.** The body's "Flag prominently" block (L244-254)
 quotes `effort-policy.test.mjs` at line 21 with two keys (`sonnet`, `fable`).
