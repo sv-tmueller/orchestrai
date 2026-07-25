@@ -430,7 +430,7 @@ describe('criticWithFallback', () => {
     const sandbox = {
       agent: async (prompt, opts) => {
         calls.push({ prompt, opts })
-        return calls.length === 1 ? null : { verdict: 'approve' }
+        return calls.length === 1 ? null : Object.freeze({ verdict: 'approve' })
       },
       log: (msg) => logs.push(msg),
     }
