@@ -1,0 +1,38 @@
+# Adapted from .claude/skills/tm-new-project/templates/ci.yml.
+#
+# This repo has no install, typecheck, lint, build, or e2e step: no
+# dependencies, no lockfile, no application runtime (see CLAUDE.md's
+# "Useful commands"). The template's staged checks/build/e2e jobs collapse
+# to the one stage this repo actually has: unit tests.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# No paths-ignore: this repo is 77% markdown, so the template's docs/** and
+# **.md skips would block most PRs on a required check that never completes.
+# The suite runs in under a second, so there is nothing to save by skipping.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # No cache: 'npm' here. There is no lockfile for setup-node's
+          # cache-path resolution to key off, so it would fail.
+      - run: npm test
