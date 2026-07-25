@@ -6,6 +6,11 @@
  * The test reads the real agent frontmatters and workflow sources, so a new
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.
+ *
+ * `opus` carries fable's xhigh so the documented Fable-outage fallback is
+ * usable: flipping a judgment seat's pin from fable to opus keeps its effort
+ * unchanged and still passes. Without that entry the fallback the Model policy
+ * prescribes fails this suite the moment anyone follows it.
  */
 
 import { test, describe } from 'node:test'
@@ -18,7 +23,7 @@ const __dir = dirname(fileURLToPath(import.meta.url))
 const workflowsDir = join(__dir, '..')
 const agentsDir = join(__dir, '..', '..', 'agents')
 
-const EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh' }
+const EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh', opus: 'xhigh' }
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
 // ===========================================================================
