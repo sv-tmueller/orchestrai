@@ -482,9 +482,14 @@ describe('criticWithFallback', () => {
   })
 
   test('every workflow file wires the critic call through criticWithFallback', () => {
+    // Assert on 'await criticWithFallback(', not the bare function name: the
+    // declaration line ('async function criticWithFallback(...') also matches
+    // the bare name, so that substring is present even if the call site were
+    // reverted to `await agent(`. The declaration has no `await`, so this
+    // string only matches an actual call.
     for (const file of FILES) {
       const src = readFileSync(join(workflowsDir, file), 'utf8')
-      assert.ok(src.includes('criticWithFallback('), `${file} does not call criticWithFallback(`)
+      assert.ok(src.includes('await criticWithFallback('), `${file} does not call criticWithFallback(`)
     }
   })
 })

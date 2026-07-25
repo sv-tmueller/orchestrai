@@ -51,8 +51,11 @@ async function criticWithFallback(prompt, opts) {
   )
   if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the opus fallback returned nothing.`)
   log(`${opts.label}: this critique was produced by the opus fallback, not ${opts.model}.`)
-  second.modelFallback = `${opts.model} -> opus`
-  return second
+  // Return a new object rather than mutating `second`: workflow scripts are ES
+  // modules (strict mode), and the runtime's returned object could be frozen,
+  // sealed, or proxied, which would throw a TypeError on exactly this
+  // fallback path.
+  return { ...second, modelFallback: `${opts.model} -> opus` }
 }
 
 // This list is diff-scoped and intentionally longer than tm-review-codebase's
