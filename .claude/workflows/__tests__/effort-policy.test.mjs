@@ -71,7 +71,11 @@ describe('agent frontmatter effort pins', () => {
 //
 // Agent-call opts in both workflows are single-line objects carrying both
 // label: and model:. The meta.phases display entries carry model: but
-// title:/detail: instead of label:, so requiring label: excludes them.
+// title:/detail: instead of label:, so requiring label: excludes them. The
+// criticWithFallback retry opts (`{ ...opts, model: 'opus' }`) also carry
+// model: with no label: and no literal effort:, so the same filter excludes
+// them too; that is safe because the spread inherits effort: from the
+// caller's opts line, which this test already checks.
 // ===========================================================================
 describe('workflow stage effort pins', () => {
   for (const file of WORKFLOW_FILES) {

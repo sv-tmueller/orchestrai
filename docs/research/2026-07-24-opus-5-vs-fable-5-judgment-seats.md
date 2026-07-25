@@ -15,6 +15,112 @@ not.**
 A recommendation, not a policy change. Related: issue #264. Nothing here edits
 `.claude/team-guide.md`, any agent frontmatter, or any workflow stage.
 
+## Addendum, 2026-07-25: the effort-policy blocker is cleared
+
+Sections 1-10 below are unchanged and stand as written on 2026-07-24. This
+addendum is the only new material and it does not touch them. It exists
+because the blocker section 7 and section 8 describe as open is no longer
+open, and the most-read text in this document (the summary above) still
+states otherwise.
+
+**What cleared.** `git show daa176e --
+.claude/workflows/__tests__/effort-policy.test.mjs` shows the change:
+`EFFORT_BY_MODEL` now reads `{ sonnet: 'high', fable: 'xhigh', opus: 'xhigh'
+}`, at line 26 of that file, not line 21 as section 7's quote below says.
+
+**Chronology.** The fix did not land after this document merged. `git show
+--stat daa176e` shows the doc and the effort-policy fix in the same squash
+commit: both shipped together in PR #265, on the same branch, before merge.
+That is why the document above asserts a blocker its own PR already removed:
+the two changes were written in the same batch and squashed together without
+reconciling the prose against the test change.
+
+**References.** `daa176e` is the runnable citation for the fix. PR #265 is
+the durable GitHub reference for the same change. An earlier, pre-squash
+branch commit, `089f754`, also touched this area but is not cited as a
+runnable reference here: `git merge-base --is-ancestor 089f754 HEAD` fails,
+so that commit is not reachable from this branch and `git show 089f754`
+will not resolve for anyone cloning today.
+
+**Where the document now reads stale.** Eight places assert or depend on the
+blocker that is now cleared. Line numbers are current as of this commit; a
+document that edits itself drifts, so each entry also carries a section
+heading and a quoted phrase to `grep` for if the number is wrong again:
+
+- L10-13, the summary: "the lead-only move is not" (blocked by the test).
+- L178-182, section 3 ("Options"): "the one that would fail the
+  effort-policy test".
+- L346-348, section 7 (the hardcode-inventory paragraph): "neither is
+  blocked by the effort-policy blocker below".
+- L350-360, section 7, the "Flag prominently" block: "blocked by this
+  repo's own test today".
+- L362-368, section 7, the alias-table paragraph: "the same
+  `shared/models.md` alias table".
+- L409-412, section 8, the recommendation: "until the effort-policy test
+  gains an `opus` tier".
+- L414-417, section 8 body: "This is option (c), not (b)".
+- L502-503, section 9, first extend-trigger: "the effort-policy test gains
+  an `opus` tier (a follow-up issue, not this package)".
+
+None of that prose is edited by this addendum; it stays as written on
+2026-07-24, and this list is here so a reader (or `grep`) can find each
+instance.
+
+**The two trigger sentences, named and neutralised.** Section 8 recommends
+holding architect, reviewer, and the critics on Fable 5 "until the
+effort-policy test gains an `opus` tier in a follow-up issue." Section 9's
+first extend-trigger names the same condition: "the effort-policy test gains
+an `opus` tier (a follow-up issue, not this package)." Both are written as
+satisfied-condition triggers, and both conditions are now met. Meeting them
+does not license moving architect, reviewer, or the critics to Opus 5. The
+effort-policy test was only ever the mechanical blocker (section 8's second
+leg, below); the capability reason (section 6, unchanged and unmet) was
+always the independent, load-bearing reason for the hold, and clearing a
+test does not clear a capability question no first-party comparison has
+answered.
+
+**What is affected and what is not.** Section 8 gave the hold on architect,
+reviewer, and the critics two legs: the effort-policy test blocking it
+mechanically, and the vendor capability claim arguing against it on merit.
+One leg is gone; the other stands. "Nothing changes" is false: the hold used
+to rest on two independent reasons and now rests on one. "The recommendation
+weakens" is also false: option (c) still stands, and it was never grounded
+in the test being unfixed, only blocked by it as a practical matter. The
+recommendation itself, and its confidence level, are unchanged by this
+addendum.
+
+**The confidence check.** The six caps at L482-498, section 8 under "What
+caps this at medium rather than high", hold section 8's confidence at
+medium: the lead-only savings estimate is bounded but not pinned, the
+Max-plan quota translation is unmeasured, the four Fable-limit events are a
+recurrence and not a rate, Opus 5's own spawning tendency as a lead is
+unmeasured, no first-party capability comparison exists, and the pricing
+behind section 4 is cached, not live. None of the six cites the
+effort-policy test. Medium is untouched by this addendum, and that claim is
+checkable against that same L482-498 block directly rather than asserted
+here.
+
+**Section 7 line drift.** The body's "Flag prominently" block (L350-360)
+quotes `effort-policy.test.mjs` at line 21 with two keys (`sonnet`, `fable`).
+The file now reads three keys (`sonnet`, `fable`, `opus`) at line 26, per
+`daa176e` above. That block is not edited here; this note only records the
+drift for a reader who goes to check the citation.
+
+What this addendum does not do: it does not revise the recommendation
+(option (c) still stands: lead to Opus 5, architect/reviewer/critics hold),
+does not touch the confidence level, and does not strengthen the lead-seat
+move (the lead's model was never frontmatter-pinned or test-asserted, so
+clearing this blocker adds nothing to that case). It does not claim the
+section 6 capability argument is weakened, dated, or superseded; no
+first-party comparison has run, and vendor positioning still ranks Fable 5
+above Opus 5, which is why the hold on architect, reviewer, and the critics
+survives. It does not claim the alias-table question (L362-368) is settled;
+whether `model: opus` resolves through the alias table to Opus 5 was
+unconfirmed when this document was written and is unconfirmed now, so this
+addendum stays silent on it. It does not overstate what the cleared test
+does: `EFFORT_BY_MODEL`'s `opus` entry permits an `opus`-pinned seat carrying
+`xhigh` effort; it does not endorse, require, or recommend running one.
+
 ## 1. Question and scope
 
 With Opus 5 released, should the orchestrator (lead), architect, and reviewer
@@ -238,7 +344,7 @@ as soon as the lead moves: `README.md` (7 hits; line 77, `fable, xhigh` on the
 lead node) and `docs/team-architecture.md:33` (`LEAD - main session (fable,
 xhigh effort)`) - the latter was already inside the `.claude`/`docs` scope
 above and simply left off the list. Neither is frontmatter or asserted in `npm
-test`, so neither is blocked by the effort-policy failure below, but both need
+test`, so neither is blocked by the effort-policy blocker below, but both need
 editing alongside any lead-seat move.
 
 **Flag prominently:** `.claude/workflows/__tests__/effort-policy.test.mjs:21`

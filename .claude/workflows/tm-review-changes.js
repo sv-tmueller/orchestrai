@@ -13,8 +13,9 @@ export const meta = {
 // one Fable critic. It cannot become the 100-agent fan-out that an unpinned
 // session-model review produces. Models and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
-// single critic runs Fable 5 at xhigh effort (flip its model pin to 'opus'
-// under the Opus 5 fallback, see team-guide).
+// single critic runs Fable 5 at xhigh effort and auto-retries once on opus
+// at the same effort if Fable returns nothing (criticWithFallback below;
+// see team-guide for the lead-level fallback, which is still manual).
 //
 // Invoke with an optional base ref:
 //   Workflow({ name: 'tm-review-changes', args: { base: 'origin/main' } })
@@ -26,6 +27,36 @@ function safeRef(value, fallback) {
   return typeof value === 'string' && /^[\w.~^\/\-]+$/.test(value) && !value.includes('..') ? value : fallback
 }
 const base = safeRef(args && args.base, 'origin/main')
+
+// Duplicated byte-for-byte across the three tm- workflows that run a Fable
+// critic (the workflow runtime has no shared imports); keep this copy in
+// sync, see helpers.test.mjs.
+async function criticWithFallback(prompt, opts) {
+  const first = await agent(prompt, opts)
+  // agent() returns null both when the model errors out after retries (for
+  // example Fable 5 quota exhaustion) and when the user skips the dispatch
+  // mid-run. Nothing in this script can tell those two cases apart, so there
+  // is no heuristic to invent here. The ruling is on which failure mode is
+  // worse: retrying a deliberate skip costs one extra skip prompt (the retry
+  // is itself an agent() call, so skipping again just returns null and the
+  // run ends below with a clear error), while not retrying a quota death
+  // costs the entire unattended run. Retry unconditionally.
+  if (first) return first
+  log(
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on opus at the same effort. Skipping again will end the run.`
+  )
+  const second = await agent(
+    `${prompt}\n\nNOTE: this is a retry on the opus fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: 'opus' }
+  )
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the opus fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the opus fallback, not ${opts.model}.`)
+  // Return a new object rather than mutating `second`: the runtime's returned
+  // object could be frozen or sealed, in which case mutating it would either
+  // silently drop the `modelFallback` marker (sloppy mode) or throw a
+  // TypeError, and a proxied result could throw either way.
+  return { ...second, modelFallback: `${opts.model} -> opus` }
+}
 
 // This list is diff-scoped and intentionally longer than tm-review-codebase's
 // per-area dimension list: docs and perf need diff context (what changed, and
@@ -141,7 +172,7 @@ const coverageNote = dropped.length
   : ''
 
 phase('Consolidate')
-const report = await agent(
+const report = await criticWithFallback(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
   { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
 )

@@ -1,0 +1,43 @@
+# Adapted from .claude/skills/tm-new-project/templates/ci.yml.
+#
+# This repo has no install, typecheck, lint, build, or e2e step: no
+# dependencies, no lockfile, no application runtime (see CLAUDE.md's
+# "Useful commands"). The template's staged checks/build/e2e jobs collapse
+# to the one stage this repo actually has: unit tests.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# No paths-ignore: the markdown here is test input, not inert prose.
+# .claude/workflows/__tests__/effort-policy.test.mjs reads .claude/agents/*.md
+# frontmatter, so a docs/** or **.md skip would let a PR that breaks that
+# suite (for example editing architect.md's model pin) skip CI entirely.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 22 is a floor, not a preference: npm test's glob (see
+          # package.json) relies on node --test expanding it, which
+          # Node 20.20.2 fails (exit 1, "could not find"); 21.7.3 and
+          # 22.22.2 both expand it and run the suite.
+          node-version: '22'
+          # No cache: 'npm' here. There is no lockfile for setup-node's
+          # cache-path resolution to key off, so it would fail.
+      - run: npm test
