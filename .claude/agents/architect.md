@@ -2,7 +2,8 @@
 name: architect
 description: Advisory lead for approach decisions. Use when an issue needs a sub-plan before implementation, when an issue looks mis-sized or needs splitting (size:L or size:XL), or when developer and reviewer disagree. Read-only; decides approach, never writes code.
 tools: Read, Grep, Glob, Bash
-# Judgment role: Fable 5. Fallback is opus (see team-guide, Model policy).
+# Judgment role: Fable 5. Fallback is opus = Opus 5, same xhigh effort
+# (see team-guide, Model policy).
 model: fable
 effort: xhigh
 ---

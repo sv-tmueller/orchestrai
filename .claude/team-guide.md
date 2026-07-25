@@ -189,12 +189,12 @@ Rationale: docs/team-guide-rationale.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
   Fable 5 (`claude-fable-5`) at xhigh effort. Affordable only because the
-  lead stays on the bounded tm- machinery. Fable costs 2x Opus 4.8 per
+  lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
   token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Fallback: Opus 4.8 at xhigh effort (a procedure, not automatic). When
+- Fallback: Opus 5 at xhigh effort (a procedure, not automatic). When
   Fable 5 is unavailable, rate-limited, quota-exhausted, or
-  refuses the workload, switch the lead with `/model claude-opus-4-8`; for a
+  refuses the workload, switch the lead with `/model claude-opus-5`; for a
   longer outage flip the `fable` pins to `opus` in the `architect` and
   `reviewer` frontmatters and the Fable-critic stage of every `tm-` workflow
   (`.claude/workflows/`). Flip back when Fable returns. For a single
@@ -206,7 +206,7 @@ Rationale: docs/team-guide-rationale.md.
 - Cost-based fallback trigger: if Fable 5 stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
-  first, then decide whether to keep Fable or move to Opus 4.8 permanently,
+  first, then decide whether to keep Fable or move to Opus 5 permanently,
   logging the decision and cost here.
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
@@ -230,7 +230,7 @@ Rationale: docs/team-guide-rationale.md.
   never pays Fable rates for worker stages.
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every subagent to one
   model, defeating the split above. Use only as a temporary seatbelt (e.g.
-  `claude-sonnet-4-6` before one heavy ad-hoc run); it downgrades the
+  `claude-sonnet-5` before one heavy ad-hoc run); it downgrades the
   architect and reviewer too.
 
 ## How to pick up a task

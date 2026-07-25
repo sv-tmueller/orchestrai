@@ -14,7 +14,7 @@ export const meta = {
 // session-model review produces. Models and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
 // single critic runs Fable 5 at xhigh effort (flip its model pin to 'opus'
-// under the Opus 4.8 fallback, see team-guide).
+// under the Opus 5 fallback, see team-guide).
 //
 // Invoke with an optional base ref:
 //   Workflow({ name: 'tm-review-changes', args: { base: 'origin/main' } })

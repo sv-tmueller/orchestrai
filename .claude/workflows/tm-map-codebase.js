@@ -16,7 +16,7 @@ export const meta = {
 // areas the scout proposes. There is no per-file fan-out and no loop. Models and
 // effort are pinned per stage, so the session model and effort never leak into
 // the scout or the workers; the single critic runs Fable 5 at xhigh effort (flip
-// its model pin to 'opus' under the Opus 4.8 fallback, see team-guide).
+// its model pin to 'opus' under the Opus 5 fallback, see team-guide).
 //
 // When the repo is too big for MAX_AREAS areas to cover, the leftover paths are
 // reported (coverage.areasDropped, coverage.ceilingReached, and a suggested next
