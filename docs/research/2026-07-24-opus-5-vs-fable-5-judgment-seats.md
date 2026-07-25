@@ -100,7 +100,7 @@ effort-policy test. Medium is untouched by this addendum, and that claim is
 checkable against that same L482-498 block directly rather than asserted
 here.
 
-**Section 7 line drift.** The body's "Flag prominently" block (L244-254)
+**Section 7 line drift.** The body's "Flag prominently" block (L350-360)
 quotes `effort-policy.test.mjs` at line 21 with two keys (`sonnet`, `fable`).
 The file now reads three keys (`sonnet`, `fable`, `opus`) at line 26, per
 `daa176e` above. That block is not edited here; this note only records the
@@ -114,7 +114,7 @@ clearing this blocker adds nothing to that case). It does not claim the
 section 6 capability argument is weakened, dated, or superseded; no
 first-party comparison has run, and vendor positioning still ranks Fable 5
 above Opus 5, which is why the hold on architect, reviewer, and the critics
-survives. It does not claim the alias-table question (L256-262) is settled;
+survives. It does not claim the alias-table question (L362-368) is settled;
 whether `model: opus` resolves through the alias table to Opus 5 was
 unconfirmed when this document was written and is unconfirmed now, so this
 addendum stays silent on it. It does not overstate what the cleared test
