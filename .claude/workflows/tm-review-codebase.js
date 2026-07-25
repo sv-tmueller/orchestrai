@@ -16,8 +16,9 @@ export const meta = {
 // large the repo is or how many areas the scout proposes. There is no per-file
 // fan-out and no loop. Models and effort are pinned per stage, so the
 // session model and effort never leak into the scout or the workers; the
-// single critic runs Fable 5 at xhigh effort (flip its model pin to 'opus'
-// under the Opus 5 fallback, see team-guide).
+// single critic runs Fable 5 at xhigh effort and auto-retries once on opus
+// at the same effort if Fable returns nothing (criticWithFallback below;
+// see team-guide for the lead-level fallback, which is still manual).
 //
 // When the repo is too big for MAX_AREAS areas to cover, the leftover paths are
 // reported (coverage.ceilingReached, coverage.areasDropped, and a suggested next
@@ -49,6 +50,33 @@ function safeRef(value, fallback) {
 }
 const root = safeRef(opts.path, '.')
 const MAX_AREAS = Number.isInteger(opts.areas) && opts.areas > 0 ? opts.areas : 24
+
+// Duplicated byte-for-byte across the three tm- workflows that run a Fable
+// critic (the workflow runtime has no shared imports); keep this copy in
+// sync, see helpers.test.mjs.
+async function criticWithFallback(prompt, opts) {
+  const first = await agent(prompt, opts)
+  // agent() returns null both when the model errors out after retries (for
+  // example Fable 5 quota exhaustion) and when the user skips the dispatch
+  // mid-run. Nothing in this script can tell those two cases apart, so there
+  // is no heuristic to invent here. The ruling is on which failure mode is
+  // worse: retrying a deliberate skip costs one extra skip prompt (the retry
+  // is itself an agent() call, so skipping again just returns null and the
+  // run ends below with a clear error), while not retrying a quota death
+  // costs the entire unattended run. Retry unconditionally.
+  if (first) return first
+  log(
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on opus at the same effort. Skipping again will end the run.`
+  )
+  const second = await agent(
+    `${prompt}\n\nNOTE: this is a retry on the opus fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: 'opus' }
+  )
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the opus fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the opus fallback, not ${opts.model}.`)
+  second.modelFallback = `${opts.model} -> opus`
+  return second
+}
 
 // FINDING and FINDINGS_SCHEMA are a shared base intentionally duplicated with
 // tm-review-changes.js (the workflow runtime has no shared imports); this copy
@@ -243,7 +271,7 @@ const suggestedNextActionClause = ceilingReached
   ? `, and coverage.suggestedNextAction to ${JSON.stringify(suggestedNextAction)}`
   : ''
 
-const report = await agent(
+const report = await criticWithFallback(
   `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then a one-line health impression scored 0-10 and up to three named top risks; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after that opening block that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
   { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
 )

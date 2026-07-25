@@ -10,6 +10,10 @@
  * union in tm-review-codebase.js. Those are tested as logic kernels - the
  * test captures the expression's shape, not the real source text. This is
  * the one honest seam; it is documented below and called out in the PR.
+ *
+ * loadFn() accepts an optional sandbox object so a function whose free
+ * variables are workflow runtime globals (agent, log) can be run with stub
+ * implementations instead of throwing ReferenceError.
  */
 
 import { test, describe } from 'node:test'
@@ -27,10 +31,12 @@ const workflowsDir = join(__dir, '..')
 // Helper: slice a named function out of a JS source file and evaluate it in a
 // vm context. Returns the function value.
 // ---------------------------------------------------------------------------
-function loadFn(filename, fnName) {
+function loadFn(filename, fnName, sandbox = {}) {
   const src = readFileSync(join(workflowsDir, filename), 'utf8')
-  // Match "function <fnName>(" - handles single-line bodies too.
-  const startRe = new RegExp(`function ${fnName}\\s*\\(`)
+  // Match "function <fnName>(", optionally preceded by "async" - handles
+  // single-line bodies too. The async keyword must stay inside the slice, or
+  // runInContext throws on the function's first await.
+  const startRe = new RegExp(`(?:async\\s+)?function ${fnName}\\s*\\(`)
   const startMatch = startRe.exec(src)
   if (!startMatch) throw new Error(`${fnName} not found in ${filename}`)
 
@@ -46,7 +52,7 @@ function loadFn(filename, fnName) {
   }
   const fnSrc = src.slice(startMatch.index, pos)
 
-  const ctx = createContext({})
+  const ctx = createContext(sandbox)
   runInContext(fnSrc, ctx)
   return runInContext(fnName, ctx)
 }
@@ -56,7 +62,7 @@ function loadFn(filename, fnName) {
 // ---------------------------------------------------------------------------
 function sliceFnSrc(filename, fnName) {
   const src = readFileSync(join(workflowsDir, filename), 'utf8')
-  const startRe = new RegExp(`function ${fnName}\\s*\\(`)
+  const startRe = new RegExp(`(?:async\\s+)?function ${fnName}\\s*\\(`)
   const startMatch = startRe.exec(src)
   if (!startMatch) throw new Error(`${fnName} not found in ${filename}`)
   let pos = startMatch.index
@@ -384,5 +390,101 @@ describe('scoutDropped union', () => {
       mapDropped: null,
     })
     assert.deepEqual(result, [])
+  })
+})
+
+// ===========================================================================
+// 5. criticWithFallback (issue #267)
+//
+// The helper's only free variables are the workflow runtime globals `agent`
+// and `log`. Supplying stubs as the vm sandbox runs the actual shipped code,
+// not a hand-copied version.
+// ===========================================================================
+describe('criticWithFallback', () => {
+  const FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
+  const baseOpts = { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: { type: 'object' } }
+
+  test('happy path: first agent call succeeds, result returned unchanged', async () => {
+    const calls = []
+    const logs = []
+    const sandbox = {
+      agent: async (prompt, opts) => {
+        calls.push({ prompt, opts })
+        return { verdict: 'approve' }
+      },
+      log: (msg) => logs.push(msg),
+    }
+    const criticWithFallback = loadFn('tm-review-changes.js', 'criticWithFallback', sandbox)
+
+    const result = await criticWithFallback('the prompt', baseOpts)
+
+    assert.deepEqual(result, { verdict: 'approve' })
+    assert.equal(calls.length, 1)
+    assert.equal(logs.length, 0)
+    assert.equal('modelFallback' in result, false)
+  })
+
+  test('first call returns null, retries on opus and succeeds', async () => {
+    const calls = []
+    const logs = []
+    const sandbox = {
+      agent: async (prompt, opts) => {
+        calls.push({ prompt, opts })
+        return calls.length === 1 ? null : { verdict: 'approve' }
+      },
+      log: (msg) => logs.push(msg),
+    }
+    const criticWithFallback = loadFn('tm-review-changes.js', 'criticWithFallback', sandbox)
+
+    const result = await criticWithFallback('the prompt', baseOpts)
+
+    assert.equal(calls.length, 2)
+    const secondOpts = calls[1].opts
+    assert.equal(secondOpts.model, 'opus')
+    assert.equal(secondOpts.effort, baseOpts.effort)
+    assert.equal(secondOpts.label, baseOpts.label)
+    assert.equal(secondOpts.phase, baseOpts.phase)
+    assert.equal(secondOpts.schema, baseOpts.schema)
+    assert.ok(calls[1].prompt.includes('the prompt'), 'second prompt still carries the original prompt')
+    assert.ok(calls[1].prompt.length > 'the prompt'.length, 'second prompt carries an added notice')
+    assert.equal(result.verdict, 'approve')
+    assert.equal(result.modelFallback, 'fable -> opus')
+    assert.ok(logs.length >= 1, 'log() must be called to surface the fallback')
+  })
+
+  test('both calls return null: throws naming the label and both models', async () => {
+    const sandbox = {
+      agent: async () => null,
+      log: () => {},
+    }
+    const criticWithFallback = loadFn('tm-review-changes.js', 'criticWithFallback', sandbox)
+
+    let threw = null
+    try {
+      await criticWithFallback('the prompt', baseOpts)
+    } catch (err) {
+      threw = err
+    }
+    assert.ok(threw, 'expected criticWithFallback to throw when both attempts return null')
+    // vm-realm errors are not `instanceof` the host's Error, so assert on the
+    // message rather than the error's prototype chain.
+    assert.match(threw.message, /consolidate/)
+    assert.match(threw.message, /fable/)
+    assert.match(threw.message, /opus/)
+  })
+
+  test('is byte-identical across all three workflow files', () => {
+    const a = sliceFnSrc('tm-review-changes.js', 'criticWithFallback')
+    const b = sliceFnSrc('tm-review-codebase.js', 'criticWithFallback')
+    const c = sliceFnSrc('tm-map-codebase.js', 'criticWithFallback')
+    assert.equal(a, b, 'criticWithFallback diverged between tm-review-changes.js and tm-review-codebase.js')
+    assert.equal(b, c, 'criticWithFallback diverged between tm-review-codebase.js and tm-map-codebase.js')
+  })
+
+  test('every workflow file wires the critic call through criticWithFallback', () => {
+    for (const file of FILES) {
+      const src = readFileSync(join(workflowsDir, file), 'utf8')
+      assert.ok(src.includes('criticWithFallback('), `${file} does not call criticWithFallback(`)
+    }
   })
 })

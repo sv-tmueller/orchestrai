@@ -196,8 +196,9 @@ Rationale: docs/team-guide-rationale.md.
   Fable 5 is unavailable, rate-limited, quota-exhausted, or
   refuses the workload, switch the lead with `/model claude-opus-5`; for a
   longer outage flip the `fable` pins to `opus` in the `architect` and
-  `reviewer` frontmatters and the Fable-critic stage of every `tm-` workflow
-  (`.claude/workflows/`). Flip back when Fable returns. For a single
+  `reviewer` frontmatters (the Fable-critic stage of every `tm-` workflow
+  already retries on opus automatically when Fable returns nothing, no flip
+  needed there; `.claude/workflows/`). Flip back when Fable returns. For a single
   role-agent dispatch hitting Fable quota mid-batch, dispatch that one agent
   with a per-call Opus override (the Agent tool's `model` param) instead of
   flipping every pin. The ladder is Fable -> Opus; Sonnet is never a fallback
