@@ -12,9 +12,13 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// Arguments are deliberately not forwarded. `node --test` takes its flags
+// before the positional pattern, and a forwarded value-taking flag would
+// consume the pattern, leaving the runner to fall back to default file
+// discovery and report a false green.
 const result = spawnSync(
   process.execPath,
-  ['--test', ...process.argv.slice(2), pattern],
+  ['--test', pattern],
   { stdio: 'inherit' }
 );
 process.exit(result.status ?? 1);
