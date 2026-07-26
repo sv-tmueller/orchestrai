@@ -47,7 +47,7 @@ blocker that is now cleared. Line numbers are current as of this commit; a
 document that edits itself drifts, so each entry also carries a section
 heading and a quoted phrase to `grep` for if the number is wrong again:
 
-- L10-13, the summary: "the lead-only move is" (blocked by the test).
+- L10-13, the summary: "the lead-only move is" (not blocked by the test).
 - L178-182, section 3 ("Options"): "the one that would fail the
   effort-policy test".
 - L346-348, section 7 (the hardcode-inventory paragraph): "neither is
