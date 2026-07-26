@@ -34,9 +34,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # 22 is a floor, not a preference: npm test's glob (see
-          # package.json) relies on node --test expanding it, which
-          # Node 20.20.2 fails (exit 1, "could not find"); 21.7.3 and
-          # 22.22.2 both expand it and run the suite.
+          # scripts/test.mjs) relies on fs.globSync, added in Node 22.0.0,
+          # so the effective floor is 22.0.0, not the 21.7.3 that sufficed
+          # before the fail-on-empty-test-run wrapper existed.
           node-version: '22'
           # No cache: 'npm' here. There is no lockfile for setup-node's
           # cache-path resolution to key off, so it would fail.
