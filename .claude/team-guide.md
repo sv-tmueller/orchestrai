@@ -192,8 +192,9 @@ Rationale: docs/team-guide-rationale.md.
   lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
   token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Fallback: Opus 5 at xhigh effort (a procedure, not automatic). When
-  Fable 5 is unavailable, rate-limited, quota-exhausted, or
+- Fallback: Opus 5 at xhigh effort (the lead-session flip is a manual
+  procedure; the workflow critics and single-agent dispatches recover by
+  rule). When Fable 5 is unavailable, rate-limited, quota-exhausted, or
   refuses the workload, switch the lead with `/model claude-opus-5`; for a
   longer outage flip the `fable` pins to `opus` in the `architect` and
   `reviewer` frontmatters. The Fable-critic stage of every `tm-` workflow
@@ -201,8 +202,9 @@ Rationale: docs/team-guide-rationale.md.
   returns nothing, so no flip is needed there, though each run still burns
   one doomed Fable dispatch before the retry fires. Flip back when Fable
   returns. For a single role-agent dispatch hitting Fable quota mid-batch,
-  dispatch that one agent with a per-call Opus override (the Agent tool's
-  `model` param) instead of flipping every pin. The ladder is Fable -> Opus;
+  the kickoff routing rules own the response: a per-call Opus override
+  (the Agent tool's `model` param), logged as a decision, no pin flip
+  (`.claude/skills/tm-kickoff/SKILL.md`). The ladder is Fable -> Opus;
   Sonnet is never a fallback
   for a judgment seat, and only steps in, flagged, if Opus is also down, with
   the review re-run on a judgment model afterward.
