@@ -121,15 +121,15 @@ Routing rules:
   do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
-- An architect or reviewer dispatch dies on Fable 5 quota (the limit
-  error, or an empty return while Fable is exhausted): re-dispatch that
-  one agent with the same task and a per-call Opus override (the Agent
-  tool's `model` param). Do not flip a frontmatter pin or the session
-  model; the agent's own effort pin (xhigh) still applies. The model
-  override is the change that permits the re-dispatch. Log the switch as
-  a decision comment on the package issue; a model switch is never
-  silent. Workflow critic stages recover on their own
-  (criticWithFallback); this rule covers lead dispatches only.
+- An architect or reviewer dispatch dies on Fable 5 quota (the limit error,
+  or an empty return while Fable is exhausted): re-dispatch that one agent
+  with the same task and a per-call Opus override (the Agent tool's `model`
+  param, value `opus`). Do not flip a frontmatter pin or the session model;
+  the agent's own effort pin (xhigh) still applies. The model override is
+  the change that permits the re-dispatch. Log the switch as a decision
+  comment on the package issue; a model switch is never silent. Workflow
+  critic stages recover on their own (criticWithFallback); this rule covers
+  lead dispatches only.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and

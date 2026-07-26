@@ -193,21 +193,20 @@ Rationale: docs/team-guide-rationale.md.
   token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
 - Fallback: Opus 5 at xhigh effort (the lead-session flip is a manual
-  procedure; the workflow critics and single-agent dispatches recover by
-  rule). When Fable 5 is unavailable, rate-limited, quota-exhausted, or
-  refuses the workload, switch the lead with `/model claude-opus-5`; for a
-  longer outage flip the `fable` pins to `opus` in the `architect` and
-  `reviewer` frontmatters. The Fable-critic stage of every `tm-` workflow
-  (`.claude/workflows/`) already retries on opus automatically when Fable
-  returns nothing, so no flip is needed there, though each run still burns
-  one doomed Fable dispatch before the retry fires. Flip back when Fable
-  returns. For a single role-agent dispatch hitting Fable quota mid-batch,
-  the kickoff routing rules own the response: a per-call Opus override
-  (the Agent tool's `model` param), logged as a decision, no pin flip
-  (`.claude/skills/tm-kickoff/SKILL.md`). The ladder is Fable -> Opus;
-  Sonnet is never a fallback
-  for a judgment seat, and only steps in, flagged, if Opus is also down, with
-  the review re-run on a judgment model afterward.
+  procedure; workflow critics recover automatically, single-agent dispatches
+  by the kickoff routing rule). When Fable 5 is unavailable, rate-limited,
+  quota-exhausted, or refuses the workload, switch the lead with `/model
+  claude-opus-5`; for a longer outage flip the `fable` pins to `opus` in the
+  `architect` and `reviewer` frontmatters. The Fable-critic stage of every
+  `tm-` workflow (`.claude/workflows/`) already retries on opus automatically
+  when Fable returns nothing, so no flip is needed there, though each run
+  still burns one doomed Fable dispatch before the retry fires. Flip back
+  when Fable returns. For a single role-agent dispatch hitting Fable quota
+  mid-batch, the kickoff routing rules own the response: a per-call Opus
+  override (the Agent tool's `model` param), logged as a decision, no pin
+  flip (`.claude/skills/tm-kickoff/SKILL.md`). The ladder is Fable -> Opus;
+  Sonnet is never a fallback for a judgment seat, and only steps in, flagged,
+  if Opus is also down, with the review re-run on a judgment model afterward.
 - Cost-based fallback trigger: if Fable 5 stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
