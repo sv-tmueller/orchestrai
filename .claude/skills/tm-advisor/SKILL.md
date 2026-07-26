@@ -163,6 +163,9 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
   an interpretation call), decide it and post the decision with its reasoning
   as a comment on the batch issue before acting on it.
+  A Fable-quota death on a judgment-seat dispatch is such a decision:
+  apply kickoff's per-call Opus override routing rule and log the switch
+  on the batch issue. It is not grounds to park.
 - **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
   for: a change to scope or acceptance criteria, a new dependency or cost,
   anything irreversible or outward-facing, or a conflict with
