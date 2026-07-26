@@ -14,7 +14,7 @@ if (files.length === 0) {
 
 const result = spawnSync(
   process.execPath,
-  ['--test', pattern, ...process.argv.slice(2)],
+  ['--test', ...process.argv.slice(2), pattern],
   { stdio: 'inherit' }
 );
 process.exit(result.status ?? 1);
