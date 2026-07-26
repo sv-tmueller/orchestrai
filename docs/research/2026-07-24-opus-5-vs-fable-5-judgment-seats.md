@@ -47,19 +47,19 @@ blocker that is now cleared. Line numbers are current as of this commit; a
 document that edits itself drifts, so each entry also carries a section
 heading and a quoted phrase to `grep` for if the number is wrong again:
 
-- L10-13, the summary: "the lead-only move is not" (blocked by the test).
+- L10-13, the summary: "the lead-only move is" (blocked by the test).
 - L178-182, section 3 ("Options"): "the one that would fail the
   effort-policy test".
 - L346-348, section 7 (the hardcode-inventory paragraph): "neither is
   blocked by the effort-policy blocker below".
 - L350-360, section 7, the "Flag prominently" block: "blocked by this
-  repo's own test today".
+  repo's own".
 - L362-368, section 7, the alias-table paragraph: "the same
   `shared/models.md` alias table".
 - L409-412, section 8, the recommendation: "until the effort-policy test
   gains an `opus` tier".
 - L414-417, section 8 body: "This is option (c), not (b)".
-- L502-503, section 9, first extend-trigger: "the effort-policy test gains
+- L502-503, section 9, first extend-trigger: "effort-policy test gains
   an `opus` tier (a follow-up issue, not this package)".
 
 None of that prose is edited by this addendum; it stays as written on
@@ -73,7 +73,7 @@ first extend-trigger names the same condition: "the effort-policy test gains
 an `opus` tier (a follow-up issue, not this package)." Both are written as
 satisfied-condition triggers, and both conditions are now met. Meeting them
 does not license moving architect, reviewer, or the critics to Opus 5. The
-effort-policy test was only ever the mechanical blocker (section 8's second
+effort-policy test was only ever the mechanical blocker (section 8's first
 leg, below); the capability reason (section 6, unchanged and unmet) was
 always the independent, load-bearing reason for the hold, and clearing a
 test does not clear a capability question no first-party comparison has
