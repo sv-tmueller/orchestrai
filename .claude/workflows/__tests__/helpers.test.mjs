@@ -489,7 +489,7 @@ describe('criticWithFallback', () => {
     // string only matches an actual call.
     for (const file of FILES) {
       const src = readFileSync(join(workflowsDir, file), 'utf8')
-      assert.ok(src.includes('await criticWithFallback('), `${file} does not call criticWithFallback(`)
+      assert.ok(src.includes('await criticWithFallback('), `${file} does not contain 'await criticWithFallback('`)
     }
   })
 })

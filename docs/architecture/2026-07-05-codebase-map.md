@@ -136,8 +136,8 @@ no dependency fields):
 - Claude Code harness: CLAUDE.md loading and @-imports, the plugin/marketplace
   system (reads marketplace.json and plugin.json), settings.json, the
   subagent/Task machinery that runs the role agents, and the Workflow tool
-  runtime that supplies the ambient `agent`, `parallel`, `phase`, and `args`
-  bindings the three scripts reference but never define.
+  runtime that supplies the ambient `agent`, `parallel`, `phase`, `log`, and
+  `args` bindings the three scripts reference but never define.
 - GitHub via the `gh` CLI: issues, PRs, labels, comments, and search are both
   the input source and the durable state store for tm-kickoff, tm-advisor,
   tm-to-issues, tm-new-project, and every role agent.
@@ -187,10 +187,10 @@ Cross-area dependencies:
 ## 5. Open questions
 
 - The Workflow runtime contract is assumed, not defined: `agent`, `parallel`,
-  `phase`, and `args` are ambient globals the three scripts call but nothing
-  in the repo declares. Their exact semantics (failure handling, null-padding,
-  schema enforcement) can only be confirmed against the Claude Code host, not
-  from source here.
+  `phase`, `log`, and `args` are ambient globals the three scripts call but
+  nothing in the repo declares. Their exact semantics (failure handling,
+  null-padding, schema enforcement) can only be confirmed against the Claude
+  Code host, not from source here.
 - operating-model.md defers the physical removal of NEW-PROJECT-SETUP.md and
   .claude/skills/tm-new-project/ to a later usability batch. The timing is a
   human decision, and the fate of templates/ci.yml, which

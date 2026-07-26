@@ -54,7 +54,7 @@ async function criticWithFallback(prompt, opts) {
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
-  // TypeError, and a proxied result could throw either way.
+  // TypeError.
   return { ...second, modelFallback: `${opts.model} -> opus` }
 }
 
