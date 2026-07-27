@@ -131,7 +131,7 @@ the 2026-07-25 addendum above. This addendum records what actually shipped
 and the three workflow critic stages (`tm-review-changes.js`,
 `tm-review-codebase.js`, `tm-map-codebase.js`) moved from `model: fable` to
 `model: opus`, at unchanged xhigh effort. The lead session stays on Fable 5.
-This is section 3's fourth combination, the one that document rejected as a
+This is section 3's fourth combination, that this document rejected as a
 candidate on 2026-07-24 ("architect/reviewer to Opus 5, lead stays Fable"),
 not option (c) (the one section 8 recommended: lead to Opus 5, everything
 else held on Fable 5 pending the effort-policy fix).

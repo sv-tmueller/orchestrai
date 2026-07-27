@@ -195,8 +195,8 @@ Rationale: docs/team-guide-rationale.md.
 - Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. When
   Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
   workload, switch the lead with `/model claude-opus-5`. Flip back when
-  Fable returns. This fallback covers the lead session only; Fable does not
-  run in any other seat, so no other pin needs to flip alongside it.
+  Fable returns. This fallback covers the lead session only; no other seat
+  pins Fable, so no other pin needs to flip alongside it.
 - Judgment seats (architect, reviewer, workflow critics): Opus 5 at xhigh
   effort is the primary model, backstopped by the lead and, for architect
   and reviewer, by the human merge gate. The per-call fallback is Fable 5 at

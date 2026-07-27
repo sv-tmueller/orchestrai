@@ -7,10 +7,12 @@
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.
  *
- * `fable` carries opus's xhigh so the documented per-call fallback is
- * usable: flipping a judgment seat's pin from opus to fable keeps its effort
- * unchanged and still passes. Without that entry the fallback the Model policy
- * prescribes fails this suite the moment anyone follows it.
+ * `fable` carries opus's xhigh so the pin-flip revert path stays valid:
+ * flipping a judgment seat's pin from opus back to fable keeps its effort
+ * unchanged and still passes. (The per-call fallback, the Agent tool's model
+ * param, is effort-neutral and separate from this pin; it stays invisible to
+ * this static test either way.) Without that entry the revert the Model
+ * policy prescribes fails this suite the moment anyone follows it.
  */
 
 import { test, describe } from 'node:test'
@@ -72,7 +74,7 @@ describe('agent frontmatter effort pins', () => {
 // Agent-call opts in both workflows are single-line objects carrying both
 // label: and model:. The meta.phases display entries carry model: but
 // title:/detail: instead of label:, so requiring label: excludes them. The
-// criticWithFallback retry opts (`{ ...opts, model: 'opus' }`) also carry
+// criticWithFallback retry opts (`{ ...opts, model: 'fable' }`) also carry
 // model: with no label: and no literal effort:, so the same filter excludes
 // them too; that is safe because the spread inherits effort: from the
 // caller's opts line, which this test already checks.
