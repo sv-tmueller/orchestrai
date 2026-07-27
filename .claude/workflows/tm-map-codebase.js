@@ -1,11 +1,11 @@
 export const meta = {
   name: 'tm-map-codebase',
   description:
-    'Token-bounded full-repo map: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker maps each area (purpose, entry points, key modules, data and control flow, external dependencies, conventions), and one Fable critic synthesizes a dated architecture map. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling. This is a map, not a review: no findings, no severities, no recommendations.',
+    'Token-bounded full-repo map: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker maps each area (purpose, entry points, key modules, data and control flow, external dependencies, conventions), and one Opus critic synthesizes a dated architecture map. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling. This is a map, not a review: no findings, no severities, no recommendations.',
   phases: [
     { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', model: 'sonnet' },
     { title: 'Map', detail: 'one Sonnet worker per area describes it', model: 'sonnet' },
-    { title: 'Synthesize', detail: 'one Fable critic writes the consolidated map', model: 'fable' },
+    { title: 'Synthesize', detail: 'one Opus critic writes the consolidated map', model: 'opus' },
   ],
 }
 
@@ -15,8 +15,8 @@ export const meta = {
 // but never exceeds MAX_AREAS + 2, no matter how large the repo is or how many
 // areas the scout proposes. There is no per-file fan-out and no loop. Models and
 // effort are pinned per stage, so the session model and effort never leak into
-// the scout or the workers; the single critic runs Fable 5 at xhigh effort and
-// auto-retries once on opus at the same effort if Fable returns nothing
+// the scout or the workers; the single critic runs Opus 5 at xhigh effort and
+// auto-retries once on fable at the same effort if Opus returns nothing
 // (criticWithFallback below; see team-guide for the lead-level fallback,
 // which is still manual).
 //
@@ -58,13 +58,13 @@ function safeRef(value, fallback) {
 const root = safeRef(opts.path, '.')
 const MAX_AREAS = Number.isInteger(opts.areas) && opts.areas > 0 ? opts.areas : 24
 
-// Duplicated byte-for-byte across the three tm- workflows that run a Fable
+// Duplicated byte-for-byte across the three tm- workflows that run an Opus
 // critic (the workflow runtime has no shared imports); keep this copy in
 // sync, see helpers.test.mjs.
 async function criticWithFallback(prompt, opts) {
   const first = await agent(prompt, opts)
   // agent() returns null both when the model errors out after retries (for
-  // example Fable 5 quota exhaustion) and when the user skips the dispatch
+  // example Opus 5 quota exhaustion) and when the user skips the dispatch
   // mid-run. Nothing in this script can tell those two cases apart, so there
   // is no heuristic to invent here. The ruling is on which failure mode is
   // worse: retrying a deliberate skip costs one extra skip prompt (the retry
@@ -73,19 +73,19 @@ async function criticWithFallback(prompt, opts) {
   // costs the entire unattended run. Retry unconditionally.
   if (first) return first
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on opus at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on fable at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the opus fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'opus' }
+    `${prompt}\n\nNOTE: this is a retry on the fable fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: 'fable' }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the opus fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the opus fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the fable fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the fable fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> opus` }
+  return { ...second, modelFallback: `${opts.model} -> fable` }
 }
 
 const AREA = {
@@ -265,7 +265,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await criticWithFallback(
   `You are the senior architect synthesizing a full-codebase map from the area descriptions below. This is a map, not a review: do not add findings, severities, recommendations, or quality and security judgments. Describe what is there.${coverageNote}\n\nRun \`date +%F\` for today's date, make the docs/architecture/ directory if it does not exist, and write docs/architecture/<date>-codebase-map.md with exactly these sections, in this order:\n1. Executive summary: what the repo is and how its areas fit together, in a few paragraphs.\n2. Component table: one row per area, with columns for area, purpose, and key modules.\n3. Data-flow narrative: how data moves across areas, end to end.\n4. Dependency summary: external dependencies (packages, services) and cross-area dependencies.\n5. Open questions: anything the workers could not determine or that needs a human to confirm.\n\nIf coverage is partial, add a "Coverage" callout immediately after the executive summary stating how many paths were not mapped and the suggested next action.\n\nSet reportPath to the file you wrote. Set summary to a short plain-language summary of the whole repo. Set openQuestions to the same list you put in the report's Open Questions section.\n\nSet coverage.areasMapped to ${JSON.stringify(mappedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nArea maps (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'synthesize', phase: 'Synthesize', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
+  { label: 'synthesize', phase: 'Synthesize', model: 'opus', effort: 'xhigh', schema: REPORT_SCHEMA }
 )
 
 return report
