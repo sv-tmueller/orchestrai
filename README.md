@@ -46,10 +46,10 @@ below).
   CI, plugin install, design-plugin vetting). Idempotent, and does not
   delete `NEW-PROJECT-SETUP.md`.
 - `.claude/workflows/` - bounded orchestration scripts. `tm-review-changes`
-  reviews a diff with a fixed set of Sonnet reviewers plus one Fable critic;
+  reviews a diff with a fixed set of Sonnet reviewers plus one Opus critic;
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
   areas (scaled to the repo, capped at a ceiling), per-area Sonnet workers, an
-  architecture worker, and one Fable critic. Both pin models in-script so the cost
+  architecture worker, and one Opus critic. Both pin models in-script so the cost
   is bounded by construction.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
@@ -76,13 +76,13 @@ graph TD
     H["Human<br/>files and sizes issues, merges PRs"] --> L
     L["Lead - main session<br/>fable, xhigh<br/>routes every handoff"]
 
-    L -->|"1 sub-plan"| A["architect<br/>fable, xhigh<br/>read-only - approach"]
+    L -->|"1 sub-plan"| A["architect<br/>opus, xhigh<br/>read-only - approach"]
     A -.->|"sub-plan"| L
     L -->|"2 implement"| D["developer<br/>sonnet, high<br/>worktree - TDD - draft PR"]
     D -.->|"branch + PR"| L
     L -->|"3 test"| T["tester<br/>sonnet, high<br/>read-only - re-runs suite"]
     T -.->|"verdict"| L
-    L -->|"4 review"| R["reviewer<br/>fable, xhigh<br/>read-only - spec then quality"]
+    L -->|"4 review"| R["reviewer<br/>opus, xhigh<br/>read-only - spec then quality"]
     R -.->|"verdict"| L
     L -.->|"fix loop"| D
     L -->|"on demand"| F["fact-checker<br/>sonnet, high<br/>read-only - audits claims"]
@@ -96,8 +96,8 @@ graph TD
     G -->|"6 human merges"| H
 
     subgraph WF["Review workflows"]
-        RC["tm-review-changes<br/>Sonnet reviewers, high<br/>+ 1 Fable critic, xhigh"]
-        RB["tm-review-codebase<br/>Sonnet scout + area workers, high<br/>+ 1 Fable critic, xhigh"]
+        RC["tm-review-changes<br/>Sonnet reviewers, high<br/>+ 1 Opus critic, xhigh"]
+        RB["tm-review-codebase<br/>Sonnet scout + area workers, high<br/>+ 1 Opus critic, xhigh"]
     end
 
     L -->|"run as slash commands"| WF

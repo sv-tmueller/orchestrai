@@ -32,10 +32,10 @@ graph TD
     H["Human<br/>files and sizes issues, merges PRs"] --> L
     L["LEAD - main session (fable, xhigh effort)<br/>message bus and router<br/>owns no code; durable state lives in GitHub"]
 
-    L -->|"JOB: SUB_PLAN / SPLIT / ARBITRATION"| A["architect (fable)<br/>read-only - approach, splits, arbitration"]
+    L -->|"JOB: SUB_PLAN / SPLIT / ARBITRATION"| A["architect (opus)<br/>read-only - approach, splits, arbitration"]
     L -->|"issue + sub-plan"| D["developer (sonnet)<br/>one issue end to end - worktree - TDD - draft PR"]
     L -->|"branch + issue"| T["tester (sonnet)<br/>read-only - re-runs suite, attacks change"]
-    L -->|"PR + issue + untested claims"| R["reviewer (fable)<br/>read-only - spec pass then quality pass"]
+    L -->|"PR + issue + untested claims"| R["reviewer (opus)<br/>read-only - spec pass then quality pass"]
     L -->|"report text + branch or PR"| F["fact-checker (sonnet)<br/>read-only - audits claims against evidence"]
     L -->|"dispatch: docs to write"| DW["docs-writer (sonnet)<br/>gap analysis, then author user-facing docs"]
     L -->|"reported slowness"| P["perf-investigator (sonnet)<br/>measurement-only - baseline and target"]

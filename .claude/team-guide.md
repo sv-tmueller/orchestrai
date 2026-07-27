@@ -192,21 +192,26 @@ Rationale: docs/team-guide-rationale.md.
   lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
   token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Fallback: Opus 5 at xhigh effort (the lead-session flip is a manual
-  procedure; workflow critics recover automatically, single-agent dispatches
-  by the kickoff routing rule). When Fable 5 is unavailable, rate-limited,
-  quota-exhausted, or refuses the workload, switch the lead with `/model
-  claude-opus-5`; for a longer outage flip the `fable` pins to `opus` in the
-  `architect` and `reviewer` frontmatters. The Fable-critic stage of every
-  `tm-` workflow (`.claude/workflows/`) already retries on opus automatically
-  when Fable returns nothing, so no flip is needed there, though each run
-  still burns one doomed Fable dispatch before the retry fires. Flip back
-  when Fable returns. For a single role-agent dispatch hitting Fable quota
-  mid-batch, the kickoff routing rules own the response: a per-call Opus
-  override (the Agent tool's `model` param), logged as a decision, no pin
-  flip (`.claude/skills/tm-kickoff/SKILL.md`). The ladder is Fable -> Opus;
-  Sonnet is never a fallback for a judgment seat, and only steps in, flagged,
-  if Opus is also down, with the review re-run on a judgment model afterward.
+- Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. When
+  Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
+  workload, switch the lead with `/model claude-opus-5`. Flip back when
+  Fable returns. This fallback covers the lead session only; Fable does not
+  run in any other seat, so no other pin needs to flip alongside it.
+- Judgment seats (architect, reviewer, workflow critics): Opus 5 at xhigh
+  effort is the primary model, backstopped by the lead and, for architect
+  and reviewer, by the human merge gate. The per-call fallback is Fable 5 at
+  the same xhigh effort. The critic stage of every `tm-` workflow
+  (`.claude/workflows/`) already retries on fable automatically when Opus
+  returns nothing, though each run still burns one doomed Opus dispatch
+  before the retry fires. For a single architect or reviewer dispatch
+  hitting Opus quota mid-batch, the kickoff routing rules own the response:
+  a per-call Fable override (the Agent tool's `model` param), logged as a
+  decision, no pin flip (`.claude/skills/tm-kickoff/SKILL.md`). The ladder
+  is Opus -> Fable -> Sonnet; Sonnet is never a fallback for a judgment seat
+  on its own terms, and only steps in, flagged, if Fable is also down, with
+  the review re-run on a judgment model afterward. Revert trigger: if
+  judgment quality visibly degrades on real batches, flip the architect,
+  reviewer, and critic pins back to fable and log the decision here.
 - Cost-based fallback trigger: if Fable 5 stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
@@ -217,11 +222,11 @@ Rationale: docs/team-guide-rationale.md.
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
   `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
   task with no tm- script, preferring an Opus lead for that prompt.
-- Role agents (frontmatter `model:`): `architect`/`reviewer` run `fable`
-  (`opus` is the documented fallback); `developer`, `tester`,
+- Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
+  (`fable` is the documented per-call fallback); `developer`, `tester`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
   (`fact-checker` stays on Sonnet, not Haiku). Each agent also pins its own
-  effort (`sonnet` -> `high`, `fable` -> `xhigh`), independent of the
+  effort (`sonnet` -> `high`, `opus` -> `xhigh`), independent of the
   session's `/effort` setting.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
   that does not pin it. The effort-policy test in `npm test` fails any agent
@@ -230,7 +235,7 @@ Rationale: docs/team-guide-rationale.md.
   the strong model for synthesis or critique, bounded by construction so it
   cannot fan out unboundedly (`.claude/workflows/*.js`;
   docs/superpowers/specs/2026-06-13-review-codebase-design.md). A
-  cheaper-led session still gets Fable-quality judgment; a Fable-led session
+  cheaper-led session still gets Opus-quality judgment; a Fable-led session
   never pays Fable rates for worker stages.
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every subagent to one
   model, defeating the split above. Use only as a temporary seatbelt (e.g.

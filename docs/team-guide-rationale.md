@@ -128,12 +128,12 @@ Supports: "pin worker stages to a cheap model at `high` effort in the
 script and reserve the strong model for synthesis or critique."
 
 The `tm-review-changes` workflow in `.claude/workflows/` is the worked
-example: a fixed set of Sonnet reviewers plus one Fable critic pinned to
+example: a fixed set of Sonnet reviewers plus one Opus critic pinned to
 xhigh effort, bounded by construction so it cannot fan out into the
 100-agent review that an unpinned session model produces. `tm-review-codebase`
 applies the same discipline to a whole-repo audit: a Sonnet scout splits the
 repo into N areas (sized to the repo, capped at a ceiling), Sonnet workers
-review each area plus repo-wide structure, and one Fable critic consolidates.
+review each area plus repo-wide structure, and one Opus critic consolidates.
 The agent count is N + 3, so it scales with repo size up to the ceiling and
 never fans out unboundedly. `tm-map-codebase` reuses the same
 scout/worker/critic shape for a purely descriptive map (purpose, entry

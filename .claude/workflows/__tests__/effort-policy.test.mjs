@@ -7,8 +7,8 @@
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.
  *
- * `opus` carries fable's xhigh so the documented Fable-outage fallback is
- * usable: flipping a judgment seat's pin from fable to opus keeps its effort
+ * `fable` carries opus's xhigh so the documented per-call fallback is
+ * usable: flipping a judgment seat's pin from opus to fable keeps its effort
  * unchanged and still passes. Without that entry the fallback the Model policy
  * prescribes fails this suite the moment anyone follows it.
  */
