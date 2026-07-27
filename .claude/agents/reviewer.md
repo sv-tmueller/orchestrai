@@ -2,9 +2,9 @@
 name: reviewer
 description: Reviews a work package diff against its issue and sub-plan, in two passes, spec compliance then code quality. Read-only; outputs APPROVE or CHANGES_REQUESTED with numbered file:line findings. Never edits files.
 tools: Read, Grep, Glob, Bash
-# Judgment role: Fable 5. Fallback is opus = Opus 5, same xhigh effort
-# (see team-guide, Model policy).
-model: fable
+# Judgment role: Opus 5. Per-call fallback is fable = Fable 5, same xhigh
+# effort (see team-guide, Model policy).
+model: opus
 effort: xhigh
 ---
 

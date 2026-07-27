@@ -1,6 +1,6 @@
 ---
 name: tm-map-codebase
-description: Token-bounded full-repo map, run as a workflow (Sonnet scout and area workers plus one Fable critic that writes a dated architecture map). Plugin-only wrapper; the committed-repo root invokes the tm-map-codebase workflow directly by name. User-invocable only.
+description: Token-bounded full-repo map, run as a workflow (Sonnet scout and area workers plus one Opus critic that writes a dated architecture map). Plugin-only wrapper; the committed-repo root invokes the tm-map-codebase workflow directly by name. User-invocable only.
 disable-model-invocation: true
 ---
 

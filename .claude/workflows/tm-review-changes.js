@@ -1,20 +1,20 @@
 export const meta = {
   name: 'tm-review-changes',
   description:
-    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Fable critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
+    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
   phases: [
     { title: 'Review', detail: 'one Sonnet worker per dimension', model: 'sonnet' },
-    { title: 'Consolidate', detail: 'one Fable critic verifies and merges findings', model: 'fable' },
+    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', model: 'opus' },
   ],
 }
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is exactly DIMENSIONS.length Sonnet workers plus
-// one Fable critic. It cannot become the 100-agent fan-out that an unpinned
+// one Opus critic. It cannot become the 100-agent fan-out that an unpinned
 // session-model review produces. Models and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
-// single critic runs Fable 5 at xhigh effort and auto-retries once on opus
-// at the same effort if Fable returns nothing (criticWithFallback below;
+// single critic runs Opus 5 at xhigh effort and auto-retries once on fable
+// at the same effort if Opus returns nothing (criticWithFallback below;
 // see team-guide for the lead-level fallback, which is still manual).
 //
 // Invoke with an optional base ref:
@@ -28,13 +28,13 @@ function safeRef(value, fallback) {
 }
 const base = safeRef(args && args.base, 'origin/main')
 
-// Duplicated byte-for-byte across the three tm- workflows that run a Fable
+// Duplicated byte-for-byte across the three tm- workflows that run an Opus
 // critic (the workflow runtime has no shared imports); keep this copy in
 // sync, see helpers.test.mjs.
 async function criticWithFallback(prompt, opts) {
   const first = await agent(prompt, opts)
   // agent() returns null both when the model errors out after retries (for
-  // example Fable 5 quota exhaustion) and when the user skips the dispatch
+  // example Opus 5 quota exhaustion) and when the user skips the dispatch
   // mid-run. Nothing in this script can tell those two cases apart, so there
   // is no heuristic to invent here. The ruling is on which failure mode is
   // worse: retrying a deliberate skip costs one extra skip prompt (the retry
@@ -43,19 +43,19 @@ async function criticWithFallback(prompt, opts) {
   // costs the entire unattended run. Retry unconditionally.
   if (first) return first
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on opus at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on fable at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the opus fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'opus' }
+    `${prompt}\n\nNOTE: this is a retry on the fable fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: 'fable' }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the opus fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the opus fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the fable fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the fable fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> opus` }
+  return { ...second, modelFallback: `${opts.model} -> fable` }
 }
 
 // This list is diff-scoped and intentionally longer than tm-review-codebase's
@@ -174,7 +174,7 @@ const coverageNote = dropped.length
 phase('Consolidate')
 const report = await criticWithFallback(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: 'Consolidate', model: 'opus', effort: 'xhigh', schema: REPORT_SCHEMA }
 )
 
 return report

@@ -121,6 +121,59 @@ addendum stays silent on it. It does not overstate what the cleared test
 does: `EFFORT_BY_MODEL`'s `opus` entry permits an `opus`-pinned seat carrying
 `xhigh` effort; it does not endorse, require, or recommend running one.
 
+## Addendum, 2026-07-27: the shipped outcome is the fourth combination, not option (c)
+
+Sections 1-10 below are unchanged and stand as written on 2026-07-24, same as
+the 2026-07-25 addendum above. This addendum records what actually shipped
+(issue #284) and why it departs from section 8's recommendation.
+
+**What shipped.** `.claude/agents/architect.md`, `.claude/agents/reviewer.md`,
+and the three workflow critic stages (`tm-review-changes.js`,
+`tm-review-codebase.js`, `tm-map-codebase.js`) moved from `model: fable` to
+`model: opus`, at unchanged xhigh effort. The lead session stays on Fable 5.
+This is section 3's fourth combination, that this document rejected as a
+candidate on 2026-07-24 ("architect/reviewer to Opus 5, lead stays Fable"),
+not option (c) (the one section 8 recommended: lead to Opus 5, everything
+else held on Fable 5 pending the effort-policy fix).
+
+**Why the fourth combination became viable.** Section 3 rejected it only
+because the frontmatter and critic-stage move would fail the effort-policy
+test, while the lead's own model carries no such pin. The 2026-07-25 addendum
+above already recorded that this blocker cleared: `EFFORT_BY_MODEL` gained an
+`opus: 'xhigh'` entry in commit `daa176e` (PR #265), before this document's
+own addendum was written. Once that entry existed, both directions (lead to
+Opus, or judgment seats to Opus) passed the same test; the fourth combination
+was never blocked on capability grounds by section 3, only by that one test.
+
+**Why this order and not section 8's.** Section 8's case for the lead move
+rests on the lead being the largest token consumer and on availability
+(section 5). Neither argument decides between the fourth combination and
+option (c); it decides lead-vs-nothing. The reason to also move architect,
+reviewer, and the critics is a different one, not in section 8: capability
+allocation. Fable 5 is worth its 2x-per-token premium only in the one seat
+nothing backstops. The lead session has no seat above it; a bad lead
+judgment call ships. Architect and reviewer output is checked by the human
+merge gate before anything lands, and a workflow critic's output is
+consumed by the lead, which can re-run or challenge it. Section 6's
+capability caution (no first-party Opus-vs-Fable comparison, vendor
+positioning ranks Fable above Opus) still applies and is why this addendum
+does not claim the fourth combination is proven better, only that the seats
+it touches are the ones a wrong call is cheapest to catch.
+
+**Revert trigger.** If judgment quality visibly degrades on real batches
+(more incorrect sub-plans, missed scope calls, or review verdicts overturned
+on later scrutiny, traceable to the architect, reviewer, or critic seats
+specifically), flip those pins back to `fable` and log the decision in
+`.claude/team-guide.md`'s Model policy section, per that section's own
+revert-trigger bullet.
+
+**What this addendum does not do.** It does not revise section 8's
+recommendation or confidence level; that recommendation was for option (c)
+and stands as written for that comparison. It does not claim the fourth
+combination is safer or better-judged than option (c) or the status quo; no
+measurement here supports a ranking. It does not touch sections 1-10 or the
+2026-07-25 addendum.
+
 ## 1. Question and scope
 
 With Opus 5 released, should the orchestrator (lead), architect, and reviewer

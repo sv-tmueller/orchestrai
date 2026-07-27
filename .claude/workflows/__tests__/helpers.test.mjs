@@ -402,7 +402,7 @@ describe('scoutDropped union', () => {
 // ===========================================================================
 describe('criticWithFallback', () => {
   const FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
-  const baseOpts = { label: 'consolidate', phase: 'Consolidate', model: 'fable', effort: 'xhigh', schema: { type: 'object' } }
+  const baseOpts = { label: 'consolidate', phase: 'Consolidate', model: 'opus', effort: 'xhigh', schema: { type: 'object' } }
 
   test('happy path: first agent call succeeds, result returned unchanged', async () => {
     const calls = []
@@ -424,7 +424,7 @@ describe('criticWithFallback', () => {
     assert.equal('modelFallback' in result, false)
   })
 
-  test('first call returns null, retries on opus and succeeds', async () => {
+  test('first call returns null, retries on fable and succeeds', async () => {
     const calls = []
     const logs = []
     const sandbox = {
@@ -440,7 +440,7 @@ describe('criticWithFallback', () => {
 
     assert.equal(calls.length, 2)
     const secondOpts = calls[1].opts
-    assert.equal(secondOpts.model, 'opus')
+    assert.equal(secondOpts.model, 'fable')
     assert.equal(secondOpts.effort, baseOpts.effort)
     assert.equal(secondOpts.label, baseOpts.label)
     assert.equal(secondOpts.phase, baseOpts.phase)
@@ -448,7 +448,7 @@ describe('criticWithFallback', () => {
     assert.ok(calls[1].prompt.includes('the prompt'), 'second prompt still carries the original prompt')
     assert.ok(calls[1].prompt.length > 'the prompt'.length, 'second prompt carries an added notice')
     assert.equal(result.verdict, 'approve')
-    assert.equal(result.modelFallback, 'fable -> opus')
+    assert.equal(result.modelFallback, 'opus -> fable')
     assert.ok(logs.length >= 1, 'log() must be called to surface the fallback')
   })
 
