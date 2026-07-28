@@ -161,9 +161,8 @@ Project directory naming changed. `ls -1 ~/.claude/projects
 The baseline report's section 3 project table names directories like
 `-Users-TM-Desktop-30-Github-claude-template` and
 `-Users-TM-Desktop-30-Github-orchestrai`. The pattern changed from
-`-Users-TM-Desktop-30-Github-*` to `-Users-TM-Desktop-github-*` (the `30 `
-segment dropped, `Github` lowercased), consistent with a workspace path
-change rather than a rebuild in place.
+`-Users-TM-Desktop-30-Github-*` to `-Users-TM-Desktop-github-*`: the `30 `
+segment is dropped and `Github` is lowercased.
 
 A third root, `~/.claude-work/projects`, sits outside the script's
 `PROJECT_ROOTS` (`~/.claude/projects` and `~/.claude-personal/projects`
