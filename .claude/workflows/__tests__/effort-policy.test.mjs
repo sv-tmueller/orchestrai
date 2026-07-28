@@ -2,7 +2,7 @@
  * Policy-lock test for the effort policy (issue #140).
  *
  * Every seat pins its own effort, so session /effort governs only the lead:
- * sonnet seats run high, fable seats run xhigh, and nothing runs at max.
+ * sonnet seats run high, opus (judgment) seats run xhigh, and nothing runs at max.
  * The test reads the real agent frontmatters and workflow sources, so a new
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.

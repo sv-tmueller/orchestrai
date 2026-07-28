@@ -128,9 +128,10 @@ Routing rules:
   session model; the agent's own effort pin (xhigh) still applies. The
   model override is the change that permits the re-dispatch. Flag the
   fallback in the report and log the switch as a decision comment on the
-  package issue; a model switch is never silent. Sonnet is never a
-  judgment fallback for these seats. Workflow critic stages recover on
-  their own (criticWithFallback); this rule covers lead dispatches only.
+  package issue; a model switch is never silent. Sonnet is not part of
+  this per-call override; the team-guide ladder covers the case where
+  Fable is also down. Workflow critic stages recover on their own
+  (criticWithFallback); this rule covers lead dispatches only.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and

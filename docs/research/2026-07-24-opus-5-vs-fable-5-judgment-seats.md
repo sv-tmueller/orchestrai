@@ -174,6 +174,70 @@ combination is safer or better-judged than option (c) or the status quo; no
 measurement here supports a ranking. It does not touch sections 1-10 or the
 2026-07-25 addendum.
 
+## Addendum, 2026-07-28: the tm-ab-test ran, the human picked opus
+
+Sections 1-10 below are unchanged and stand as written on 2026-07-24, same as
+the 2026-07-25 and 2026-07-27 addenda above. This addendum records the
+outcome of the #286 `tm-ab-test` run and the human's pick.
+
+**What ran.** Issue #286 is the repo-scoped comparison section 9's first
+extend-trigger named: "a repo-scoped comparison (a `tm-ab-test` run per
+role, since none has run yet)." Both arms ran sequentially against the same
+base commit (`c0fb64e`), one reviewer dispatch and one architect dispatch
+per arm, pinned to Fable 5 (arm A) and Opus 5 (arm B). Full results:
+`docs/reviews/2026-07-27-ab-judgment-seats.md`.
+
+**What each arm produced.** Arm A's reviewer returned APPROVE with one nit;
+arm A's architect produced a complete sub-plan without running a probe. Arm
+B's reviewer returned CHANGES_REQUESTED, the same nit plus three findings no
+prior pass caught; arm B's architect returned NEEDS_DECISION, backed by
+three read-only probes showing the requested measurement is not currently
+possible. Arm B cost more (127,028 tokens against 99,212) and took longer
+(8m49s against 6m25s).
+
+**What this does not claim.** This addendum does not claim the run proves
+Opus 5 a better judgment model than Fable 5. The report itself frames one
+paired run as illustrative, not conclusive, and names the comparison
+direction, opus doing the deeper probing when vendor positioning ranks
+Fable above Opus, as unresolved: one run cannot separate model capability
+from dispatch-to-dispatch variance or prompt fit.
+
+**The human pick.** The human reviewed both arms' outputs and picked Arm B:
+opus. The PR #285 seat assignment (architect, reviewer, and the workflow
+critics on `model: opus` at xhigh) stands; no pin moves as a result of this
+addendum.
+
+**What the trigger condition required, and what satisfies it.** Section 9's
+first extend-trigger named three alternatives; the second was "a
+repo-scoped comparison (a `tm-ab-test` run per role, since none has run
+yet) shows Opus 5's judgment output on this repo's own sub-plans or reviews
+holds up against Fable 5's, not just against vendor positioning." That
+comparison has now run, on this repo's own tasks, and a human picked based
+on it. The trigger's condition is met, not because the run proved Opus
+superior, but because the comparison it called for happened and produced a
+human decision. Section 8's recommendation and confidence level are
+unchanged by this addendum, same as the two addenda above.
+
+**The revert trigger stays live.** The 2026-07-27 addendum's revert
+trigger, judgment quality visibly degrading on real batches (more incorrect
+sub-plans, missed scope calls, or review verdicts overturned on later
+scrutiny, traceable to the architect, reviewer, or critic seats), is not
+retired by this addendum. It remains the standing condition for flipping
+those pins back to `fable`.
+
+**Downstream of this run.** The three prose defects arm B's reviewer found,
+the Model policy opening thesis in `.claude/team-guide.md`, the absolute
+"Sonnet is never a judgment fallback" sentence in
+`.claude/skills/tm-kickoff/SKILL.md`, and the stale "fable seats run xhigh"
+docstring in `effort-policy.test.mjs`, are fixed in this same PR.
+
+**What this addendum does not do.** It does not touch sections 1-10 or the
+2026-07-25 and 2026-07-27 addenda above. It does not revise section 8's
+recommendation, which addressed a different comparison (option (c),
+lead-only). It does not claim the fourth combination (the shipped outcome)
+is now proven safer or better-judged; the honest framing is what each arm
+produced, not a ranking.
+
 ## 1. Question and scope
 
 With Opus 5 released, should the orchestrator (lead), architect, and reviewer
