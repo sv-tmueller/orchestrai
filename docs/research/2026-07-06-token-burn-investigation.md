@@ -2,6 +2,29 @@
 
 Root-causing the fast session-limit exhaustion on Max 5x, for issue #212.
 
+## Addendum, 2026-07-28: the reproducibility claim no longer holds
+
+Sections 1 through 7 below are unchanged and stand as written on 2026-07-06.
+This addendum is the only new material.
+
+Section 2 states: "Every window-gated number - the 14-day window's usage
+lines, dedup counts, and all tables from section 3 onward - reproduces
+exactly regardless of when the script runs." That is now false on this
+machine. The reason: the local transcript store carries no usage data
+before 2026-07-26 (confirmed by three fresh probe runs), so re-running the
+default window, or #224's requested 2026-07-06 to 2026-07-20 window, now
+returns zero deduped usage lines instead of the numbers recorded above.
+
+Full evidence, probes, and the environment delta (directory count, byte
+totals, project-directory naming, and a third transcript root outside the
+script's `PROJECT_ROOTS`) are in
+`docs/research/2026-07-28-token-burn-remeasure-blocked.md`.
+
+This does not retract the numbers in sections 2 through 7 below. They stand
+as the 2026-07-06 record, produced when the store held the data the script
+needed; the addendum only notes that the same commands no longer reproduce
+those numbers today.
+
 ## 1. Question and method
 
 The question: why does the Max 5x plan's session limit exhaust faster than
