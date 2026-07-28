@@ -57,8 +57,7 @@ Window: 2026-07-06T00:00:00.000Z (inclusive) to 2026-07-20T00:00:00.000Z (exclus
 
 `deduped usage lines counted: 0`, so every table below this block in the
 script's output (by project, by model, by day, by attribution, cache
-efficiency, quota-weighted view, top sessions) is empty. Confirmed by
-reading the actual output; not assumed from the zero count.
+efficiency, quota-weighted view, top sessions) is empty.
 
 **Probe 2, the baseline window (bare default invocation, the exact command
 recorded in the baseline report's section 7):**
@@ -93,10 +92,9 @@ Window: 2026-06-22T00:00:00.000Z (inclusive) to 2026-07-06T00:00:00.000Z (exclus
 ```
 
 Same result: zero deduped lines, every table below empty. The total-bytes
-figure (72,729,195) differs from probe 1's (72,708,521) by a few thousand
-bytes even though both ran within the same minute; the store is being
-actively appended to during this session, which is expected given section 3
-below, not a measurement error.
+figure (72,729,195) differs from probe 1's (72,708,521) by 20,674 bytes even
+though both ran within the same minute; the store is being actively appended
+to during this session, not a measurement error.
 
 **Probe 3, all data to the last closed UTC day:**
 
@@ -128,7 +126,13 @@ Run on 2026-07-28 UTC, so the end is today's UTC midnight, a closed window.
 - deduped usage lines counted: 5,931
 - cache_creation on 5-minute TTL: 13,825,211
 - cache_creation on 1-hour TTL: 3,312,532
+```
 
+Elided here: the script also printed a non-empty "Totals by project" table
+and a non-empty "Totals by model" table between the inventory block above
+and "Totals by day" below. Neither is reproduced in this report.
+
+```
 ### Totals by day
 
 day | input | output | cache_creation | cache_read
@@ -139,9 +143,7 @@ day | input | output | cache_creation | cache_read
 
 The "Totals by day" table has exactly two rows: 2026-07-26 and 2026-07-27.
 The earliest day carrying usage lines is confirmed as **2026-07-26**,
-matching the arm B architect's #288 finding; the recorded Not-before date of
-2026-08-09 (section 5) is not carried through unchecked, it is verified
-against this table.
+matching the arm B architect's #288 finding.
 
 ## 3. Environment delta against the baseline
 
@@ -149,32 +151,42 @@ The baseline report's section 2 recorded, from the default run on
 2026-07-06: 48 project directories, 801,595,608 total bytes.
 
 The fresh default run (probe 2, this session, 2026-07-28) shows: 6 project
-directories, 72,729,195 total bytes. This is not the 2026-07-27 figure from
-scratch issue #288 (the arm B architect's prior observation, one day
-earlier); it is a fresh number from probe 2 above, and it differs from
-#288's because the store is append-only and grew by a day.
+directories, 72,729,195 total bytes. This is not the 2026-07-27 figure
+(#288 recorded 65.7 MB on 2026-07-27); it is a fresh number from probe 2
+above, and it differs from #288's because the store is append-only and grew
+by a day.
 
 Project directory naming changed. `ls -1 ~/.claude/projects
 ~/.claude-personal/projects` shows `-Users-TM-Desktop-github`,
 `-Users-TM-Desktop-github-orchestrai`, `-Users-TM-Desktop-github-second-brain`,
-`-Users-TM-Desktop-github-trading-bot`, `-Users-TM-Desktop-github-warwright`.
+`-Users-TM-Desktop-github-trading-bot`, `-Users-TM-Desktop-github-warwright`:
+five names, but `-Users-TM-Desktop-github` exists under both roots, so the
+listing has six entries, reconciling with the "6 project directories" count
+above.
 The baseline report's section 3 project table names directories like
 `-Users-TM-Desktop-30-Github-claude-template` and
 `-Users-TM-Desktop-30-Github-orchestrai`. The pattern changed from
-`-Users-TM-Desktop-30-Github-*` to `-Users-TM-Desktop-github-*`: the `30 `
+`-Users-TM-Desktop-30-Github-*` to `-Users-TM-Desktop-github-*`: the `30-`
 segment is dropped and `Github` is lowercased.
 
 A third root, `~/.claude-work/projects`, sits outside the script's
 `PROJECT_ROOTS` (`~/.claude/projects` and `~/.claude-personal/projects`
 only). `ls -1 ~/.claude-work/projects` lists six project directories. `du
 -sk` on the two in-roots directories plus this third root gives 8 KB, 74,284
-KB, and 1,204 KB (du covers the third root only; the two in-roots byte
+KB, and 1,204 KB. Du covers the third root only; the two in-roots byte
 totals are cited from the script's own inventory above, so they trace to
-the same run as the zero-line result). `find ~/.claude-work/projects -type f
+the same run as the zero-line result. `find ~/.claude-work/projects -type f
 -name '*.jsonl' | wc -l` counts 12 files; the same command with `!
 -newermt '2026-07-26 00:00'` counts 0. That command measures file
 modification time, not message timestamps: no `.jsonl` file under the third
 root has an mtime older than 2026-07-26 00:00 local time.
+
+The same mtime check run fresh against the two in-scope roots, `find
+~/.claude/projects ~/.claude-personal/projects -type f -name '*.jsonl' !
+-newermt '2026-07-26 00:00' | wc -l`, counts 0. `find` accepted `-newermt`
+directly, so no `stat` fallback was needed. This is a pure mtime
+observation: no `.jsonl` file under either in-scope root has an mtime older
+than 2026-07-26 00:00 local time.
 
 ## 4. What this does not claim
 
@@ -219,4 +231,5 @@ ls -1 ~/.claude-work/projects
 du -sk ~/.claude/projects ~/.claude-personal/projects ~/.claude-work/projects
 find ~/.claude-work/projects -type f -name '*.jsonl' | wc -l
 find ~/.claude-work/projects -type f -name '*.jsonl' ! -newermt '2026-07-26 00:00' | wc -l
+find ~/.claude/projects ~/.claude-personal/projects -type f -name '*.jsonl' ! -newermt '2026-07-26 00:00' | wc -l
 ```
