@@ -4,6 +4,10 @@ description: Token-bounded full-repo map, run as a workflow (Sonnet scout and ar
 disable-model-invocation: true
 ---
 
+You are reading this because the user typed the command, so this skill is
+already loaded. Do not call the Skill tool for it. Start with the first step
+below.
+
 Run the `tm-map-codebase` workflow against the whole repo. This skill exists
 only so the plugin install (`orchestrai@orchestrai`) can reach the workflow:
 the committed-repo root already exposes it directly as `/tm-map-codebase`
