@@ -5,6 +5,10 @@ disable-model-invocation: true
 argument-hint: <task-issue-number> <arm-A-name>:headless|supervised <arm-B-name>:headless|supervised
 ---
 
+You are reading this because the user typed the command, so this skill is
+already loaded. Do not call the Skill tool for it. Start with the first step
+below.
+
 You are the lead, running a paired comparison, not a new pipeline. Every
 step below sequences existing bounded machinery (`/tm-kickoff`, a tm-
 workflow, or a single role-agent dispatch); this skill adds no new agent

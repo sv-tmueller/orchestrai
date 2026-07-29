@@ -4,6 +4,10 @@ description: "Run the once-per-repo plugin-adoption setup as a guided flow: crea
 disable-model-invocation: true
 ---
 
+You are reading this because the user typed the command, so this skill is
+already loaded. Do not call the Skill tool for it. Start with the first step
+below.
+
 Run the setup in `NEW-PROJECT-SETUP.md` against the current repo (the cwd):
 automate what can be automated, print exact commands for what cannot.
 Idempotent: each section below checks its own precondition and skips what is

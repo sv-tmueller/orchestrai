@@ -5,6 +5,10 @@ disable-model-invocation: true
 argument-hint: <issue numbers | label:<name>>
 ---
 
+You are reading this because the user typed the command, so this skill is
+already loaded. Do not call the Skill tool for it. Start with the first step
+below.
+
 You are the lead and the message bus. Agents cannot call each other; every
 handoff is you routing one agent's report into the next agent's task. Keep
 your own context lean: delegate the work, route the verdicts, decide the
