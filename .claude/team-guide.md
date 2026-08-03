@@ -187,6 +187,7 @@ Fable 5 in the one seat nothing backstops (the lead), Opus 5 at xhigh in the
 backstopped judgment seats (architect, reviewer, workflow critics), efficient
 workers everywhere else. The lever is where each model runs, not raw effort
 everywhere. Rationale: docs/team-guide-rationale.md.
+Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
   Fable 5 (`claude-fable-5`) at xhigh effort. Affordable only because the
