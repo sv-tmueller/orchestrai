@@ -193,26 +193,27 @@ everywhere. Rationale: docs/team-guide-rationale.md.
   lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
   token. The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. When
-  Fable 5 is unavailable, rate-limited, quota-exhausted, or refuses the
-  workload, switch the lead with `/model claude-opus-5`. Flip back when
-  Fable returns. This fallback covers the lead session only; no other seat
-  pins Fable, so no other pin needs to flip alongside it.
+- Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. Fable is
+  lead-session-only: used as the orchestrator when available, and nothing
+  else in the machinery calls it. When Fable 5 is unavailable, rate-limited,
+  quota-exhausted, or refuses the workload, switch the lead with
+  `/model claude-opus-5`. Flip back when Fable returns. This fallback covers
+  the lead session only; no other seat pins Fable, so no other pin needs to
+  flip alongside it.
 - Judgment seats (architect, reviewer, workflow critics): Opus 5 at xhigh
   effort is the primary model, backstopped by the lead and, for architect
-  and reviewer, by the human merge gate. The per-call fallback is Fable 5 at
+  and reviewer, by the human merge gate. The per-call fallback is Sonnet at
   the same xhigh effort. The critic stage of every `tm-` workflow
-  (`.claude/workflows/`) already retries on fable automatically when Opus
+  (`.claude/workflows/`) already retries on sonnet automatically when Opus
   returns nothing, though each run still burns one doomed Opus dispatch
   before the retry fires. For a single architect or reviewer dispatch
   hitting Opus quota mid-batch, the kickoff routing rules own the response:
-  a per-call Fable override (the Agent tool's `model` param), logged as a
-  decision, no pin flip (`.claude/skills/tm-kickoff/SKILL.md`). The ladder
-  is Opus -> Fable -> Sonnet; Sonnet is never a fallback for a judgment seat
-  on its own terms, and only steps in, flagged, if Fable is also down, with
-  the review re-run on a judgment model afterward. Revert trigger: if
-  judgment quality visibly degrades on real batches, flip the architect,
-  reviewer, and critic pins back to fable and log the decision here.
+  a per-call Sonnet override (the Agent tool's `model` param), flagged in
+  the report, logged as a decision on the package issue, with the judgment
+  re-run on Opus once quota returns (`.claude/skills/tm-kickoff/SKILL.md`).
+  The ladder is Opus -> Sonnet, flagged and re-run; nothing else in the
+  machinery falls back to Fable. If judgment quality visibly degrades on
+  real batches, log the observation here.
 - Cost-based fallback trigger: if Fable 5 stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
@@ -224,11 +225,14 @@ everywhere. Rationale: docs/team-guide-rationale.md.
   `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
   task with no tm- script, preferring an Opus lead for that prompt.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
-  (`fable` is the documented per-call fallback); `developer`, `tester`,
+  (`sonnet` is the documented per-call fallback); `developer`, `tester`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
   (`fact-checker` stays on Sonnet, not Haiku). Each agent also pins its own
   effort (`sonnet` -> `high`, `opus` -> `xhigh`), independent of the
-  session's `/effort` setting.
+  session's `/effort` setting. The `sonnet` -> `high` line is a pin rule for
+  seats that run sonnet as their primary model; a per-call sonnet fallback
+  on a judgment seat is not one of those pins, so it inherits the seat's
+  `xhigh` effort instead.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
   that does not pin it. The effort-policy test in `npm test` fails any agent
   or workflow stage that omits its pin or reintroduces max.

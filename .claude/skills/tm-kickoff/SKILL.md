@@ -127,15 +127,15 @@ Routing rules:
   that package and report it (re-label and split per CLAUDE.md "Sizing").
 - An architect or reviewer dispatch dies on an Opus 5 limit (the limit
   error, or an empty return while Opus is exhausted): re-dispatch that one
-  agent with the same task and a per-call Fable override (the Agent tool's
-  `model` param, value `fable`). Do not flip a frontmatter pin or the
+  agent with the same task and a per-call Sonnet override (the Agent tool's
+  `model` param, value `sonnet`). Do not flip a frontmatter pin or the
   session model; the agent's own effort pin (xhigh) still applies. The
   model override is the change that permits the re-dispatch. Flag the
-  fallback in the report and log the switch as a decision comment on the
-  package issue; a model switch is never silent. Sonnet is not part of
-  this per-call override; the team-guide ladder covers the case where
-  Fable is also down. Workflow critic stages recover on their own
-  (criticWithFallback); this rule covers lead dispatches only.
+  fallback in the report, log the switch as a decision comment on the
+  package issue, and re-run the same judgment on Opus once quota returns;
+  a model switch is never silent and never the final word for a judgment
+  seat. Workflow critic stages recover on their own (criticWithFallback,
+  also sonnet); this rule covers lead dispatches only.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and
