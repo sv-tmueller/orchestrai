@@ -29,10 +29,15 @@ names is diffed back against that same `find` list (see section 5).
 
 ## 2. Verdict, in one line
 
-Bound only at a thin shell. A `SKILL.md` body is neutral procedure; its
-frontmatter is the adapter. Most rows below carry the same shape: a small
-Claude-Code-specific header wrapped around process content that does not
-itself name a host.
+Bound only at a thin shell, with one named exception. Most `SKILL.md`
+bodies are neutral procedure with the frontmatter as the adapter, and most
+rows below carry that shape: a small Claude-Code-specific header wrapped
+around process content that does not itself name a host. The exception is
+the three workflow-wrapper skills (`tm-review-codebase`, `tm-map-codebase`,
+`tm-review-changes`): their entire bodies are host machinery (the Skill-tool
+guard, `$CLAUDE_PLUGIN_ROOT` resolution, the Workflow-tool invocation
+branches), so there is no neutral procedure left once the frontmatter is
+set aside.
 
 ## 2a. Why this does not reopen the substrate decision
 
@@ -66,9 +71,12 @@ use, not a design goal:
 - The writing-style rules (no em dashes, no AI-cliche phrases, comments
   only for non-obvious whys).
 
-Root `AGENTS.md` already carries this subset today, self-contained, with no
-`@` import syntax and no tool names in it. That is the existing proof that
-the neutral core is not speculative.
+Root `AGENTS.md` already carries part of this subset today: Conventional
+Commits, the writing-style rules, and the issue-first guardrail. It does
+not carry sizing, worktrees, the flat-star choreography and report
+contracts, test-driven development, or the CI cost policy. That partial
+overlap is real evidence the neutral core can live outside `.claude/`; it
+is not proof the whole core already does.
 
 ## 3. Coupling surfaces
 
@@ -89,6 +97,16 @@ Seven surfaces account for every bound row below:
 7. Host-path and command coupling in prose (`.claude/` paths, the user
    config CLAUDE.md path, the `@` import syntax, the plugin-update command,
    the session effort command)
+
+Surfaces 2 and 6 both touch agent frontmatter but at different layers.
+Surface 2 is the schema shape itself: that `tools`, `model`, `effort`,
+`isolation`, and `skills` exist as frontmatter fields at all. Surface 6 is
+the value vocabulary that fills those fields and the prose that reasons
+about it (per-seat model pinning, the effort ladder's rungs, the session
+model command, the Agent tool's per-call override). A row can carry 2
+without 6 (a field exists but the row says nothing about model tiers or
+effort rungs); every agent row below carries both, since each one pins a
+model and effort tier, not just a field.
 
 Classification stays at role level throughout; no row below quotes a
 current model name, so a pending rename of any specific model reference
@@ -112,7 +130,9 @@ the runtime's place.
 
 Most rows fall between these two poles: a `SKILL.md` guard clause or an
 agent's frontmatter block, wrapped around otherwise-portable process
-prose, per the "thin shell" framing in section 2.
+prose, per the "thin shell" framing in section 2. The three
+workflow-wrapper skills are the exception to that framing: their bodies
+are the host machinery itself, not a wrapper around something else.
 
 ## 4. Classification table
 
@@ -122,27 +142,27 @@ Codex equivalent is filled only for Bound rows.
 | Path | Verdict | Justification | Coupling surface | Codex equivalent |
 | --- | --- | --- | --- | --- |
 | `.claude/.claude-plugin/plugin.json` | Bound | Plugin manifest (name, version, description, author) is Claude Code's plugin schema. | 1 | unknown, re-verify per 2026-07-08 |
-| `.claude/agents/architect.md` | Bound | Frontmatter pins tools/model/effort in the agent schema; body also names specific read-only tools. | 2 | Personas map Markdown -> TOML (2026-07-08 3) |
-| `.claude/agents/developer.md` | Bound | Frontmatter adds worktree isolation and a namespaced skill reference on top of tools/model/effort; body names WebFetch, TodoWrite, `gh`, `git`. | 2 | Personas map Markdown -> TOML; isolation/skill fields unknown, re-verify per 2026-07-08 |
-| `.claude/agents/docs-writer.md` | Bound | Frontmatter pins tools/model/effort; deliberately has no Bash tool. | 2 | Personas map Markdown -> TOML (2026-07-08 3) |
-| `.claude/agents/fact-checker.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation. | 2 | Personas map Markdown -> TOML; isolation unknown, re-verify per 2026-07-08 |
-| `.claude/agents/perf-investigator.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation. | 2 | Personas map Markdown -> TOML; isolation unknown, re-verify per 2026-07-08 |
-| `.claude/agents/reviewer.md` | Bound | Frontmatter pins tools/model/effort; body names `gh pr diff`, `git diff`. | 2 | Personas map Markdown -> TOML (2026-07-08 3) |
-| `.claude/agents/tester.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation and a namespaced skill reference. | 2 | Personas map Markdown -> TOML; isolation/skill fields unknown, re-verify per 2026-07-08 |
+| `.claude/agents/architect.md` | Bound | Frontmatter pins tools/model/effort in the agent schema; body also names specific read-only tools. | 2, 6 | Personas map Markdown -> TOML (2026-07-08 3) |
+| `.claude/agents/developer.md` | Bound | Frontmatter adds worktree isolation and a namespaced skill reference on top of tools/model/effort; body names WebFetch, `gh`, `git`. | 2, 6 | Personas map Markdown -> TOML; isolation/skill fields unknown, re-verify per 2026-07-08 |
+| `.claude/agents/docs-writer.md` | Bound | Frontmatter pins tools/model/effort; deliberately has no Bash tool. | 2, 6 | Personas map Markdown -> TOML (2026-07-08 3) |
+| `.claude/agents/fact-checker.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation. | 2, 6 | Personas map Markdown -> TOML; isolation unknown, re-verify per 2026-07-08 |
+| `.claude/agents/perf-investigator.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation. | 2, 6 | Personas map Markdown -> TOML; isolation unknown, re-verify per 2026-07-08 |
+| `.claude/agents/reviewer.md` | Bound | Frontmatter pins tools/model/effort; body names `gh pr diff`, `git diff`. | 2, 6 | Personas map Markdown -> TOML (2026-07-08 3) |
+| `.claude/agents/tester.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation and a namespaced skill reference. | 2, 6 | Personas map Markdown -> TOML; isolation/skill fields unknown, re-verify per 2026-07-08 |
 | `.claude/settings.json` | Bound | `enabledPlugins` keys the superpowers marketplace plugin; a Claude Code plugin-install mechanism. | 1 | unknown, re-verify per 2026-07-08 |
-| `.claude/skills/tm-ab-test/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards a redundant Skill tool call and invokes the Workflow tool by name. | 3, 4 | Skills format near-identical (2026-07-08 3); the guard fields and Workflow-tool invocation unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-ab-test/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards a redundant Skill tool call. | 3, 4 | Skills format near-identical (2026-07-08 3); the guard fields unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-ab-test/templates/recording-checklist.md` | Bound | One field is a literal Workflow-tool invocation call. | 4 | unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-ab-test/templates/report.md` | Neutral | Pure report template: dates, git refs, prose fields, no tool syntax or host paths. | none | n/a |
 | `.claude/skills/tm-ab-test/templates/supervised-arm-runbook.md` | Bound | Instructs turning on a named session-level effort setting, a Claude Code session control. | 7 | unknown, re-verify per 2026-07-08 |
-| `.claude/skills/tm-advisor/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool and drives Workflow-tool-backed stages. | 3, 4 | Skills format near-identical (2026-07-08 3); guard fields unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-advisor/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool, dispatches other agents through the kickoff pipeline, and names the per-call model-override mechanic. | 3, 4, 6 | Skills format near-identical (2026-07-08 3); guard fields and the per-call override unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-grill-me/SKILL.md` | Neutral | Plain name/description frontmatter only; generic interview prompt with no tool names or host paths (external MIT-licensed source). | none | n/a |
-| `.claude/skills/tm-kickoff/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool, dispatches other agents, and names the per-call model-override mechanic. | 3, 4 | Skills format near-identical; the per-call override and guard fields unknown, re-verify per 2026-07-08 |
-| `.claude/skills/tm-map-codebase/SKILL.md` | Bound | Frontmatter carries the model-invocation guard; body guards the Skill tool and invokes the Workflow tool, resolving the plugin root via an environment variable. | 3, 4 | Skills format near-identical; the Workflow-tool invocation and plugin-root resolution unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-kickoff/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool, dispatches other agents, and names the per-call model-override mechanic. | 3, 4, 6 | Skills format near-identical; the per-call override and guard fields unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-map-codebase/SKILL.md` | Bound | Frontmatter carries the model-invocation guard; body guards the Skill tool and invokes the Workflow tool, resolving the plugin root via an environment variable; its own frontmatter description also names the workflow's per-stage model tiers. | 3, 4, 6 | Skills format near-identical; the Workflow-tool invocation and plugin-root resolution unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-new-project/SKILL.md` | Bound | Frontmatter carries the model-invocation guard; its human-only steps section names the Claude Code plugin marketplace and install commands. | 1, 7 | unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-new-project/templates/ci.yml` | Neutral | A GitHub Actions workflow; nothing in it names Claude Code, an agent, or a tool. | none | n/a |
-| `.claude/skills/tm-review-changes/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool and invokes the Workflow tool, resolving the plugin root via an environment variable. | 3, 4 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
-| `.claude/skills/tm-review-codebase/SKILL.md` | Bound | Same shape as `tm-review-changes/SKILL.md`: guard plus a Workflow-tool invocation keyed to the plugin root. | 3, 4 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
-| `.claude/team-guide.md` | Bound | Names per-seat model pinning, the effort ladder, the session model command, the Agent tool's per-call override, and the user config's `@` import syntax, alongside genuinely neutral sections (sizing, commits, tests, CI cost policy). | 6, 7 | Model-tier vocabulary and the per-call override mechanic unknown, re-verify per 2026-07-08; its neutral sections are exactly the core cited in section 2 |
+| `.claude/skills/tm-review-changes/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool and invokes the Workflow tool, resolving the plugin root via an environment variable; its own frontmatter description also names per-stage model tiers. | 3, 4, 6 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-review-codebase/SKILL.md` | Bound | Same shape as `tm-review-changes/SKILL.md`: guard plus a Workflow-tool invocation keyed to the plugin root, and a frontmatter description naming per-stage model tiers. | 3, 4, 6 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
+| `.claude/team-guide.md` | Bound | Names per-seat model pinning, the effort ladder, the session model command, the Agent tool's per-call override, and the `/plugin update` command, alongside genuinely neutral sections (sizing, commits, tests, CI cost policy). | 6, 7 | Model-tier vocabulary and the per-call override mechanic unknown, re-verify per 2026-07-08; its neutral sections are exactly the core cited in section 2 |
 | `.claude/workflows/__tests__/ci-template-policy.test.mjs` | Neutral | A `node:test` suite over the CI template's raw text; zero Claude Code API surface. | none | n/a |
 | `.claude/workflows/__tests__/effort-policy.test.mjs` | Bound | Asserts the agent-frontmatter model/effort schema and the workflow per-stage model/effort lines; the JS harness is plain `node:test`, but its assertions are schema-specific. | 2, 6 | unknown, re-verify per 2026-07-08 (would need a Codex-side schema to assert against) |
 | `.claude/workflows/__tests__/helpers.test.mjs` | Bound | Slices and evaluates the Workflow-tool runtime helpers (`criticWithFallback`, `parseArgs`, `safeRef`) that assume the `agent()`/`log()` runtime globals. | 5 | no equivalent exists (2026-07-08 3: no deterministic fan-out primitive) |
@@ -150,14 +170,15 @@ Codex equivalent is filled only for Bound rows.
 | `.claude/workflows/tm-review-changes.js` | Bound | Same Workflow-tool runtime API and per-stage model/effort pins. | 5, 6 | no equivalent exists; external driver only (2026-07-08 3) |
 | `.claude/workflows/tm-review-codebase.js` | Bound | Same Workflow-tool runtime API and per-stage model/effort pins. | 5, 6 | no equivalent exists; external driver only (2026-07-08 3) |
 
-The three workflow scripts above are the only rows where "no equivalent
+The three workflow scripts above, and the helper test that exercises their
+runtime (`helpers.test.mjs`), are the only rows where "no equivalent
 exists" is a settled fact rather than an open question; every other unknown
 cell is a genuine "not yet researched," not a confirmed gap.
 
 Tally: of the 28 rows in the main table, 24 are Claude-Code-bound and 4 are
 harness-neutral (two templates, one skill, one test file). Combined with
-the appendix (2 bound, 1 neutral), the repo-wide total assessed here is 26
-bound and 5 neutral across 31 rows.
+the appendix (2 bound, 1 neutral), the total assessed here is 26 bound and
+5 neutral across 31 rows.
 
 ## 5. Appendix: outside the stated scope, included because portability cannot be assessed without them
 
@@ -168,8 +189,8 @@ mechanically generated table above.
 | Path | Verdict | Justification | Coupling surface | Codex equivalent |
 | --- | --- | --- | --- | --- |
 | `.claude-plugin/marketplace.json` (repo root) | Bound | Plugin marketplace manifest (name, owner, renames, plugin source) is Claude Code's marketplace format. | 1 | unknown, re-verify per 2026-07-08 |
-| `CLAUDE.md` (repo root) | Bound | Its one binding line is the `@` import of `team-guide.md`; the rest is process prose already mirrored in `AGENTS.md`. | 7 | `AGENTS.md` already carries the neutral subset with no `@` import syntax; no further mapping needed |
-| `AGENTS.md` (repo root) | Neutral | Already the portable core: no `@` import syntax, no tool names, explicitly self-contained for "any AGENTS.md-aware worker seat." Its only caveat is a line noting `.claude/` is Claude-host machinery a non-Claude seat only reads. | none | n/a; this is the existing proof point that the neutral core is not hypothetical |
+| `CLAUDE.md` (repo root) | Bound | Its binding lines are the `@` import of `team-guide.md`, a reference to the `~/.claude/CLAUDE.md` path, and two `/tm-` command names in the repo-layout section (`/tm-map-codebase`, `/tm-review-codebase`); the rest is process prose already mirrored in `AGENTS.md`. | 7 | `AGENTS.md` carries part of the neutral subset (Conventional Commits, style rules, issue-first guardrails) with no `@` import syntax; no further mapping needed for that part |
+| `AGENTS.md` (repo root) | Neutral | Partial portable core: no `@` import syntax, no tool names, explicitly self-contained for "any AGENTS.md-aware worker seat," but it names Claude in more than one place (the opening caveat about Claude's `@` import syntax, the framing of a non-Claude seat as "driven by the Claude lead session," and the note that `.claude/` is Claude-host machinery a non-Claude seat only reads). | none | n/a; partial evidence the neutral core can live outside `.claude/`, not full proof it already does |
 
 ## 6. Completeness check
 
@@ -191,18 +212,29 @@ trigger from `docs/superpowers/specs/2026-07-08-codex-readiness-design.md`
 fires. Sizes are first estimates and may be re-cut once an issue is
 actually scoped, same as any other sizing.
 
-**Phase 1** - size:S. Hoist the host-neutral process prose (sizing, commits,
-tests, CI cost policy, the flat-star choreography and report contracts)
-out of `team-guide.md` into a core doc set referenced by both `CLAUDE.md`
-(via `@` import, unchanged) and `AGENTS.md` (via plain reference, since it
-cannot use `@` import). This makes the neutral core a single source instead
-of two documents that can drift.
+**Phase 1** - size:S, contingent on a distribution answer. Hoist the
+host-neutral process prose (sizing, commits, tests, CI cost policy, the
+flat-star choreography and report contracts) out of `team-guide.md` into a
+core doc set referenced by both `CLAUDE.md` (via `@` import, unchanged) and
+`AGENTS.md` (via plain reference, since it cannot use `@` import). Today
+`team-guide.md` carries the full core and `AGENTS.md` carries a partial,
+hand-copied subset of it (section 2b); hoisting replaces both with one
+source instead of two that can drift out of sync. The marketplace manifest
+(`.claude-plugin/marketplace.json`) ships only `./.claude`, so a doc set
+placed under `docs/` would not travel with the plugin the way
+`team-guide.md` does today; a consumer config dir would need the same
+clone-relative reference this repo's own `CLAUDE.md` already uses for
+`team-guide.md`. Confirm that reference works for a consumer before
+treating size:S as settled; if it does not, this phase re-sizes.
 Blocked by: none.
 
 **Phase 2** - size:M. Split each `SKILL.md` into a neutral body (the
 procedure) and a thin Claude-Code frontmatter adapter (the model-invocation
 guard, the argument-hint field). The body becomes the thing a Codex skill
-file would reuse near-identically, per the 2026-07-08 mapping.
+file would reuse near-identically, per the 2026-07-08 mapping. The three
+workflow-wrapper skills (`tm-review-codebase`, `tm-map-codebase`,
+`tm-review-changes`) are the exception: their bodies are host machinery top
+to bottom, so a frontmatter split yields nothing portable for them.
 Blocked by: Phase 1.
 
 **Phase 3** - size:M. Split each agent file into a neutral role contract
@@ -219,16 +251,20 @@ deterministic fan-out equivalent on any other host today, so this phase is
 likely re-sized once someone tries it against a real second renderer.
 Blocked by: none.
 
-**Phase 5** - size:S. Replace model names in agent frontmatter and workflow
-per-stage pins with tiers (judgment, worker), resolved to an actual model
-through a per-host adapter table instead of a hard-coded name.
+**Phase 5** - size:S. Replace model names everywhere a row above is tagged
+surface 6: the seven agent frontmatter blocks, the three workflow scripts'
+per-stage pins, the five skill bodies that name models (`tm-advisor`,
+`tm-kickoff`, `tm-map-codebase`, `tm-review-changes`, `tm-review-codebase`),
+and `team-guide.md` itself. Each becomes a tier (judgment, worker) resolved
+to an actual model through a per-host adapter table instead of a
+hard-coded name.
 Blocked by: none.
 
 Any actual Codex adapter implementing phases 2-5 against a live Codex
 worker seat is Blocked by: #232, the sanctioned spike from
 `docs/superpowers/specs/2026-07-08-codex-readiness-design.md` section 9.
-None of these five phases requires #232 to be filed as an issue; only
-building a working adapter does.
+None of these five phases requires #232 to land first; only building a
+working adapter does.
 
 ## 8. Non-goals
 
@@ -242,10 +278,8 @@ What this document deliberately does not do, so its scope stays legible:
   in this repo (in flight concurrently) cannot make this table stale on
   that axis; every model reference here is a role ("judgment seat", "worker
   seat") or a tier, never a product name.
-- It does not touch `docs/architecture/operating-model.md`. If a pointer
-  from that file to this one seemed necessary, that would be a scope
-  change parked as needs-human, not something this document does on its
-  own initiative.
+- It does not touch `docs/architecture/operating-model.md`. A pointer from
+  that file to this one is a separate scope decision, out of scope here.
 - It does not propose an implementation plan. Section 7 sketches five
   phases at first-cut sizes; none is an approved issue, and none is
   scheduled. A revisit trigger firing is what would turn any of them into
