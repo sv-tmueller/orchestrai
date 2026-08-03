@@ -16,7 +16,8 @@ Facts below are verified 2026-08-02.
 
 - Fable 5 is not plan-included on Pro. It bills as pay-as-you-go usage
   credits on top of the Pro subscription. The plan-included promo for Fable 5
-  ended 2026-07-19.
+  on Pro ended 2026-07-19. Fable 5 stays plan-included on Max; this promo end
+  is a Pro-only fact and does not touch the Max plan.
 - Opus 5 and Sonnet 5 are both available on Pro, including inside Claude
   Code. Neither needs a separate credit purchase.
 - Weekly usage is one shared pool across claude.ai and Claude Code. A chat
@@ -41,13 +42,11 @@ metering on Pro.
    their frontmatter either way; `developer`, `tester`, `fact-checker`,
    `docs-writer`, and `perf-investigator` keep `model: sonnet`. None of that
    changes on Pro.
-4. Stop routing anything to Fable. The kickoff routing rules include a
-   per-call Fable override for a judgment-seat dispatch under Opus quota
-   pressure (`.claude/skills/tm-kickoff/SKILL.md`); that override assumes
-   Fable is plan-included, which is not true on Pro, so do not invoke it
-   while on Pro. For what a judgment-seat dispatch falls back to instead,
-   see `.claude/team-guide.md`, "Model policy" (not restated here, since a
-   sibling change to that section is in flight).
+4. Stop routing anything to Fable. Wherever `.claude/team-guide.md`, "Model
+   policy", or the kickoff routing rules name a Fable fallback for any seat,
+   treat Fable as unavailable while on Pro and do not invoke it. See
+   `.claude/team-guide.md`, "Model policy", for what each seat falls back to
+   instead.
 
 ## Working under Pro limits
 
