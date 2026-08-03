@@ -424,7 +424,7 @@ describe('criticWithFallback', () => {
     assert.equal('modelFallback' in result, false)
   })
 
-  test('first call returns null, retries on fable and succeeds', async () => {
+  test('first call returns null, retries on sonnet and succeeds', async () => {
     const calls = []
     const logs = []
     const sandbox = {
@@ -440,7 +440,7 @@ describe('criticWithFallback', () => {
 
     assert.equal(calls.length, 2)
     const secondOpts = calls[1].opts
-    assert.equal(secondOpts.model, 'fable')
+    assert.equal(secondOpts.model, 'sonnet')
     assert.equal(secondOpts.effort, baseOpts.effort)
     assert.equal(secondOpts.label, baseOpts.label)
     assert.equal(secondOpts.phase, baseOpts.phase)
@@ -448,7 +448,7 @@ describe('criticWithFallback', () => {
     assert.ok(calls[1].prompt.includes('the prompt'), 'second prompt still carries the original prompt')
     assert.ok(calls[1].prompt.length > 'the prompt'.length, 'second prompt carries an added notice')
     assert.equal(result.verdict, 'approve')
-    assert.equal(result.modelFallback, 'opus -> fable')
+    assert.equal(result.modelFallback, 'opus -> sonnet')
     assert.ok(logs.length >= 1, 'log() must be called to surface the fallback')
   })
 
@@ -469,7 +469,7 @@ describe('criticWithFallback', () => {
     // vm-realm errors are not `instanceof` the host's Error, so assert on the
     // message rather than the error's prototype chain.
     assert.match(threw.message, /consolidate/)
-    assert.match(threw.message, /fable/)
+    assert.match(threw.message, /sonnet/)
     assert.match(threw.message, /opus/)
   })
 
