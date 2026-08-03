@@ -7,12 +7,12 @@
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.
  *
- * `fable` carries opus's xhigh so the pin-flip revert path stays valid:
- * flipping a judgment seat's pin from opus back to fable keeps its effort
- * unchanged and still passes. (The per-call fallback, the Agent tool's model
- * param, is effort-neutral and separate from this pin; it stays invisible to
- * this static test either way.) Without that entry the revert the Model
- * policy prescribes fails this suite the moment anyone follows it.
+ * Fable is lead-session-only (issue #298): no agent or workflow stage pins it
+ * any more, so EFFORT_BY_MODEL carries only sonnet and opus. The per-call
+ * sonnet fallback used when a judgment seat's Opus dispatch dies on quota
+ * (the Agent tool's model param) is effort-neutral and separate from this
+ * pin; it inherits the seat's xhigh effort and stays invisible to this
+ * static test either way.
  */
 
 import { test, describe } from 'node:test'
@@ -25,7 +25,7 @@ const __dir = dirname(fileURLToPath(import.meta.url))
 const workflowsDir = join(__dir, '..')
 const agentsDir = join(__dir, '..', '..', 'agents')
 
-const EFFORT_BY_MODEL = { sonnet: 'high', fable: 'xhigh', opus: 'xhigh' }
+const EFFORT_BY_MODEL = { sonnet: 'high', opus: 'xhigh' }
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
 // ===========================================================================
@@ -74,7 +74,7 @@ describe('agent frontmatter effort pins', () => {
 // Agent-call opts in both workflows are single-line objects carrying both
 // label: and model:. The meta.phases display entries carry model: but
 // title:/detail: instead of label:, so requiring label: excludes them. The
-// criticWithFallback retry opts (`{ ...opts, model: 'fable' }`) also carry
+// criticWithFallback retry opts (`{ ...opts, model: 'sonnet' }`) also carry
 // model: with no label: and no literal effort:, so the same filter excludes
 // them too; that is safe because the spread inherits effort: from the
 // caller's opts line, which this test already checks.
