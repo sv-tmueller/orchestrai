@@ -25,7 +25,7 @@ per result, before any artifact was read. That produced 28 files at the time
 of writing (agents, skills, their templates, the plugin manifest, settings,
 team-guide, the three workflow scripts, and their tests). Completeness is
 checked by construction, not by memory: every `.claude/...` path this doc
-names is diffed back against that same `find` list (see section 5).
+names is diffed back against that same `find` list (see section 6).
 
 ## 2. Verdict, in one line
 
@@ -103,10 +103,10 @@ Surface 2 is the schema shape itself: that `tools`, `model`, `effort`,
 `isolation`, and `skills` exist as frontmatter fields at all. Surface 6 is
 the value vocabulary that fills those fields and the prose that reasons
 about it (per-seat model pinning, the effort ladder's rungs, the session
-model command, the Agent tool's per-call override). A row can carry 2
-without 6 (a field exists but the row says nothing about model tiers or
-effort rungs); every agent row below carries both, since each one pins a
-model and effort tier, not just a field.
+model command, the Agent tool's per-call override). A row could carry 2
+without 6 in principle (a field exists but the row says nothing about
+model tiers or effort rungs); no row below does, since every row tagged 2
+also pins a model and effort tier, carrying 6 too.
 
 Classification stays at role level throughout; no row below quotes a
 current model name, so a pending rename of any specific model reference
@@ -150,7 +150,7 @@ Codex equivalent is filled only for Bound rows.
 | `.claude/agents/reviewer.md` | Bound | Frontmatter pins tools/model/effort; body names `gh pr diff`, `git diff`. | 2, 6 | Personas map Markdown -> TOML (2026-07-08 3) |
 | `.claude/agents/tester.md` | Bound | Frontmatter pins tools/model/effort/worktree isolation and a namespaced skill reference. | 2, 6 | Personas map Markdown -> TOML; isolation/skill fields unknown, re-verify per 2026-07-08 |
 | `.claude/settings.json` | Bound | `enabledPlugins` keys the superpowers marketplace plugin; a Claude Code plugin-install mechanism. | 1 | unknown, re-verify per 2026-07-08 |
-| `.claude/skills/tm-ab-test/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards a redundant Skill tool call. | 3, 4 | Skills format near-identical (2026-07-08 3); the guard fields unknown, re-verify per 2026-07-08 |
+| `.claude/skills/tm-ab-test/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards a redundant Skill tool call and names a session-level effort setting for supervised arms. | 3, 4, 7 | Skills format near-identical (2026-07-08 3); the guard fields unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-ab-test/templates/recording-checklist.md` | Bound | One field is a literal Workflow-tool invocation call. | 4 | unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-ab-test/templates/report.md` | Neutral | Pure report template: dates, git refs, prose fields, no tool syntax or host paths. | none | n/a |
 | `.claude/skills/tm-ab-test/templates/supervised-arm-runbook.md` | Bound | Instructs turning on a named session-level effort setting, a Claude Code session control. | 7 | unknown, re-verify per 2026-07-08 |
@@ -162,10 +162,10 @@ Codex equivalent is filled only for Bound rows.
 | `.claude/skills/tm-new-project/templates/ci.yml` | Neutral | A GitHub Actions workflow; nothing in it names Claude Code, an agent, or a tool. | none | n/a |
 | `.claude/skills/tm-review-changes/SKILL.md` | Bound | Frontmatter carries the model-invocation guard and argument-hint; body guards the Skill tool and invokes the Workflow tool, resolving the plugin root via an environment variable; its own frontmatter description also names per-stage model tiers. | 3, 4, 6 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
 | `.claude/skills/tm-review-codebase/SKILL.md` | Bound | Same shape as `tm-review-changes/SKILL.md`: guard plus a Workflow-tool invocation keyed to the plugin root, and a frontmatter description naming per-stage model tiers. | 3, 4, 6 | Skills format near-identical; the Workflow-tool invocation unknown, re-verify per 2026-07-08 |
-| `.claude/team-guide.md` | Bound | Names per-seat model pinning, the effort ladder, the session model command, the Agent tool's per-call override, and the `/plugin update` command, alongside genuinely neutral sections (sizing, commits, tests, CI cost policy). | 6, 7 | Model-tier vocabulary and the per-call override mechanic unknown, re-verify per 2026-07-08; its neutral sections are exactly the core cited in section 2 |
+| `.claude/team-guide.md` | Bound | Names per-seat model pinning, the effort ladder, the session model command, the Agent tool's per-call override, and the `/plugin update` command, alongside genuinely neutral sections (sizing, commits, tests, CI cost policy, writing style, the pipeline-stage list). | 6, 7 | Model-tier vocabulary and the per-call override mechanic unknown, re-verify per 2026-07-08; its neutral sections overlap much of the core enumerated in section 2b, though the full flat-star choreography lives in `docs/team-architecture.md` and the seats' report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent files, not here |
 | `.claude/workflows/__tests__/ci-template-policy.test.mjs` | Neutral | A `node:test` suite over the CI template's raw text; zero Claude Code API surface. | none | n/a |
 | `.claude/workflows/__tests__/effort-policy.test.mjs` | Bound | Asserts the agent-frontmatter model/effort schema and the workflow per-stage model/effort lines; the JS harness is plain `node:test`, but its assertions are schema-specific. | 2, 6 | unknown, re-verify per 2026-07-08 (would need a Codex-side schema to assert against) |
-| `.claude/workflows/__tests__/helpers.test.mjs` | Bound | Slices and evaluates the Workflow-tool runtime helpers (`criticWithFallback`, `parseArgs`, `safeRef`) that assume the `agent()`/`log()` runtime globals. | 5 | no equivalent exists (2026-07-08 3: no deterministic fan-out primitive) |
+| `.claude/workflows/__tests__/helpers.test.mjs` | Bound | Slices and evaluates the Workflow-tool runtime helpers (`criticWithFallback`, `parseArgs`, `safeRef`) that assume the `agent()`/`log()` runtime globals; `criticWithFallback`'s fallback path also hard-codes the judgment-seat model-tier literals it retries between. | 5, 6 | no equivalent exists (2026-07-08 3: no deterministic fan-out primitive) |
 | `.claude/workflows/tm-map-codebase.js` | Bound | A Workflow-tool script: `export const meta`, `phase()`/`agent()`/`parallel()`/`log()` runtime globals, `args`, per-stage model/effort pins. | 5, 6 | no equivalent exists; would be rebuilt as an external driver (2026-07-08 3) |
 | `.claude/workflows/tm-review-changes.js` | Bound | Same Workflow-tool runtime API and per-stage model/effort pins. | 5, 6 | no equivalent exists; external driver only (2026-07-08 3) |
 | `.claude/workflows/tm-review-codebase.js` | Bound | Same Workflow-tool runtime API and per-stage model/effort pins. | 5, 6 | no equivalent exists; external driver only (2026-07-08 3) |
@@ -190,7 +190,7 @@ mechanically generated table above.
 | --- | --- | --- | --- | --- |
 | `.claude-plugin/marketplace.json` (repo root) | Bound | Plugin marketplace manifest (name, owner, renames, plugin source) is Claude Code's marketplace format. | 1 | unknown, re-verify per 2026-07-08 |
 | `CLAUDE.md` (repo root) | Bound | Its binding lines are the `@` import of `team-guide.md`, a reference to the `~/.claude/CLAUDE.md` path, and two `/tm-` command names in the repo-layout section (`/tm-map-codebase`, `/tm-review-codebase`); the rest is process prose already mirrored in `AGENTS.md`. | 7 | `AGENTS.md` carries part of the neutral subset (Conventional Commits, style rules, issue-first guardrails) with no `@` import syntax; no further mapping needed for that part |
-| `AGENTS.md` (repo root) | Neutral | Partial portable core: no `@` import syntax, no tool names, explicitly self-contained for "any AGENTS.md-aware worker seat," but it names Claude in more than one place (the opening caveat about Claude's `@` import syntax, the framing of a non-Claude seat as "driven by the Claude lead session," and the note that `.claude/` is Claude-host machinery a non-Claude seat only reads). | none | n/a; partial evidence the neutral core can live outside `.claude/`, not full proof it already does |
+| `AGENTS.md` (repo root) | Neutral | Partial portable core: no `@` import syntax, no tool names, explicitly self-contained for "any AGENTS.md-aware worker seat," but it names Claude in more than one place (the opening caveat about Claude's `@` import syntax, the framing of a non-Claude seat as "driven by the Claude lead session," and the note that `.claude/` is Claude-host machinery a non-Claude seat only reads). | 7 | n/a; partial evidence the neutral core can live outside `.claude/`, not full proof it already does |
 
 ## 6. Completeness check
 
@@ -212,19 +212,30 @@ trigger from `docs/superpowers/specs/2026-07-08-codex-readiness-design.md`
 fires. Sizes are first estimates and may be re-cut once an issue is
 actually scoped, same as any other sizing.
 
-**Phase 1** - size:S, contingent on a distribution answer. Hoist the
-host-neutral process prose (sizing, commits, tests, CI cost policy, the
-flat-star choreography and report contracts) out of `team-guide.md` into a
-core doc set referenced by both `CLAUDE.md` (via `@` import, unchanged) and
-`AGENTS.md` (via plain reference, since it cannot use `@` import). Today
-`team-guide.md` carries the full core and `AGENTS.md` carries a partial,
-hand-copied subset of it (section 2b); hoisting replaces both with one
-source instead of two that can drift out of sync. The marketplace manifest
-(`.claude-plugin/marketplace.json`) ships only `./.claude`, so a doc set
-placed under `docs/` would not travel with the plugin the way
-`team-guide.md` does today; a consumer config dir would need the same
-clone-relative reference this repo's own `CLAUDE.md` already uses for
-`team-guide.md`. Confirm that reference works for a consumer before
+**Phase 1** - size:S, contingent on a distribution answer. `team-guide.md`
+today carries sizing, commits, tests, CI cost policy, the writing-style
+rules, the GitHub-issue/PR and worktree-isolation prose, and the
+pipeline-stage list (sub-plan, develop, test, review, PR ready) the
+Plan-status block uses. It does not carry the full flat-star choreography
+or the seats' report contracts: the choreography's model, diagram, and
+per-package pipeline live in `docs/team-architecture.md`, and caps,
+routing, and report contracts live in `.claude/skills/tm-kickoff/SKILL.md`
+and the agent files (`team-guide.md` says so and does not repeat them).
+Hoist only what `team-guide.md` itself carries into a core doc set
+referenced by both `CLAUDE.md` (via `@` import, unchanged) and `AGENTS.md`
+(via plain reference, since it cannot use `@` import); report contracts and
+the full choreography stay where they are, since pulling them in here
+would reach into `tm-kickoff/SKILL.md` and the agent files, Phase 2 and
+3's territory, and invert the Blocked-by graph below. `AGENTS.md` carries a
+partial, hand-copied subset of the hoisted set today (section 2b);
+hoisting replaces both with one source instead of two that can drift out
+of sync. The marketplace manifest (`.claude-plugin/marketplace.json`)
+ships only `./.claude`, so a doc set placed under `docs/` would not travel
+with the plugin the way `team-guide.md` does today; a consumer config dir
+would need a clone-relative reference to the hoisted set, the same shape
+its own `CLAUDE.md` already uses for `team-guide.md` (`team-guide.md:285`),
+not the repo-relative `@.claude/team-guide.md` import this repo's own
+`CLAUDE.md` uses. Confirm that reference works for a consumer before
 treating size:S as settled; if it does not, this phase re-sizes.
 Blocked by: none.
 
@@ -253,11 +264,13 @@ Blocked by: none.
 
 **Phase 5** - size:S. Replace model names everywhere a row above is tagged
 surface 6: the seven agent frontmatter blocks, the three workflow scripts'
-per-stage pins, the five skill bodies that name models (`tm-advisor`,
-`tm-kickoff`, `tm-map-codebase`, `tm-review-changes`, `tm-review-codebase`),
-and `team-guide.md` itself. Each becomes a tier (judgment, worker) resolved
-to an actual model through a per-host adapter table instead of a
-hard-coded name.
+per-stage pins, the two skill bodies (`tm-advisor`, `tm-kickoff`) and the
+three wrapper-skill frontmatter descriptions (`tm-map-codebase`,
+`tm-review-changes`, `tm-review-codebase`) that name models, `team-guide.md`
+itself, and the two workflow tests that hard-code model literals
+(`effort-policy.test.mjs`, `helpers.test.mjs`). Each becomes a tier
+(judgment, worker) resolved to an actual model through a per-host adapter
+table instead of a hard-coded name.
 Blocked by: none.
 
 Any actual Codex adapter implementing phases 2-5 against a live Codex
