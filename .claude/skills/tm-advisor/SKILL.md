@@ -168,7 +168,7 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   an interpretation call), decide it and post the decision with its reasoning
   as a comment on the batch issue before acting on it.
   An Opus-quota death on a judgment-seat dispatch is such a decision:
-  apply kickoff's per-call Fable override routing rule and log the switch
+  apply kickoff's per-call Sonnet override routing rule and log the switch
   on the batch issue. It is not grounds to park.
 - **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
   for: a change to scope or acceptance criteria, a new dependency or cost,

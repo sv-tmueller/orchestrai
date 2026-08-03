@@ -238,6 +238,22 @@ lead-only). It does not claim the fourth combination (the shipped outcome)
 is now proven safer or better-judged; the honest framing is what each arm
 produced, not a ranking.
 
+## Addendum, 2026-08-03: fable removed from every subagent and fallback role
+
+Sections 1-10 below are unchanged and stand as written on 2026-07-24, same
+as the three addenda above. This addendum records issue #298 (batch #297):
+Fable 5 is now lead-session-only. Every seat that still named `fable`,
+architect, reviewer, the workflow critics' `criticWithFallback` retry, and
+the kickoff/advisor per-call override, moves to the Opus -> Sonnet ladder:
+Sonnet flagged in the report, logged as a decision, judgment re-run on
+Opus once quota returns. The 2026-07-27 addendum's revert trigger (flip
+judgment pins back to `fable`) is retired with it; team-guide now logs the
+observation instead.
+
+**Motive.** Batch #297 is preparing plan-downgrade readiness: a lead
+session already fallen back to Opus should not also depend on Fable
+anywhere else in the machinery. A Fable outage now degrades only the lead.
+
 ## 1. Question and scope
 
 With Opus 5 released, should the orchestrator (lead), architect, and reviewer

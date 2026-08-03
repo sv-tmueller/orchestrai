@@ -13,7 +13,7 @@ export const meta = {
 // one Opus critic. It cannot become the 100-agent fan-out that an unpinned
 // session-model review produces. Models and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
-// single critic runs Opus 5 at xhigh effort and auto-retries once on fable
+// single critic runs Opus 5 at xhigh effort and auto-retries once on sonnet
 // at the same effort if Opus returns nothing (criticWithFallback below;
 // see team-guide for the lead-level fallback, which is still manual).
 //
@@ -43,19 +43,19 @@ async function criticWithFallback(prompt, opts) {
   // costs the entire unattended run. Retry unconditionally.
   if (first) return first
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on fable at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on sonnet at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the fable fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'fable' }
+    `${prompt}\n\nNOTE: this is a retry on the sonnet fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: 'sonnet' }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the fable fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the fable fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the sonnet fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the sonnet fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> fable` }
+  return { ...second, modelFallback: `${opts.model} -> sonnet` }
 }
 
 // This list is diff-scoped and intentionally longer than tm-review-codebase's
