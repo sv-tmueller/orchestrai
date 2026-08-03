@@ -7,8 +7,8 @@
  * agent or workflow stage that omits its pin (and would silently inherit the
  * session effort) fails here instead of shipping.
  *
- * Fable is lead-session-only (issue #298): no agent or workflow stage pins it
- * any more, so EFFORT_BY_MODEL carries only sonnet and opus. The per-call
+ * The lead-only model (issue #298) no longer backs any agent or workflow
+ * stage, so EFFORT_BY_MODEL carries only sonnet and opus. The per-call
  * sonnet fallback used when a judgment seat's Opus dispatch dies on quota
  * (the Agent tool's model param) is effort-neutral and separate from this
  * pin; it inherits the seat's xhigh effort and stays invisible to this
