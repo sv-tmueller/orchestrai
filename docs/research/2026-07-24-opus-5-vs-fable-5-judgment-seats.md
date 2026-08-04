@@ -544,6 +544,13 @@ leave architect, reviewer, and the three workflow critic stages on Fable 5
 until the effort-policy test gains an `opus` tier in a follow-up issue.
 Confidence: medium.**
 
+> **Later note, added 2026-08-03, outside the 2026-07-24 analysis.** The
+> condition this recommendation names, an `opus` tier in the effort-policy
+> test, was already met when this document merged. See "Addendum, 2026-07-25:
+> the effort-policy blocker is cleared" above, which sets out what that does
+> and does not change, and the addenda after it for what later shipped. The
+> recommendation and confidence level above are unchanged.
+
 This is option (c), not (b): a full move would fail the effort-policy test
 today (section 7), and the vendor's own capability claim (section 6) argues
 against moving the two structurally-bounded judgment seats for quality
@@ -639,6 +646,13 @@ shows Opus 5's judgment output on this repo's own sub-plans or reviews holds
 up against Fable 5's, not just against vendor positioning; or Fable-limit
 exhaustion events recur often enough to look like a rate rather than four
 isolated events across three documented occasions.
+
+> **Later note, added 2026-08-03, outside the 2026-07-24 analysis.** The
+> first condition in the extend-trigger above, an `opus` tier in the
+> effort-policy test, is already met. See "Addendum, 2026-07-25: the
+> effort-policy blocker is cleared" above, which explains why meeting it does
+> not by itself move the seats, and the addenda after it for what later
+> shipped. The trigger text above is unchanged.
 
 **To revert the lead-only move:** the lead's own scoping and parking decisions
 visibly degrade on Opus 5, traceable to real batch outcomes (missed scope
