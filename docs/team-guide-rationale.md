@@ -1,8 +1,9 @@
 # Team guide rationale
 
-Evidence and rationale relocated from `.claude/team-guide.md`. The operative
-rules live there; this file holds the why and the numbers. Organized by
-source section, each chunk headed by the rule it supports.
+Evidence and rationale relocated from `.claude/team-guide.md` and
+`.claude/process-core.md`. The operative rules live there; this file holds
+the why and the numbers. Organized by source section, each chunk headed by
+the rule it supports.
 
 ## Workflow defaults
 

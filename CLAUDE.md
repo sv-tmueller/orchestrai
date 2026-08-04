@@ -31,13 +31,15 @@ When code and a doc disagree, the code wins and the doc is corrected in the same
 
 ## Team process
 
-The generic team process guidance lives in `.claude/team-guide.md` and loads via the import below:
+The neutral process core and the team-specific process guidance load via the
+imports below, core first:
 
+@.claude/process-core.md
 @.claude/team-guide.md
 
 ## Code style
 
-Follow the "Writing style" section in `.claude/team-guide.md` for commits,
+Follow the "Writing style" section in `.claude/process-core.md` for commits,
 PRs, docs, and comments. The JS in this repo follows the zero-dependency test
 style (see "Useful commands").
 

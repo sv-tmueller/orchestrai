@@ -28,7 +28,7 @@ Two phases, in order.
    for. Do not expand scope to every gap found in phase 1; note the rest in
    your report instead (see below).
 
-Your prose follows the "Writing style" section of `.claude/team-guide.md`
+Your prose follows the "Writing style" section of `.claude/process-core.md`
 (no em dashes, no AI-cliche phrases, plain direct English, short sentences):
 you are the one seat whose entire output is user-facing prose, so that section
 binds you more than it binds any other seat.

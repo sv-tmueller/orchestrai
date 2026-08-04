@@ -7,11 +7,13 @@ below).
 
 - `CLAUDE.md` - standing guidance for Claude Code sessions: what the repo is,
   where decisions live, code style, useful commands.
-- `.claude/team-guide.md` - generic team process guidance (agent team, advisor
-  model, model policy, sizing, the issues/branches/commits conventions,
-  how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md; a
-  config dir imports it from the marketplace clone instead (see "Getting the
-  team into your repos" below).
+- `.claude/team-guide.md` - team-specific process guidance (agent team,
+  advisor model, model policy, how-to-pick-up-a-task, repo layout).
+  `.claude/process-core.md` holds the neutral rules that hold regardless of
+  team or model (issues/branches/commits conventions, sizing, sub-plans,
+  tests, CI cost policy, writing style, what-not-to-do). The repo `CLAUDE.md`
+  imports both files directly, core first; a config dir imports both from the
+  marketplace clone instead (see "Getting the team into your repos" below).
 - `NEW-PROJECT-SETUP.md` - the once-per-repo adoption checklist: branch
   protection, installing the plugin, docs structure, CI/CD and e2e wiring,
   and the first slice of work. Stays in the repo as a living checklist; it
@@ -126,12 +128,21 @@ Current Claude Code builds may also register the two workflows directly under
 the plugin namespace, producing duplicate menu entries; this is undocumented
 behavior, and the wrapper skills remain the supported path.
 
-A plugin cannot place `team-guide.md` where a config-dir `CLAUDE.md` can
-import it, so wire that import yourself: add
-`@plugins/marketplaces/orchestrai/.claude/team-guide.md` to
-`<config-dir>/CLAUDE.md` (the path is relative to that file; the marketplace
-clone auto-updates, so the import always tracks the latest guide). Note that
-a config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking
+A plugin cannot place `team-guide.md` and `process-core.md` where a config-dir
+`CLAUDE.md` can import them, so wire both imports yourself: add
+
+```text
+@plugins/marketplaces/orchestrai/.claude/process-core.md
+@plugins/marketplaces/orchestrai/.claude/team-guide.md
+```
+
+to `<config-dir>/CLAUDE.md` (the paths are relative to that file; the
+marketplace clone auto-updates, so the imports always track the latest
+guides). A nested import from `team-guide.md` to `process-core.md` does not
+resolve for a plugin consumer, so both files must be imported directly; if
+your config dir already has the single `team-guide.md` import line from
+before this change, add the `process-core.md` line above it. Note that a
+config-dir `CLAUDE.md` replaces `~/.claude/CLAUDE.md` instead of stacking
 with it, so re-import the four global coding principles in the same file if
 you rely on them. A repo that carries its own committed team overrides the
 plugin's copy, so the two never clash.

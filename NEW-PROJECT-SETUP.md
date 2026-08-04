@@ -10,7 +10,7 @@ Run once when adopting the orchestrai plugin into an existing repo.
 - [ ] Protect `main`: block direct pushes, require a PR, require status checks to
       pass before merge.
 - [ ] (Optional) Create the labels the workflow uses: the sizing set `size:S`,
-      `size:M`, `size:L`, `size:XL` (see team-guide.md "Sizing") plus
+      `size:M`, `size:L`, `size:XL` (see process-core.md "Sizing") plus
       `in-progress` and `needs-human` (see team-guide.md "Agent team").
       `/tm-kickoff` and `/tm-advisor` create these six automatically on first
       run, including `/tm-advisor` (file only). So this step is only needed if
