@@ -41,7 +41,7 @@ insurance: if the connection drops or the session hits its limit, the next
 session reads the checkpoint and resumes instead of restarting. For anything
 sized `M` or larger, the sub-plan is also where you confirm the work still fits
 one session and decompose it if it does not. Expanding it into a full plan comes
-later (see "How to pick up a task").
+later (see "How to pick up a task" in .claude/team-guide.md).
 
 ### Commits
 
