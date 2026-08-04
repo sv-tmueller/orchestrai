@@ -3,8 +3,10 @@
 Neutral process guidance: no team roster, no model names, no tool names. Anything
 here should hold for a solo contributor or a different agent stack, not just this
 one. Team-specific process guidance (the agent roster, the advisor model, model
-policy, how to pick up a task) lives in `.claude/team-guide.md`, which imports
-this file.
+policy, how to pick up a task) lives in `.claude/team-guide.md`. The repo root
+`CLAUDE.md` imports both files directly, this one first; a nested import from
+`team-guide.md` does not resolve for a plugin consumer, so each importing file
+lists both.
 
 ## How we work
 

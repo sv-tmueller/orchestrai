@@ -1,8 +1,9 @@
 # Agent team architecture
 
 How the orchestrator team actually runs. The operating rules live in
-`.claude/team-guide.md` (which imports the neutral core,
-`.claude/process-core.md`); this doc adds the picture. The per-package
+`.claude/team-guide.md` and the neutral core, `.claude/process-core.md`
+(imported together, core first, by the repo `CLAUDE.md`); this doc adds the
+picture. The per-package
 mechanics (parking, caps, routing) live in
 `.claude/skills/tm-kickoff/SKILL.md`.
 

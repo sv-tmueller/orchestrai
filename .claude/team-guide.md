@@ -1,5 +1,3 @@
-@process-core.md
-
 # Team guide
 
 Generic process guidance for the orchestrator team. Project specifics live in each repo's CLAUDE.md.
