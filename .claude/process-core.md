@@ -1,12 +1,10 @@
 # Process core
 
-Neutral process guidance: no team roster, no model names, no tool names. Anything
-here should hold for a solo contributor or a different agent stack, not just this
-one. Team-specific process guidance (the agent roster, the advisor model, model
-policy, how to pick up a task) lives in `.claude/team-guide.md`. The repo root
-`CLAUDE.md` imports both files directly, this one first; a nested import from
-`team-guide.md` does not resolve for a plugin consumer, so each importing file
-lists both.
+Harness-neutral process guidance: it should hold for a solo contributor or a
+different agent stack, not just this one team. Team-specific process guidance
+(the agent roster, the advisor model, model policy, how to pick up a task)
+lives in `.claude/team-guide.md`. See README.md and CLAUDE.md for how a
+project or config dir imports both files.
 
 ## How we work
 
@@ -55,9 +53,8 @@ later (see "How to pick up a task" in .claude/team-guide.md).
 - Logic that has a right answer (math, parsing, business rules) is TDD: write the
   failing test against known inputs first, then the code.
 - Integration clients are tested against saved fixtures, not live endpoints.
-- End-to-end tests live in `e2e/` and gate deployment (see Repo layout). Run them
-  locally before pushing any change that touches the full stack. Unit-green is not
-  e2e-green.
+- End-to-end tests live in `e2e/` and gate deployment. Run them locally before
+  pushing any change that touches the full stack. Unit-green is not e2e-green.
 
 ### CI cost policy
 

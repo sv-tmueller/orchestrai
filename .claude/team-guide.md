@@ -213,8 +213,9 @@ New project commands follow the same rule: name them `tm-<thing>`.
 
 - Don't improve `.claude/` machinery only in this repo. Change the template
   (sv-tmueller/orchestrai) first, then run `/plugin update` in each config dir
-  to pick it up. The config-dir CLAUDE.md imports `team-guide.md` from the
-  marketplace clone, so that file updates automatically once the plugin does.
+  to pick it up. The config-dir CLAUDE.md imports `process-core.md` and
+  `team-guide.md` from the marketplace clone, so both files update
+  automatically once the plugin does.
 
 See `.claude/process-core.md`'s "What not to do" for the branch, merge-gate,
 git-hook, and dependency rules.
