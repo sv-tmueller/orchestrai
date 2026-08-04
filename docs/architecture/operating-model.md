@@ -45,7 +45,7 @@ packages before anything is filed. Owned by
 `docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`.
 
 **Refine to sized, filed issues.** Signed-off packages become GitHub issues,
-sized and stress-tested. Owned by `.claude/team-guide.md` ("Issues and
+sized and stress-tested. Owned by `.claude/process-core.md` ("Issues and
 branches", "Sizing"), `/tm-grill-me`, and `/tm-advisor` (file only).
 
 **Flat-star pipeline.** Each issue runs through architect, developer, tester,

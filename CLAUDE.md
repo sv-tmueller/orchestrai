@@ -37,7 +37,7 @@ The generic team process guidance lives in `.claude/team-guide.md` and loads via
 
 ## Code style
 
-Follow the "Writing style" section in `.claude/team-guide.md` for commits,
+Follow the "Writing style" section in `.claude/process-core.md` for commits,
 PRs, docs, and comments. The JS in this repo follows the zero-dependency test
 style (see "Useful commands").
 

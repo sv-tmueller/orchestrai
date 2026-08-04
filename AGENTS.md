@@ -1,9 +1,9 @@
 # AGENTS.md
 
 Orientation for any AGENTS.md-aware worker seat (Codex today; other tools
-read this same file) working in this repo. This file is self-contained: it
-does not use Claude's `@` import syntax, so read it in full, not just the
-headings.
+read this same file) working in this repo. The full instructions are this
+file plus the one doc it names, `.claude/process-core.md`: no Claude `@`
+import syntax here, so read both files in full, not just the headings.
 
 ## What this repo is
 
@@ -29,21 +29,6 @@ This runs the unit tests with Node's built-in test runner. There are zero
 runtime dependencies. There is no application runtime, so install, dev,
 typecheck, and lint are N/A. Run `npm test` before any commit.
 
-## Writing style
-
-Applies to commits, PRs, docs, and comments:
-
-- No em dashes. Use regular hyphens, commas, or parentheses.
-- No AI-cliche phrases: "leverage", "robust", "seamless", "comprehensive",
-  "elevate", "delve", "in the realm of", "it's worth noting", "moreover",
-  "furthermore". Plain, direct English. Short sentences.
-- Add a comment only when the why is non-obvious. Do not restate what the
-  code does.
-
-Commits follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`,
-`test:`, `refactor:`, `perf:`, `build:`, `ci:`. Imperative mood, lowercase,
-no period. The body explains why, not what.
-
 ## Repo layout
 
 ```
@@ -57,19 +42,19 @@ docs/
   team-architecture.md  flat-star agent-team diagrams and rationale
 ```
 
-`.claude/` holds Claude-host machinery (agents, skills, workflows). A
-non-Claude seat may read it for context but never executes or modifies it.
+`.claude/` holds Claude-host machinery (agents, skills, workflows) plus one
+process doc, `.claude/process-core.md`. A non-Claude seat may read the
+machinery for context but never executes or modifies it; `process-core.md`
+is different, it is normative for this seat too (see Guardrails).
 
 ## Guardrails
 
-- Every unit of work is a GitHub issue first. Nothing new gets built without
-  an issue.
-- Branch from `main` per issue: `feat/<issue-number>-<short-slug>` or
-  `fix/<issue-number>-<short-slug>`.
-- Merge via PR. The PR references the issue with `Closes #N`. One topic per
-  PR. Direct pushes to `main` are blocked.
-- Never bypass git hooks (`--no-verify`). If a hook fails, fix the cause.
-- Do not introduce a new dependency without saying why in the PR body.
+Read `.claude/process-core.md` in full: it covers issues and branches,
+sizing, sub-plans, commits, tests, CI cost policy, writing style, and the
+neutral what-not-to-do rules (no direct push to `main`, full check suite
+before merge, no `--no-verify`, no undeclared dependency). It applies to
+this seat unchanged.
+
 - `.claude/` changes are template-first: this repo (sv-tmueller/orchestrai)
   is the template. Machinery changes land here and propagate to other repos
   through the plugin, never as one-off forks in consumer repos.

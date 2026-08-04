@@ -7,11 +7,13 @@ below).
 
 - `CLAUDE.md` - standing guidance for Claude Code sessions: what the repo is,
   where decisions live, code style, useful commands.
-- `.claude/team-guide.md` - generic team process guidance (agent team, advisor
-  model, model policy, sizing, the issues/branches/commits conventions,
-  how-to-pick-up-a-task, what-not-to-do). Imported by the repo CLAUDE.md; a
-  config dir imports it from the marketplace clone instead (see "Getting the
-  team into your repos" below).
+- `.claude/team-guide.md` - team-specific process guidance (agent team,
+  advisor model, model policy, how-to-pick-up-a-task, repo layout). Imports
+  `.claude/process-core.md` for the neutral rules that hold regardless of
+  team or model (issues/branches/commits conventions, sizing, sub-plans,
+  tests, CI cost policy, writing style, what-not-to-do). Imported by the
+  repo CLAUDE.md; a config dir imports it from the marketplace clone instead
+  (see "Getting the team into your repos" below).
 - `NEW-PROJECT-SETUP.md` - the once-per-repo adoption checklist: branch
   protection, installing the plugin, docs structure, CI/CD and e2e wiring,
   and the first slice of work. Stays in the repo as a living checklist; it
