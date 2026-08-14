@@ -184,6 +184,19 @@ async function delegateTaskLeaf(role, task, opts) {
 // ---------------------------------------------------------------------------
 
 function dryRunSpawn(role, task, opts) {
+  // Role-specific verdicts so the pipeline driver can route correctly.
+  const VERDICTS = {
+    architect: { output: 'SUB_PLAN: approach, files, order, verification.' },
+    developer: { STATUS: 'DONE', BRANCH: 'dry-run-branch', PR: 'https://github.com/example/dry-run' },
+    tester: { VERDICT: 'PASS', COMMIT: 'abc123', FINDINGS: 'none', UNTESTED_CLAIMS: 'none' },
+    reviewer: { VERDICT: 'APPROVE', STAGE: 'both clean', FINDINGS: 'none' },
+    'fact-checker': { VERDICT: 'GROUNDED', COMMIT: 'abc123', CLAIMS: [], SUMMARY: '0 verified, 0 contradicted' },
+    'docs-writer': { FILES: [], GAPS_NOT_FILLED: 'none', ASSUMPTIONS: 'none' },
+    'perf-investigator': { BASELINE: [], BOTTLENECK: 'none', TARGET: 'none', RE_MEASURE: 'none' },
+  }
+
+  const roleSpecific = VERDICTS[role] || {}
+
   return {
     _dryRun: true,
     _role: role,
@@ -191,9 +204,10 @@ function dryRunSpawn(role, task, opts) {
     _model: opts.model,
     _effort: opts.effort,
     _taskLength: task.length,
-    // Generic report fields that satisfy most schema shapes.
-    verdict: 'approve',
-    status: 'DONE',
+    ...roleSpecific,
+    // Generic fallback fields for tests that check them.
+    verdict: roleSpecific.VERDICT?.toLowerCase() || 'approve',
+    status: roleSpecific.STATUS || 'DONE',
     branch: 'dry-run-branch',
     pr: 'https://github.com/example/dry-run',
     checks: 'npm test -> 0',
