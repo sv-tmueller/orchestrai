@@ -34,13 +34,6 @@ const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
-// Expected agent() call counts per workflow (scout + fan-out workers + critic).
-const EXPECTED_CALL_COUNTS = {
-  'tm-review-changes.js': 11, // 1 scout-equivalent + 8 review dimensions + 1 consolidate + 1 critic? No...
-  'tm-review-codebase.js': 9,
-  'tm-map-codebase.js': 8,
-}
-
 // Synthetic agent results that satisfy each workflow's schema requirements.
 function fakeAgentResult(label) {
   return {
