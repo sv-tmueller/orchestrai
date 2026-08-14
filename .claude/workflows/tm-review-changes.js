@@ -1,11 +1,55 @@
-export const meta = {
+// Workflow spec (embedded; mirrors specs/tm-review-changes.spec.json)
+// The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
+// and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
+// calls. A host adapter on another platform reads the JSON spec file directly.
+// See docs/architecture/adapter-interface.md section "Spec format".
+// The spec-sync test (specs.test.mjs) asserts this constant matches the JSON.
+const SPEC = {
   name: 'tm-review-changes',
   description:
     'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
   phases: [
-    { title: 'Review', detail: 'one Sonnet worker per dimension', model: 'sonnet' },
-    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', model: 'opus' },
+    { title: 'Review', detail: 'one Sonnet worker per dimension', tier: 'worker' },
+    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', tier: 'judgment' },
   ],
+  stages: {
+    review: {
+      phase: 'Review',
+      tier: 'worker',
+      parallelism: 'fixed-list',
+      items_key: 'dimensions',
+      item_label_prefix: 'review:',
+      schema: 'FINDINGS_SCHEMA',
+      fallback: null,
+    },
+    consolidate: {
+      phase: 'Consolidate',
+      tier: 'judgment',
+      parallelism: 'single',
+      label: 'consolidate',
+      schema: 'REPORT_SCHEMA',
+      fallback: { from_tier: 'judgment', to_tier: 'worker', preserve_effort: true },
+    },
+  },
+}
+
+// Resolve a tier to a model+effort via the adapter table. The adapter table
+// (.claude/adapters/claude-code.json) is the single source of truth; the SPEC
+// references tiers, never model names. On Claude Code the resolution is
+// inlined here because the workflow runtime has no imports.
+const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }
+const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
+
+export const meta = {
+  name: SPEC.name,
+  description: SPEC.description,
+  phases: SPEC.phases.map((p) => ({
+    title: p.title,
+    detail: p.detail,
+    // The adapter table resolves the tier to a concrete model for the
+    // Claude Code host. meta.phases carries the model for display purposes.
+    model: TIER_MODELS[p.tier],
+  })),
 }
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
@@ -150,12 +194,15 @@ const REPORT_SCHEMA = {
 const diffHint =
   `Get the change under review with \`git diff ${base}...HEAD\` for committed work on the branch, and \`git diff\` plus \`git status\` for any uncommitted changes; review the union. Read surrounding code before judging, and do not flag what the diff does not touch.`
 
-phase('Review')
+// Render: fan out from the spec
+// Stage: review (parallel, fixed-list of dimensions, worker tier)
+const reviewStage = SPEC.stages.review
+phase(reviewStage.phase)
 const reviews = await parallel(
   DIMENSIONS.map((d) => () =>
     agent(
       `You review one dimension of a code change and report findings only; you never edit.\n\nDimension: ${d.brief}\n\n${diffHint}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.`,
-      { label: `review:${d.key}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: FINDINGS_SCHEMA }
+      { label: `${reviewStage.item_label_prefix}${d.key}`, phase: reviewStage.phase, model: TIER_MODELS[reviewStage.tier], effort: TIER_EFFORTS[reviewStage.tier], schema: FINDINGS_SCHEMA }
     )
   )
 )
@@ -171,10 +218,12 @@ const coverageNote = dropped.length
   ? ` ${dropped.length} reviewer(s) did not return, so these dimensions are NOT covered: ${dropped.map((d) => d.key).join(', ')}. Treat the review as partial and say so in your summary.`
   : ''
 
-phase('Consolidate')
+// Stage: consolidate (single, judgment tier, fallback to worker)
+const consolStage = SPEC.stages.consolidate
+phase(consolStage.phase)
 const report = await criticWithFallback(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: 'Consolidate', model: 'opus', effort: 'xhigh', schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], schema: REPORT_SCHEMA }
 )
 
 return report

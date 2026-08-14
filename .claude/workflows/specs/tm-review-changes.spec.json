@@ -1,0 +1,40 @@
+{
+  "_comment": "Workflow fan-out spec for tm-review-changes. Encoded as data so a host adapter can render the fan-out without reimplementing the orchestration logic. The Claude Code JS renderer embeds this spec as the SPEC constant; see tm-review-changes.js. Spec format documented in docs/architecture/adapter-interface.md section 'Spec format'.",
+  "name": "tm-review-changes",
+  "description": "Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.",
+  "phases": [
+    {
+      "title": "Review",
+      "detail": "one Sonnet worker per dimension",
+      "tier": "worker"
+    },
+    {
+      "title": "Consolidate",
+      "detail": "one Opus critic verifies and merges findings",
+      "tier": "judgment"
+    }
+  ],
+  "stages": {
+    "review": {
+      "phase": "Review",
+      "tier": "worker",
+      "parallelism": "fixed-list",
+      "items_key": "dimensions",
+      "item_label_prefix": "review:",
+      "schema": "FINDINGS_SCHEMA",
+      "fallback": null
+    },
+    "consolidate": {
+      "phase": "Consolidate",
+      "tier": "judgment",
+      "parallelism": "single",
+      "label": "consolidate",
+      "schema": "REPORT_SCHEMA",
+      "fallback": {
+        "from_tier": "judgment",
+        "to_tier": "worker",
+        "preserve_effort": true
+      }
+    }
+  }
+}
