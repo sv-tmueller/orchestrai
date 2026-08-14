@@ -97,6 +97,56 @@ declared tier. A future phase (Phase B, issue #314) introduces
 inline TIER_MODELS/TIER_EFFORTS maps in the workflow scripts so the
 scripts reference tiers, not model names, at the callsite.
 
+## Spec format
+
+Each workflow's fan-out is encoded as a JSON spec file under
+`.claude/workflows/specs/`. The Claude Code JS renderer embeds a
+matching `SPEC` constant; a future Hermes or Codex renderer reads the
+JSON directly. The spec-sync test asserts the two stay in sync.
+
+Top-level fields:
+
+- `name`: the workflow identifier (matches the JS filename stem).
+- `description`: one paragraph, no tool names or model names.
+- `phases`: array of `{ title, detail, tier }`. Ordered list of phases
+  the workflow progresses through. `tier` is the model tier for that
+  phase.
+- `stages`: object mapping stage names to stage descriptors. Each
+  stage descriptor has:
+  - `phase`: which phase this stage belongs to.
+  - `tier`: `"judgment"` or `"worker"` (never `"lead"`).
+  - `parallelism`: `"single"` (one agent), `"fixed-list"` (N agents,
+    N known at spec-write time), or `"dynamic-list"` (N agents, N
+    determined at runtime by the previous stage's output).
+  - `schema`: the name of the JSON Schema constant the stage uses.
+  - `fallback`: `null`, or `{ from_tier, to_tier, preserve_effort }`
+    describing the retry behavior on failure.
+  - `label`: for `single` stages, the literal label string used in
+    agent() calls. Used by the render-path test to map recorded
+    calls back to their SPEC stage.
+  - `item_label_prefix`: for `fixed-list` and `dynamic-list` stages,
+    the prefix concatenated with each item to form the agent() label.
+  - `item_label`: for `single` stages that use a descriptive label
+    rather than a literal (e.g. `architecture`).
+  - `items_source`: for `dynamic-list` stages, the path in the
+    previous stage's output that yields the item list (e.g.
+    `scout_result.areas`).
+  - `items_key`: for `fixed-list` stages, the name of the data array
+    in the SPEC that enumerates the items.
+  - `items_cap`: for `dynamic-list` stages, the name of the args
+    field that caps the item count (e.g. `args.areas`).
+  - `items_default_cap`: for `dynamic-list` stages, the default cap
+    when the args field is absent (e.g. `24`).
+
+Stages do not carry `effort` or `model`; those are resolved from the
+tier via the adapter table at render time.
+
+The JSON spec files carry only `name`, `description`, `phases`, and
+`stages`. Data arrays (dimensions, area lists), schema objects, and
+default args stay inlined in the JS because the runtime has no
+imports; the specs.test.mjs sync test compares only the four
+synced fields.
+
 ## What the interface does not specify
 
 - How the host isolates work (worktrees, branches, containers). That

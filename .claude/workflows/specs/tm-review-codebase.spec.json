@@ -1,0 +1,63 @@
+{
+  "_comment": "Workflow fan-out spec for tm-review-codebase. Encoded as data so a host adapter can render the fan-out without reimplementing the orchestration logic. The Claude Code JS renderer embeds this spec as the SPEC constant; see tm-review-codebase.js. Spec format documented in docs/architecture/adapter-interface.md section 'Spec format'.",
+  "name": "tm-review-codebase",
+  "description": "Token-bounded full-repo review: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker reviews each area plus one Sonnet architecture worker audits repo-wide structure, and one Opus critic verifies, writes a dated report, and consolidates. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling.",
+  "phases": [
+    {
+      "title": "Scout",
+      "detail": "one Sonnet agent splits the repo into N areas (N <= ceiling)",
+      "tier": "worker"
+    },
+    {
+      "title": "Review",
+      "detail": "one Sonnet worker per area plus one architecture worker",
+      "tier": "worker"
+    },
+    {
+      "title": "Consolidate",
+      "detail": "one Opus critic verifies, writes the report, consolidates",
+      "tier": "judgment"
+    }
+  ],
+  "stages": {
+    "scout": {
+      "phase": "Scout",
+      "tier": "worker",
+      "parallelism": "single",
+      "label": "scout",
+      "schema": "MAP_SCHEMA",
+      "fallback": null
+    },
+    "area_review": {
+      "phase": "Review",
+      "tier": "worker",
+      "parallelism": "dynamic-list",
+      "items_source": "scout_result.areas",
+      "items_cap": "args.areas",
+      "items_default_cap": 24,
+      "item_label_prefix": "area:",
+      "schema": "FINDINGS_SCHEMA",
+      "fallback": null
+    },
+    "architecture_review": {
+      "phase": "Review",
+      "tier": "worker",
+      "parallelism": "single",
+      "item_label": "architecture",
+      "schema": "FINDINGS_SCHEMA",
+      "fallback": null
+    },
+    "consolidate": {
+      "phase": "Consolidate",
+      "tier": "judgment",
+      "parallelism": "single",
+      "label": "consolidate",
+      "schema": "REPORT_SCHEMA",
+      "fallback": {
+        "from_tier": "judgment",
+        "to_tier": "worker",
+        "preserve_effort": true
+      }
+    }
+  }
+}
