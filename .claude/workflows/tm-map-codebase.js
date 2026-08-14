@@ -1,12 +1,64 @@
-export const meta = {
+// Workflow spec (embedded; mirrors specs/tm-map-codebase.spec.json)
+// The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
+// and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
+// calls. A host adapter on another platform reads the JSON spec file directly.
+// See docs/architecture/adapter-interface.md section "Spec format".
+// The spec-sync test (specs.test.mjs) asserts this constant matches the JSON.
+const SPEC = {
   name: 'tm-map-codebase',
   description:
     'Token-bounded full-repo map: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker maps each area (purpose, entry points, key modules, data and control flow, external dependencies, conventions), and one Opus critic synthesizes a dated architecture map. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling. This is a map, not a review: no findings, no severities, no recommendations.',
   phases: [
-    { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', model: 'sonnet' },
-    { title: 'Map', detail: 'one Sonnet worker per area describes it', model: 'sonnet' },
-    { title: 'Synthesize', detail: 'one Opus critic writes the consolidated map', model: 'opus' },
+    { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', tier: 'worker' },
+    { title: 'Map', detail: 'one Sonnet worker per area describes it', tier: 'worker' },
+    { title: 'Synthesize', detail: 'one Opus critic writes the consolidated map', tier: 'judgment' },
   ],
+  stages: {
+    scout: {
+      phase: 'Scout',
+      tier: 'worker',
+      parallelism: 'single',
+      label: 'scout',
+      schema: 'MAP_SCHEMA',
+      fallback: null,
+    },
+    area_map: {
+      phase: 'Map',
+      tier: 'worker',
+      parallelism: 'dynamic-list',
+      items_source: 'scout_result.areas',
+      items_cap: 'args.areas',
+      items_default_cap: 24,
+      item_label_prefix: 'area:',
+      schema: 'AREA_MAP_SCHEMA',
+      fallback: null,
+    },
+    synthesize: {
+      phase: 'Synthesize',
+      tier: 'judgment',
+      parallelism: 'single',
+      label: 'synthesize',
+      schema: 'REPORT_SCHEMA',
+      fallback: { from_tier: 'judgment', to_tier: 'worker', preserve_effort: true },
+    },
+  },
+}
+
+// Resolve a tier to a model+effort via the adapter table. The adapter table
+// (.claude/adapters/claude-code.json) is the single source of truth; the SPEC
+// references tiers, never model names. On Claude Code the resolution is
+// inlined here because the workflow runtime has no imports.
+const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }
+const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
+
+export const meta = {
+  name: SPEC.name,
+  description: SPEC.description,
+  phases: SPEC.phases.map((p) => ({
+    title: p.title,
+    detail: p.detail,
+    model: TIER_MODELS[p.tier],
+  })),
 }
 
 // Bounded by construction. The scout sizes the number of areas N to the repo, and
@@ -189,10 +241,13 @@ const REPORT_SCHEMA = {
 
 const scope = `Work from the repo root scoped to "${root}". List source files with \`git ls-files -- ${root}\` (it already respects .gitignore); ignore vendored and generated trees (node_modules, dist, build, vendor, .git, coverage) and lockfiles.`
 
-phase('Scout')
+// Render: fan out from the spec
+// Stage: scout (single, worker tier)
+const scoutStage = SPEC.stages.scout
+phase(scoutStage.phase)
 const map = await agent(
   `You map a repository into coherent areas for a codebase map (not a review). You do not describe or evaluate code content in this step, only structure.\n\n${scope}\n\nFirst gauge the repo's size (for example \`git ls-files -- ${root} | wc -l\`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach ${MAX_AREAS} areas. Return at most ${MAX_AREAS} areas, ranked by importance (size and how central they are to the system). If the repo is larger than ${MAX_AREAS} areas can cover at a readable size, return the ${MAX_AREAS} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.`,
-  { label: 'scout', phase: 'Scout', model: 'sonnet', effort: 'high', schema: MAP_SCHEMA }
+  { label: 'scout', phase: scoutStage.phase, model: TIER_MODELS[scoutStage.tier], effort: TIER_EFFORTS[scoutStage.tier], schema: MAP_SCHEMA }
 )
 
 // If the scout fails, no area workers run; flag it so the critic cannot
@@ -212,13 +267,15 @@ const scriptOverflow = allAreas.slice(MAX_AREAS).map((a) => a.name)
 const scoutSelfDropped = scoutFailed ? [] : Array.isArray(map.dropped) ? map.dropped : []
 const scoutDropped = scoutSelfDropped.concat(scriptOverflow)
 
-phase('Map')
+// Stage: area_map (parallel, dynamic-list, worker)
+const mapStage = SPEC.stages.area_map
+phase(mapStage.phase)
 const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n')
 
 const mapThunks = areas.map((a) => () =>
   agent(
     `You map one area of a codebase. You describe, you do not evaluate: no findings, no severities, no recommendations, no quality or security judgments. You never edit.\n\nArea: ${a.name}\nPaths: ${a.paths.join(', ')}\n\nOther areas in this repo, for context on dependencies:\n${repoMap}\n\nRead these files in full, with surrounding context where needed. Describe:\n- purpose: what this area is for, in plain terms.\n- entryPoints: files or exports where execution or usage of this area starts.\n- keyModules: the modules that matter, each with a one-line role.\n- dataFlow: how data moves through this area.\n- controlFlow: how control moves through this area (call order, triggers, lifecycle).\n- externalDependencies: packages, services, or other areas this area depends on.\n- conventions: naming, structure, or style conventions specific to this area.\n\nSet area to "${a.name}". Stay within your area. Do not report findings, severities, or fixes; this is a map, not a review.`,
-    { label: `area:${a.name}`, phase: 'Map', model: 'sonnet', effort: 'high', schema: AREA_MAP_SCHEMA }
+    { label: `${mapStage.item_label_prefix}${a.name}`, phase: mapStage.phase, model: TIER_MODELS[mapStage.tier], effort: TIER_EFFORTS[mapStage.tier], schema: AREA_MAP_SCHEMA }
   )
 )
 
@@ -244,7 +301,9 @@ const suggestedNextAction = !ceilingReached
     ? `Coverage is partial: the scout proposed more than the ${MAX_AREAS}-area ceiling, so ${scriptOverflow.length} area(s) were clamped. Re-run with a higher cap (args.areas: ${MAX_AREAS * 2}). Clamped: ${scriptOverflow.join(', ')}.`
     : `Coverage is partial: the repo is larger than ${MAX_AREAS} areas can cover at a readable size, so the scout left ${scoutSelfDropped.length} path(s) out. Scope follow-up runs to the leftover with args.path, or raise the cap (args.areas) if those areas are small. Uncovered: ${scoutSelfDropped.join(', ')}.`
 
-phase('Synthesize')
+// Stage: synthesize (single, judgment tier, fallback to worker)
+const synthStage = SPEC.stages.synthesize
+phase(synthStage.phase)
 const coverageNote =
   (scoutFailed
     ? ` CRITICAL: the scout returned no valid area map, so NO area workers ran. This is a failed, not a complete, mapping run: do not present this as covering the repo; report it as incomplete and advise re-running.`
@@ -265,7 +324,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await criticWithFallback(
   `You are the senior architect synthesizing a full-codebase map from the area descriptions below. This is a map, not a review: do not add findings, severities, recommendations, or quality and security judgments. Describe what is there.${coverageNote}\n\nRun \`date +%F\` for today's date, make the docs/architecture/ directory if it does not exist, and write docs/architecture/<date>-codebase-map.md with exactly these sections, in this order:\n1. Executive summary: what the repo is and how its areas fit together, in a few paragraphs.\n2. Component table: one row per area, with columns for area, purpose, and key modules.\n3. Data-flow narrative: how data moves across areas, end to end.\n4. Dependency summary: external dependencies (packages, services) and cross-area dependencies.\n5. Open questions: anything the workers could not determine or that needs a human to confirm.\n\nIf coverage is partial, add a "Coverage" callout immediately after the executive summary stating how many paths were not mapped and the suggested next action.\n\nSet reportPath to the file you wrote. Set summary to a short plain-language summary of the whole repo. Set openQuestions to the same list you put in the report's Open Questions section.\n\nSet coverage.areasMapped to ${JSON.stringify(mappedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nArea maps (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'synthesize', phase: 'Synthesize', model: 'opus', effort: 'xhigh', schema: REPORT_SCHEMA }
+  { label: 'synthesize', phase: synthStage.phase, model: TIER_MODELS[synthStage.tier], effort: TIER_EFFORTS[synthStage.tier], schema: REPORT_SCHEMA }
 )
 
 return report

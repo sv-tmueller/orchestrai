@@ -17,9 +17,9 @@
  * lead-session-only (team-guide Model policy); letting it onto a worker
  * seat is a live 2x-cost regression path (review #320 finding 1).
  *
- * The workflow stage pins (the agent() calls in the three .js files) are
- * checked the same way: each stage's model must correspond to a tier in
- * the adapter table, and its effort must match that tier's effort.
+ * The workflow stage pins check the embedded SPEC and TIER_MODELS/
+ * TIER_EFFORTS maps in each JS file, asserting they match the adapter
+ * table.
  */
 
 import { test, describe } from 'node:test'
@@ -27,6 +27,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
+import { createContext, runInContext } from 'node:vm'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const workflowsDir = join(__dir, '..')
@@ -35,8 +36,6 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 
 // ---------------------------------------------------------------------------
 // Policy constants: THESE ARE THE AUTHORITY, not the adapter table.
-// The adapter table must conform to these values. If someone edits the
-// JSON to weaken the policy, these hardcoded values still catch it.
 // ---------------------------------------------------------------------------
 const FORBIDDEN_EFFORTS = ['max']
 const EFFORT_CEILING = 'xhigh'
@@ -64,7 +63,8 @@ for (const [tier, cfg] of Object.entries(TIERS)) {
 }
 
 // ---------------------------------------------------------------------------
-// Load every adapter table in the directory (review #320 finding 15).
+// Load every adapter table in the directory. Iterating the directory means a
+// future Hermes or Codex adapter table is validated automatically.
 // ---------------------------------------------------------------------------
 const adapterFiles = readdirSync(adaptersDir).filter((f) => f.endsWith('.json'))
 const adapterTables = adapterFiles.map((f) => ({
@@ -154,7 +154,7 @@ for (const { name, table } of adapterTables) {
 
 // ===========================================================================
 // 1. Agent frontmatter: every role agent pins tier, and model+effort match
-//    the adapter table's mapping for that tier. Lead tier is rejected.
+//    the adapter table's mapping for that tier.
 // ===========================================================================
 describe('agent frontmatter tier pins', () => {
   const agentFiles = readdirSync(agentsDir).filter((f) => f.endsWith('.md'))
@@ -206,84 +206,132 @@ describe('agent frontmatter tier pins', () => {
     })
   }
 
-  test('no agent file uses a forbidden effort', () => {
-    for (const forbidden of FORBIDDEN_EFFORTS) {
-      for (const file of agentFiles) {
-        const src = readFileSync(join(agentsDir, file), 'utf8')
-        assert.ok(
-          !new RegExp(`effort:\\s*${forbidden}`).test(src),
-          `${file} contains effort: ${forbidden}`
-        )
-      }
+  test('every role in the adapter table has a corresponding agent file', () => {
+    for (const role of Object.keys(ROLE_TIERS)) {
+      const agentFile = `${role}.md`
+      assert.ok(
+        agentFiles.includes(agentFile),
+        `adapter table references role "${role}" but no ${agentFile} found in ${agentsDir}`
+      )
+    }
+  })
+
+  test('every agent file has a role in the adapter table', () => {
+    for (const file of agentFiles) {
+      const role = file.replace(/\.md$/, '')
+      assert.ok(
+        ROLE_TIERS[role],
+        `${file} has no entry in the adapter table roles map; ` +
+          `add "${role}" to .claude/adapters/claude-code.json`
+      )
     }
   })
 })
 
 // ===========================================================================
-// 2. Workflow stages: every agent() call pins the effort matching its
-//    model's tier in the adapter table.
+// 2. Workflow stages: every stage in the embedded SPEC declares a tier that
+//    exists in the adapter table, and the TIER_MODELS/TIER_EFFORTS maps in
+//    each JS file match the adapter table.
 //
-// Agent-call opts in both workflows are single-line objects carrying both
-// label: and model:. The meta.phases display entries carry model: but
-// title:/detail: instead of label:, so requiring label: excludes them. The
-// criticWithFallback retry opts (`{ ...opts, model: 'sonnet' }`) also carry
-// model: with no label: and no literal effort:, so the same filter excludes
-// them too; that is safe because the spread inherits effort: from the
-// caller's opts line, which this test already checks.
-//
-// FORMAT IS LOAD-BEARING: the filter requires label: and model: on the
-// same line. Reformatting an agent() opts object across multiple lines
-// silently removes it from the checks below. Do not reformat these calls
-// (review #320 finding 20).
+// Since #314 the workflow scripts reference tiers via SPEC.stages.*.tier and
+// resolve them through inlined TIER_MODELS/TIER_EFFORTS maps. The test parses
+// the SPEC constant and the maps from the JS source, then asserts consistency
+// with the adapter table. It also still scans for literal forbidden efforts
+// in the source (defense in depth).
 // ===========================================================================
-describe('workflow stage effort pins', () => {
+describe('workflow stage tier pins', () => {
+  // Parse the SPEC object from a JS source file. The SPEC is a top-level
+  // const assigned with an object literal ending before the next top-level
+  // const/export/statement. We extract it by brace-matching from `const SPEC = {`.
+  function parseSpec(src) {
+    const startIdx = src.indexOf('const SPEC = {')
+    assert.ok(startIdx !== -1, 'SPEC constant not found')
+    let pos = src.indexOf('{', startIdx)
+    let depth = 0
+    let started = false
+    while (pos < src.length) {
+      if (src[pos] === '{') { depth++; started = true }
+      if (src[pos] === '}') depth--
+      pos++
+      if (started && depth === 0) break
+    }
+    const specSrc = src.slice(startIdx, pos)
+    const ctx = createContext({})
+    runInContext(specSrc, ctx)
+    return runInContext('SPEC', ctx)
+  }
+
+  // Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
+  function parseTierMaps(src) {
+    function extractConst(name) {
+      const re = new RegExp(`const ${name} = \\{`)
+      const match = re.exec(src)
+      if (!match) return null
+      let pos = src.indexOf('{', match.index)
+      let depth = 0
+      let started = false
+      while (pos < src.length) {
+        if (src[pos] === '{') { depth++; started = true }
+        if (src[pos] === '}') depth--
+        pos++
+        if (started && depth === 0) break
+      }
+      const constSrc = src.slice(match.index, pos)
+      const ctx = createContext({})
+      runInContext(constSrc, ctx)
+      return runInContext(name, ctx)
+    }
+    return {
+      models: extractConst('TIER_MODELS'),
+      efforts: extractConst('TIER_EFFORTS'),
+    }
+  }
+
   for (const file of WORKFLOW_FILES) {
     const src = readFileSync(join(workflowsDir, file), 'utf8')
-    const optLines = src
-      .split('\n')
-      .filter((l) => l.includes('label:') && l.includes('model:'))
 
-    test(`${file} has agent-call opts lines to check`, () => {
-      assert.ok(
-        optLines.length > 0,
-        `${file}: no lines with both label: and model: found; ` +
-          `if the opts format changed, update this test's parsing rule`
-      )
+    test(`${file} has a SPEC constant`, () => {
+      assert.ok(src.includes('const SPEC = {'), `${file}: no SPEC constant found`)
     })
 
-    test(`${file}: every stage pins the effort matching its model's tier`, () => {
-      for (const line of optLines) {
-        const model = line.match(/model:\s*'(\w+)'/)?.[1]
-        assert.ok(model, `${file}: unparseable model in: ${line.trim()}`)
-
-        // Find the tier for this model in the adapter table.
-        let tier = null
-        for (const [t, cfg] of Object.entries(TIERS)) {
-          if (cfg.model === model) {
-            tier = t
-            break
-          }
-        }
+    test(`${file}: every stage tier exists in the adapter table`, () => {
+      const spec = parseSpec(src)
+      assert.ok(spec.stages, `${file}: SPEC has no stages`)
+      for (const [name, stage] of Object.entries(spec.stages)) {
         assert.ok(
-          tier,
-          `${file}: model "${model}" is not in the adapter table; ` +
-            `add it to .claude/adapters/claude-code.json under a tier`
+          TIERS[stage.tier],
+          `${file}: stage "${name}" declares tier "${stage.tier}", which is not in the adapter table`
         )
-
-        // Reject lead tier on workflow stages.
+        // Reject lead tier on workflow stages: fable is lead-session-only.
         assert.ok(
-          ALLOWED_AGENT_TIERS.includes(tier),
-          `${file}: model "${model}" resolves to tier "${tier}", but workflow ` +
+          ALLOWED_AGENT_TIERS.includes(stage.tier),
+          `${file}: stage "${name}" declares tier "${stage.tier}", but workflow ` +
             `stages may only use ${ALLOWED_AGENT_TIERS.join(' or ')}; ` +
             `lead is reserved for the session`
         )
+      }
+    })
 
-        const expected = EFFORT_BY_TIER[tier]
-        const effort = line.match(/effort:\s*'(\w+)'/)?.[1]
+    test(`${file}: TIER_MODELS matches the adapter table`, () => {
+      const { models } = parseTierMaps(src)
+      assert.ok(models, `${file}: TIER_MODELS not found`)
+      for (const [tier, model] of Object.entries(models)) {
+        assert.equal(
+          model,
+          MODEL_BY_TIER[tier],
+          `${file}: TIER_MODELS[${tier}] is "${model}" but the adapter table says "${MODEL_BY_TIER[tier]}"`
+        )
+      }
+    })
+
+    test(`${file}: TIER_EFFORTS matches the adapter table`, () => {
+      const { efforts } = parseTierMaps(src)
+      assert.ok(efforts, `${file}: TIER_EFFORTS not found`)
+      for (const [tier, effort] of Object.entries(efforts)) {
         assert.equal(
           effort,
-          expected,
-          `${file}: a ${model} stage (tier ${tier}) must pin effort: '${expected}': ${line.trim()}`
+          EFFORT_BY_TIER[tier],
+          `${file}: TIER_EFFORTS[${tier}] is "${effort}" but the adapter table says "${EFFORT_BY_TIER[tier]}"`
         )
       }
     })
