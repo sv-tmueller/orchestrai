@@ -124,21 +124,26 @@ async function criticWithFallback(prompt, opts) {
   // is itself an agent() call, so skipping again just returns null and the
   // run ends below with a clear error), while not retrying a quota death
   // costs the entire unattended run. Retry unconditionally.
+  //
+  // The fallback model is resolved from the SPEC's fallback.to_tier via the
+  // adapter table by the caller and passed as opts.fallbackModel. This keeps
+  // the function host-neutral: no hardcoded model names (issue #317).
   if (first) return first
+  const fb = opts.fallbackModel
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on sonnet at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on ${fb} at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the sonnet fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'sonnet' }
+    `${prompt}\n\nNOTE: this is a retry on the ${fb} fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: fb }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the sonnet fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the sonnet fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the ${fb} fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the ${fb} fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> sonnet` }
+  return { ...second, modelFallback: `${opts.model} -> ${fb}` }
 }
 
 // FINDING and FINDINGS_SCHEMA are a shared base intentionally duplicated with
@@ -344,7 +349,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await criticWithFallback(
   `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then a one-line health impression scored 0-10 and up to three named top risks; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after that opening block that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], fallbackModel: TIER_MODELS[consolStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
 return report

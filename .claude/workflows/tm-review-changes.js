@@ -85,21 +85,26 @@ async function criticWithFallback(prompt, opts) {
   // is itself an agent() call, so skipping again just returns null and the
   // run ends below with a clear error), while not retrying a quota death
   // costs the entire unattended run. Retry unconditionally.
+  //
+  // The fallback model is resolved from the SPEC's fallback.to_tier via the
+  // adapter table by the caller and passed as opts.fallbackModel. This keeps
+  // the function host-neutral: no hardcoded model names (issue #317).
   if (first) return first
+  const fb = opts.fallbackModel
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on sonnet at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on ${fb} at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the sonnet fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'sonnet' }
+    `${prompt}\n\nNOTE: this is a retry on the ${fb} fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: fb }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the sonnet fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the sonnet fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the ${fb} fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the ${fb} fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> sonnet` }
+  return { ...second, modelFallback: `${opts.model} -> ${fb}` }
 }
 
 // This list is diff-scoped and intentionally longer than tm-review-codebase's
@@ -223,7 +228,7 @@ const consolStage = SPEC.stages.consolidate
 phase(consolStage.phase)
 const report = await criticWithFallback(
   `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], schema: REPORT_SCHEMA }
+  { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], fallbackModel: TIER_MODELS[consolStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
 return report

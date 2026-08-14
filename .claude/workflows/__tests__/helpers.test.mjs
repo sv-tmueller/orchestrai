@@ -402,7 +402,11 @@ describe('scoutDropped union', () => {
 // ===========================================================================
 describe('criticWithFallback', () => {
   const FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
-  const baseOpts = { label: 'consolidate', phase: 'Consolidate', model: 'opus', effort: 'xhigh', schema: { type: 'object' } }
+  // Tier-level fixtures: the test asserts the fallback mechanics, not any
+  // particular model name. The primary model stands in for a judgment-tier
+  // model; fallbackModel stands in for the worker-tier model the SPEC's
+  // fallback.to_tier resolves to. This keeps the test host-neutral (issue #317).
+  const baseOpts = { label: 'consolidate', phase: 'Consolidate', model: 'primary-model', fallbackModel: 'fallback-model', effort: 'xhigh', schema: { type: 'object' } }
 
   test('happy path: first agent call succeeds, result returned unchanged', async () => {
     const calls = []
@@ -424,7 +428,7 @@ describe('criticWithFallback', () => {
     assert.equal('modelFallback' in result, false)
   })
 
-  test('first call returns null, retries on sonnet and succeeds', async () => {
+  test('first call returns null, retries on fallback model and succeeds', async () => {
     const calls = []
     const logs = []
     const sandbox = {
@@ -440,7 +444,7 @@ describe('criticWithFallback', () => {
 
     assert.equal(calls.length, 2)
     const secondOpts = calls[1].opts
-    assert.equal(secondOpts.model, 'sonnet')
+    assert.equal(secondOpts.model, baseOpts.fallbackModel)
     assert.equal(secondOpts.effort, baseOpts.effort)
     assert.equal(secondOpts.label, baseOpts.label)
     assert.equal(secondOpts.phase, baseOpts.phase)
@@ -448,7 +452,7 @@ describe('criticWithFallback', () => {
     assert.ok(calls[1].prompt.includes('the prompt'), 'second prompt still carries the original prompt')
     assert.ok(calls[1].prompt.length > 'the prompt'.length, 'second prompt carries an added notice')
     assert.equal(result.verdict, 'approve')
-    assert.equal(result.modelFallback, 'opus -> sonnet')
+    assert.equal(result.modelFallback, `${baseOpts.model} -> ${baseOpts.fallbackModel}`)
     assert.ok(logs.length >= 1, 'log() must be called to surface the fallback')
   })
 
@@ -469,8 +473,8 @@ describe('criticWithFallback', () => {
     // vm-realm errors are not `instanceof` the host's Error, so assert on the
     // message rather than the error's prototype chain.
     assert.match(threw.message, /consolidate/)
-    assert.match(threw.message, /sonnet/)
-    assert.match(threw.message, /opus/)
+    assert.match(threw.message, /fallback-model/)
+    assert.match(threw.message, /primary-model/)
   })
 
   test('is byte-identical across all three workflow files', () => {

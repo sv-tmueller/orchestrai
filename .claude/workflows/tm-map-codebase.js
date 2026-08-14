@@ -123,21 +123,26 @@ async function criticWithFallback(prompt, opts) {
   // is itself an agent() call, so skipping again just returns null and the
   // run ends below with a clear error), while not retrying a quota death
   // costs the entire unattended run. Retry unconditionally.
+  //
+  // The fallback model is resolved from the SPEC's fallback.to_tier via the
+  // adapter table by the caller and passed as opts.fallbackModel. This keeps
+  // the function host-neutral: no hardcoded model names (issue #317).
   if (first) return first
+  const fb = opts.fallbackModel
   log(
-    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on sonnet at the same effort. Skipping again will end the run.`
+    `${opts.label}: the ${opts.model} critic returned nothing. This could be quota exhaustion or a manual skip; retrying once on ${fb} at the same effort. Skipping again will end the run.`
   )
   const second = await agent(
-    `${prompt}\n\nNOTE: this is a retry on the sonnet fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
-    { ...opts, model: 'sonnet' }
+    `${prompt}\n\nNOTE: this is a retry on the ${fb} fallback after the ${opts.model} critic returned nothing (quota or a skip). If you write a report file, record in it that this fallback produced it.`,
+    { ...opts, model: fb }
   )
-  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the sonnet fallback returned nothing.`)
-  log(`${opts.label}: this critique was produced by the sonnet fallback, not ${opts.model}.`)
+  if (!second) throw new Error(`${opts.label}: both the ${opts.model} critic and the ${fb} fallback returned nothing.`)
+  log(`${opts.label}: this critique was produced by the ${fb} fallback, not ${opts.model}.`)
   // Return a new object rather than mutating `second`: the runtime's returned
   // object could be frozen or sealed, in which case mutating it would either
   // silently drop the `modelFallback` marker (sloppy mode) or throw a
   // TypeError.
-  return { ...second, modelFallback: `${opts.model} -> sonnet` }
+  return { ...second, modelFallback: `${opts.model} -> ${fb}` }
 }
 
 const AREA = {
@@ -324,7 +329,7 @@ const suggestedNextActionClause = ceilingReached
 
 const report = await criticWithFallback(
   `You are the senior architect synthesizing a full-codebase map from the area descriptions below. This is a map, not a review: do not add findings, severities, recommendations, or quality and security judgments. Describe what is there.${coverageNote}\n\nRun \`date +%F\` for today's date, make the docs/architecture/ directory if it does not exist, and write docs/architecture/<date>-codebase-map.md with exactly these sections, in this order:\n1. Executive summary: what the repo is and how its areas fit together, in a few paragraphs.\n2. Component table: one row per area, with columns for area, purpose, and key modules.\n3. Data-flow narrative: how data moves across areas, end to end.\n4. Dependency summary: external dependencies (packages, services) and cross-area dependencies.\n5. Open questions: anything the workers could not determine or that needs a human to confirm.\n\nIf coverage is partial, add a "Coverage" callout immediately after the executive summary stating how many paths were not mapped and the suggested next action.\n\nSet reportPath to the file you wrote. Set summary to a short plain-language summary of the whole repo. Set openQuestions to the same list you put in the report's Open Questions section.\n\nSet coverage.areasMapped to ${JSON.stringify(mappedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nArea maps (JSON):\n${JSON.stringify(raw, null, 2)}`,
-  { label: 'synthesize', phase: synthStage.phase, model: TIER_MODELS[synthStage.tier], effort: TIER_EFFORTS[synthStage.tier], schema: REPORT_SCHEMA }
+  { label: 'synthesize', phase: synthStage.phase, model: TIER_MODELS[synthStage.tier], effort: TIER_EFFORTS[synthStage.tier], fallbackModel: TIER_MODELS[synthStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
 return report
