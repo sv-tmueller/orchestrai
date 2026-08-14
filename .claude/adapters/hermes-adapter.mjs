@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
-const adaptersDir = join(__dir, '..', 'adapters')
+const adaptersDir = __dir
+const promptsDir = join(__dir, 'prompts')
 
 // Load the Hermes adapter table.
 const adapterTable = JSON.parse(
@@ -27,6 +28,23 @@ const adapterTable = JSON.parse(
 
 const TIERS = adapterTable.tiers
 const ROLE_TIERS = adapterTable.roles
+
+// Cache loaded prompt templates.
+const promptCache = {}
+
+/**
+ * Load the prompt template for a role from .claude/adapters/prompts/.
+ * The prompt template contains the role's job description, guardrails, and
+ * report contract in host-neutral markdown. The adapter prepends it to the
+ * task-specific prompt so the delegated agent gets the full context.
+ */
+export function loadPrompt(role) {
+  if (promptCache[role]) return promptCache[role]
+  const promptPath = join(promptsDir, `${role}.md`)
+  const text = readFileSync(promptPath, 'utf8')
+  promptCache[role] = text
+  return text
+}
 
 // Resolve a tier to its model and effort.
 export function resolveTier(tier) {
@@ -71,14 +89,18 @@ export async function spawn(role, task, opts = {}) {
     effort: opts.effort || effort,
   }
 
+  // Prepend the role's prompt template to the task-specific prompt.
+  const rolePrompt = loadPrompt(role)
+  const fullPrompt = `${rolePrompt}\n\n---\n\n${task}`
+
   if (process.env.DRY_RUN === 'true') {
-    return dryRunSpawn(role, task, effectiveOpts)
+    return dryRunSpawn(role, fullPrompt, effectiveOpts)
   }
 
   // Live mode: delegate to a leaf subagent.
   // The delegate_task call is made by the Hermes runtime hosting this
   // module. In a standalone test context, this branch is not reached.
-  const result = await delegateTaskLeaf(role, task, effectiveOpts)
+  const result = await delegateTaskLeaf(role, fullPrompt, effectiveOpts)
   return result
 }
 
