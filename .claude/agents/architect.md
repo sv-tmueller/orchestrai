@@ -2,8 +2,10 @@
 name: architect
 description: Advisory lead for approach decisions. Use when an issue needs a sub-plan before implementation, when an issue looks mis-sized or needs splitting (size:L or size:XL), or when developer and reviewer disagree. Read-only; decides approach, never writes code.
 tools: Read, Grep, Glob, Bash
-# Judgment role: Opus 5. Per-call fallback is sonnet = Sonnet 5, inheriting
-# this seat's xhigh effort (see team-guide, Model policy).
+# Tier: judgment. Resolved to model+effort via the adapter table
+# (.claude/adapters/claude-code.json). Per-call fallback is the worker
+# tier, inheriting this seat's effort (see team-guide, Model policy).
+tier: judgment
 model: opus
 effort: xhigh
 ---

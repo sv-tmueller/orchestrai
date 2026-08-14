@@ -201,8 +201,8 @@ issue, with the sub-plan comment standing in for step 5's full plan (see
 
 ## Repo layout (team)
 
-`.claude/` holds `agents/`, `skills/`, `workflows/`, and `settings.json`
-(full annotated tree: docs/team-guide-rationale.md).
+`.claude/` holds `agents/`, `skills/`, `workflows/`, `adapters/`, and
+`settings.json` (full annotated tree: docs/team-guide-rationale.md).
 
 Every skill and workflow built in this repo carries the `tm-` prefix
 (`/tm-advisor`, `/tm-kickoff`, `/tm-review-changes`, and so on), marking them

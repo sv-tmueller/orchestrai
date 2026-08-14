@@ -2,6 +2,9 @@
 name: docs-writer
 description: Authors or updates user-facing documentation (README, guides, API docs) from a gap analysis of what is missing or stale. Dispatch on demand, for example after a tm-map-codebase run, when user-facing docs are missing or stale. Never part of the per-package kickoff pipeline; one dispatch, no fan-out.
 tools: Read, Grep, Glob, Write, Edit
+# Tier: worker. Resolved to model+effort via the adapter table
+# (.claude/adapters/claude-code.json).
+tier: worker
 model: sonnet
 effort: high
 ---
