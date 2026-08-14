@@ -1,0 +1,11 @@
+# Persona for perf-investigator role (mapped from docs/architecture/role-contracts.md)
+# Consumed by the Codex adapter (codex-adapter.mjs) via `codex exec -c <override>`.
+
+description = "Establishes a measured performance baseline and target before any code changes, for a reported slowness."
+jobs = "investigate"
+report_contract = """End with: BASELINE, BOTTLENECK, TARGET, RE-MEASURE."""
+constraints = """Never edits code. Returns a baseline-and-target report."""
+
+# Model and effort are resolved from the adapter table (codex.json) at
+# dispatch time, not hardcoded here. The tier for this role is declared
+# in codex.json under `roles.perf-investigator`

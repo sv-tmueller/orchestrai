@@ -1,0 +1,23 @@
+{
+  "_comment": "Adapter table for the Codex host. Maps model tiers to concrete models and efforts. Uses subscription auth (ChatGPT Plus/Pro), not metered API keys. See docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md section 3.3 and docs/research/2026-08-14-codex-subscription-auth-spike.md.",
+  "host": "codex",
+  "description": "Codex adapter. Wraps codex exec for spawn, TOML personas for role bindings, and git/files for handoff. Subscription auth only (no metered API keys).",
+  "tiers": {
+    "judgment": { "model": "o3", "effort": "high" },
+    "worker": { "model": "gpt-5.6", "effort": "medium" },
+    "lead": { "model": "o3", "effort": "high" }
+  },
+  "roles": {
+    "architect": "judgment",
+    "developer": "worker",
+    "docs-writer": "worker",
+    "fact-checker": "worker",
+    "perf-investigator": "worker",
+    "reviewer": "judgment",
+    "tester": "worker"
+  },
+  "effort_ceiling": "xhigh",
+  "forbidden_efforts": ["max"],
+  "auth_mode": "subscription",
+  "auth_note": "Uses ChatGPT subscription auth (~/.codex/auth.json, auth_mode=chatgpt). No ANTHROPIC_API_KEY, OPENAI_API_KEY, or CODEX_API_KEY required. Verified in docs/research/2026-08-14-codex-subscription-auth-spike.md."
+}
