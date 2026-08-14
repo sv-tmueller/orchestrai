@@ -1,9 +1,9 @@
 # OrchestrAI
 
-A personal AI-team-orchestrator plugin for Claude Code: a `CLAUDE.md`, a
-bootstrap checklist, and a ready-made agent team, adopted into your existing
-repos via the Claude Code marketplace (see "Getting the team into your repos"
-below).
+A personal AI-team-orchestrator plugin: a `CLAUDE.md`, a bootstrap
+checklist, and a ready-made agent team, adopted into your existing repos.
+Runs on Claude Code (via the plugin marketplace) and on Hermes Agent
+(via a Hermes skill), with any model including GLM-5-2.
 
 - `CLAUDE.md` - standing guidance for Claude Code sessions: what the repo is,
   where decisions live, code style, useful commands.
@@ -25,6 +25,15 @@ below).
   docs-writer (authors user-facing docs from a gap analysis, on demand),
   perf-investigator (measures a baseline and target for a reported slowness,
   read-only except for measurement).
+- `.claude/adapters/` - the portable adapter layer. Adapter tables
+  (`claude-code.json`, `hermes.json`, `codex.json`) map model tiers
+  (judgment, worker, lead) to concrete models per host. Adapter modules
+  implement the spawn/detectFailure/retry interface for each host. Role
+  prompt templates (`prompts/<role>.md`) carry the host-neutral job
+  descriptions and report contracts. See
+  `docs/architecture/adapter-interface.md` for the interface contract and
+  `docs/architecture/hermes-adapter.md` / `docs/architecture/codex-adapter.md`
+  for host-specific docs.
 - `.claude/skills/tm-advisor/` - `/tm-advisor`: the operating model on top of the
   team. Refines a raw need into a batch of work packages, takes one sign-off,
   runs the batch uninterrupted through the kickoff pipeline, and reports.
@@ -52,7 +61,9 @@ below).
   `tm-review-codebase` audits the whole repo with a Sonnet scout that splits it into
   areas (scaled to the repo, capped at a ceiling), per-area Sonnet workers, an
   architecture worker, and one Opus critic. Both pin models in-script so the cost
-  is bounded by construction.
+  is bounded by construction. Fan-out is encoded as JSON data specs under
+  `workflows/specs/`; the JS files embed matching SPEC constants and a sync
+  test asserts they stay aligned.
 - `.claude/settings.json` - enables obra's superpowers plugin per project
   (`superpowers@claude-plugins-official`; the methodology skills:
   brainstorming, writing-plans, TDD, verification).
@@ -69,9 +80,6 @@ The four global coding principles live in `~/.claude/CLAUDE.md` and apply to
 every project; this plugin references them rather than repeating them.
 
 ## How the team works
-
-The diagram below is the combined overview; `docs/team-architecture.md` has the
-detailed flat-star and per-package diagrams.
 
 ```mermaid
 graph TD
@@ -161,6 +169,92 @@ yours instead of installing the plugin, for a repo where the team must be
 committed rather than installed from the marketplace. To update it later,
 copy the changed files from this repo's `.claude/` into the target repo's
 `.claude/` and open a PR.
+
+## Running on Hermes Agent (GLM-5-2 and other models)
+
+The orchestrator team also runs on Hermes Agent, not just Claude Code. The
+same flat-star pipeline (architect, developer, tester, reviewer) works on
+any model configured in your Hermes config, including GLM-5-2. The lead
+session dispatches role agents via `delegate_task`; the adapter table
+(`.claude/adapters/hermes.json`) maps tiers to concrete models.
+
+### Installing the Hermes skill
+
+The Hermes skill is bundled as a builtin at
+`~/.hermes/skills/autonomous-ai-agents/orchestrai/`. It is auto-discovered:
+run `hermes skills list` and look for `orchestrai` in the
+`autonomous-ai-agents` category. No install step is needed on the machine
+where the skill files are present.
+
+To install it on another machine, publish the skill directory as a GitHub
+repo and tap it:
+
+```bash
+hermes skills tap add sv-tmueller/orchestrai
+hermes skills install orchestrai
+```
+
+### Using it
+
+Preload the skill and run a one-shot:
+
+```bash
+hermes -s orchestrai chat -q "Run the orchestrator team on issue #42"
+```
+
+Or preload and run interactively:
+
+```bash
+hermes -s orchestrai
+> Run the orchestrator team on issue #42
+```
+
+The lead session (whatever model you configured, e.g. GLM-5-2) reads the
+skill, follows the flat-star pipeline, and dispatches each role agent via
+`delegate_task` as a leaf worker. Role prompts (job descriptions,
+guardrails, report contracts) are loaded from the skill's
+`references/roles/` directory.
+
+### How it maps to Hermes
+
+| Claude Code | Hermes |
+|---|---|
+| Agent tool dispatch | `delegate_task` with `role="leaf"` |
+| Workflow tool `agent()` / `parallel()` | `delegate_task` (sequential or batch) |
+| Worktree isolation | Branch isolation via terminal in the delegated session |
+| `gh pr diff`, `gh issue view` | `terminal` tool with `gh` commands |
+| Frontmatter `model:` / `effort:` | Adapter table `hermes.json` tier mapping |
+| `CLAUDE.md` project rules | `AGENTS.md` (auto-loaded by Hermes) |
+
+### Model configuration
+
+The adapter table at `.claude/adapters/hermes.json` maps the three tiers:
+
+```json
+{
+  "tiers": {
+    "judgment": { "model": "vllm/release/glm-5-2", "effort": "xhigh" },
+    "worker":   { "model": "vllm/release/glm-5-2", "effort": "high" },
+    "lead":     { "model": "vllm/release/glm-5-2", "effort": "xhigh" }
+  }
+}
+```
+
+To use a cheaper model for worker-tier agents (developer, tester,
+fact-checker), edit the `worker` entry. The Hermes config
+(`~/.hermes/config.yaml`) pins the provider and base URL; the adapter
+table only declares which model ID each tier uses.
+
+See `docs/architecture/hermes-adapter.md` for full documentation.
+
+## Running on Codex (subscription auth)
+
+The Codex adapter runs the same pipeline on OpenAI's Codex CLI with
+ChatGPT subscription auth (Plus/Pro), no metered API keys. Verified in
+`docs/research/2026-08-14-codex-subscription-auth-spike.md`. The adapter
+table at `.claude/adapters/codex.json` maps tiers to o3 (judgment) and
+gpt-5.6 (worker). See `docs/architecture/codex-adapter.md` for
+documentation.
 
 ## License
 
