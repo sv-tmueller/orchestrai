@@ -4,13 +4,14 @@ The minimal interface a host adapter must implement. Derived from the
 existing `criticWithFallback` pattern in the workflow scripts, which is
 the proto-interface already in production.
 
-Status: specification-only as of Phase A (#313). The three operations
+Status: the Hermes adapter is implemented as of Phase C (#315);
+the Codex adapter is pending Phase D (#316). The three operations
 (spawn, detectFailure, retry) are defined here as prose; the existing
 `criticWithFallback` function in the workflow scripts is the
-proto-implementation that will be extracted into this interface in
-Phase C (Hermes adapter, #315) and Phase D (Codex adapter, #316).
-Until then, the workflow scripts call `agent()` directly and inline
-their own fallback logic.
+proto-implementation. The Hermes adapter lives at
+`.claude/adapters/hermes-adapter.mjs` and uses `delegate_task` for
+spawn. Until the Codex adapter lands, the workflow scripts still call
+`agent()` directly and inline their own fallback logic.
 
 See `docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`
 section 3.2 for the design rationale.
