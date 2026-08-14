@@ -26,12 +26,16 @@ that path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) still
 exist in the tree; their physical retirement is deferred to the usability
 batch. See section 3.
 
-**Substrate (host and model), evaluated 2026-07-08.** Running the team on a
-non-Claude host or a non-Anthropic model was evaluated and deferred. Claude
-Code and the Claude model family remain the substrate. The reasoning, the
-supported-resilience fallbacks, the single sanctioned re-entry path (a
-subscription-authed Codex worker seat driven by the Claude lead, not a gateway
-or a full port), and the triggers that would reopen this are in
+**Substrate (host and model), evaluated 2026-07-08, reopened 2026-08-14.**
+Running the team on a non-Claude host or a non-Anthropic model was
+evaluated and deferred on 2026-07-08. The revisit trigger (the owner
+testing non-Anthropic models and wanting model independence) has fired.
+The approved design for a host-neutral core with swappable adapters is
+`docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`,
+decomposed into phased issues (A through E). Until those phases land,
+Claude Code and the Claude model family remain the operational
+substrate. The original deferral reasoning, the gateway rejection, and
+the sanctioned Codex path are in
 `docs/superpowers/specs/2026-07-08-codex-readiness-design.md`.
 
 ## 2. How it operates (the loop, summary altitude)
