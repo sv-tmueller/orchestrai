@@ -72,8 +72,14 @@ const adapterTables = adapterFiles.map((f) => ({
   table: JSON.parse(readFileSync(join(adaptersDir, f), 'utf8')),
 }))
 
-// Hardcoded seat-level expectations: these are the policy, not the table.
-// A coordinated edit to the JSON cannot weaken them (review #320 finding 14).
+// Hardcoded seat-level expectations for the REFERENCE adapter only.
+// These pin the Claude Code model assignments (opus/sonnet/fable) so a
+// coordinated edit to the JSON cannot weaken the reference policy (review
+// #320 finding 14). Non-reference adapters (Hermes, Codex) map tiers to
+// their own models; the universal checks above (forbidden efforts, ceiling,
+// tier completeness) apply to every table, but the model identities are
+// host-specific and not asserted here (issue #317).
+const REFERENCE_ADAPTER = 'claude-code.json'
 const SEAT_EXPECTATIONS = {
   judgment: { model: 'opus', effort: 'xhigh' },
   worker: { model: 'sonnet', effort: 'high' },
@@ -133,22 +139,26 @@ for (const { name, table } of adapterTables) {
       }
     })
 
-    test('seat-level model and effort match hardcoded expectations', () => {
-      for (const [tier, expected] of Object.entries(SEAT_EXPECTATIONS)) {
-        const cfg = table.tiers[tier]
-        assert.ok(cfg, `${name}: missing tier "${tier}"`)
-        assert.equal(
-          cfg.model,
-          expected.model,
-          `${name}: tier "${tier}" model is "${cfg.model}", but the policy hardcodes "${expected.model}"`
-        )
-        assert.equal(
-          cfg.effort,
-          expected.effort,
-          `${name}: tier "${tier}" effort is "${cfg.effort}", but the policy hardcodes "${expected.effort}"`
-        )
-      }
-    })
+    // Seat-level model+effort expectations apply to the reference adapter
+    // only. Other hosts map tiers to their own models (issue #317).
+    if (name === REFERENCE_ADAPTER) {
+      test('reference adapter: seat-level model and effort match hardcoded expectations', () => {
+        for (const [tier, expected] of Object.entries(SEAT_EXPECTATIONS)) {
+          const cfg = table.tiers[tier]
+          assert.ok(cfg, `${name}: missing tier "${tier}"`)
+          assert.equal(
+            cfg.model,
+            expected.model,
+            `${name}: tier "${tier}" model is "${cfg.model}", but the policy hardcodes "${expected.model}"`
+          )
+          assert.equal(
+            cfg.effort,
+            expected.effort,
+            `${name}: tier "${tier}" effort is "${cfg.effort}", but the policy hardcodes "${expected.effort}"`
+          )
+        }
+      })
+    }
   })
 }
 

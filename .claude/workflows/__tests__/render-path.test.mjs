@@ -27,8 +27,15 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 
 const adapterTable = JSON.parse(readFileSync(join(adaptersDir, 'claude-code.json'), 'utf8'))
 
-const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }
-const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
+// Derive tier mappings from the adapter table, not hardcoded model names.
+// The render-path test asserts that agent() calls use the model+effort the
+// adapter table assigns to each stage's declared tier (issue #317).
+const TIER_MODELS = {}
+const TIER_EFFORTS = {}
+for (const [tier, cfg] of Object.entries(adapterTable.tiers)) {
+  TIER_MODELS[tier] = cfg.model
+  TIER_EFFORTS[tier] = cfg.effort
+}
 
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
