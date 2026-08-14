@@ -41,8 +41,8 @@ No relocated chunks; the fact-checker verdict taxonomy lives in
 
 ### Full annotated tree
 
-Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`, and
-`settings.json`."
+Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`,
+`adapters/`, and `settings.json`."
 
 ```
 .claude/
@@ -50,6 +50,7 @@ Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`, and
                        fact-checker, docs-writer, perf-investigator
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
+  adapters/          adapter tables: tier-to-model mapping per host (claude-code.json)
   settings.json      project settings; enables the superpowers plugin
                        enabledPlugins is template-managed;
                        permissions, hooks, env, and defaultMode are project-owned

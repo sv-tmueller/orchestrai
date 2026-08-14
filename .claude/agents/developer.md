@@ -2,6 +2,9 @@
 name: developer
 description: Implements exactly one GitHub issue end to end (branch, TDD, conventional commits, draft PR).
 tools: Read, Grep, Glob, Bash, Write, Edit, TodoWrite, WebFetch
+# Tier: worker. Resolved to model+effort via the adapter table
+# (.claude/adapters/claude-code.json).
+tier: worker
 model: sonnet
 effort: high
 isolation: worktree

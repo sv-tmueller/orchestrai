@@ -2,6 +2,9 @@
 name: perf-investigator
 description: Establishes a measured performance baseline and target before any code changes, for a reported slowness. Use only when a package's job is specifically a performance investigation, outside the per-package pipeline. Never edits code; returns a baseline-and-target report the lead hands to developer before implementation and to tester for the after-measurement.
 tools: Read, Grep, Glob, Bash
+# Tier: worker. Resolved to model+effort via the adapter table
+# (.claude/adapters/claude-code.json).
+tier: worker
 model: sonnet
 effort: high
 isolation: worktree
