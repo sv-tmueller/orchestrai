@@ -1,0 +1,21 @@
+{
+  "_comment": "Adapter table for the Hermes host. Maps model tiers to concrete models and efforts. The process layer and tests reference tiers, never model names. Adding a new model means editing this table, not the process layer or agent role contracts. See docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md section 3.3.",
+  "host": "hermes",
+  "description": "Hermes adapter. Wraps delegate_task for spawn, terminal for git/gh, read_file/write_file for handoff, and output_schema for structured reports.",
+  "tiers": {
+    "judgment": { "model": "vllm/release/glm-5-2", "effort": "xhigh" },
+    "worker": { "model": "vllm/release/glm-5-2", "effort": "high" },
+    "lead": { "model": "vllm/release/glm-5-2", "effort": "xhigh" }
+  },
+  "roles": {
+    "architect": "judgment",
+    "developer": "worker",
+    "docs-writer": "worker",
+    "fact-checker": "worker",
+    "perf-investigator": "worker",
+    "reviewer": "judgment",
+    "tester": "worker"
+  },
+  "effort_ceiling": "xhigh",
+  "forbidden_efforts": ["max"]
+}
