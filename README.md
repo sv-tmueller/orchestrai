@@ -146,17 +146,26 @@ hermes skills install orchestrai
 
 ### Use
 
-Preload the skill and run a one-shot:
+Just ask. The skill is auto-discovered in every Hermes session, so the
+model loads it when you mention the orchestrator team. No preload needed:
+
+```bash
+hermes chat -q "Run the orchestrator team on issue #42"
+```
+
+Or interactively:
+
+```bash
+hermes
+> Run the orchestrator team on issue #42
+```
+
+For scripted or automated runs where you want zero ambiguity, preload the
+skill explicitly with `-s` so its full text is in context from the first
+token:
 
 ```bash
 hermes -s orchestrai chat -q "Run the orchestrator team on issue #42"
-```
-
-Or preload and run interactively:
-
-```bash
-hermes -s orchestrai
-> Run the orchestrator team on issue #42
 ```
 
 The lead session (GLM-5-2 or whatever you configured) reads the skill,
