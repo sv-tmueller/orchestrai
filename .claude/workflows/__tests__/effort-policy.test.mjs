@@ -41,7 +41,7 @@ const FORBIDDEN_EFFORTS = ['max']
 const EFFORT_CEILING = 'xhigh'
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
-const EFFORT_RANK = { low: 0, medium: 0, high: 1, xhigh: 2, max: 3 }
+const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 }
 
 // ---------------------------------------------------------------------------
 // Load the adapter table and derive tier mappings.
@@ -62,57 +62,95 @@ for (const [tier, cfg] of Object.entries(TIERS)) {
   MODEL_BY_TIER[tier] = cfg.model
 }
 
+// ---------------------------------------------------------------------------
+// Load every adapter table in the directory. Iterating the directory means a
+// future Hermes or Codex adapter table is validated automatically.
+// ---------------------------------------------------------------------------
+const adapterFiles = readdirSync(adaptersDir).filter((f) => f.endsWith('.json'))
+const adapterTables = adapterFiles.map((f) => ({
+  name: f,
+  table: JSON.parse(readFileSync(join(adaptersDir, f), 'utf8')),
+}))
+
+// Hardcoded seat-level expectations: these are the policy, not the table.
+// A coordinated edit to the JSON cannot weaken them (review #320 finding 14).
+const SEAT_EXPECTATIONS = {
+  judgment: { model: 'opus', effort: 'xhigh' },
+  worker: { model: 'sonnet', effort: 'high' },
+  lead: { model: 'fable', effort: 'xhigh' },
+}
+
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
 // ===========================================================================
-// 0. Adapter table conforms to the hardcoded policy.
+// 0. Every adapter table conforms to the hardcoded policy.
+//    The table is the data; this test is the authority.
 // ===========================================================================
-describe('adapter table conforms to policy', () => {
-  test('forbidden_efforts in the table matches the hardcoded policy', () => {
-    assert.deepEqual(
-      adapterTable.forbidden_efforts,
-      FORBIDDEN_EFFORTS,
-      `adapter table forbidden_efforts is ${JSON.stringify(adapterTable.forbidden_efforts)}, ` +
-        `but the policy hardcodes ${JSON.stringify(FORBIDDEN_EFFORTS)}; ` +
-        `do not weaken the policy by editing the JSON`
-    )
-  })
-
-  test('effort_ceiling in the table matches the hardcoded policy', () => {
-    assert.equal(
-      adapterTable.effort_ceiling,
-      EFFORT_CEILING,
-      `adapter table effort_ceiling is "${adapterTable.effort_ceiling}", ` +
-        `but the policy hardcodes "${EFFORT_CEILING}"; ` +
-        `do not weaken the policy by editing the JSON`
-    )
-  })
-
-  test('no tier effort exceeds the hardcoded ceiling', () => {
-    for (const [tier, cfg] of Object.entries(TIERS)) {
-      assert.ok(
-        EFFORT_RANK[cfg.effort] !== undefined,
-        `tier "${tier}" effort "${cfg.effort}" is not a recognized effort level`
+for (const { name, table } of adapterTables) {
+  describe(`adapter table conforms to policy: ${name}`, () => {
+    test('forbidden_efforts matches the hardcoded policy', () => {
+      assert.deepEqual(
+        table.forbidden_efforts,
+        FORBIDDEN_EFFORTS,
+        `${name}: forbidden_efforts is ${JSON.stringify(table.forbidden_efforts)}, ` +
+          `but the policy hardcodes ${JSON.stringify(FORBIDDEN_EFFORTS)}; ` +
+          `do not weaken the policy by editing the JSON`
       )
-      assert.ok(
-        EFFORT_RANK[cfg.effort] <= EFFORT_RANK[EFFORT_CEILING],
-        `tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${EFFORT_CEILING}"`
-      )
-    }
-  })
+    })
 
-  test('no tier uses a hardcoded forbidden effort', () => {
-    for (const forbidden of FORBIDDEN_EFFORTS) {
-      for (const [tier, cfg] of Object.entries(TIERS)) {
-        assert.notEqual(
-          cfg.effort,
-          forbidden,
-          `adapter table tier "${tier}" uses forbidden effort "${forbidden}"`
+    test('effort_ceiling matches the hardcoded policy', () => {
+      assert.equal(
+        table.effort_ceiling,
+        EFFORT_CEILING,
+        `${name}: effort_ceiling is "${table.effort_ceiling}", ` +
+          `but the policy hardcodes "${EFFORT_CEILING}"; ` +
+          `do not weaken the policy by editing the JSON`
+      )
+    })
+
+    test('no tier effort exceeds the hardcoded ceiling', () => {
+      for (const [tier, cfg] of Object.entries(table.tiers)) {
+        assert.ok(
+          EFFORT_RANK[cfg.effort] !== undefined,
+          `${name}: tier "${tier}" effort "${cfg.effort}" is not a recognized effort level`
+        )
+        assert.ok(
+          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[EFFORT_CEILING],
+          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${EFFORT_CEILING}"`
         )
       }
-    }
+    })
+
+    test('no tier uses a hardcoded forbidden effort', () => {
+      for (const forbidden of FORBIDDEN_EFFORTS) {
+        for (const [tier, cfg] of Object.entries(table.tiers)) {
+          assert.notEqual(
+            cfg.effort,
+            forbidden,
+            `${name}: tier "${tier}" uses forbidden effort "${forbidden}"`
+          )
+        }
+      }
+    })
+
+    test('seat-level model and effort match hardcoded expectations', () => {
+      for (const [tier, expected] of Object.entries(SEAT_EXPECTATIONS)) {
+        const cfg = table.tiers[tier]
+        assert.ok(cfg, `${name}: missing tier "${tier}"`)
+        assert.equal(
+          cfg.model,
+          expected.model,
+          `${name}: tier "${tier}" model is "${cfg.model}", but the policy hardcodes "${expected.model}"`
+        )
+        assert.equal(
+          cfg.effort,
+          expected.effort,
+          `${name}: tier "${tier}" effort is "${cfg.effort}", but the policy hardcodes "${expected.effort}"`
+        )
+      }
+    })
   })
-})
+}
 
 // ===========================================================================
 // 1. Agent frontmatter: every role agent pins tier, and model+effort match
