@@ -1,0 +1,4 @@
+{
+  "review": "You review one dimension of a code change and report findings only; you never edit.\n\nDimension: {{brief}}\n\n{{diffHint}}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.",
+  "consolidate": "You are the senior reviewer. {{coveredCount}} parallel reviewers produced the raw findings below.{{coverageNote}} {{diffHint}}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n{{rawFindings}}"
+}

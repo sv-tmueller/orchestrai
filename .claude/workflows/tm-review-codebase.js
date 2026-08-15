@@ -252,12 +252,39 @@ const dimensions = `Review across these dimensions:
 - tests: behavior with no test pinning it, logic with a right answer lacking a test, integration points with no fixture coverage.
 - style: project code and writing style (em dashes, AI-cliche phrases, hard-coded user-facing strings, raw primitives where dedicated types exist, comments that restate code).`
 
+// Prompt templates (embedded; mirrors prompts/tm-review-codebase.prompts.json).
+// Plain strings with {{slot}} markers, not template literals with ${expr},
+// so the prompts-sync test can parse this const via node:vm and deep-equal
+// it to the JSON file the same way specs.test.mjs parses SPEC. The
+// renderPrompt helper swaps {{slot}} for vals[slot] at the call site;
+// runtime-assembled values (coverageNote, rawFindings, reviewedAreas,
+// workersFailed, ceilingReached, suggestedNextActionClause) are plugged
+// in there.
+const PROMPTS = {
+  scout:
+    'You map a repository into coherent review areas. You do not review code in this step.\n\n{{scope}}\n\nFirst gauge the repo\'s size (for example `git ls-files -- {{root}} | wc -l`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach {{maxAreas}} areas. Return at most {{maxAreas}} areas, ranked by importance (size and how central they are to the system). If the repo is larger than {{maxAreas}} areas can cover at a readable size, return the {{maxAreas}} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.',
+  area_review:
+    'You review one area of a codebase and report findings only. You never edit.\n\nArea: {{areaName}}\nPaths: {{areaPaths}}\n\nRead these files in full, with surrounding context where needed. {{dimensions}}\n\nReport every finding with area ("{{areaName}}"), dimension, file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the area is clean, return an empty findings array. Stay within your area.',
+  architecture_review:
+    'You audit a repository\'s structure and report findings only. You never edit. Use dimension "architecture".\n\n{{scope}}\n\nRead the directory layout, module boundaries, imports, and dependency manifests. Read signatures and imports rather than full file bodies, so you can hold the whole tree in view. The area map is:\n{{repoMap}}\n\nFlag: module boundaries and layering that have drifted, the same logic duplicated across modules, dead or orphaned code, dependency health (unused, outdated, risky), test-coverage gaps at the suite level, and doc drift between README/CLAUDE.md claims and the actual repo state (commands that no longer exist, a described layout that does not match the real one, stale status claims). Report each finding with area (the module name or "repo"), dimension ("architecture"), file, line or "n/a", severity, the problem, and the fix.',
+  consolidate:
+    'You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.{{coverageNote}}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run `date +%F` for today\'s date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then a one-line health impression scored 0-10 and up to three named top risks; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after that opening block that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to {{reviewedAreas}}, coverage.areasDropped to {{scoutDropped}}, coverage.workersFailed to {{workersFailed}}, coverage.ceilingReached to {{ceilingReached}}{{suggestedNextActionClause}}.\n\nRaw findings (JSON):\n{{rawFindings}}',
+}
+
+// Replace {{slot}} markers with vals[slot]; throw on unknown slot.
+function renderPrompt(template, vals) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    if (!(key in vals)) throw new Error(`renderPrompt: unknown slot "${key}"`)
+    return vals[key]
+  })
+}
+
 // Render: fan out from the spec
 // Stage: scout (single, worker tier)
 const scoutStage = SPEC.stages.scout
 phase(scoutStage.phase)
 const map = await agent(
-  `You map a repository into coherent review areas. You do not review code in this step.\n\n${scope}\n\nFirst gauge the repo's size (for example \`git ls-files -- ${root} | wc -l\`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach ${MAX_AREAS} areas. Return at most ${MAX_AREAS} areas, ranked by importance (size and how central they are to the system). If the repo is larger than ${MAX_AREAS} areas can cover at a readable size, return the ${MAX_AREAS} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.`,
+  renderPrompt(PROMPTS.scout, { scope, root, maxAreas: MAX_AREAS }),
   { label: 'scout', phase: scoutStage.phase, model: TIER_MODELS[scoutStage.tier], effort: TIER_EFFORTS[scoutStage.tier], schema: MAP_SCHEMA }
 )
 
@@ -286,14 +313,18 @@ const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n'
 
 const reviewThunks = areas.map((a) => () =>
   agent(
-    `You review one area of a codebase and report findings only. You never edit.\n\nArea: ${a.name}\nPaths: ${a.paths.join(', ')}\n\nRead these files in full, with surrounding context where needed. ${dimensions}\n\nReport every finding with area ("${a.name}"), dimension, file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the area is clean, return an empty findings array. Stay within your area.`,
+    renderPrompt(PROMPTS.area_review, {
+      areaName: a.name,
+      areaPaths: a.paths.join(', '),
+      dimensions,
+    }),
     { label: `${areaStage.item_label_prefix}${a.name}`, phase: areaStage.phase, model: TIER_MODELS[areaStage.tier], effort: TIER_EFFORTS[areaStage.tier], schema: FINDINGS_SCHEMA }
   )
 )
 
 reviewThunks.push(() =>
   agent(
-    `You audit a repository's structure and report findings only. You never edit. Use dimension "architecture".\n\n${scope}\n\nRead the directory layout, module boundaries, imports, and dependency manifests. Read signatures and imports rather than full file bodies, so you can hold the whole tree in view. The area map is:\n${repoMap}\n\nFlag: module boundaries and layering that have drifted, the same logic duplicated across modules, dead or orphaned code, dependency health (unused, outdated, risky), test-coverage gaps at the suite level, and doc drift between README/CLAUDE.md claims and the actual repo state (commands that no longer exist, a described layout that does not match the real one, stale status claims). Report each finding with area (the module name or "repo"), dimension ("architecture"), file, line or "n/a", severity, the problem, and the fix.`,
+    renderPrompt(PROMPTS.architecture_review, { scope, repoMap }),
     { label: archStage.item_label, phase: archStage.phase, model: TIER_MODELS[archStage.tier], effort: TIER_EFFORTS[archStage.tier], schema: FINDINGS_SCHEMA }
   )
 )
@@ -348,7 +379,15 @@ const suggestedNextActionClause = ceilingReached
   : ''
 
 const report = await criticWithFallback(
-  `You are the senior reviewer consolidating a full-codebase review. The workers below produced the raw findings.${coverageNote}\n\nVerify each finding against the actual code, drop false positives and anything out of scope, merge duplicates (including the same problem found in two areas), and set a final severity. You may add a finding only if it is a clear must-fix the workers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nThen write the report file. Run \`date +%F\` for today's date, make the docs/reviews/ directory if it does not exist, and write docs/reviews/<date>-codebase-review.md with: the verdict and summary first; then a one-line health impression scored 0-10 and up to three named top risks; then, if coverage is partial, a prominent "Coverage: PARTIAL" callout immediately after that opening block that states how many paths were not reviewed and the suggested next action; then the findings as severity sections (must-fix, then should-fix, then nit), each organized by area; then a final "Coverage" section listing the areas reviewed, the paths not covered, the workers that failed, and (if partial) the suggested next action. Set reportPath to the file you wrote.\n\nReturn the structured summary. Set coverage.areasReviewed to ${JSON.stringify(reviewedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  renderPrompt(PROMPTS.consolidate, {
+    coverageNote,
+    reviewedAreas: JSON.stringify(reviewedAreas),
+    scoutDropped: JSON.stringify(scoutDropped),
+    workersFailed: JSON.stringify(workersFailed),
+    ceilingReached,
+    suggestedNextActionClause,
+    rawFindings: JSON.stringify(raw, null, 2),
+  }),
   { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], fallbackModel: TIER_MODELS[consolStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 

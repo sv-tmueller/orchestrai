@@ -199,6 +199,27 @@ const REPORT_SCHEMA = {
 const diffHint =
   `Get the change under review with \`git diff ${base}...HEAD\` for committed work on the branch, and \`git diff\` plus \`git status\` for any uncommitted changes; review the union. Read surrounding code before judging, and do not flag what the diff does not touch.`
 
+// Prompt templates (embedded; mirrors prompts/tm-review-changes.prompts.json).
+// Plain strings with {{slot}} markers, not template literals with ${expr},
+// so the prompts-sync test can parse this const via node:vm and deep-equal
+// it to the JSON file the same way specs.test.mjs parses SPEC. The
+// renderPrompt helper swaps {{slot}} for vals[slot] at the call site;
+// runtime-assembled values (coverageNote, rawFindings) are plugged in there.
+const PROMPTS = {
+  review:
+    'You review one dimension of a code change and report findings only; you never edit.\n\nDimension: {{brief}}\n\n{{diffHint}}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.',
+  consolidate:
+    'You are the senior reviewer. {{coveredCount}} parallel reviewers produced the raw findings below.{{coverageNote}} {{diffHint}}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n{{rawFindings}}',
+}
+
+// Replace {{slot}} markers with vals[slot]; throw on unknown slot.
+function renderPrompt(template, vals) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    if (!(key in vals)) throw new Error(`renderPrompt: unknown slot "${key}"`)
+    return vals[key]
+  })
+}
+
 // Render: fan out from the spec
 // Stage: review (parallel, fixed-list of dimensions, worker tier)
 const reviewStage = SPEC.stages.review
@@ -206,7 +227,7 @@ phase(reviewStage.phase)
 const reviews = await parallel(
   DIMENSIONS.map((d) => () =>
     agent(
-      `You review one dimension of a code change and report findings only; you never edit.\n\nDimension: ${d.brief}\n\n${diffHint}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.`,
+      renderPrompt(PROMPTS.review, { brief: d.brief, diffHint }),
       { label: `${reviewStage.item_label_prefix}${d.key}`, phase: reviewStage.phase, model: TIER_MODELS[reviewStage.tier], effort: TIER_EFFORTS[reviewStage.tier], schema: FINDINGS_SCHEMA }
     )
   )
@@ -227,7 +248,12 @@ const coverageNote = dropped.length
 const consolStage = SPEC.stages.consolidate
 phase(consolStage.phase)
 const report = await criticWithFallback(
-  `You are the senior reviewer. ${covered.length} parallel reviewers produced the raw findings below.${coverageNote} ${diffHint}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  renderPrompt(PROMPTS.consolidate, {
+    coveredCount: covered.length,
+    coverageNote,
+    diffHint,
+    rawFindings: JSON.stringify(raw, null, 2),
+  }),
   { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], fallbackModel: TIER_MODELS[consolStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
