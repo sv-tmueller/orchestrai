@@ -246,12 +246,37 @@ const REPORT_SCHEMA = {
 
 const scope = `Work from the repo root scoped to "${root}". List source files with \`git ls-files -- ${root}\` (it already respects .gitignore); ignore vendored and generated trees (node_modules, dist, build, vendor, .git, coverage) and lockfiles.`
 
+// Prompt templates (embedded; mirrors prompts/tm-map-codebase.prompts.json).
+// Plain strings with {{slot}} markers, not template literals with ${expr},
+// so the prompts-sync test can parse this const via node:vm and deep-equal
+// it to the JSON file the same way specs.test.mjs parses SPEC. The
+// renderPrompt helper swaps {{slot}} for vals[slot] at the call site;
+// runtime-assembled values (coverageNote, rawFindings, mappedAreas,
+// workersFailed, ceilingReached, suggestedNextActionClause) are plugged
+// in there.
+const PROMPTS = {
+  scout:
+    'You map a repository into coherent areas for a codebase map (not a review). You do not describe or evaluate code content in this step, only structure.\n\n{{scope}}\n\nFirst gauge the repo\'s size (for example `git ls-files -- {{root}} | wc -l`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach {{maxAreas}} areas. Return at most {{maxAreas}} areas, ranked by importance (size and how central they are to the system). If the repo is larger than {{maxAreas}} areas can cover at a readable size, return the {{maxAreas}} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.',
+  area_map:
+    'You map one area of a codebase. You describe, you do not evaluate: no findings, no severities, no recommendations, no quality or security judgments. You never edit.\n\nArea: {{areaName}}\nPaths: {{areaPaths}}\n\nOther areas in this repo, for context on dependencies:\n{{repoMap}}\n\nRead these files in full, with surrounding context where needed. Describe:\n- purpose: what this area is for, in plain terms.\n- entryPoints: files or exports where execution or usage of this area starts.\n- keyModules: the modules that matter, each with a one-line role.\n- dataFlow: how data moves through this area.\n- controlFlow: how control moves through this area (call order, triggers, lifecycle).\n- externalDependencies: packages, services, or other areas this area depends on.\n- conventions: naming, structure, or style conventions specific to this area.\n\nSet area to "{{areaName}}". Stay within your area. Do not report findings, severities, or fixes; this is a map, not a review.',
+  synthesize:
+    'You are the senior architect synthesizing a full-codebase map from the area descriptions below. This is a map, not a review: do not add findings, severities, recommendations, or quality and security judgments. Describe what is there.{{coverageNote}}\n\nRun `date +%F` for today\'s date, make the docs/architecture/ directory if it does not exist, and write docs/architecture/<date>-codebase-map.md with exactly these sections, in this order:\n1. Executive summary: what the repo is and how its areas fit together, in a few paragraphs.\n2. Component table: one row per area, with columns for area, purpose, and key modules.\n3. Data-flow narrative: how data moves across areas, end to end.\n4. Dependency summary: external dependencies (packages, services) and cross-area dependencies.\n5. Open questions: anything the workers could not determine or that needs a human to confirm.\n\nIf coverage is partial, add a "Coverage" callout immediately after the executive summary stating how many paths were not mapped and the suggested next action.\n\nSet reportPath to the file you wrote. Set summary to a short plain-language summary of the whole repo. Set openQuestions to the same list you put in the report\'s Open Questions section.\n\nSet coverage.areasMapped to {{mappedAreas}}, coverage.areasDropped to {{scoutDropped}}, coverage.workersFailed to {{workersFailed}}, coverage.ceilingReached to {{ceilingReached}}{{suggestedNextActionClause}}.\n\nArea maps (JSON):\n{{rawFindings}}',
+}
+
+// Replace {{slot}} markers with vals[slot]; throw on unknown slot.
+function renderPrompt(template, vals) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    if (!(key in vals)) throw new Error(`renderPrompt: unknown slot "${key}"`)
+    return vals[key]
+  })
+}
+
 // Render: fan out from the spec
 // Stage: scout (single, worker tier)
 const scoutStage = SPEC.stages.scout
 phase(scoutStage.phase)
 const map = await agent(
-  `You map a repository into coherent areas for a codebase map (not a review). You do not describe or evaluate code content in this step, only structure.\n\n${scope}\n\nFirst gauge the repo's size (for example \`git ls-files -- ${root} | wc -l\`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach ${MAX_AREAS} areas. Return at most ${MAX_AREAS} areas, ranked by importance (size and how central they are to the system). If the repo is larger than ${MAX_AREAS} areas can cover at a readable size, return the ${MAX_AREAS} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.`,
+  renderPrompt(PROMPTS.scout, { scope, root, maxAreas: MAX_AREAS }),
   { label: 'scout', phase: scoutStage.phase, model: TIER_MODELS[scoutStage.tier], effort: TIER_EFFORTS[scoutStage.tier], schema: MAP_SCHEMA }
 )
 
@@ -279,7 +304,11 @@ const repoMap = areas.map((a) => `- ${a.name}: ${a.paths.join(', ')}`).join('\n'
 
 const mapThunks = areas.map((a) => () =>
   agent(
-    `You map one area of a codebase. You describe, you do not evaluate: no findings, no severities, no recommendations, no quality or security judgments. You never edit.\n\nArea: ${a.name}\nPaths: ${a.paths.join(', ')}\n\nOther areas in this repo, for context on dependencies:\n${repoMap}\n\nRead these files in full, with surrounding context where needed. Describe:\n- purpose: what this area is for, in plain terms.\n- entryPoints: files or exports where execution or usage of this area starts.\n- keyModules: the modules that matter, each with a one-line role.\n- dataFlow: how data moves through this area.\n- controlFlow: how control moves through this area (call order, triggers, lifecycle).\n- externalDependencies: packages, services, or other areas this area depends on.\n- conventions: naming, structure, or style conventions specific to this area.\n\nSet area to "${a.name}". Stay within your area. Do not report findings, severities, or fixes; this is a map, not a review.`,
+    renderPrompt(PROMPTS.area_map, {
+      areaName: a.name,
+      areaPaths: a.paths.join(', '),
+      repoMap,
+    }),
     { label: `${mapStage.item_label_prefix}${a.name}`, phase: mapStage.phase, model: TIER_MODELS[mapStage.tier], effort: TIER_EFFORTS[mapStage.tier], schema: AREA_MAP_SCHEMA }
   )
 )
@@ -328,7 +357,15 @@ const suggestedNextActionClause = ceilingReached
   : ''
 
 const report = await criticWithFallback(
-  `You are the senior architect synthesizing a full-codebase map from the area descriptions below. This is a map, not a review: do not add findings, severities, recommendations, or quality and security judgments. Describe what is there.${coverageNote}\n\nRun \`date +%F\` for today's date, make the docs/architecture/ directory if it does not exist, and write docs/architecture/<date>-codebase-map.md with exactly these sections, in this order:\n1. Executive summary: what the repo is and how its areas fit together, in a few paragraphs.\n2. Component table: one row per area, with columns for area, purpose, and key modules.\n3. Data-flow narrative: how data moves across areas, end to end.\n4. Dependency summary: external dependencies (packages, services) and cross-area dependencies.\n5. Open questions: anything the workers could not determine or that needs a human to confirm.\n\nIf coverage is partial, add a "Coverage" callout immediately after the executive summary stating how many paths were not mapped and the suggested next action.\n\nSet reportPath to the file you wrote. Set summary to a short plain-language summary of the whole repo. Set openQuestions to the same list you put in the report's Open Questions section.\n\nSet coverage.areasMapped to ${JSON.stringify(mappedAreas)}, coverage.areasDropped to ${JSON.stringify(scoutDropped)}, coverage.workersFailed to ${JSON.stringify(workersFailed)}, coverage.ceilingReached to ${ceilingReached}${suggestedNextActionClause}.\n\nArea maps (JSON):\n${JSON.stringify(raw, null, 2)}`,
+  renderPrompt(PROMPTS.synthesize, {
+    coverageNote,
+    mappedAreas: JSON.stringify(mappedAreas),
+    scoutDropped: JSON.stringify(scoutDropped),
+    workersFailed: JSON.stringify(workersFailed),
+    ceilingReached,
+    suggestedNextActionClause,
+    rawFindings: JSON.stringify(raw, null, 2),
+  }),
   { label: 'synthesize', phase: synthStage.phase, model: TIER_MODELS[synthStage.tier], effort: TIER_EFFORTS[synthStage.tier], fallbackModel: TIER_MODELS[synthStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
