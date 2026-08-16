@@ -68,9 +68,11 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
   `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup).
-- `.claude/team-guide.md` + `.claude/process-core.md` - team process and
-  neutral rules (issues, branches, sizing, commits, tests, CI, writing
-  style). Imported by the repo `CLAUDE.md` or `AGENTS.md`.
+- `.claude/team-guide.md` - team process guidance (agent roster, advisor
+  model, model policy, how to pick up a task).
+- `.claude/process-core.md` - neutral rules (issues, branches, sizing,
+  commits, tests, CI, writing style). Imported by the repo `CLAUDE.md` or
+  `AGENTS.md`.
 - `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist.
 
 ## Zone 1: Claude Code

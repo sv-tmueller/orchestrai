@@ -1,11 +1,9 @@
 # Agent team architecture
 
 How the orchestrator team actually runs. The operating rules live in
-`.claude/team-guide.md` and the neutral core, `.claude/process-core.md`
-(imported together, core first, by the repo `CLAUDE.md`); this doc adds the
-picture. The per-package
-mechanics (parking, caps, routing) live in
-`.claude/skills/tm-kickoff/SKILL.md`.
+`.claude/team-guide.md` and the neutral core, `.claude/process-core.md`;
+this doc adds the picture. The per-package mechanics (parking, caps,
+routing) live in `.claude/skills/tm-kickoff/SKILL.md`.
 
 "Agent team" is this template's name for the flat-star pattern below, not
 Claude Code's experimental agent-teams feature (enabled with

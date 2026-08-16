@@ -3,8 +3,7 @@
 Harness-neutral process guidance: it should hold for a solo contributor or a
 different agent stack, not just this one team. Team-specific process guidance
 (the agent roster, the advisor model, model policy, how to pick up a task)
-lives in `.claude/team-guide.md`. See README.md and CLAUDE.md for how a
-project or config dir imports both files.
+lives in `.claude/team-guide.md`.
 
 ## How we work
 
