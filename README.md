@@ -216,6 +216,44 @@ The advisor loads the orchestrai pipeline via `skill_view` at dispatch
 time, so you do not need to preload orchestrai separately. The advisor
 holds the sign-off gate; after it, the run is unattended.
 
+#### Skill bundles
+
+Instead of preloading each skill individually with `-s`, you can group
+them into a bundle that loads all at once with a single slash command:
+
+```bash
+hermes bundles create advisor \
+  --skill tm-advisor \
+  --skill orchestrai \
+  --skill deep-codebase-audit \
+  --skill codebase-inspection \
+  --skill github-code-review \
+  --skill requesting-code-review \
+  --skill github-issue-to-pr \
+  --skill github-issues \
+  --skill github-pr-workflow \
+  --description "Advisory + codebase review + GitHub workflow toolkit"
+```
+
+Then in any Hermes session:
+
+```
+/advisor
+```
+
+Loads all nine skills for that session. The bundle file lives at
+`~/.hermes/skill-bundles/advisor.yaml` and is machine-local; it is not
+stored in this repo. To replicate on another client, rerun the
+`hermes bundles create` command above, or copy the YAML file to the
+same path and run `hermes bundles reload`.
+
+Bundles reference skill names but do not carry skill content. Skills
+that ship with Hermes (tm-advisor, orchestrai, etc.) are available on
+any installation; skills installed via `hermes skills install` must be
+installed on each client separately. `hermes sync` (requires Nous Portal
+login) can sync your installed skills across machines, but does not
+sync bundle files.
+
 ### How it maps to Hermes
 
 | Claude Code | Hermes |
