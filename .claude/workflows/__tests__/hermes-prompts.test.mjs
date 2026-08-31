@@ -8,6 +8,7 @@
  *    (job description and report contract).
  * 4. The prompt files do not contain Claude Code-specific tool names.
  * 5. The Hermes kickoff skill exists.
+ * 6. The Hermes advisor skill exists (#346).
  */
 
 import { test, describe, before } from 'node:test'
@@ -166,5 +167,53 @@ describe('hermes kickoff skill', () => {
     assert.ok(content.includes('Tester'), 'missing Tester stage')
     assert.ok(content.includes('Reviewer'), 'missing Reviewer stage')
     assert.ok(content.includes('Ship'), 'missing Ship stage')
+  })
+})
+
+// ===========================================================================
+// 6. The Hermes advisor skill exists (#346)
+// ===========================================================================
+describe('hermes advisor skill', () => {
+  test('SKILL.hermes.md exists', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    assert.ok(existsSync(skillPath), 'SKILL.hermes.md not found')
+  })
+
+  test('skill references delegate_task', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8')
+    assert.ok(
+      content.includes('delegate_task'),
+      'SKILL.hermes.md must reference delegate_task'
+    )
+  })
+
+  test('skill references the orchestrai skill', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8')
+    assert.ok(
+      content.includes("skill_view"),
+      'SKILL.hermes.md must reference skill_view to load the pipeline'
+    )
+  })
+
+  test('skill has the 6 advisor sections', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8')
+    assert.ok(content.includes('## 1. Refine'), 'missing Refine section')
+    assert.ok(content.includes('## 2. Propose'), 'missing Propose section')
+    assert.ok(content.includes('## 3. File'), 'missing File section')
+    assert.ok(content.includes('## 4. Run'), 'missing Run section')
+    assert.ok(content.includes('## 5. Report'), 'missing Report section')
+    assert.ok(content.includes('## 6. Resume'), 'missing Resume section')
+  })
+
+  test('skill has the sign-off block', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8')
+    assert.ok(
+      content.includes('Sign-off'),
+      'SKILL.hermes.md must contain the sign-off block'
+    )
   })
 })
