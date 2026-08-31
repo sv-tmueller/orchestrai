@@ -198,11 +198,11 @@ run the batch unattended through the orchestrai pipeline:
 hermes -s tm-advisor chat -q "We need to clean up the test helpers and add integration tests for the adapter layer"
 ```
 
-Or interactively:
+Or interactively, preload the skill and then type your need:
 
 ```bash
-hermes
-> (load tm-advisor) We need to clean up the test helpers ...
+hermes -s tm-advisor
+> We need to clean up the test helpers and add integration tests for the adapter layer
 ```
 
 With no arguments, tm-advisor enters the resume path: it finds open batch
