@@ -67,7 +67,10 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   and a sync test asserts alignment.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup).
+  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup). Hermes
+  variants ship as `SKILL.hermes.md` alongside the Claude versions;
+  `tm-kickoff` becomes the `orchestrai` skill and `tm-advisor` becomes
+  the `tm-advisor` skill on Hermes.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
@@ -133,10 +136,19 @@ flagged in the report. Nothing runs at max effort.
 
 ### Install
 
-The Hermes skill is auto-discovered at
-`~/.hermes/skills/autonomous-ai-agents/orchestrai/`. Run
-`hermes skills list` to confirm it appears. No install step is needed on
-the machine where the skill files are present.
+Two Hermes skills ship with this repo:
+
+- **orchestrai** - the pipeline driver (architect, developer, tester,
+  reviewer). Auto-discovered at
+  `~/.hermes/skills/autonomous-ai-agents/orchestrai/`.
+- **tm-advisor** - the batch advisor (refine a need, propose a batch,
+  get sign-off, dispatch the pipeline). Auto-discovered at
+  `~/.hermes/skills/autonomous-ai-agents/tm-advisor/`.
+
+Both skill sources live in the repo as `SKILL.hermes.md` alongside
+their Claude counterparts under `.claude/skills/`. Run
+`hermes skills list` to confirm they appear. No install step is needed
+on the machine where the skill files are present.
 
 To install on another machine, publish the skill directory as a GitHub
 repo and tap it:
@@ -147,6 +159,8 @@ hermes skills install orchestrai
 ```
 
 ### Use
+
+#### orchestrai (pipeline driver)
 
 Just ask. The skill is auto-discovered in every Hermes session, so the
 model loads it when you mention the orchestrator team. No preload needed:
@@ -174,6 +188,33 @@ The lead session (GLM-5-2 or whatever you configured) reads the skill,
 follows the flat-star pipeline, and dispatches each role agent via
 `delegate_task` as a leaf worker. Role prompts are loaded from the
 skill's `references/roles/` directory.
+
+#### tm-advisor (batch advisory)
+
+Refine a raw need into a batch of work packages, get one sign-off, then
+run the batch unattended through the orchestrai pipeline:
+
+```bash
+hermes -s tm-advisor chat -q "We need to clean up the test helpers and add integration tests for the adapter layer"
+```
+
+Or interactively:
+
+```bash
+hermes
+> (load tm-advisor) We need to clean up the test helpers ...
+```
+
+With no arguments, tm-advisor enters the resume path: it finds open batch
+tracking issues and continues or proposes the next batch:
+
+```bash
+hermes -s tm-advisor
+```
+
+The advisor loads the orchestrai pipeline via `skill_view` at dispatch
+time, so you do not need to preload orchestrai separately. The advisor
+holds the sign-off gate; after it, the run is unattended.
 
 ### How it maps to Hermes
 
