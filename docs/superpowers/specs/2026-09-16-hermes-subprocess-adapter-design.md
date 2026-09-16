@@ -1,0 +1,281 @@
+# Hermes adapter: subprocess spawn instead of delegate_task
+
+Date: 2026-09-16
+Status: approved design. Amends Phase C of
+`docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`.
+The three-layer architecture, the adapter interface, and the tier
+abstraction are unchanged. What changes is which Hermes primitive
+implements `spawn`.
+
+Resolves issue #351.
+
+## 1. Why Phase C needs amending
+
+Phase C shipped a Hermes adapter built on `delegate_task`. That
+primitive cannot express three bindings the design depends on.
+
+Documented `delegate_task` parameters are `goal`, `context`, `tasks[]`,
+`background`, and `role`. No model override, no working directory, no
+output schema. The measured consequences:
+
+1. The tier table is decorative. `.claude/adapters/hermes.json` maps all
+   three tiers to one model, and `delegation.reasoning_effort` in
+   `config.yaml` is a single global value. The `judgment=xhigh /
+   worker=high` split cannot be expressed, so the `judgment -> worker`
+   fallback retries the same model at the same effort. The installed
+   Hermes skill admits this in its own "does NOT do" section.
+2. No working-directory isolation. `delegate_task` gives an isolated
+   context and terminal session, not an isolated checkout. The pipeline
+   runs up to 3 packages concurrently, which places 3 developer agents
+   in one working directory on one branch.
+3. `hermes-adapter.mjs` passes `output_schema`, which appears in no
+   Hermes documentation. `docs/architecture/adapter-interface.md`
+   section "spawn" and the `hermes.json` description both assert that
+   capability. The claim was never verified.
+
+The live path compounds this. It is gated on
+`typeof globalThis.delegate_task === 'function'`, but Hermes exposes
+tools to the model, not as Node globals in a spawned process. The gate
+never opens, so every test exercises `DRY_RUN` and the assertions never
+touch the code that would run in production. What actually ran on
+Hermes was the prose in the installed `SKILL.md`, not this module.
+
+## 2. Goal and non-goals
+
+Goal: implement `spawn` so that every binding the tier abstraction
+declares (model, provider, effort, isolation, tool surface) is actually
+applied to the spawned seat, and so the adapter's live path is
+executable and testable.
+
+Non-goals:
+
+- No change to the adapter interface. `spawn`, `detectFailure`, and
+  `retry` keep their signatures and contracts.
+- No change to the process layer. Flat-star, fix caps, parking, sizing,
+  and the report contracts stay as they are.
+- No change to the Claude Code adapter.
+- Not fixing the installed-bundle drift, the five unported skills, or
+  the Codex adapter. Those are separate work, listed in section 8.
+
+## 3. The spawn primitive
+
+Verified against Hermes Agent v0.20.1. Every binding has a flag:
+
+| Binding | Flag |
+| --- | --- |
+| Model and provider per seat | `-m MODEL --provider P` |
+| Effort per seat | `--reasoning LEVEL` |
+| Tool surface per seat | `-t TOOLSETS` (documented as applying to `-z`) |
+| Isolation for code-editing seats | `-w` / `--worktree` |
+| Working directory | `--in DIR` |
+| Headless approval | `--yolo --accept-hooks` |
+| Report capture | `-z` prints only the final response |
+
+`-z` was verified to run headless from a non-TTY pipe: it cleared
+argument parsing and session setup and issued a live HTTP request with
+stdin closed. A Node `child_process` can therefore drive it. This is
+also the path Hermes itself recommends. Its agent skill advises `-w`
+when spawning agents that edit code, and its comparison table directs
+`delegate_task` at quick subtasks while pointing long autonomous
+missions at spawned processes. A developer agent implementing an issue
+is the latter.
+
+The command `spawn` builds:
+
+```
+hermes -z "<role prompt + task>" \
+  -m <tier.model> --provider <tier.provider> \
+  --reasoning <tier.effort> \
+  -t <seat.toolsets> \
+  --in <package working directory> \
+  [-w] \
+  --yolo --accept-hooks
+```
+
+Rules injection stays on. `--ignore-rules` is not passed, so each seat
+picks up the repo's `AGENTS.md` and through it `.claude/process-core.md`.
+The process layer reaches every seat without the adapter templating it
+into the prompt.
+
+### 3.1 Two consequences
+
+First, the live path becomes ordinary Node. `hermes` is a CLI, so
+`child_process` reaches it with no host-injected globals. The
+`globalThis.delegate_task` branch is deleted, and the live path becomes
+testable by stubbing the spawn call rather than by skipping it.
+
+Second, a Hermes lead session stops being required. A Node driver plus
+`hermes -z` workers is the whole team. The Hermes skill becomes one way
+to launch the pipeline rather than the only way, which moves the
+package closer to the host independence the parent design aims at.
+
+## 4. Adapter table changes
+
+`.claude/adapters/hermes.json` grows two things: a provider per tier,
+and a seat binding per role.
+
+```json
+{
+  "tiers": {
+    "judgment": { "model": "vllm/release/glm-5-2", "provider": "custom", "effort": "xhigh" },
+    "worker":   { "model": "<cheaper model>", "provider": "<provider>", "effort": "high" },
+    "lead":     { "model": "vllm/release/glm-5-2", "provider": "custom", "effort": "xhigh" }
+  },
+  "seats": {
+    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"], "worktree": true },
+    "architect": { "toolsets": ["file", "terminal"], "worktree": false },
+    "reviewer":  { "toolsets": ["file", "terminal"], "worktree": false },
+    "tester":    { "toolsets": ["file", "terminal"], "worktree": false }
+  }
+}
+```
+
+The remaining seats (fact-checker, docs-writer, perf-investigator) take
+the same shape as architect. `docs-writer` is the one exception that
+writes files, but it writes docs on a branch the lead already prepared,
+so it does not need its own worktree.
+
+The worker tier takes a model distinct from judgment. This is what makes
+the `judgment -> worker` fallback a real degradation rather than a
+re-roll. The concrete model is a configuration decision left to the
+owner; the spec requires only that the two differ, and the adapter-table
+test asserts it.
+
+### 4.1 Flat-star enforced at the runtime level
+
+Every seat omits the `delegation` toolset. A spawned seat therefore
+cannot delegate further, which enforces "agents never call each other"
+mechanically instead of by prompt instruction. This is the first
+mechanical enforcement of that invariant on any host.
+
+Seats also omit `browser`, `computer_use`, `image_gen`, `bfl`,
+`cronjob`, `memory`, and `session_search`. Dropping `memory` and
+`session_search` keeps a seat's judgment a function of its task and the
+repo, not of unrelated history in the owner's Hermes state.
+
+### 4.2 Effort ceiling
+
+Hermes `--reasoning` accepts `none`, `minimal`, `low`, `medium`, `high`,
+`xhigh`, `max`, and `ultra`. The team's ceiling is `xhigh`, so the
+forbidden list in `hermes.json` must grow from `["max"]` to
+`["max", "ultra"]`. The effort-policy test asserts no tier or seat
+resolves to either.
+
+## 5. Report capture and failure detection
+
+`-z` prints only the final response, so the report arrives as text on
+stdout. The adapter parses the report-contract fields per role, with the
+patterns derived once from `docs/architecture/role-contracts.md`
+(`STATUS:` for developer, `VERDICT:` for tester and reviewer, and so
+on). A parser table keyed by role replaces the `output_schema`
+parameter, and the false claim is removed from
+`docs/architecture/adapter-interface.md` and the `hermes.json`
+description.
+
+`detectFailure` returns true on any of: a nonzero exit code, empty
+stdout, an HTTP error line on stdout or stderr (the expired-key
+response `HTTP 403: Virtual key has expired` is the reference case), or
+a parsed report missing its role's required field.
+
+`retry` keeps its contract: degrade judgment to worker, log the
+fallback, mark `modelFallback` on the report, preserve the schema and
+the effort, and append a retry notice so no unchanged prompt is
+re-dispatched.
+
+## 6. The driver
+
+The Node driver is the primary entry point:
+
+```
+node .claude/adapters/hermes-pipeline.mjs --issues 42,43
+```
+
+It owns the gate, the wave plan, the per-package stage sequence, the fix
+caps, the parking, and the wave-end report. `SKILL.hermes.md` becomes a
+thin wrapper that shells out to it rather than prose the lead model
+re-implements each run. This matters because the current installed
+bundle is a hand-written paraphrase that silently dropped the label
+gate, resume detection, `label:` selection, ARBITRATION routing, the
+never-re-dispatch-unchanged rule, fix-cap counting, parking semantics,
+and the wave-end report format. Rules that live in the driver cannot be
+paraphrased away.
+
+Concurrency moves to the driver, which removes two Hermes-specific
+hazards: the per-turn truncator that silently drops excess
+`delegate_task` calls in one turn, and the model self-limiting a batch
+and reporting it as a runtime cap.
+
+## 7. Verification
+
+1. Unit: the adapter builds the expected argv for each role from the
+   table. Assert the flags, the tier resolution, the seat toolsets, the
+   `-w` presence for developer only, and the absence of `delegation`
+   everywhere.
+2. Unit: `detectFailure` across all five failure shapes, including the
+   HTTP 403 line.
+3. Unit: the report parser against a recorded stdout fixture per role.
+4. Unit: the adapter table maps every role to a seat and every tier to a
+   distinct model where required, with no forbidden effort.
+5. Integration, one seat: spawn the architect for a `SUB_PLAN` on a real
+   issue and confirm a parsed report.
+6. Integration, full pipeline: one `size:S` issue from gate to ready PR.
+7. Isolation: two packages concurrently, and confirm two distinct
+   worktrees with no cross-contamination.
+
+Steps 5 through 7 are blocked on a working provider credential. The
+current key returns `HTTP 403: Virtual key has expired`, so no live
+Hermes verification is possible until it is renewed. Steps 1 through 4
+run offline and gate the PR.
+
+## 8. What this deliberately does not fix
+
+Named so they are not mistaken for oversights:
+
+1. The installed bundle at
+   `~/.hermes/skills/autonomous-ai-agents/orchestrai/` is a hand-written
+   paraphrase of `SKILL.hermes.md`, drifted by 39 lines in the skill and
+   140 lines in the vendored renderer, with no sync mechanism. Section 6
+   shrinks the blast radius by moving rules into the driver, but
+   generating the bundle from source with a drift test is separate work.
+2. Five of seven skills have no Hermes variant: `tm-review-changes`,
+   `tm-review-codebase`, `tm-map-codebase`, `tm-grill-me`, `tm-ab-test`,
+   `tm-new-project`. The three workflow skills need the renderer wired
+   to the new spawn before they can run live.
+3. The Codex adapter has the same unverified shape and has never been
+   live-tested. It needs its own audit against the `codex exec` flags.
+4. Read-only seats cannot be enforced through `-t`. Every seat needs
+   `terminal` for git, gh, and the check suite, and `terminal` implies
+   write capability. Read-only stays a prompt-level contract on Hermes,
+   weaker than the Claude Code tool allowlist. The adapter documents
+   this rather than implying parity.
+
+## 9. Risk register
+
+1. Medium: subprocess overhead per seat. Each spawn is a fresh process
+   that re-reads rules and rebuilds context. Mitigation: the seats are
+   long-running by nature (a developer implementing an issue), so
+   startup is a small fraction of the run. Measure once live.
+2. Medium: `--worktree` semantics are unverified against the branch and
+   PR flow. The developer seat must create its branch and push from
+   inside the worktree, and the driver must discover the resulting
+   branch. Mitigation: verification step 7 covers this before the
+   pipeline is trusted.
+3. Low: report parsing from prose is looser than a schema. Mitigation:
+   the role contracts already mandate a fixed first line per report, and
+   `detectFailure` treats a missing required field as failure rather
+   than passing a half-parsed report downstream.
+4. Blocking, external: the expired provider credential. Nothing live is
+   verifiable until it is renewed.
+
+## 10. References
+
+- Issue #351 (this design's issue)
+- `docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`
+  (the parent design; this amends Phase C)
+- `docs/architecture/adapter-interface.md` (the interface, and the
+  `output_schema` claim this corrects)
+- `docs/architecture/hermes-adapter.md` (the component map to update)
+- `docs/architecture/role-contracts.md` (the source of the report
+  parser patterns)
+- `.claude/adapters/hermes.json` (the table this extends)
+- Hermes Agent v0.20.1 `hermes --help` (the verified flag surface)
