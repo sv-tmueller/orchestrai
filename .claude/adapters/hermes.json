@@ -1,11 +1,26 @@
 {
-  "_comment": "Adapter table for the Hermes host. Maps model tiers to concrete models and efforts. The process layer and tests reference tiers, never model names. Adding a new model means editing this table, not the process layer or agent role contracts. See docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md section 3.3.",
+  "_comment": "Adapter table for the Hermes host. Maps model tiers to concrete models, providers, and efforts, and binds each role to a seat (its tool surface). The process layer and tests reference tiers, never model names. Adding a model means editing this table, not the process layer or the role contracts. Seats spawn as `hermes` subprocesses; see docs/superpowers/specs/2026-09-16-hermes-subprocess-adapter-design.md.",
   "host": "hermes",
-  "description": "Hermes adapter. Wraps delegate_task for spawn, terminal for git/gh, read_file/write_file for handoff, and output_schema for structured reports.",
+  "description": "Hermes adapter. Spawns each seat as a `hermes -z` subprocess, pinning model, provider, effort, and tool surface per seat. Uses terminal for git/gh, the repo filesystem for handoff, and stdout for the report.",
   "tiers": {
-    "judgment": { "model": "vllm/release/glm-5-2", "effort": "xhigh" },
-    "worker": { "model": "vllm/release/glm-5-2", "effort": "high" },
-    "lead": { "model": "vllm/release/glm-5-2", "effort": "xhigh" }
+    "judgment": {
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "xhigh"
+    },
+    "worker": {
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "high"
+    },
+    "lead": {
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "xhigh"
+    }
   },
   "roles": {
     "architect": "judgment",
@@ -16,6 +31,19 @@
     "reviewer": "judgment",
     "tester": "worker"
   },
+  "_seats_comment": "The tool surface per seat, passed to `hermes -t`. No seat gets the `delegation` toolset: a seat that can re-delegate breaks the flat-star invariant, so omitting it enforces that rule at the runtime level rather than by prompt instruction. Seats also omit memory and session_search so a seat's judgment is a function of its task and the repo, not of unrelated history. `-t` cannot express read-only: every seat needs `terminal` for git, gh, and the check suite, and terminal implies write capability, so read-only stays a prompt-level contract on this host.",
+  "seats": {
+    "architect": { "toolsets": ["file", "terminal"] },
+    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"] },
+    "docs-writer": { "toolsets": ["file", "terminal"] },
+    "fact-checker": { "toolsets": ["file", "terminal"] },
+    "perf-investigator": { "toolsets": ["file", "terminal"] },
+    "reviewer": { "toolsets": ["file", "terminal"] },
+    "tester": { "toolsets": ["file", "terminal"] }
+  },
   "effort_ceiling": "xhigh",
-  "forbidden_efforts": ["max"]
+  "forbidden_efforts": ["max", "ultra"],
+  "_unverified_model_ids": {
+    "vllm/release/glm-5-3": "Issue #351: this ID follows the naming pattern of the confirmed vllm/release/glm-5-2 but has never been resolved against the provider catalog, because the credential was expired when the table was written. Every tier depends on it, so a wrong ID means nothing spawns rather than one tier degrading. Confirm it against the provider catalog once the credential is renewed, then delete this entry. The adapter surfaces this note when a spawn fails on an unverified ID."
+  }
 }

@@ -70,7 +70,8 @@ describe('hermes adapter table structure', () => {
 
   test('effort ceiling and forbidden efforts match the universal policy', () => {
     assert.equal(hermesTable.effort_ceiling, 'xhigh')
-    assert.deepEqual(hermesTable.forbidden_efforts, ['max'])
+    // Hermes --reasoning offers ultra above max, so this host forbids both.
+    assert.deepEqual([...hermesTable.forbidden_efforts].sort(), ['max', 'ultra'])
   })
 
   test('shares the same role-to-tier mapping as the Claude Code table', () => {

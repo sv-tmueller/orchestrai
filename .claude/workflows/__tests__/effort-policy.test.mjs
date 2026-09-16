@@ -37,11 +37,23 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 // ---------------------------------------------------------------------------
 // Policy constants: THESE ARE THE AUTHORITY, not the adapter table.
 // ---------------------------------------------------------------------------
+// The universal floor: every host forbids these, whatever its runtime offers.
 const FORBIDDEN_EFFORTS = ['max']
+// Levels a specific host's runtime offers above the ceiling, which that host
+// must therefore also forbid. Declared here, not in the JSON, so a host
+// cannot quietly drop one. Hermes `--reasoning` accepts ultra above max.
+const HOST_EXTRA_FORBIDDEN = { hermes: ['ultra'] }
 const EFFORT_CEILING = 'xhigh'
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
-const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 }
+const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 }
+
+// The exact forbidden set a host's table must carry: the floor plus its own
+// above-ceiling levels. Equality, so the JSON can neither weaken the policy
+// nor drift away from it.
+function expectedForbidden(host) {
+  return [...FORBIDDEN_EFFORTS, ...(HOST_EXTRA_FORBIDDEN[host] || [])].sort()
+}
 
 // ---------------------------------------------------------------------------
 // Load the adapter table and derive tier mappings.
@@ -95,11 +107,12 @@ const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map
 for (const { name, table } of adapterTables) {
   describe(`adapter table conforms to policy: ${name}`, () => {
     test('forbidden_efforts matches the hardcoded policy', () => {
+      const expected = expectedForbidden(table.host)
       assert.deepEqual(
-        table.forbidden_efforts,
-        FORBIDDEN_EFFORTS,
+        [...table.forbidden_efforts].sort(),
+        expected,
         `${name}: forbidden_efforts is ${JSON.stringify(table.forbidden_efforts)}, ` +
-          `but the policy hardcodes ${JSON.stringify(FORBIDDEN_EFFORTS)}; ` +
+          `but the policy requires exactly ${JSON.stringify(expected)}; ` +
           `do not weaken the policy by editing the JSON`
       )
     })
