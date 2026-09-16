@@ -154,9 +154,23 @@ and a seat binding per role.
 ```json
 {
   "tiers": {
-    "judgment": { "model": "vllm/release/glm-5-2", "provider": "custom", "effort": "xhigh" },
-    "worker":   { "model": "<cheaper model>", "provider": "<provider>", "effort": "high" },
-    "lead":     { "model": "vllm/release/glm-5-2", "provider": "custom", "effort": "xhigh" }
+    "judgment": {
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "xhigh"
+    },
+    "worker": {
+      "model": "vllm/qsu/deepseek-v4-flash",
+      "provider": "custom",
+      "effort": "high"
+    },
+    "lead": {
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "xhigh"
+    }
   },
   "seats": {
     "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"] },
@@ -176,11 +190,42 @@ that package receives the same `--in` path (section 3.2). The
 `isolation: "worktree"` hint in the adapter interface is therefore
 satisfied by the driver rather than by a spawn flag.
 
-The worker tier takes a model distinct from judgment. This is what makes
-the `judgment -> worker` fallback a real degradation rather than a
-re-roll. The concrete model is a configuration decision left to the
-owner; the spec requires only that the two differ, and the adapter-table
-test asserts it.
+The model choice, decided by the owner on 2026-09-16: GLM 5.3 for
+judgment with GLM 5.2 behind it, and DeepSeek V4 Flash for worker seats,
+which are stronger at coding per unit of cost. The `provider` value is a
+label resolved by local Hermes config, so the table names no
+infrastructure.
+
+Two items to confirm when a working credential is available: the exact
+model ID for GLM 5.3, which is not yet present in the local config or
+provider catalog (`vllm/release/glm-5-3` follows the existing naming
+pattern but is unverified), and whether `--reasoning` has any effect on a
+flash-class worker model. If it does not, the worker tier's `effort` is
+declarative only, and the effort-policy test should assert the value
+without implying it changes behavior.
+
+### 4.3 Fallback is within tier, not across tiers
+
+The parent design made the ladder cross-tier: a judgment-tier failure
+retries on the worker tier, generalizing the Opus to Sonnet pattern.
+That generalization holds on Claude Code, where the worker tier is a
+capable generalist. It does not hold here. The worker tier is a
+coding-optimized flash model, so a cross-tier fallback would hand an
+arbitration or a review verdict to the model least suited to it, in the
+one seat where judgment is the product.
+
+So `tiers` gains an optional `fallback_model`. Where a tier declares
+one, `retry` uses it and stays in tier. Where a tier declares none,
+`retry` falls back across tiers exactly as the parent design specifies.
+The Claude Code table declares no `fallback_model`, so its Opus to
+Sonnet behavior is unchanged. This amends section 3.3 of the parent
+design, which stated the ladder is tier-level in all cases.
+
+Hermes also has a native `fallback_model` config and a `hermes fallback`
+CLI that would retry at the provider layer. The adapter does not rely on
+it, because a provider-layer retry is invisible to the adapter and the
+report contract requires the fallback to be logged and flagged. Native
+fallback remains available underneath as an independent safety net.
 
 ### 4.1 Flat-star enforced at the runtime level
 
@@ -218,10 +263,11 @@ stdout, an HTTP error line on stdout or stderr (the expired-key
 response `HTTP 403: Virtual key has expired` is the reference case), or
 a parsed report missing its role's required field.
 
-`retry` keeps its contract: degrade judgment to worker, log the
-fallback, mark `modelFallback` on the report, preserve the schema and
-the effort, and append a retry notice so no unchanged prompt is
-re-dispatched.
+`retry` keeps its contract with one change from the parent design: it
+degrades to the tier's `fallback_model` when the tier declares one, and
+across tiers otherwise (section 4.3). It logs the fallback, marks
+`modelFallback` on the report, preserves the schema and the effort, and
+appends a retry notice so no unchanged prompt is re-dispatched.
 
 ## 6. The driver
 
@@ -256,7 +302,9 @@ and reporting it as a runtime cap.
    HTTP 403 line.
 3. Unit: the report parser against a recorded stdout fixture per role.
 4. Unit: the adapter table maps every role to a seat and every tier to a
-   distinct model where required, with no forbidden effort.
+   model, with no forbidden effort. Assert that a tier declaring
+   `fallback_model` retries within tier and one without it retries
+   across tiers, so the Claude Code path stays covered.
 5. Integration, one seat: spawn the architect for a `SUB_PLAN` on a real
    issue and confirm a parsed report.
 6. Integration, full pipeline: one `size:S` issue from gate to ready PR.
