@@ -161,7 +161,8 @@ and a seat binding per role.
       "effort": "xhigh"
     },
     "worker": {
-      "model": "vllm/qsu/deepseek-v4-flash",
+      "model": "vllm/release/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
       "provider": "custom",
       "effort": "high"
     },
@@ -190,19 +191,34 @@ that package receives the same `--in` path (section 3.2). The
 `isolation: "worktree"` hint in the adapter interface is therefore
 satisfied by the driver rather than by a spawn flag.
 
-The model choice, decided by the owner on 2026-09-16: GLM 5.3 for
-judgment with GLM 5.2 behind it, and DeepSeek V4 Flash for worker seats,
-which are stronger at coding per unit of cost. The `provider` value is a
-label resolved by local Hermes config, so the table names no
+The model choice, decided by the owner on 2026-09-16: GLM 5.3 on every
+tier, with GLM 5.2 as the fallback on every tier. The `provider` value
+is a label resolved by local Hermes config, so the table names no
 infrastructure.
 
-Two items to confirm when a working credential is available: the exact
-model ID for GLM 5.3, which is not yet present in the local config or
-provider catalog (`vllm/release/glm-5-3` follows the existing naming
-pattern but is unverified), and whether `--reasoning` has any effect on a
-flash-class worker model. If it does not, the worker tier's `effort` is
-declarative only, and the effort-policy test should assert the value
-without implying it changes behavior.
+One model across all tiers is a sound configuration here, which it would
+not have been under the parent design. With a cross-tier ladder, one
+model everywhere makes `retry` a re-roll of the same model at the same
+effort. With the within-tier `fallback_model` of section 4.3, every tier
+degrades 5.3 to 5.2, so retry means something regardless of how many
+distinct models the table holds. What still separates the tiers is
+effort: `xhigh` for judgment and lead, `high` for worker, applied per
+spawn through `--reasoning`.
+
+A cheaper coding-optimized model on the worker tier (DeepSeek V4 Flash,
+confirmed available as `vllm/qsu/deepseek-v4-flash`) is the intended next
+step for cost, deliberately deferred. Adopting it is a one-line change to
+the `worker` entry and needs no code change, which is the property the
+tier abstraction exists to provide. Two things to check at that point:
+whether `--reasoning` affects a flash-class model at all, and that the
+seats sharing the worker tier (`fact-checker` and `docs-writer` among
+them) are ones a coding-tuned model should hold. Neither question
+applies while every tier runs the same model.
+
+One item to confirm when a working credential is available: the exact
+model ID for GLM 5.3. It is not present in the local config or the
+provider catalog. `vllm/release/glm-5-3` follows the existing naming
+pattern but is unverified, and every tier now depends on it.
 
 ### 4.3 Fallback is within tier, not across tiers
 
@@ -217,6 +233,11 @@ one seat where judgment is the product.
 So `tiers` gains an optional `fallback_model`. Where a tier declares
 one, `retry` uses it and stays in tier. Where a tier declares none,
 `retry` falls back across tiers exactly as the parent design specifies.
+A worker-tier failure with no `fallback_model` has no lower tier to
+reach, so it is a failure: the stage's fix-cap rules apply and the
+package parks on exhaustion. The Hermes table declares a
+`fallback_model` on every tier, so the cross-tier path never fires
+there.
 The Claude Code table declares no `fallback_model`, so its Opus to
 Sonnet behavior is unchanged. This amends section 3.3 of the parent
 design, which stated the ladder is tier-level in all cases.
