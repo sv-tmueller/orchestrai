@@ -87,10 +87,12 @@ hermes -z "<role prompt + task>" \
   -m <tier.model> --provider <tier.provider> \
   --reasoning <tier.effort> \
   -t <seat.toolsets> \
-  --in <package working directory> \
-  [-w] \
+  --in <package worktree path> \
   --yolo --accept-hooks
 ```
+
+Note the absence of `-w`. Isolation is real, but the driver owns it, for
+the reasons in section 3.2.
 
 Rules injection stays on. `--ignore-rules` is not passed, so each seat
 picks up the repo's `AGENTS.md` and through it `.claude/process-core.md`.
@@ -109,6 +111,41 @@ Second, a Hermes lead session stops being required. A Node driver plus
 to launch the pipeline rather than the only way, which moves the
 package closer to the host independence the parent design aims at.
 
+### 3.2 Why the driver owns the worktree, not `-w`
+
+`-w` exists and works, but its lifecycle is built for an interactive
+human session, not for a staged pipeline. Read from the Hermes v0.20.1
+source (`cli.py`):
+
+- `_cleanup_worktree` runs on process exit via `atexit`. It preserves the
+  worktree only when it has unpushed commits. Its own docstring states
+  that uncommitted changes alone are not enough to keep it. Otherwise it
+  runs `git worktree remove --force` and then `git branch -D <branch>`.
+  A developer seat that exits with uncommitted work loses the work and
+  the branch.
+- `_setup_worktree` names the branch `hermes/hermes-<8hex>` from a UUID.
+  That is not `feat/<issue>-<slug>`, so the convention in
+  `.claude/process-core.md` would be broken on every dispatch.
+- It appends `.worktrees/` to the repo's `.gitignore`, mutating a tracked
+  file as a side effect of spawning an agent.
+- Each spawn gets a fresh worktree branched from the fetched remote tip.
+  Stage handoff would then only work through the remote, and a fix-round
+  developer would start from a worktree that does not contain the
+  previous round's branch unless it was already pushed.
+
+So the driver creates one worktree per package with `git worktree add`,
+names the branch `feat/<issue>-<slug>`, and passes every seat for that
+package the same `--in <path>`. The driver owns creation and teardown,
+so nothing is deleted on a seat's exit, stage handoff works on the local
+filesystem as well as through the remote, and the branch convention
+holds.
+
+One thing the driver has to replicate: `.worktreeinclude`. Copying the
+gitignored files a seat needs is done by Hermes' `_setup_worktree`, not
+by `git worktree add`, so a driver-created worktree does not get it for
+free. If any seat needs a gitignored file, the driver copies it after
+creating the worktree.
+
 ## 4. Adapter table changes
 
 `.claude/adapters/hermes.json` grows two things: a provider per tier,
@@ -122,18 +159,22 @@ and a seat binding per role.
     "lead":     { "model": "vllm/release/glm-5-2", "provider": "custom", "effort": "xhigh" }
   },
   "seats": {
-    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"], "worktree": true },
-    "architect": { "toolsets": ["file", "terminal"], "worktree": false },
-    "reviewer":  { "toolsets": ["file", "terminal"], "worktree": false },
-    "tester":    { "toolsets": ["file", "terminal"], "worktree": false }
+    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"] },
+    "architect": { "toolsets": ["file", "terminal"] },
+    "reviewer":  { "toolsets": ["file", "terminal"] },
+    "tester":    { "toolsets": ["file", "terminal"] }
   }
 }
 ```
 
 The remaining seats (fact-checker, docs-writer, perf-investigator) take
-the same shape as architect. `docs-writer` is the one exception that
-writes files, but it writes docs on a branch the lead already prepared,
-so it does not need its own worktree.
+the same shape as architect.
+
+Seats carry no isolation field. Isolation is per package, not per seat:
+the driver creates one worktree for a package and every seat working
+that package receives the same `--in` path (section 3.2). The
+`isolation: "worktree"` hint in the adapter interface is therefore
+satisfied by the driver rather than by a spawn flag.
 
 The worker tier takes a model distinct from judgment. This is what makes
 the `judgment -> worker` fallback a real degradation rather than a
@@ -220,7 +261,9 @@ and reporting it as a runtime cap.
    issue and confirm a parsed report.
 6. Integration, full pipeline: one `size:S` issue from gate to ready PR.
 7. Isolation: two packages concurrently, and confirm two distinct
-   worktrees with no cross-contamination.
+   driver-created worktrees with `feat/<issue>-<slug>` branch names, no
+   cross-contamination, no mutation of the repo's `.gitignore`, and both
+   worktrees still present after the seats exit.
 
 Steps 5 through 7 are blocked on a working provider credential. The
 current key returns `HTTP 403: Virtual key has expired`, so no live
@@ -255,11 +298,14 @@ Named so they are not mistaken for oversights:
    that re-reads rules and rebuilds context. Mitigation: the seats are
    long-running by nature (a developer implementing an issue), so
    startup is a small fraction of the run. Measure once live.
-2. Medium: `--worktree` semantics are unverified against the branch and
-   PR flow. The developer seat must create its branch and push from
-   inside the worktree, and the driver must discover the resulting
-   branch. Mitigation: verification step 7 covers this before the
-   pipeline is trusted.
+2. Resolved during design, kept for the record: `-w` would have deleted
+   a developer's work. Its `atexit` cleanup removes the worktree and
+   force-deletes the branch unless there are unpushed commits, and
+   uncommitted changes do not count. It also names branches from a UUID
+   and edits the repo's `.gitignore`. Section 3.2 moves worktree
+   ownership to the driver, which removes all three problems. The
+   residual risk is ordinary `git worktree` handling in the driver,
+   covered by verification step 7.
 3. Low: report parsing from prose is looser than a schema. Mitigation:
    the role contracts already mandate a fixed first line per report, and
    `detectFailure` treats a missing required field as failure rather
