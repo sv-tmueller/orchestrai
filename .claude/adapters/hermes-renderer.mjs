@@ -140,10 +140,26 @@ export async function renderWorkflow(workflowName, args = {}) {
   return ctx[lastName]
 }
 
+/**
+ * The per-stage spawn bindings. A workflow stage reads and reviews the
+ * repo itself rather than a package worktree, so its working directory is
+ * the repo root. Without a cwd the seat cannot spawn at all: buildArgv
+ * rejects it, because a seat inheriting the driver's directory defeats
+ * isolation.
+ */
+export function stageOpts(stage, name, root) {
+  return {
+    tier: stage.tier,
+    schema: stage.schema,
+    role: inferRole(name),
+    cwd: root,
+  }
+}
+
 // Execute a single-agent stage, with fallback if the stage declares one.
 async function executeStage(stage, name, ctx, args, log, prompts, root, base) {
   const task = buildTaskPrompt(stage, name, ctx, args, prompts, root, base)
-  const opts = { tier: stage.tier, schema: stage.schema, role: inferRole(name) }
+  const opts = stageOpts(stage, name, root)
 
   const report = await spawn(inferRole(name), task, opts)
 
@@ -162,12 +178,13 @@ async function executeParallel(stage, name, items, ctx, args, log, prompts, root
     return { task, label: `${stage.item_label_prefix || ''}${item.key || item.name || item}` }
   })
 
-  // In dry-run mode, execute sequentially (no real concurrency needed).
-  // In live mode, delegate_task supports parallel batches.
+  // Sequential for now on both paths. Each seat is its own subprocess, so
+  // real concurrency is a Promise.all away, but the concurrency cap and
+  // its interaction with per-package worktrees belong to the driver rather
+  // than here.
   const reports = []
   for (const { task, label } of tasks) {
-    const opts = { tier: stage.tier, schema: stage.schema, role: inferRole(name) }
-    const report = await spawn(inferRole(name), task, opts)
+    const report = await spawn(inferRole(name), task, stageOpts(stage, name, root))
     reports.push(report)
   }
 
