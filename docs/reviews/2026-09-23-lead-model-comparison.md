@@ -20,19 +20,23 @@ claude.ai/admin-settings/usage," after the two prior Fable runs had already
 spent $9.77 (list-price equivalent) between them. `apiKeySource` read `none`
 (not a literal API key) on every one of the six launches, which is what the
 protocol's hard gate checks, so the gate never fired and the trial continued
-to O3 as scheduled. What caused F3 is undetermined: the same-worded
-"individual spend limit" 429 later hit a Sonnet tester dispatch in this same
-account (request `req_011CfL9r8ukGaQVoFsNi2poW`, logged on batch issue
-#356), on a model that carries none of Fable's Max-vs-Pro distinction,
-which points toward an account-wide cap; but that tester's own 429 carried
-different wording ("your session limit resets 2:20pm (Europe/Berlin)"), and
-O3 (Opus) and the Sonnet judge both then ran cleanly in the same account
-within minutes, which points just as well toward a Fable-specific spend
-ceiling that Opus's and Sonnet's much smaller per-run costs never reached.
-Section 7(d) lays out both readings with the facts for and against each.
-F3 is not evidence, either way, on which subscription tier the account was
-on; that question stays open on its own terms, unresolved by this trial,
-and section 7 covers where it does and does not matter.
+to O3 as scheduled. What caused F3 is undetermined. A Sonnet tester
+dispatch in this same account later hit a 429 logged as "You've hit your
+individual spend limit ... your session limit resets 2:20pm (Europe/Berlin)"
+(request `req_011CfL9r8ukGaQVoFsNi2poW`, logged on batch issue #356). The
+two 429s share only their opening phrase, "You've hit your individual spend
+limit"; the tester's carries no `/usage-credits` or `admin-settings`
+pointer and names a session reset time instead. The shared opening, on a
+model that carries none of Fable's Max-vs-Pro distinction, points toward an
+account-wide cap. The differing remainder is at minimum consistent with a
+second, different cap: cumulative Fable-only spend by the time F3 failed
+(F1 + F2 + F3's partial run, $12.12 list-price equivalent) hitting a
+Fable-specific ceiling that Opus's and Sonnet's much smaller per-run costs
+never reached. Section 7(d) lays out both readings, quoting both 429s in
+full, with the facts for and against each. F3 is not evidence, either way,
+on which subscription tier the account was on; that question stays open on
+its own terms, unresolved by this trial, and section 7 covers where it does
+and does not matter.
 
 ## 2. The policy lines at BASE
 
@@ -309,7 +313,8 @@ than other Claude models" without a number; a second article
 limits: check ... for Fable if included in your plan") but also publishes
 no ratio.
 
-(d) **An availability event from this trial itself, cause undetermined:**
+(d) **An availability event from this trial itself, cause undetermined;
+per-model quota: unmeasured:**
 F3 failed with HTTP 429, `result: "You've hit your individual spend limit ·
 run /usage-credits to raise it, or visit claude.ai/admin-settings/usage"`,
 at 09:05:16Z, about 41 minutes after F1 started (08:24:21Z). F1 and F2
@@ -324,30 +329,32 @@ events): this one names a *spend* limit rather than a per-model limit.
 Two readings are both consistent with what this trial observed, and this
 trial cannot tell them apart:
 
-- **Account-wide cap.** The same "individual spend limit" wording later
-  hit a Sonnet tester dispatch in this same account (request
+- **Account-wide cap.** A Sonnet tester dispatch in this same account
+  later hit a 429 logged as "You've hit your individual spend limit ...
+  your session limit resets 2:20pm (Europe/Berlin)" (request
   `req_011CfL9r8ukGaQVoFsNi2poW`, logged on batch issue #356), a model
-  with none of Fable's Max-vs-Pro distinction. A cap that catches a Sonnet
-  dispatch too cannot be Fable-specific metering. Against this reading:
-  the tester's own 429 carried different wording ("your session limit
-  resets 2:20pm (Europe/Berlin)," per the same #356 log entry), so the two
-  events may be two different caps, a session/time cap and a spend cap,
-  that only sound alike rather than one cap recurring; and O3 (Opus,
-  09:06:45-09:14:09Z) and the Sonnet judge (09:16:13-09:31:18Z) both ran
-  cleanly in the same account within minutes of F3's failure, which an
-  account-wide spend cap large enough to stop F3 would also have been
-  expected to block.
-- **Fable-specific usage-credit metering.** The two Fable runs cost
-  $4.84-$4.93 each, well above every Opus run ($1.91-$2.72) and the Sonnet
-  judge ($2.87); a spend ceiling reached by Fable's heavier per-run cost
-  while Opus's and Sonnet's smaller draws stayed under it is consistent
-  with the support article's own language in (a) below, that Fable
-  "draw[s] from your plan's regular weekly usage limits and use[s] them
-  faster than other Claude models," and with Pro's usage-credits billing
-  for Fable specifically. Against this reading: the recurrence on a
-  Sonnet dispatch above is at minimum evidence that some cap in this
-  account is not Fable-specific, even if it turns out to be a different
-  cap than the one that stopped F3.
+  with none of Fable's Max-vs-Pro distinction. The two 429s share only
+  their opening phrase, "You've hit your individual spend limit"; a cap
+  that catches a Sonnet dispatch too, on that shared phrase, cannot be
+  Fable-specific metering. Against this reading: the tester's own 429
+  carries no `/usage-credits` or `admin-settings` pointer and names a
+  session reset time instead, so the two events may be two different
+  caps, a session/time cap and a spend cap, that only sound alike rather
+  than one cap recurring; and O3 (Opus, 09:06:45-09:14:09Z) and the Sonnet
+  judge (09:16:13-09:31:18Z) both ran cleanly in the same account within
+  minutes of F3's failure, which an account-wide spend cap large enough to
+  stop F3 would also have been expected to block.
+- **Fable-specific usage-credit metering.** Cumulative Fable-only spend by
+  the time F3 failed, F1 + F2 + F3's partial run, is $12.12 (list-price
+  equivalent: $4.9253 + $4.8429 + $2.3530), against $1.91-$2.72 for any
+  single Opus run and $2.87 for the Sonnet judge; a spend ceiling reached
+  by that cumulative Fable draw while Opus's and Sonnet's much smaller
+  per-run draws stayed under it is consistent with Pro's usage-credits
+  billing for Fable specifically (section 7(a)) and with the 429's own
+  `admin-settings/usage` pointer. Against this reading: the recurrence of
+  the shared opening phrase on a Sonnet dispatch above is at minimum
+  evidence that some cap in this account is not Fable-specific, even if it
+  turns out to be a different cap than the one that stopped F3.
 
 **F3's cause is undetermined.** It does not evidence which subscription
 tier the account was on either way (`apiKeySource: none` is identical on
@@ -366,29 +373,29 @@ raises a possibility this trial did not consider going in: a Team or
 Enterprise seat with its own pooled or admin-managed usage limits, not
 simply "Max" or "Pro." That question bears on whether Fable draws from a
 plan-included weekly limit or metered usage credits in general, per (a)
-below; it does not bear on why F3 failed, and this trial does not use F3
+above; it does not bear on why F3 failed, and this trial does not use F3
 to answer it.
 
 **Does the quota reasoning in (a)-(c) still apply here?** Only if the
-account-wide reading above is wrong. If the account is on Max, (a)'s "50%
-of weekly limits" figure means a lead session on Fable draws down the
-shared weekly pool twice as fast as an equivalent Opus or Sonnet session
-would; two Fable runs in this trial would then cost roughly the same
-weekly-limit budget as four Opus runs, independent of any dollar figure.
-If the account is on Pro or an org-managed seat billed by usage credits,
-the dollar figures in section 5 are closer to real cost than to quota
-accounting, and the cost-based fallback trigger's own instruction
-("measure the lead's actual $/session cost at API rates first") is close
-to already satisfied by this trial's numbers, pending a human confirming
-the tier.
+Fable-specific metering reading is wrong and the account's plan includes
+Fable (Max). The account-wide reading leaves it open. If the account is on
+Max, (a)'s "50% of weekly limits" figure most plausibly reads as a cap, not
+a burn-rate multiplier: a Fable lead session could use at most half the
+account's weekly limit pool on Fable models, a reading consistent with
+(c)'s "no specific multiplier is published." If the account is on Pro or an
+org-managed seat billed by usage credits, the dollar figures in section 5
+are closer to real cost than to quota accounting, and the cost-based
+fallback trigger's own instruction ("measure the lead's actual $/session
+cost at API rates first") is close to already satisfied by this trial's
+numbers, pending a human confirming the tier.
 
-**Verdict:** availability risk is confirmed again, on today's models,
-after a smaller cumulative spend than any prior recorded occurrence ($9.77
-across 2 runs, about 29 minutes apart and 41 minutes before F3 failed),
-with the cause undetermined between an account-wide cap and Fable-specific
-metering (both readings above). The account's Max-vs-Pro-or-other tier
-remains an open question independent of F3, and is worth a human check
-before anyone leans on this trial's dollar figures as a Max/Pro signal.
+**Verdict:** availability risk is confirmed again, on today's models
+($9.77 spent across 2 Fable runs spanning about 29 minutes, 41 minutes
+before F3 failed), with the cause undetermined between an account-wide cap
+and Fable-specific metering (both readings above). The account's
+Max-vs-Pro-or-other tier remains an open question independent of F3, and
+is worth a human check before anyone leans on this trial's dollar figures
+as a Max/Pro signal.
 
 ## 8. Recommendation
 
@@ -433,20 +440,20 @@ Model policy section would change in four places. Quotes below are exact
 against BASE; "after" text is this report's own sketch, not applied, and
 both files named in this section are unedited by this PR.
 
-**L115** (the section's opening line) would change from:
+**L115-118** (first two sentences) would change from:
 
 > Fable 5 in the one seat nothing backstops (the lead), Opus 5 at xhigh in
 > the backstopped judgment seats (architect, reviewer, workflow critics),
 > efficient workers everywhere else. The lever is where each model runs,
 > not raw effort everywhere.
 
-to something like:
+to:
 
-> Opus at xhigh in every plan-and-decide seat, including the lead
-> (architect, reviewer, workflow critics, and now the orchestrator too;
-> see the shared-blind-spot note in section 8), efficient workers
-> everywhere else. The lever is where each model runs, not raw effort
-> everywhere.
+> Opus at xhigh in every plan-and-decide seat (architect, reviewer,
+> workflow critics, and the orchestrator too), including the lead; see the
+> shared-blind-spot note in `docs/reviews/2026-09-23-lead-model-comparison.md`
+> section 8. Efficient workers everywhere else. The lever is where each
+> model runs, not raw effort everywhere.
 
 **L121-125**, the orchestrator bullet, would change from:
 
@@ -456,7 +463,7 @@ to something like:
 > token. The premium is bounded in aggregate, not per batch
 > (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
 
-to something like:
+to:
 
 > Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
 > Opus (the `opus` alias, Opus 5.5 as of 2026-09-23 per
@@ -480,7 +487,7 @@ rewords several of these same lines (see the touch points below).
 > flip alongside it.
 
 would need retiring (there is no fallback *to* Opus once Opus is already
-the default) or inverting into a Fable-escalation bullet, something like:
+the default) or inverting into a Fable-escalation bullet:
 
 > Fable escalation (optional, manual): a lead session may switch to Fable
 > at xhigh effort with `/model fable` for a specific task it judges needs
@@ -492,6 +499,16 @@ escalation, only as the default across 2 valid runs. Keep it as a separate
 design question if section 8's recommendation is adopted, not as part of
 the recommendation itself.
 
+Either direction leaves an open question this report has not answered:
+what a lead session does if Opus itself becomes unavailable, rate-limited,
+or refuses the workload, once Opus is the default rather than the
+fallback. Architect and reviewer already document Sonnet as their per-call
+fallback at the same effort (team-guide's Model policy, "Judgment seats"),
+but this trial did not test Sonnet as a lead, so naming it here would be
+an unsupported extension of that seat-level policy to the lead seat. This
+stays an open question for whoever implements the decision, not something
+this report's data settles.
+
 **L147-151**, the cost-based fallback trigger, currently:
 
 > Cost-based fallback trigger: if Fable 5 stops being included under the
@@ -501,13 +518,16 @@ the recommendation itself.
 > logging the decision and cost here.
 
 would need rewording, since its "then decide whether to keep Fable or move
-to Opus" branch is moot once Opus is already the default; something like:
+to Opus" branch is moot once Opus is already the default:
 
-> Cost-based fallback trigger (historical): this triggered the move to
-> Opus recorded above (`docs/reviews/2026-09-23-lead-model-comparison.md`).
-> If Fable's billing terms improve enough to revisit that move, re-run a
-> comparison before switching back; do not switch on an availability event
-> alone (see that report's section 7).
+> Cost-based fallback trigger: superseded by the move to Opus recorded in
+> `docs/reviews/2026-09-23-lead-model-comparison.md`, which followed that
+> report's decision rule (comparable quality, lower cost), not a confirmed
+> trigger condition (that report's section 7 leaves the account's
+> Max-vs-Pro tier, and so whether the trigger itself ever fired, an open
+> question). If Fable's billing terms improve enough to revisit the move,
+> re-run a comparison before switching back; do not switch on an
+> availability event alone (see that report's section 7).
 
 Nothing here is applied; both files are unedited by this PR.
 
@@ -517,6 +537,17 @@ Other touch points, for whoever implements the decision, none edited here:
   "effort": "xhigh" }`) would need `"model": "opus"`, at which point
   `tiers.lead` and `tiers.judgment` become identical and could plausibly
   merge, a design question of its own.
+- `.claude/workflows/tm-map-codebase.js:51`, `tm-review-changes.js:40`, and
+  `tm-review-codebase.js:59` each hardcode
+  `TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }`; the
+  `lead` entry would need `'opus'` in all three.
+  `.claude/workflows/__tests__/effort-policy.test.mjs` L325-335 (the
+  "TIER_MODELS matches the adapter table" test) asserts each file's
+  `TIER_MODELS` against `MODEL_BY_TIER`, itself derived from the adapter
+  table's `tiers.lead.model`, so it would catch a mismatch once the
+  adapter bullet above moves to `opus`, but the three hardcoded
+  `TIER_MODELS` lines still need editing by hand; the test does not write
+  them.
 - `.claude/workflows/__tests__/effort-policy.test.mjs`: the module
   docstring (L16-18, "Lead tier is rejected on agent seats and workflow
   stages: fable is lead-session-only") would need updating, since lead and
@@ -532,13 +563,17 @@ Other touch points, for whoever implements the decision, none edited here:
   (L82-89) would need a note that the trigger's condition is what section 7
   above could not resolve, and that this trial's own dollar figures are the
   measurement the trigger asks for, if the condition holds.
-- `docs/operations/plan-downgrade-runbook.md` would need its Max-to-Pro
-  downgrade step 1 ("Flip the lead session: `/model claude-opus-5`")
-  retired as a downgrade-specific step, since the lead would already be on
-  Opus. PR #359 (open, `Closes #357`) already rewrites a nearby line in
-  this same file (the Pro-availability facts paragraph a few lines above
-  step 1, noting that Opus's Pro availability needs re-verification since
-  the `opus` alias now resolves to 5.5); it does not touch step 1 itself.
+- `docs/operations/plan-downgrade-runbook.md` would need both its
+  Max-to-Pro downgrade step 1 (BASE L33, "Flip the lead session:
+  `/model claude-opus-5`") and its Pro-to-Max revert step 1 (BASE L72,
+  "Flip the lead session back: `/model claude-fable-5`") retired as
+  downgrade/revert-specific steps, since the lead would already default to
+  Opus in both directions. PR #359 (open, `Closes #357`, commit `cbb43d3`)
+  already rewrites both of these same lines, to `/model opus` and
+  `/model fable` respectively, and adds a paragraph noting the `opus`
+  alias now resolves to Opus 5.5 with its Pro availability needing
+  re-verification; it retires neither step, since its own scope is
+  version-neutral model references, not this report's recommendation.
 
 ## 10. Limitations
 
@@ -562,9 +597,12 @@ Other touch points, for whoever implements the decision, none edited here:
   redacted files, not by run order or arm), but each model's own default
   verbosity is not, which is the length-bias question section 6 covers
   directly. Writing-style tells (an em dash, a particular hedge) could
-  leak identity even after redaction; C10 (writing style) scored 2/2 on
-  every valid run, so style did not visibly separate the arms here
-  regardless. The protocol's own manual pass for missed self-identification
+  leak identity even after redaction; C10 (writing style, per the
+  protocol's rubric) rules out only em-dash and banned-phrase tells and
+  scored 2/2 on every valid run, so those specific tells did not visibly
+  separate the arms here. Structural tells (heading choice, list style) and
+  verbosity tells beyond C10's anchors remain unmeasured. The protocol's
+  own manual pass for missed self-identification
   (a run naming its own capabilities or context window) found nothing to
   redact in any of the 5 judged outputs: each blinded `_judge/R#.md` file
   is byte-identical to its run's own extracted final message, so automated
@@ -588,16 +626,21 @@ Other touch points, for whoever implements the decision, none edited here:
   path; both read it directly with `Read`, per the task prompt's own
   instruction, which is a faithful but not identical substitute for how a
   live session invokes it.
-- **Filesystem jail gap:** section 4's note applies here too, and the
-  count is at least four, not two: F1 and O1 read live, unfrozen state
-  outside the clone; F2's C2 and C7 scores were credited in part on a
-  claim resting on that same live state; and the judge had to reach
-  outside its own confinement to verify that claim. Section 4 gives the
-  F2 sensitivity: marking C7 down to 1 still leaves section 8's
-  recommendation unchanged.
+- **Filesystem jail gap:** section 4's note applies here too, for a total
+  of four affected runs: F1 and O1 read live, unfrozen state outside the
+  clone; F2's C2 and C7 scores were credited in part on a claim resting on
+  that same live state; and the judge had to reach outside its own
+  confinement to verify that claim. Section 4 gives the F2 sensitivity:
+  marking C7 down to 1 still leaves section 8's recommendation unchanged.
 - **The Pro-vs-Max question (section 7):** unresolved, and material to
   whether this report's dollar figures for the Fable arm are quota
   accounting or close to real invoiced cost.
+- **The protocol still cites a real-host location that is live on `main`:**
+  the protocol file's "Real host redaction" note names the file:line on
+  `main` at BASE that still carries the real Hermes provider host (not
+  repeated here), replaced only in commit `ef9f83d` on branch
+  `docs/352-placeholder-provider-url` (PR #353, draft, open, `Closes
+  #352`), which is not yet merged into `main`. Merging PR #353 removes it.
 - **Protocol correction (not a deviation, the protocol file is frozen and
   not edited here):** the protocol's "Prices" section describes the
   models-overview fetch as redirecting "from `/docs/en/models/overview`".
@@ -650,11 +693,11 @@ Other touch points, for whoever implements the decision, none edited here:
 - **Perl redaction step: not recoverable verbatim.** The literal
   invocation was not preserved in this developer's shell history for the
   trial's own terminal session; reconstructing its exact flags now would
-  be silent guessing, which this fix round's own instructions rule out.
-  What is directly verifiable instead: each of the 5 `_judge/R#.md` files
-  is byte-identical to its source run's extracted `output.md` (`diff`
-  reports no difference for any of the 5), meaning the redaction step
-  found nothing to change in any of them, consistent with the manual
+  be silent guessing. What is directly verifiable instead: each of the 5
+  `_judge/R#.md` files is byte-identical to its source run's extracted
+  `output.md` (`diff` reports no difference for any of the 5), meaning the
+  redaction step found nothing to change in any of them, consistent with
+  the manual
   self-identification pass also finding nothing (section 10) and with
   none of the 5 outputs containing a model name, a model ID, an
   attribution line, or the `redact.txt` host (checked directly with
