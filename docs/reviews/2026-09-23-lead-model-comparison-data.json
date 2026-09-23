@@ -159,6 +159,47 @@
       "raw_log_sha256": "3de9059b858aa5bc7e2958522ea0c0762a3de9880dca0abcfd7db8926e811df9",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "no subagents spawned. No em dashes found. Correctly treats PR #354 as unmerged."
+    },
+    {
+      "id": "O2",
+      "arm": "opus",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "0aa4115b-1e30-423f-beb0-5697ad3750a3",
+      "start_utc": "2026-09-23T08:53:59Z",
+      "end_utc": "2026-09-23T09:01:37Z",
+      "wall_seconds": 458,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 34,
+        "cache_creation_1h": 96074,
+        "cache_creation_5m": 0,
+        "cache_read": 1150344,
+        "output": 48801,
+        "thinking": 38320
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9748168,
+        "recomputed_lead_only": 1.9748168,
+        "formula": "34*4 + 96074*8 + 1150344*0.20 + 48801*20, all /1e6"
+      },
+      "num_turns": 36,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2439,
+      "raw_log_sha256": "141696a5ee89572a0d5d2c144d4ef5cc149cb5d62f30d2c0b502e43eee83866b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Recommends file only pending #354 merge."
     }
   ],
   "judge": null,
