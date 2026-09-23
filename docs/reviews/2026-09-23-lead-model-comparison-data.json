@@ -284,6 +284,295 @@
       "notes": "no subagents spawned. No em dashes found. Last of the 6 pre-registered lead runs."
     }
   ],
-  "judge": null,
-  "no_writes_check": null
+  "judge": {
+    "model_requested": "claude-sonnet-5",
+    "session_id": "3abec512-d4e9-45ba-a8e2-c49225db20ff",
+    "start_utc": "2026-09-23T09:16:13Z",
+    "end_utc": "2026-09-23T09:31:18Z",
+    "wall_seconds": 905,
+    "retry_needed": false,
+    "gates": {
+      "init_model_matches": true,
+      "has_result": true,
+      "parsed_as_json": true,
+      "budget_capped": false
+    },
+    "cost_usd": 2.86595,
+    "tokens": {
+      "input": 102,
+      "cache_creation_1h": 207996,
+      "cache_creation_5m": 0,
+      "cache_read": 6153910,
+      "output": 80298,
+      "thinking": 68795
+    },
+    "num_turns": 70,
+    "permission_denial_count": 5,
+    "label_assignment": "R1..R5 by ascending sha256 of the redacted output files",
+    "label_to_run_id": {
+      "R1": "F1",
+      "R2": "O1",
+      "R3": "O2",
+      "R4": "F2",
+      "R5": "O3"
+    },
+    "scores_by_run": {
+      "F1": {
+        "label_used": "R1",
+        "total": 18,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/unmerged and main's dead delegate_task gate, and draws a sizing consequence (splits #355, defers rest until #354 merges)."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (delegate_task global, console.log gh stubs, missing prompts/ dir) all verified true in the code."
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all size:S/M, no in-batch Blocked-by, deferred #355 named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q6 puts the bundle generator explicitly in scope as P4 with reasoning."
+          },
+          "C5": {
+            "score": 1,
+            "why": "P4's 'tap discovery rule ... checked against ... and recorded' AC is a process step, not an observable pass/fail state."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Each package's non-goals genuinely exclude adjacent work (other packages, CLI, skill text)."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Flags hermes-prompts.test.mjs's hard assertion on 'delegate_task' wording as a concrete tension the deferred package must resolve."
+          },
+          "C8": {
+            "score": 1,
+            "why": "Q3 promises modules that never wire into runPipeline, but P1's own runKickoff explicitly chains into the existing runWave, contradicting that answer."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present per package; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O1": {
+        "label_used": "R2",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "Checks PR #354 draft/unmerged and main's dead delegate_task path/console.log stubs, then slices packages to avoid #354's files as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (fixed runWave batches of 3, driver never adds in-progress/needs-human, missing prompts/ and workflows/ dirs) all verified true."
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages, sizes S/M, no in-batch Blocked-by, 3 deferred items each named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q2 explicitly puts the bundle generator in scope as P5 with reasoning."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs throughout are concrete and testable (fixture-backed parsing, byte equality, glob-based inclusion)."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals per package concretely exclude wiring, GitHub calls, and other packages' concerns."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Flags docs/architecture/role-contracts.md as locked and treats this sign-off as the explicit revisit needed for P6's DISPUTED line."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 substantive questions each with a recommended answer; the batch of pure, unwired modules matches the stated design throughout with no internal contradiction found."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O2": {
+        "label_used": "R3",
+        "total": 19,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "Cites PR #354 draft and main's delegate_task/console.log driver with precise line citations, and recommends file-only pending the merge as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Precise line citations (hermes-pipeline.mjs:103-121, :198-217; role-contracts.md's SUB_PLAN/SPLIT_PROPOSAL/ARBITRATION opener) all verified exact against source."
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages, all S/M, batch-2/3 deferrals named with reasons; the Blocked-by tag names an external issue (#351), not an in-batch package."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Explicitly defers the bundle generator to batch 3 with a stated reason (depends on the thin skill and CLI)."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete and fixture/test-backed throughout."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals genuinely narrow scope per package (e.g. P2 excludes resume/CLI, P6 excludes routing)."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Raises 'who makes judgment calls with no LLM lead' as a real architecture tension tied to role-contracts and the advisor's decide-in-scope rule."
+          },
+          "C8": {
+            "score": 1,
+            "why": "P2's scope says it 'returns a plain decision object' and lists 'actually carrying out parks' as a non-goal, yet its own AC has 'the driver dispatches the architect ... and posts the proposal', contradicting its own pure-module framing."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed (actions are conditioned on filing)."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "F2": {
+        "label_used": "R4",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/gated on live verification and main's delegate_task gate/console.log stubs, and slices packages to touch none of #354's files as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (missing prompts/ dir, a third hand-written rule copy at ~/.hermes/plugins/tm-orchestrator/, the tm-advisor Hermes skill still calling skill_view+delegate_task) all verified true."
+          },
+          "C3": {
+            "score": 2,
+            "why": "3 packages, all size:M, no in-batch Blocked-by, batch 2/3 deferrals each named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q2 puts the bundle generator in scope now, with reasoning (fixes the stated symptom independent of #354)."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete, e.g. a self-discovering import test rather than a hand-kept file list, plus byte-identical checks."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals concretely exclude the plugin, CI, and adjacent wiring per package."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Uniquely discovers a third hand-written rule copy in the Hermes plugin (~/.hermes/plugins/tm-orchestrator/), a real, checkable, previously unremarked drift source."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 real decisions with recommended answers; the 3-package batch matches the 'slice around #354' answer with no package touching driver files or contradicting its own framing."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block content verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O3": {
+        "label_used": "R5",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/waiting on credential and main's missing CLI/console.log gh helpers with exact line citations, and slices around it as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Precise line citations (hermes-pipeline.mjs:22,93,77,198-217; hermes-prompts.test.mjs:144-170) all verified exact against source."
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all size:M, no in-batch Blocked-by; batch 2/3 plus a 'not proposed' list all named with reasons."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q3 puts the bundle generator in scope now as package D, arguing it's a prerequisite rather than a follow-up."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete and test-backed throughout (round-trip parsing, controlled-promise scheduler test, byte-identical builds)."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals concretely exclude wiring, the renderer, CI, and other packages' concerns per package."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Raises how a Node driver satisfies the advisor's 'decide in-scope questions yourself' rule, a real tension since the driver can only park."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 real decisions with recommended answers, carried consistently into 4 packages that stay pure and unwired, matching the 'slice around it' answer with no internal contradiction found."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      }
+    },
+    "arm_totals": {
+      "fable_valid_scores": [
+        18,
+        20
+      ],
+      "opus_valid_scores": [
+        20,
+        19,
+        20
+      ]
+    },
+    "raw_log_sha256": "6c0da6a41fef4686d8d02570addbde23ce925deda957502f0225f1cc5ac7185d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "no_writes_check": {
+    "search_window_start_utc": "2026-09-23T08:24:00Z",
+    "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-23T08:24:00Z\"",
+    "issues_result": [],
+    "prs_command": "gh pr list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-23T08:24:00Z\"",
+    "prs_result": [
+      {
+        "number": 360,
+        "headRefName": "feat/358-lead-model-comparison"
+      }
+    ],
+    "verdict": "clean: the only hit is PR #360, this package's own draft PR; no other GitHub write occurred during or after the trial runs."
+  }
 }
