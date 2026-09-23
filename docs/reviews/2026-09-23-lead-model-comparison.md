@@ -632,7 +632,7 @@ Other touch points, for whoever implements the decision, none edited here:
   (`stream-json`), and this matches every kept `*.output.md` byte for
   byte:
   ```sh
-  jq -r '.result' "$TRIAL/runs/$ID.jsonl" | tail -1 > "$TRIAL/runs/$ID.output.md"
+  tail -1 "$TRIAL/runs/$ID.jsonl" | jq -r '.result' > "$TRIAL/runs/$ID.output.md"
   ```
   The judge's own `--output-format json` reply needed one extra step,
   since its `.result` is a markdown-fenced JSON blob:
