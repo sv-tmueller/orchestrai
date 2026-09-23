@@ -241,6 +241,47 @@
       "raw_log_sha256": "1dcd58400b9b4f266134eb263a4826cc35845b978a6bac0321b8a3502d596333",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "INVALID: is_error true, terminal_reason api_error, api_error_status 429, result text reports an individual spend limit hit, pointing at the usage-credits page. Hit partway through, after two prior Fable runs already spent about $9.77 in this session. Reported as an availability/quota event per the protocol; not replaced. The one permission_denial is a compound Bash command (ls plus python3 -c) that does not match any single allowlisted pattern, expected allowlist behavior, unrelated to the spend-limit failure."
+    },
+    {
+      "id": "O3",
+      "arm": "opus",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "c28ebf4d-2551-49b8-b5ec-8376c49ee18d",
+      "start_utc": "2026-09-23T09:06:45Z",
+      "end_utc": "2026-09-23T09:14:09Z",
+      "wall_seconds": 444,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 44,
+        "cache_creation_1h": 94275,
+        "cache_creation_5m": 0,
+        "cache_read": 1523829,
+        "output": 42594,
+        "thinking": 32069
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9110218,
+        "recomputed_lead_only": 1.9110218,
+        "formula": "44*4 + 94275*8 + 1523829*0.20 + 42594*20, all /1e6"
+      },
+      "num_turns": 38,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2628,
+      "raw_log_sha256": "8c051d1f5294309e89ce88f3970d6b4fb71d21524f72bf7cb667206edcfa422d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Last of the 6 pre-registered lead runs."
     }
   ],
   "judge": null,
