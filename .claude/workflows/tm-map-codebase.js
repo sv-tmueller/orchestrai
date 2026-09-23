@@ -67,7 +67,7 @@ export const meta = {
 // but never exceeds MAX_AREAS + 2, no matter how large the repo is or how many
 // areas the scout proposes. There is no per-file fan-out and no loop. Models and
 // effort are pinned per stage, so the session model and effort never leak into
-// the scout or the workers; the single critic runs Opus 5 at xhigh effort and
+// the scout or the workers; the single critic runs Opus at xhigh effort and
 // auto-retries once on sonnet at the same effort if Opus returns nothing
 // (criticWithFallback below; see team-guide for the lead-level fallback,
 // which is still manual).
@@ -116,7 +116,7 @@ const MAX_AREAS = Number.isInteger(opts.areas) && opts.areas > 0 ? opts.areas : 
 async function criticWithFallback(prompt, opts) {
   const first = await agent(prompt, opts)
   // agent() returns null both when the model errors out after retries (for
-  // example Opus 5 quota exhaustion) and when the user skips the dispatch
+  // example Opus quota exhaustion) and when the user skips the dispatch
   // mid-run. Nothing in this script can tell those two cases apart, so there
   // is no heuristic to invent here. The ruling is on which failure mode is
   // worse: retrying a deliberate skip costs one extra skip prompt (the retry

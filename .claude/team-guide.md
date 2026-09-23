@@ -112,25 +112,27 @@ runs the team uninterrupted and reports (mechanics:
 
 ## Model policy
 
-Fable 5 in the one seat nothing backstops (the lead), Opus 5 at xhigh in the
+Fable in the one seat nothing backstops (the lead), Opus at xhigh in the
 backstopped judgment seats (architect, reviewer, workflow critics), efficient
 workers everywhere else. The lever is where each model runs, not raw effort
 everywhere. Rationale: docs/team-guide-rationale.md.
 Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Fable 5 (`claude-fable-5`) at xhigh effort. Affordable only because the
+  Fable (the `fable` alias) at xhigh effort. Affordable only because the
   lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
-  token. The premium is bounded in aggregate, not per batch
+  token, as priced on 2026-07-24
+  (docs/research/2026-07-24-opus-5-vs-fable-5-judgment-seats.md section 4).
+  The premium is bounded in aggregate, not per batch
   (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. Fable is
+- Lead-session fallback: Opus at xhigh effort, a manual procedure. Fable is
   lead-session-only: used as the orchestrator when available, and nothing
-  else in the machinery calls it. When Fable 5 is unavailable, rate-limited,
+  else in the machinery calls it. When Fable is unavailable, rate-limited,
   quota-exhausted, or refuses the workload, switch the lead with
-  `/model claude-opus-5`. Flip back when Fable returns. This fallback covers
+  `/model opus`. Flip back when Fable returns. This fallback covers
   the lead session only; no other seat pins Fable, so no other pin needs to
   flip alongside it.
-- Judgment seats (architect, reviewer, workflow critics): Opus 5 at xhigh
+- Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
   effort is the primary model, backstopped by the lead and, for architect
   and reviewer, by the human merge gate. The per-call fallback is Sonnet at
   the same xhigh effort. The critic stage of every `tm-` workflow
@@ -144,10 +146,10 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   The ladder is Opus -> Sonnet, flagged and re-run; nothing else in the
   machinery falls back to Fable. If judgment quality visibly degrades on
   real batches, log the observation here.
-- Cost-based fallback trigger: if Fable 5 stops being included under the
+- Cost-based fallback trigger: if Fable stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates
-  first, then decide whether to keep Fable or move to Opus 5 permanently,
+  first, then decide whether to keep Fable or move to Opus permanently,
   logging the decision and cost here.
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:

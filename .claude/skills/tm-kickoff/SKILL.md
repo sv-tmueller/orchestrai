@@ -125,7 +125,7 @@ Routing rules:
   do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
-- An architect or reviewer dispatch dies on an Opus 5 limit (the limit
+- An architect or reviewer dispatch dies on an Opus limit (the limit
   error, or an empty return while Opus is exhausted): re-dispatch that one
   agent with the same task and a per-call Sonnet override (the Agent tool's
   `model` param, value `sonnet`). Do not flip a frontmatter pin or the

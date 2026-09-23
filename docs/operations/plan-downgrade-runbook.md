@@ -23,14 +23,18 @@ Facts below are verified 2026-08-02.
 - Weekly usage is one shared pool across claude.ai and Claude Code. A chat
   session in claude.ai draws down the same pool as a Claude Code run.
 
-The practical consequence: running the lead on Fable 5 under Pro means every
-lead-session token is metered, on top of the subscription price, with no
-plan-included allowance left to absorb it. Opus 5 and Sonnet 5 carry no such
-metering on Pro.
+The `opus` alias has since moved to a newer Opus (Opus 5.5, confirmed
+2026-09-23). Its Pro availability has not been re-verified since the
+2026-08-02 facts above, so re-check it before relying on this runbook.
+
+The practical consequence, as of 2026-08-02: running the lead on Fable 5
+under Pro means every lead-session token is metered, on top of the
+subscription price, with no plan-included allowance left to absorb it.
+Opus 5 and Sonnet 5 carry no such metering on Pro.
 
 ## Downgrade steps (Max to Pro)
 
-1. Flip the lead session: `/model claude-opus-5`. This is the same
+1. Flip the lead session: `/model opus`. This is the same
    lead-session fallback the Model policy already documents for a
    Fable-unavailable event; a plan downgrade is just a different trigger for
    the same switch.
@@ -69,7 +73,7 @@ Other things that matter while on Pro:
 
 ## Revert steps (Pro to Max)
 
-1. Flip the lead session back: `/model claude-fable-5`.
+1. Flip the lead session back: `/model fable`.
 2. Restore the standard caps: up to 6 packages per batch, 3 in flight.
 3. Log the change (dates, reason, any packages parked and resumed) wherever
    the batch or session tracked the downgrade, so the history is visible to
@@ -78,7 +82,7 @@ Other things that matter while on Pro:
 ## Relationship to the cost-based fallback trigger
 
 The cost-based fallback trigger in `.claude/team-guide.md`, "Model policy",
-governs a different event: Fable 5 losing its plan-included status under an
+governs a different event: Fable losing its plan-included status under an
 unchanged Max plan, which calls for measuring the lead's actual $/session
 cost before deciding whether to keep Fable or move to Opus permanently. A
 voluntary downgrade to Pro is not that event, it is a decided move the human

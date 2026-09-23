@@ -57,7 +57,7 @@ export const meta = {
 // one Opus critic. It cannot become the 100-agent fan-out that an unpinned
 // session-model review produces. Models and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
-// single critic runs Opus 5 at xhigh effort and auto-retries once on sonnet
+// single critic runs Opus at xhigh effort and auto-retries once on sonnet
 // at the same effort if Opus returns nothing (criticWithFallback below;
 // see team-guide for the lead-level fallback, which is still manual).
 //
@@ -78,7 +78,7 @@ const base = safeRef(args && args.base, 'origin/main')
 async function criticWithFallback(prompt, opts) {
   const first = await agent(prompt, opts)
   // agent() returns null both when the model errors out after retries (for
-  // example Opus 5 quota exhaustion) and when the user skips the dispatch
+  // example Opus quota exhaustion) and when the user skips the dispatch
   // mid-run. Nothing in this script can tell those two cases apart, so there
   // is no heuristic to invent here. The ruling is on which failure mode is
   // worse: retrying a deliberate skip costs one extra skip prompt (the retry
