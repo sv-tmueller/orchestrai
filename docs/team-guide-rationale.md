@@ -70,8 +70,8 @@ until quality drops.
 
 ### Orchestrator: aggregate vs. per-batch token share
 
-Supports: "Fable costs 2x Opus 5 per token. The premium is bounded in
-aggregate, not per batch."
+Supports: "Fable costs 2x Opus 5 per token, as priced on 2026-07-24. The
+premium is bounded in aggregate, not per batch."
 
 Across the 14-day, 25-project aggregate, Fable's own token share stays small
 (5.5% raw, 18.7% weighted proxy), but within a single kickoff batch it flips:
@@ -81,7 +81,7 @@ and 93.3% weighted proxy of that batch's tokens
 
 ### Cost-based fallback trigger: why it is quota, not dollars
 
-Supports: "if Fable 5 stops being included under the Max-plan subscription
+Supports: "if Fable stops being included under the Max-plan subscription
 and shifts to metered API billing, do not switch to Opus automatically."
 
 The "affordable" reasoning behind the orchestrator's model choice is weighed
@@ -109,10 +109,11 @@ Haiku."
 
 Code generation, verification, claim auditing, doc authoring, and
 measurement are execution roles, not decision roles. The `sonnet` alias
-resolves to Sonnet 5. The `fact-checker` stays on Sonnet rather than Haiku
-because claim extraction is the step that fails silently: a model that
-misses an unsupported claim defeats the role's purpose, and the agent runs
-rarely enough that the cost difference does not matter.
+resolves to Sonnet 5, confirmed by a probe run 2026-09-23 (`--model sonnet`,
+`modelUsage` key `claude-sonnet-5`). The `fact-checker` stays on Sonnet
+rather than Haiku because claim extraction is the step that fails silently:
+a model that misses an unsupported claim defeats the role's purpose, and
+the agent runs rarely enough that the cost difference does not matter.
 
 ### Effort ceiling: the DeepSWE evidence
 
