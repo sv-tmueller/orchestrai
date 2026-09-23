@@ -118,6 +118,47 @@
       "raw_log_sha256": "07396673e17cf0fdd41e4330df1d5cd3070706dffb7ba7e400bcc1015fec7889",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "no subagents spawned; ran solo. Correctly identified PR #354 as still a draft/open at BASE (C1 ground truth). No em dashes found. Read tool use also touched paths outside the cloned repo (the installed Hermes bundle under ~/.hermes/skills)."
+    },
+    {
+      "id": "F2",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "0be49706-cdf8-4cd7-9974-1fcfad00181f",
+      "start_utc": "2026-09-23T08:44:10Z",
+      "end_utc": "2026-09-23T08:53:11Z",
+      "wall_seconds": 541,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 354,
+        "cache_creation_1h": 129389,
+        "cache_creation_5m": 0,
+        "cache_read": 963157,
+        "output": 40216,
+        "thinking": 27739
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 4.84290925,
+        "recomputed_lead_only": 4.84290925,
+        "formula": "354*10 + 129389*20 + 963157*0.25 + 40216*50, all /1e6"
+      },
+      "num_turns": 62,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1949,
+      "raw_log_sha256": "3de9059b858aa5bc7e2958522ea0c0762a3de9880dca0abcfd7db8926e811df9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Correctly treats PR #354 as unmerged."
     }
   ],
   "judge": null,
