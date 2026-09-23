@@ -200,6 +200,47 @@
       "raw_log_sha256": "141696a5ee89572a0d5d2c144d4ef5cc149cb5d62f30d2c0b502e43eee83866b",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "no subagents spawned. No em dashes found. Recommends file only pending #354 merge."
+    },
+    {
+      "id": "F3",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "addb290c-5ee7-4fd7-8ddc-d5d1025095d5",
+      "start_utc": "2026-09-23T09:02:14Z",
+      "end_utc": "2026-09-23T09:05:16Z",
+      "wall_seconds": 182,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": false
+      },
+      "tokens": {
+        "input": 322,
+        "cache_creation_1h": 83000,
+        "cache_creation_5m": 0,
+        "cache_read": 492121,
+        "output": 11335,
+        "thinking": 6503
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 2.35300025,
+        "recomputed_lead_only": 2.35300025,
+        "formula": "322*10 + 83000*20 + 492121*0.25 + 11335*50, all /1e6"
+      },
+      "num_turns": 50,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": null,
+      "raw_log_sha256": "1dcd58400b9b4f266134eb263a4826cc35845b978a6bac0321b8a3502d596333",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "INVALID: is_error true, terminal_reason api_error, api_error_status 429, result text reports an individual spend limit hit, pointing at the usage-credits page. Hit partway through, after two prior Fable runs already spent about $9.77 in this session. Reported as an availability/quota event per the protocol; not replaced. The one permission_denial is a compound Bash command (ls plus python3 -c) that does not match any single allowlisted pattern, expected allowlist behavior, unrelated to the spend-limit failure."
     }
   ],
   "judge": null,
