@@ -1,0 +1,578 @@
+{
+  "_comment": "Per-run metrics and judge scores for the lead model comparison trial (#358). Raw logs, transcripts, and provider hosts are never committed; only hashes. See the protocol file for the frozen task, CLI, rubric, and decision rule.",
+  "base_sha": "1730257e1d979bda7cd60967012165d8a4b236d1",
+  "snapshot_utc": "2026-09-23T08:16:47Z",
+  "snapshot_sha256": {
+    "issues-open.json": "d75cb1973f9ca8e2218f91841b2ee17a3c4102b1bd9b2167fc6df97ec54d618b",
+    "prs-open.json": "3676d9f89775e3acedf921c9c5c269dd146c13d7745a5f89fecdf96c98ff5c9e"
+  },
+  "task_prompt_sha256": "429284cf98429a3a7deb9677b554bb40a2fdb177a883f0a9d41d5aa35605a4ac",
+  "cli": {
+    "version": "2.1.280",
+    "config_dir": "$HOME/.claude-work"
+  },
+  "prices_usd_per_mtok": {
+    "retrieved_utc": "2026-09-23T08:20Z",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "claude-fable-5-1": {
+      "input": 10,
+      "cache_write_5m": 12.5,
+      "cache_write_1h": 20,
+      "cache_read": 0.25,
+      "output": 50
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "cache_write_5m": 5,
+      "cache_write_1h": 8,
+      "cache_read": 0.2,
+      "output": 20
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.2,
+      "output": 10
+    }
+  },
+  "runs": [
+    {
+      "id": "F1",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "b4dd664a-4e8e-48bf-a884-6ea6a810e9e2",
+      "start_utc": "2026-09-23T08:24:21Z",
+      "end_utc": "2026-09-23T08:31:54Z",
+      "wall_seconds": 453,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 258,
+        "cache_creation_1h": 155582,
+        "cache_creation_5m": 0,
+        "cache_read": 514523,
+        "output": 33648,
+        "thinking": 24150
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 4.92525075,
+        "recomputed_lead_only": 4.92525075,
+        "formula": "258*10 + 155582*20 + 514523*0.25 + 33648*50, all /1e6"
+      },
+      "num_turns": 49,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1842,
+      "raw_log_sha256": "01ff8dcba301257af76676a88c9e522165bdd801d9e9849cc71be6ce77e18fc1",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned; ran solo. Correctly identified PR #354 / #351 as open and unmerged at BASE (C1 ground truth). Glob/Grep tool use touched paths outside the cloned repo (e.g. ~/.hermes/skills), a filesystem-jail limitation noted in the report."
+    },
+    {
+      "id": "O1",
+      "arm": "opus",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "80d7ccf2-1883-4946-8bab-de961257d835",
+      "start_utc": "2026-09-23T08:33:36Z",
+      "end_utc": "2026-09-23T08:43:26Z",
+      "wall_seconds": 590,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 46,
+        "cache_creation_1h": 142626,
+        "cache_creation_5m": 0,
+        "cache_read": 1916585,
+        "output": 59608,
+        "thinking": 46740
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 2.716669,
+        "recomputed_lead_only": 2.716669,
+        "formula": "46*4 + 142626*8 + 1916585*0.20 + 59608*20, all /1e6"
+      },
+      "num_turns": 49,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2689,
+      "raw_log_sha256": "07396673e17cf0fdd41e4330df1d5cd3070706dffb7ba7e400bcc1015fec7889",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned; ran solo. Correctly identified PR #354 as still a draft/open at BASE (C1 ground truth). No em dashes found. Read tool use also touched paths outside the cloned repo (the installed Hermes bundle under ~/.hermes/skills)."
+    },
+    {
+      "id": "F2",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "0be49706-cdf8-4cd7-9974-1fcfad00181f",
+      "start_utc": "2026-09-23T08:44:10Z",
+      "end_utc": "2026-09-23T08:53:11Z",
+      "wall_seconds": 541,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 354,
+        "cache_creation_1h": 129389,
+        "cache_creation_5m": 0,
+        "cache_read": 963157,
+        "output": 40216,
+        "thinking": 27739
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 4.84290925,
+        "recomputed_lead_only": 4.84290925,
+        "formula": "354*10 + 129389*20 + 963157*0.25 + 40216*50, all /1e6"
+      },
+      "num_turns": 62,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1949,
+      "raw_log_sha256": "3de9059b858aa5bc7e2958522ea0c0762a3de9880dca0abcfd7db8926e811df9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Correctly treats PR #354 as unmerged."
+    },
+    {
+      "id": "O2",
+      "arm": "opus",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "0aa4115b-1e30-423f-beb0-5697ad3750a3",
+      "start_utc": "2026-09-23T08:53:59Z",
+      "end_utc": "2026-09-23T09:01:37Z",
+      "wall_seconds": 458,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 34,
+        "cache_creation_1h": 96074,
+        "cache_creation_5m": 0,
+        "cache_read": 1150344,
+        "output": 48801,
+        "thinking": 38320
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9748168,
+        "recomputed_lead_only": 1.9748168,
+        "formula": "34*4 + 96074*8 + 1150344*0.20 + 48801*20, all /1e6"
+      },
+      "num_turns": 36,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2439,
+      "raw_log_sha256": "141696a5ee89572a0d5d2c144d4ef5cc149cb5d62f30d2c0b502e43eee83866b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Recommends file only pending #354 merge."
+    },
+    {
+      "id": "F3",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "addb290c-5ee7-4fd7-8ddc-d5d1025095d5",
+      "start_utc": "2026-09-23T09:02:14Z",
+      "end_utc": "2026-09-23T09:05:16Z",
+      "wall_seconds": 182,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": false
+      },
+      "tokens": {
+        "input": 322,
+        "cache_creation_1h": 83000,
+        "cache_creation_5m": 0,
+        "cache_read": 492121,
+        "output": 11335,
+        "thinking": 6503
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 2.35300025,
+        "recomputed_lead_only": 2.35300025,
+        "formula": "322*10 + 83000*20 + 492121*0.25 + 11335*50, all /1e6"
+      },
+      "num_turns": 50,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": null,
+      "raw_log_sha256": "1dcd58400b9b4f266134eb263a4826cc35845b978a6bac0321b8a3502d596333",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "INVALID: is_error true, terminal_reason api_error, api_error_status 429, result text reports an individual spend limit hit, pointing at the usage-credits page. Hit partway through, after two prior Fable runs already spent about $9.77 in this session. Reported as an availability/quota event per the protocol; not replaced. The one permission_denial is a compound Bash command (ls plus python3 -c) that does not match any single allowlisted pattern, expected allowlist behavior, unrelated to the spend-limit failure."
+    },
+    {
+      "id": "O3",
+      "arm": "opus",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "c28ebf4d-2551-49b8-b5ec-8376c49ee18d",
+      "start_utc": "2026-09-23T09:06:45Z",
+      "end_utc": "2026-09-23T09:14:09Z",
+      "wall_seconds": 444,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 44,
+        "cache_creation_1h": 94275,
+        "cache_creation_5m": 0,
+        "cache_read": 1523829,
+        "output": 42594,
+        "thinking": 32069
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9110218,
+        "recomputed_lead_only": 1.9110218,
+        "formula": "44*4 + 94275*8 + 1523829*0.20 + 42594*20, all /1e6"
+      },
+      "num_turns": 38,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2628,
+      "raw_log_sha256": "8c051d1f5294309e89ce88f3970d6b4fb71d21524f72bf7cb667206edcfa422d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Last of the 6 pre-registered lead runs."
+    }
+  ],
+  "judge": {
+    "model_requested": "claude-sonnet-5",
+    "session_id": "3abec512-d4e9-45ba-a8e2-c49225db20ff",
+    "start_utc": "2026-09-23T09:16:13Z",
+    "end_utc": "2026-09-23T09:31:18Z",
+    "wall_seconds": 905,
+    "retry_needed": false,
+    "gates": {
+      "init_model_matches": true,
+      "has_result": true,
+      "parsed_as_json": true,
+      "budget_capped": false
+    },
+    "cost_usd": 2.86595,
+    "tokens": {
+      "input": 102,
+      "cache_creation_1h": 207996,
+      "cache_creation_5m": 0,
+      "cache_read": 6153910,
+      "output": 80298,
+      "thinking": 68795
+    },
+    "num_turns": 70,
+    "permission_denial_count": 5,
+    "label_assignment": "R1..R5 by ascending sha256 of the redacted output files",
+    "label_to_run_id": {
+      "R1": "F1",
+      "R2": "O1",
+      "R3": "O2",
+      "R4": "F2",
+      "R5": "O3"
+    },
+    "scores_by_run": {
+      "F1": {
+        "label_used": "R1",
+        "total": 18,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/unmerged and main's dead delegate_task gate, and draws a sizing consequence (splits #355, defers rest until #354 merges)."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (delegate_task global, console.log gh stubs, missing prompts/ dir) all verified true in the code."
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all size:S/M, no in-batch Blocked-by, deferred #355 named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q6 puts the bundle generator explicitly in scope as P4 with reasoning."
+          },
+          "C5": {
+            "score": 1,
+            "why": "P4's 'tap discovery rule ... checked against ... and recorded' AC is a process step, not an observable pass/fail state."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Each package's non-goals genuinely exclude adjacent work (other packages, CLI, skill text)."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Flags hermes-prompts.test.mjs's hard assertion on 'delegate_task' wording as a concrete tension the deferred package must resolve."
+          },
+          "C8": {
+            "score": 1,
+            "why": "Q3 promises modules that never wire into runPipeline, but P1's own runKickoff explicitly chains into the existing runWave, contradicting that answer."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present per package; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O1": {
+        "label_used": "R2",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "Checks PR #354 draft/unmerged and main's dead delegate_task path/console.log stubs, then slices packages to avoid #354's files as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (fixed runWave batches of 3, driver never adds in-progress/needs-human, missing prompts/ and workflows/ dirs) all verified true."
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages, sizes S/M, no in-batch Blocked-by, 3 deferred items each named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q2 explicitly puts the bundle generator in scope as P5 with reasoning."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs throughout are concrete and testable (fixture-backed parsing, byte equality, glob-based inclusion)."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals per package concretely exclude wiring, GitHub calls, and other packages' concerns."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Flags docs/architecture/role-contracts.md as locked and treats this sign-off as the explicit revisit needed for P6's DISPUTED line."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 substantive questions each with a recommended answer; the batch of pure, unwired modules matches the stated design throughout with no internal contradiction found."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O2": {
+        "label_used": "R3",
+        "total": 19,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "Cites PR #354 draft and main's delegate_task/console.log driver with precise line citations, and recommends file-only pending the merge as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Precise line citations (hermes-pipeline.mjs:103-121, :198-217; role-contracts.md's SUB_PLAN/SPLIT_PROPOSAL/ARBITRATION opener) all verified exact against source."
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages, all S/M, batch-2/3 deferrals named with reasons; the Blocked-by tag names an external issue (#351), not an in-batch package."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Explicitly defers the bundle generator to batch 3 with a stated reason (depends on the thin skill and CLI)."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete and fixture/test-backed throughout."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals genuinely narrow scope per package (e.g. P2 excludes resume/CLI, P6 excludes routing)."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Raises 'who makes judgment calls with no LLM lead' as a real architecture tension tied to role-contracts and the advisor's decide-in-scope rule."
+          },
+          "C8": {
+            "score": 1,
+            "why": "P2's scope says it 'returns a plain decision object' and lists 'actually carrying out parks' as a non-goal, yet its own AC has 'the driver dispatches the architect ... and posts the proposal', contradicting its own pure-module framing."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed (actions are conditioned on filing)."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "F2": {
+        "label_used": "R4",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/gated on live verification and main's delegate_task gate/console.log stubs, and slices packages to touch none of #354's files as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Checkable claims (missing prompts/ dir, a third hand-written rule copy at ~/.hermes/plugins/tm-orchestrator/, the tm-advisor Hermes skill still calling skill_view+delegate_task) all verified true."
+          },
+          "C3": {
+            "score": 2,
+            "why": "3 packages, all size:M, no in-batch Blocked-by, batch 2/3 deferrals each named with a reason."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q2 puts the bundle generator in scope now, with reasoning (fixes the stated symptom independent of #354)."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete, e.g. a self-discovering import test rather than a hand-kept file list, plus byte-identical checks."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals concretely exclude the plugin, CI, and adjacent wiring per package."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Uniquely discovers a third hand-written rule copy in the Hermes plugin (~/.hermes/plugins/tm-orchestrator/), a real, checkable, previously unremarked drift source."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 real decisions with recommended answers; the 3-package batch matches the 'slice around #354' answer with no package touching driver files or contradicting its own framing."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block content verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      },
+      "O3": {
+        "label_used": "R5",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "States PR #354 draft/waiting on credential and main's missing CLI/console.log gh helpers with exact line citations, and slices around it as the consequence."
+          },
+          "C2": {
+            "score": 2,
+            "why": "Precise line citations (hermes-pipeline.mjs:22,93,77,198-217; hermes-prompts.test.mjs:144-170) all verified exact against source."
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all size:M, no in-batch Blocked-by; batch 2/3 plus a 'not proposed' list all named with reasons."
+          },
+          "C4": {
+            "score": 2,
+            "why": "Q3 puts the bundle generator in scope now as package D, arguing it's a prerequisite rather than a follow-up."
+          },
+          "C5": {
+            "score": 2,
+            "why": "ACs are concrete and test-backed throughout (round-trip parsing, controlled-promise scheduler test, byte-identical builds)."
+          },
+          "C6": {
+            "score": 2,
+            "why": "Non-goals concretely exclude wiring, the renderer, CI, and other packages' concerns per package."
+          },
+          "C7": {
+            "score": 2,
+            "why": "Raises how a Node driver satisfies the advisor's 'decide in-scope questions yourself' rule, a real tension since the driver can only park."
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 real decisions with recommended answers, carried consistently into 4 packages that stay pure and unwired, matching the 'slice around it' answer with no internal contradiction found."
+          },
+          "C9": {
+            "score": 2,
+            "why": "All required fields present; sign-off block verbatim; no forbidden GitHub action claimed."
+          },
+          "C10": {
+            "score": 2,
+            "why": "No em dashes or banned phrases found."
+          }
+        }
+      }
+    },
+    "arm_totals": {
+      "fable_valid_scores": [
+        18,
+        20
+      ],
+      "opus_valid_scores": [
+        20,
+        19,
+        20
+      ]
+    },
+    "raw_log_sha256": "6c0da6a41fef4686d8d02570addbde23ce925deda957502f0225f1cc5ac7185d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "no_writes_check": {
+    "search_window_start_utc": "2026-09-23T08:24:00Z",
+    "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-23T08:24:00Z\"",
+    "issues_result": [],
+    "prs_command": "gh pr list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-23T08:24:00Z\"",
+    "prs_result": [
+      {
+        "number": 360,
+        "headRefName": "feat/358-lead-model-comparison"
+      }
+    ],
+    "verdict": "clean: the only hit is PR #360, this package's own draft PR; no other GitHub write occurred during or after the trial runs."
+  }
+}
