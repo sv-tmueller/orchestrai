@@ -14,21 +14,20 @@ judge scores are 19.0 (Fable) and 19.67 (Opus), 0.67 points apart out of 20,
 inside the rule's 2-point "comparable" band, and Opus 5.5's mean cost per
 valid run ($2.20) is well under half of Fable 5.1's ($4.88).
 
-That recommendation carries one open question this trial could not close: a
-Fable run (F3) failed on an API 429, "You've hit your individual spend
-limit," after the two prior Fable runs. `apiKeySource` read `none` (not a
-literal API key) on every one of the six launches, which is what the
-protocol's hard gate checks, so the gate never fired and the trial
-continued to O3 as scheduled. But this repo's own
-`docs/operations/plan-downgrade-runbook.md` documents that Fable bills as
-metered usage credits on Pro once its plan-included promo ended, while
-staying plan-included on Max, and `apiKeySource: none` does not distinguish
-the two. Nothing available inside this trial's tool allowlist, or inside its
-budget, can confirm which subscription tier the account was on when F3
-failed. If it was Pro, the Fable arm's dollar figures above are close to
-real invoiced cost, not quota; if Max, they are quota consumption at list
-prices with no direct dollar meaning. Section 7 lays out what is and is not
-resolved. This is flagged as a concern for the tester, not smoothed over.
+One run failed mid-trial: a Fable run (F3) hit an API 429, "You've hit your
+individual spend limit," after the two prior Fable runs. `apiKeySource` read
+`none` (not a literal API key) on every one of the six launches, which is
+what the protocol's hard gate checks, so the gate never fired and the trial
+continued to O3 as scheduled. The same "individual spend limit" 429 later
+hit a Sonnet tester dispatch in this same account (request
+`req_011CfL9r8ukGaQVoFsNi2poW`, logged on batch issue #356), on a model that
+carries none of Fable's Max-vs-Pro distinction. That recurrence is the best
+evidence this trial has on F3's cause: an account-wide session or spend cap,
+not something specific to Fable's metering on this account. F3 is not
+evidence, either way, on which subscription tier the account was on. That
+tier question stays open on its own terms, unresolved by this trial; section
+7 covers where it does and does not matter. This is flagged as a concern for
+the tester, not smoothed over.
 
 ## 2. The policy lines at BASE
 
@@ -107,8 +106,13 @@ part of your plan" on Max; on Pro, "Fable 5 and Fable 5.1 aren't included in
 your plan's usage limits. You can use them with usage credits." The same
 article: Fable models "draw from your plan's regular weekly usage limits
 and use them faster than other Claude models," with no published
-multiplier. https://claude.com/pricing (retrieved 2026-09-23) only says Max
-includes "More Claude models" over Pro, without naming Fable specifically.
+multiplier. https://claude.com/pricing (retrieved 2026-09-23, live
+plan-comparison table) corroborates this directly with its own "Fable" row:
+Free "No", Pro "Usage credits", Max 5x and Max 20x both "50% of weekly
+limits*". Separately, the same page's feature list attaches "More Claude
+models" to the Pro plan card (a Pro-over-Free feature), not to Max over Pro;
+that phrase is not the source for Fable's Max-vs-Pro treatment, the named
+row above is.
 
 ## 4. Method
 
@@ -160,6 +164,20 @@ includes "More Claude models" over Pro, without naming Fable specifically.
   be invoked, but it is part of every run's system prompt and token count,
   identically across both arms, so it is a shared confound rather than an
   arm-specific bias.
+- **Deviation: five judged outputs, not six.** F3 was invalidated (section
+  5, budget/gate reasons unrelated to the judge) before blinding, leaving
+  five valid runs, not the six the frozen protocol's judge section and
+  prompt describe. The `_judge/` directory held only `R1.md` through
+  `R5.md`; the judge prompt actually sent, and the reply schema requested,
+  were adapted from the protocol's literal "six anonymized outputs ...
+  R1.md to R6.md ... {"R1": ..., ..., "R6": {...}}" to five outputs and a
+  five-key schema (`R1` through `R5`), matching what `data.json`'s
+  `judge.label_to_run_id` and `scores_by_run` record. The protocol file
+  itself was not edited; it stayed frozen at `191c110`. Per the protocol's
+  own rule ("any later change is a deviation, logged in the report"), this
+  is that change: nothing else about the judge run (model, effort, budget,
+  rubric text, redaction, unblinding order) differs from the frozen
+  protocol.
 
 ## 5. Per-run table
 
@@ -225,7 +243,10 @@ lean on this.
 
 (a) **Is Fable in Max for Claude Code?** Yes, per
 https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan
-(section 3): plan-included on Max, metered as usage credits on Pro.
+(section 3): plan-included on Max, metered as usage credits on Pro. The live
+https://claude.com/pricing plan-comparison table corroborates this with its
+own "Fable" row (section 3): Free "No", Pro "Usage credits", Max 5x and Max
+20x both "50% of weekly limits*".
 
 (b) **This trial's auth mode:** `apiKeySource: none` on all seven launches,
 meaning the CLI authenticated as the logged-in Claude subscription, not a
@@ -247,26 +268,32 @@ session, within about 22 minutes. This is a different message than the
 "You've reached your Fable 5 limit" quota error
 `docs/research/2026-07-24-opus-5-vs-fable-5-judgment-seats.md` section 5
 recorded on three prior occasions (#179, #228, and that batch's own two
-events): this one names a *spend* limit and points at `/usage-credits`, the
-same phrase `docs/operations/plan-downgrade-runbook.md` uses for Fable's
-Pro-plan, metered, pay-as-you-go behavior after its plan-included promo
-ended. `apiKeySource: none` is identical on Max and Pro (it only reports
-whether a raw API key was used, not which subscription tier), so it cannot
-settle which case this was. **This trial could not determine, within its
-own tool allowlist or budget, whether the account was on Max (a quota
-event, no real dollar meaning beyond the list-price accounting above) or
-Pro (a real, metered dollar cost for the Fable arm specifically).** A
-plan-tier lookup is outside every allowed tool in the protocol (it is not a
-repo fact, and checking it live would be an eighth model call, over the
-budget); the honest state is "not resolved by this trial," not "resolved as
-quota" the way the team-guide's rationale assumes cost is inert here.
+events): this one names a *spend* limit rather than a per-model limit. The
+same "individual spend limit" 429 later hit a Sonnet tester dispatch in
+this same account (request `req_011CfL9r8ukGaQVoFsNi2poW`, logged on batch
+issue #356), a model with none of Fable's Max-vs-Pro distinction. That
+recurrence, on a different model, is the strongest evidence this trial has
+on F3's cause: an account-wide session or spend cap, not a Fable-specific
+or Max-vs-Pro billing event. **F3 does not evidence which subscription tier
+the account was on**, and section 1's framing has been corrected to match.
+
+Separately, and still unresolved by this trial on its own terms: which
+subscription tier (Max or Pro) the account was on. `apiKeySource: none` is
+identical on Max and Pro (it only reports whether a raw API key was used,
+not which subscription tier), so it cannot settle this, and a plan-tier
+lookup is outside every allowed tool in the protocol (it is not a repo
+fact, and checking it live would be an eighth model call, over the budget).
+That question bears on whether Fable draws from Max's plan-included weekly
+limit or Pro's metered usage credits in general, per (a) above; it does not
+bear on why F3 failed, and this trial does not use F3 to answer it.
 
 **Verdict:** availability risk is confirmed again, on today's models, after
 a smaller cumulative spend than any prior recorded occurrence ($9.77 across
-2 runs, all inside one 22-minute window); whether it is also a real-dollar
-event is an open question, not a settled one, and is the single most
-important thing for a human to check before treating this trial's dollar
-figures as pure quota accounting.
+2 runs, all inside one 22-minute window), and best explained as an
+account-wide cap rather than a Fable-specific one, given the same message's
+recurrence on a Sonnet dispatch. The account's Max-vs-Pro tier remains an
+open question independent of F3, and is worth a human check before anyone
+leans on this trial's dollar figures as a Max/Pro signal.
 
 ## 8. Recommendation
 
@@ -385,6 +412,16 @@ Other touch points, for whoever implements the decision, none edited here:
 - **The Pro-vs-Max question (section 7):** unresolved, and material to
   whether this report's dollar figures for the Fable arm are quota
   accounting or close to real invoiced cost.
+- **Protocol correction (not a deviation, the protocol file is frozen and
+  not edited here):** the protocol's "Prices" section describes the
+  models-overview fetch as redirecting "from `/docs/en/models/overview`".
+  The direction is backwards: `curl -sI` against
+  `https://platform.claude.com/docs/en/about-claude/models/overview`
+  returns `307` with `location: /docs/en/models/overview`, so the
+  requested `/docs/en/about-claude/models/overview` path redirects *to*
+  `/docs/en/models/overview`, not the reverse. This does not change any
+  price, ID, or alias recorded in section 3; it is a wording correction,
+  noted here rather than in the frozen protocol file.
 
 ## 11. Reproduction
 
