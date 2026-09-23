@@ -1,0 +1,84 @@
+{
+  "_comment": "Per-run metrics and judge scores for the lead model comparison trial (#358). Raw logs, transcripts, and provider hosts are never committed; only hashes. See the protocol file for the frozen task, CLI, rubric, and decision rule.",
+  "base_sha": "1730257e1d979bda7cd60967012165d8a4b236d1",
+  "snapshot_utc": "2026-09-23T08:16:47Z",
+  "snapshot_sha256": {
+    "issues-open.json": "d75cb1973f9ca8e2218f91841b2ee17a3c4102b1bd9b2167fc6df97ec54d618b",
+    "prs-open.json": "3676d9f89775e3acedf921c9c5c269dd146c13d7745a5f89fecdf96c98ff5c9e"
+  },
+  "task_prompt_sha256": "429284cf98429a3a7deb9677b554bb40a2fdb177a883f0a9d41d5aa35605a4ac",
+  "cli": {
+    "version": "2.1.280",
+    "config_dir": "$HOME/.claude-work"
+  },
+  "prices_usd_per_mtok": {
+    "retrieved_utc": "2026-09-23T08:20Z",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "claude-fable-5-1": {
+      "input": 10,
+      "cache_write_5m": 12.5,
+      "cache_write_1h": 20,
+      "cache_read": 0.25,
+      "output": 50
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "cache_write_5m": 5,
+      "cache_write_1h": 8,
+      "cache_read": 0.2,
+      "output": 20
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.2,
+      "output": 10
+    }
+  },
+  "runs": [
+    {
+      "id": "F1",
+      "arm": "fable",
+      "model_requested": "claude-fable-5-1",
+      "session_id": "b4dd664a-4e8e-48bf-a884-6ea6a810e9e2",
+      "start_utc": "2026-09-23T08:24:21Z",
+      "end_utc": "2026-09-23T08:31:54Z",
+      "wall_seconds": 453,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 258,
+        "cache_creation_1h": 155582,
+        "cache_creation_5m": 0,
+        "cache_read": 514523,
+        "output": 33648,
+        "thinking": 24150
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 4.92525075,
+        "recomputed_lead_only": 4.92525075,
+        "formula": "258*10 + 155582*20 + 514523*0.25 + 33648*50, all /1e6"
+      },
+      "num_turns": 49,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1842,
+      "raw_log_sha256": "01ff8dcba301257af76676a88c9e522165bdd801d9e9849cc71be6ce77e18fc1",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned; ran solo. Correctly identified PR #354 / #351 as open and unmerged at BASE (C1 ground truth). Glob/Grep tool use touched paths outside the cloned repo (e.g. ~/.hermes/skills), a filesystem-jail limitation noted in the report."
+    }
+  ],
+  "judge": null,
+  "no_writes_check": null
+}
