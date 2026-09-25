@@ -68,8 +68,10 @@ re-measure commands to the tester afterward.
 
 For one issue, the lead runs the agents in sequence and loops on failure. This is
 the happy path with the two fix loops. It omits parking (`needs-human`),
-`NEEDS_CONTEXT`, architect arbitration on developer pushback, and the 3-round fix
-caps, all of which live in `.claude/skills/tm-kickoff/SKILL.md`.
+`NEEDS_CONTEXT`, architect arbitration on developer pushback, the 3-round fix
+caps, and the lean track (an eligible `size:S` package skips the architect and
+has the reviewer substitute for the tester), all of which live in
+`.claude/skills/tm-kickoff/SKILL.md`.
 
 ```mermaid
 sequenceDiagram
