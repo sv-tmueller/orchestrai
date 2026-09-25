@@ -56,7 +56,7 @@ to find an existing PR.
   there) to find the stage it stopped at, and re-enter there; re-enter at
   the tester only when the stage cannot be determined from the PR comments.
   Skip the architect when a sub-plan comment or a `Track: lean` comment
-  exists. A lean package (a `Track: lean` comment and no later track-change
+  exists. A lean package (a `Track: lean` comment and no later `Track: full`
   comment) re-enters at the developer or the reviewer, never the tester;
   when its stage cannot be determined from the PR comments, re-enter at
   the reviewer.
@@ -67,9 +67,10 @@ to find an existing PR.
 
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
 by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
-PRs, and each package's predicted track; see "Pipeline tracks" in section 3)
-and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended with no questions to the user mid-run.
+PRs, and each package's predicted track and why; see "Pipeline tracks" in
+section 3) and stop for the user's confirmation. This is the only
+confirmation in a run; after it, run the wave unattended with no questions to
+the user mid-run.
 Inside an /tm-advisor batch the batch sign-off replaces this confirmation; do
 not ask twice.
 
@@ -163,16 +164,18 @@ and executable code. Everything else, and every `size:M`, runs full.
 When in doubt, full.
 
 - **Before dispatch.** Predict the track from the issue body and state it
-  in the wave plan or advisor proposal.
+  and why in the wave plan or advisor proposal.
 - **Track comment.** For a lean package, post `Track: lean - <reason;
   expected paths; verification: reviewer runs the check suite>` on the
   issue. It is both the sub-plan checkpoint and the resume marker: skip
   the architect stage.
 - **Stages.** Skip step 1 (architect). The developer dispatch (step 2)
   says "lean track: no sub-plan, the issue body is the spec".
-- **Diff check.** On DONE, check `gh pr diff <n> --name-only`. If
-  eligibility is broken, post a track-change comment and continue on the
-  full track from step 3 (tester).
+- **Diff check.** Before every lean reviewer dispatch (after DONE or
+  DONE_WITH_CONCERNS, after each fix round, and on resume), check
+  `gh pr diff <n> --name-only`. If eligibility is broken, post
+  `Track: full - <reason; the paths that broke eligibility>` on the issue
+  and continue on the full track from step 3 (tester).
 - **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
   (step 5) with the PR, branch, issue and "lean track", forwarding any
   NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
@@ -189,19 +192,20 @@ When in doubt, full.
 ## Worktree cleanup (deterministic)
 
 The `developer` and `tester` run with Agent `isolation: worktree`, and so does
-the `reviewer` when it runs the lean track's check suite (see "Pipeline
-tracks" above). The isolation does not reliably separate the working tree: a dispatched agent's
-`git checkout`/`git switch` can land on the lead's shared checkout. That is the
-mechanical cause of the tangle, and it hits every checkout-running agent, not
-just one (observed live on issue #78: the `tester`'s `git checkout --detach
-FETCH_HEAD` left the lead's checkout detached at the branch tip). The agents
-publish to origin, so their work is safe there regardless; what leaks into the
-lead's checkout is a moved HEAD, sometimes a local branch, and a worktree
-registered under `.claude/worktrees/`. The `developer` fresh path uses a
-detached checkout instead of `git switch -c`, so it no longer leaves a stale
-local branch (the worst residue, a clobber risk against the good remote branch);
-the moved HEAD and the registered worktree are harness-side and cannot be
-prevented by agent commands, so the lead reverses them deterministically.
+the `reviewer`, which checks out the branch on the lean track (see "Pipeline
+tracks" above). The isolation does not reliably separate the working tree: a
+dispatched agent's `git checkout`/`git switch` can land on the lead's shared
+checkout. That is the mechanical cause of the tangle, and it hits every
+checkout-running agent, not just one (observed live on issue #78: the
+`tester`'s `git checkout --detach FETCH_HEAD` left the lead's checkout detached
+at the branch tip). The agents publish to origin, so their work is safe there
+regardless; what leaks into the lead's checkout is a moved HEAD, sometimes a
+local branch, and a worktree registered under `.claude/worktrees/`. The
+`developer` fresh path uses a detached checkout instead of `git switch -c`, so
+it no longer leaves a stale local branch (the worst residue, a clobber risk
+against the good remote branch); the moved HEAD and the registered worktree are
+harness-side and cannot be prevented by agent commands, so the lead reverses
+them deterministically.
 
 At wave end, with no agents in flight, run from the lead's main checkout:
 

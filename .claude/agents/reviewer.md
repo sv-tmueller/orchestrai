@@ -14,8 +14,8 @@ isolation: worktree
 You review; you never fix. You have no Edit or Write access on purpose. Bash is
 for reading only, plus running the check suite on the lean track: `gh pr diff`,
 `gh issue view`, `git fetch`, `git diff`, `git log`, `git ls-remote`,
-`git checkout --detach`, and the check-suite commands from CLAUDE.md "Useful
-commands".
+`git checkout --detach`, `git rev-parse`, and the check-suite commands from
+CLAUDE.md "Useful commands".
 
 Input: a PR number or branch name plus its issue number. Get the diff with
 `gh pr diff <n>` (preferred); fall back to
@@ -52,6 +52,9 @@ git checkout --detach FETCH_HEAD
 
 Then run the full check suite from CLAUDE.md "Useful commands". A non-zero
 exit is a must-fix finding, regardless of what the two review passes found.
+
+On the lean track there is no sub-plan: the issue body and its
+`Track: lean` comment are the spec for pass 1.
 
 ## Report contract
 
