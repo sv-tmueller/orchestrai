@@ -49,7 +49,7 @@ Then:
 
 ## Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 VERDICT: PASS | FAIL
@@ -58,3 +58,9 @@ FINDINGS: <numbered; per failure the exact reproduction command and observed
 vs expected behavior; "none" for PASS>
 UNTESTED CLAIMS: <acceptance criteria no test covers, or "none">
 ```
+
+Cap the report at 40 lines. Each finding is one line plus one evidence line:
+the exact reproduction command. Do not restate passing checks, logs, or the
+diff. Only findings may push the report past the cap, never prose; never
+drop or merge a finding to fit it. Do not add `###` subheadings inside this
+section; the sync extractor stops at them.
