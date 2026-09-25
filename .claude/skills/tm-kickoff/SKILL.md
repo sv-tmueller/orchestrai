@@ -55,7 +55,11 @@ to find an existing PR.
   read the sub-plan comment and the PR comments (verdicts and fix rounds live
   there) to find the stage it stopped at, and re-enter there; re-enter at
   the tester only when the stage cannot be determined from the PR comments.
-  Skip the architect when a sub-plan comment exists.
+  Skip the architect when a sub-plan comment or a `Track: lean` comment
+  exists. A lean package (a `Track: lean` comment and no later track-change
+  comment) re-enters at the developer or the reviewer, never the tester;
+  when its stage cannot be determined from the PR comments, re-enter at
+  the reviewer.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -177,7 +181,10 @@ When in doubt, full.
   every `CHECKS` exit code is 0. Only the reviewer's fix-round counter
   applies; the cap of 3 is unchanged.
 - **Plan-status.** Keep the five items. A skipped stage (the architect,
-  and the tester) shows as `[-] <n>. <stage> skipped (lean)`.
+  and the tester) shows as `[-] <n>. <stage> skipped (lean)`. After a
+  track change to full, the architect item stays
+  `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
+  (`[>] 3. test   <- dispatching tester`).
 
 ## Worktree cleanup (deterministic)
 
