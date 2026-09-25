@@ -84,7 +84,7 @@ NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
 
 Cap the report at 20 lines: one line per CHECKS command, and one line per
-DEVIATIONS or NOTES item. Do not restate passing checks, logs, or the diff.
+DEVIATIONS or NOTES item. Do not paste check output, logs, or the diff.
 Only these lines may push the report past the cap, never prose; never drop
 or merge one to fit it. Do not add `###` subheadings inside this section;
 the sync extractor stops at them.

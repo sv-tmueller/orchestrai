@@ -116,10 +116,10 @@ package the stages are serial:
 
 Routing rules:
 
-- Seat reports are capped by contract (tester and reviewer 40 lines,
-  developer 20 lines). Route on the short report as it stands. Post it
-  verbatim as the PR comment; that comment is the full evidence record. Do
-  not expand it, and do not re-dispatch a seat to get a longer version.
+- Seat reports are capped by the seat contracts. Route on the short report
+  as it stands. Where steps 4, 5, and 6 post a tester or reviewer report as
+  a PR comment, post it verbatim; that comment is the full evidence record.
+  Do not expand it, and do not re-dispatch a seat to get a longer version.
 - NEEDS_CONTEXT: answer from the issue, the sub-plan, and the repo docs. If
   you cannot, park the package.
 - BLOCKED: park the package (below) immediately; BLOCKED means the developer
