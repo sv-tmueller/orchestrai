@@ -156,35 +156,38 @@ Routing rules:
    resulting sentence or list. Never use `...`, "etc.", "for example A, B,
    ..." or "keep the rest". A behavior fix that cannot be stated as text is
    forwarded verbatim, with no partial text. If a reviewer finding contains a
-   placeholder, the lead writes out the full text, and the round does not
-   qualify as trivial.
+   placeholder, the lead writes out the full text, and the round is not
+   lead-verified.
 2. **When a round is lead-verified.** All must hold:
    - (a) every finding came from the reviewer, quotes complete replacement
      text, and was forwarded unchanged;
-   - (b) the reviewer ran its quality pass (APPROVE, or CHANGES_REQUESTED
-     with `STAGE: quality`);
-   - (c) the fix is not executable code;
+   - (b) the reviewer ran its quality pass (`STAGE: quality`; a `STAGE:
+     spec` report never qualifies);
+   - (c) the fix is not executable code or configuration (JSON, YAML, frontmatter);
    - (d) the diff contains only that text;
    - (e) CI is green.
 3. **What the lead checks.**
-   - Record `gh pr view <pr> --json headRefOid` before the fix dispatch.
-     With a tester stage, it must equal the last tester PASS `COMMIT`. Read
-     it again after DONE.
+   - Before the fix dispatch, record `gh pr view <pr> --json headRefOid` as
+     `<base>`. With a tester stage, `<base>` must equal the last tester PASS
+     `COMMIT`. After DONE, read it again as `<head>`. DONE_WITH_CONCERNS
+     falls back.
    - Run `git fetch origin <branch>` and
      `git merge-base --is-ancestor <base> <head>`.
    - Run `git diff --stat <base> <head>`. Any file beyond the findings'
      files means fall back.
-   - Run `git diff`. Every changed line must be the reviewer text or the
-     text it replaces, ignoring whitespace and wrapping.
+   - Run `git diff <base> <head>`. Every changed line must be the reviewer
+     text or the text it replaces, ignoring whitespace and wrapping.
    - Run `gh pr checks <pr> --watch --fail-fast` with the output redirected,
      so only the exit code counts. It must be 0, and `headRefOid` must be
      unchanged.
-4. **Log line.** Posted on the PR, repeated in the step 7 summary, and
-   mirrored to the batch issue:
+4. **Log line.** Posted on the PR, repeated in the step 7 summary, and,
+   inside an /tm-advisor batch, mirrored to the batch issue:
    ```
    Lead-verified round <r>/3 (reviewer findings <n, n>): verbatim reviewer text only, <base7>..<head7>, CI green on <head7>. No re-test, no re-review.
    ```
-   The `Lead-verified` prefix is also the resume marker.
+   The `Lead-verified` prefix is also the resume marker. On resume it
+   means the round passed only while `<head7>` still matches the PR head;
+   then continue at step 7. Otherwise re-test and re-review.
 5. **Every other fix** takes re-test and re-review: all tester FAIL rounds,
    mixed or lead- or developer-worded rounds, any failed check, and CI that
    is red, pending or reports no checks.
@@ -194,7 +197,7 @@ Routing rules:
    - A failed check adds no round; the same round continues on the normal
      loop.
    - A round 3/3 that passes ships.
-   - A passed round satisfies step 7 and section 4 without a new APPROVE.
+   - A passed round satisfies step 7 and section 4 without a re-test or a new APPROVE.
 7. **Lean track.** Where a package has no tester stage, the round skips only
    the re-review, the base is the head the reviewer reviewed, and CI green
    on the new head replaces the reviewer's check results.
