@@ -49,13 +49,16 @@ to find an existing PR.
   it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: report it as awaiting merge and skip it. If the issue carries
-  `in-progress` but has no open PR and no branch on origin, clear the label
-  and restart from the developer stage. Otherwise (a PR or branch exists)
-  read the sub-plan comment and the PR comments (verdicts and fix rounds live
-  there) to find the stage it stopped at, and re-enter there; re-enter at
-  the tester only when the stage cannot be determined from the PR comments.
-  Skip the architect when a sub-plan comment exists.
+  complete: report it as awaiting merge and skip it, unless its latest
+  review comment carries the `Model: sonnet (run-long fallback)` marker, in
+  which case it owes an Opus review and re-enters at the reviewer stage (see
+  "Limit deaths" below). If the issue carries `in-progress` but has no open
+  PR and no branch on origin, clear the label and restart from the developer
+  stage. Otherwise (a PR or branch exists) read the sub-plan comment and the
+  PR comments (verdicts and fix rounds live there) to find the stage it
+  stopped at, and re-enter there; re-enter at the tester only when the stage
+  cannot be determined from the PR comments. Skip the architect when a
+  sub-plan comment exists.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -125,17 +128,10 @@ Routing rules:
   do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
-- An architect or reviewer dispatch dies on an Opus limit (the limit
-  error, or an empty return while Opus is exhausted): re-dispatch that one
-  agent with the same task and a per-call Sonnet override (the Agent tool's
-  `model` param, value `sonnet`). Do not flip a frontmatter pin or the
-  session model; the agent's own effort pin (xhigh) still applies. The
-  model override is the change that permits the re-dispatch. Flag the
-  fallback in the report, log the switch as a decision comment on the
-  package issue, and re-run the same judgment on Opus once quota returns;
-  a model switch is never silent and never the final word for a judgment
-  seat. Workflow critic stages recover on their own (criticWithFallback,
-  also sonnet); this rule covers lead dispatches only.
+- An architect or reviewer dispatch dies on an Opus limit: see "Limit
+  deaths (run-long fallback and resume)" below. Workflow critic stages
+  recover on their own (criticWithFallback, also sonnet); this rule covers
+  lead dispatches only.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and
@@ -147,6 +143,63 @@ Routing rules:
   `in-progress` if present), and move on to the other packages.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
+
+### Limit deaths (run-long fallback and resume)
+
+A limit death is an agent dispatch that dies on an exhausted quota (the
+limit error, or an empty return while the model is exhausted), not a normal
+verdict. This is lead policy layered on top of the per-dispatch `retry` in
+`adapter-interface.md`; it changes no agent contract.
+
+**Run.** One `/tm-kickoff` invocation, or one /tm-advisor batch run up to
+its report, is a run. A resumed session is a new run and tries Opus first
+again.
+
+**Switch.**
+
+- The first architect or reviewer death on an Opus limit is re-dispatched
+  with a per-call Sonnet override (the Agent tool's `model` param, value
+  `sonnet`).
+- Every later judgment dispatch in the run goes straight to Sonnet.
+- An in-flight Opus dispatch that dies the same way after the switch fired
+  goes to Sonnet too, with no second decision entry.
+- The run never goes back to Opus.
+- Frontmatter pins and the session model never change. The xhigh effort pin
+  still applies.
+
+**One decision entry per run.** Post it once, when the switch fires: on the
+batch issue inside an /tm-advisor batch, otherwise on the package issue
+whose dispatch died first.
+
+- Later fallbacks in the same run get no new decision entry.
+- Every fallback verdict or sub-plan comment carries the marker line
+  `Model: sonnet (run-long fallback)` in the comment header, next to the
+  round number. The report body stays verbatim; the marker never goes
+  inside it.
+
+**Re-run on Opus.** "Once quota returns" means the next run: probing Opus
+mid-run would contradict "the run never goes back to Opus." The debt is the
+Opus review of the PR head. A Sonnet sub-plan or arbitration is covered by
+that review and is not re-run by itself.
+
+- In the next run, it is an ordinary review.
+- On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
+
+**Resume before respawn.** After a limit death, once the lead can dispatch
+again, it makes one `SendMessage` to the same agent ID. The plan-status
+block is annotated `(resumed)`.
+
+- Respawn fresh if the agent cannot be addressed, `SendMessage` errors, or
+  the resumed agent dies again or returns nothing usable.
+- A judgment seat's Opus-limit death skips the resume and goes straight to
+  the Sonnet respawn: a resumed agent keeps its exhausted model.
+- The respawn prompt adds one line naming the limit death and what the dead
+  attempt left on origin.
+
+**Counters.** A quota or limit death is not a finding. It posts no round
+comment and never advances a fix-round counter. The resumed or respawned
+dispatch keeps the same round number. A fallback verdict counts as a normal
+round.
 
 ## Worktree cleanup (deterministic)
 
@@ -198,9 +251,11 @@ the gate. End with:
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link>  (only if the switch fired this run)
 
 ## Next steps
 1. Review & merge: #NN, #NN
 2. Decide on #NN (retry or close)
-3. Run /tm-kickoff to start the next wave
+3. /tm-kickoff #NN to re-review on Opus before merge  (only for packages with an owed Opus review)
+4. Run /tm-kickoff to start the next wave
 ```
