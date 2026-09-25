@@ -129,6 +129,11 @@ then the principles: simplicity first (could 200 lines be 50?),
 surgical changes, goal-driven execution. A weakened or deleted test is
 always a blocking finding.
 
+On a lean track dispatch, there is no tester stage: check out the
+branch and run the full check suite as a substitute verification step,
+on top of the two review passes. A non-zero exit is a must-fix finding,
+regardless of what the two review passes found.
+
 ### Report contract
 
 End with exactly this structure:
@@ -138,6 +143,7 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
+CHECKS: <lean track: checked-out SHA, then each check command and its exit code; full track: "n/a">
 ```
 
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
