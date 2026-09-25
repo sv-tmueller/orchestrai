@@ -149,7 +149,7 @@ Routing rules:
 A limit death is an agent dispatch that dies on an exhausted quota (the
 limit error, or an empty return while the model is exhausted), not a normal
 verdict. This is lead policy layered on top of the per-dispatch `retry` in
-`adapter-interface.md`; it changes no agent contract.
+`docs/architecture/adapter-interface.md`; it changes no agent contract.
 
 **Run.** One `/tm-kickoff` invocation, or one /tm-advisor batch run up to
 its report, is a run. A resumed session is a new run and tries Opus first
@@ -172,17 +172,20 @@ batch issue inside an /tm-advisor batch, otherwise on the package issue
 whose dispatch died first.
 
 - Later fallbacks in the same run get no new decision entry.
-- Every fallback verdict or sub-plan comment carries the marker line
+- Post every fallback verdict as a PR comment, APPROVE included. That
+  comment and every fallback sub-plan comment carry the marker line
   `Model: sonnet (run-long fallback)` in the comment header, next to the
-  round number. The report body stays verbatim; the marker never goes
-  inside it.
+  round number where there is one. The report body stays verbatim; the
+  marker never goes inside it.
 
 **Re-run on Opus.** "Once quota returns" means the next run: probing Opus
 mid-run would contradict "the run never goes back to Opus." The debt is the
 Opus review of the PR head. A Sonnet sub-plan or arbitration is covered by
 that review and is not re-run by itself.
 
-- In the next run, it is an ordinary review.
+- In the next run, it is an ordinary review. Post its verdict as a PR
+  comment, APPROVE included; an unmarked latest review comment clears the
+  debt.
 - On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
 
 **Resume before respawn.** After a limit death, once the lead can dispatch
@@ -251,11 +254,11 @@ the gate. End with:
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
-- Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link>  (only if the switch fired this run)
+- Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
 ## Next steps
-1. Review & merge: #NN, #NN
-2. Decide on #NN (retry or close)
-3. /tm-kickoff #NN to re-review on Opus before merge  (only for packages with an owed Opus review)
+1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
+2. Review & merge: #NN, #NN
+3. Decide on #NN (retry or close)
 4. Run /tm-kickoff to start the next wave
 ```
