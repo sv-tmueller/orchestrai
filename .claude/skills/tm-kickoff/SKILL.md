@@ -55,7 +55,11 @@ to find an existing PR.
   read the sub-plan comment and the PR comments (verdicts and fix rounds live
   there) to find the stage it stopped at, and re-enter there; re-enter at
   the tester only when the stage cannot be determined from the PR comments.
-  Skip the architect when a sub-plan comment exists.
+  Skip the architect when a sub-plan comment or a `Track: lean` comment
+  exists. A lean package (a `Track: lean` comment and no later `Track: full`
+  comment) re-enters at the developer or the reviewer, never the tester;
+  when its stage cannot be determined from the PR comments, re-enter at
+  the reviewer.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -63,8 +67,10 @@ to find an existing PR.
 
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
 by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
-PRs) and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended with no questions to the user mid-run.
+PRs, and each package's predicted track and why; see "Pipeline tracks" in
+section 3) and stop for the user's confirmation. This is the only
+confirmation in a run; after it, run the wave unattended with no questions to
+the user mid-run.
 Inside an /tm-advisor batch the batch sign-off replaces this confirmation; do
 not ask twice.
 
@@ -78,8 +84,9 @@ Before every agent dispatch in this pipeline, including fix-round
 re-dispatches and arbitration dispatches, print the
 plan-status block described in team-guide.md. The items are fixed to the
 five pipeline stages below (sub-plan, develop, test, review, PR ready);
-annotate fix rounds on the current item. When dispatching agents for several
-packages in one message, print one block per package.
+annotate fix rounds on the current item, and mark a stage skipped by the lean
+track (see "Pipeline tracks" below) as `[-]`. When dispatching agents for
+several packages in one message, print one block per package.
 
 Run up to 3 packages concurrently; dispatch their agents in parallel. When
 the queue is larger (up to 6 in an /tm-advisor batch), start the next queued
@@ -148,21 +155,57 @@ Routing rules:
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 
+### Pipeline tracks (lean and full)
+
+The numbered pipeline above is the full track, the default for every
+package. A package qualifies for the lean track only on `size:S` and a
+diff that avoids `.claude/agents`, `.claude/skills`, `.claude/workflows`
+and executable code. Everything else, and every `size:M`, runs full.
+When in doubt, full.
+
+- **Before dispatch.** Predict the track from the issue body and state it
+  and why in the wave plan or advisor proposal.
+- **Track comment.** For a lean package, post `Track: lean - <reason;
+  expected paths; verification: reviewer runs the check suite>` on the
+  issue. It is both the sub-plan checkpoint and the resume marker: skip
+  the architect stage.
+- **Stages.** Skip step 1 (architect). The developer dispatch (step 2)
+  says "lean track: no sub-plan, the issue body is the spec".
+- **Diff check.** Before every lean reviewer dispatch (after DONE or
+  DONE_WITH_CONCERNS, after each fix round, and on resume), check
+  `gh pr diff <n> --name-only`. If eligibility is broken, post
+  `Track: full - <reason; the paths that broke eligibility>` on the issue
+  and continue on the full track from step 3 (tester).
+- **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
+  (step 5) with the PR, branch, issue and "lean track", forwarding any
+  NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
+  a developer fix round (step 6), then re-review. There is no re-test.
+- **Done.** Step 7's "last tester verdict PASS" becomes: APPROVE and
+  every `CHECKS` exit code is 0. Only the reviewer's fix-round counter
+  applies; the cap of 3 is unchanged.
+- **Plan-status.** Keep the five items. A skipped stage (the architect,
+  and the tester) shows as `[-] <n>. <stage> skipped (lean)`. After a
+  track change to full, the architect item stays
+  `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
+  (`[>] 3. test   <- dispatching tester`).
+
 ## Worktree cleanup (deterministic)
 
-The `developer` and `tester` run with Agent `isolation: worktree`, but the
-isolation does not reliably separate the working tree: a dispatched agent's
-`git checkout`/`git switch` can land on the lead's shared checkout. That is the
-mechanical cause of the tangle, and it hits every checkout-running agent, not
-just one (observed live on issue #78: the `tester`'s `git checkout --detach
-FETCH_HEAD` left the lead's checkout detached at the branch tip). The agents
-publish to origin, so their work is safe there regardless; what leaks into the
-lead's checkout is a moved HEAD, sometimes a local branch, and a worktree
-registered under `.claude/worktrees/`. The `developer` fresh path uses a
-detached checkout instead of `git switch -c`, so it no longer leaves a stale
-local branch (the worst residue, a clobber risk against the good remote branch);
-the moved HEAD and the registered worktree are harness-side and cannot be
-prevented by agent commands, so the lead reverses them deterministically.
+The `developer` and `tester` run with Agent `isolation: worktree`, and so does
+the `reviewer`, which checks out the branch on the lean track (see "Pipeline
+tracks" above). The isolation does not reliably separate the working tree: a
+dispatched agent's `git checkout`/`git switch` can land on the lead's shared
+checkout. That is the mechanical cause of the tangle, and it hits every
+checkout-running agent, not just one (observed live on issue #78: the
+`tester`'s `git checkout --detach FETCH_HEAD` left the lead's checkout detached
+at the branch tip). The agents publish to origin, so their work is safe there
+regardless; what leaks into the lead's checkout is a moved HEAD, sometimes a
+local branch, and a worktree registered under `.claude/worktrees/`. The
+`developer` fresh path uses a detached checkout instead of `git switch -c`, so
+it no longer leaves a stale local branch (the worst residue, a clobber risk
+against the good remote branch); the moved HEAD and the registered worktree are
+harness-side and cannot be prevented by agent commands, so the lead reverses
+them deterministically.
 
 At wave end, with no agents in flight, run from the lead's main checkout:
 
@@ -184,7 +227,9 @@ they must not touch a worktree another concurrent package is still using.
 ## 4. Wave end
 
 Definition of done per package: last tester verdict is PASS, reviewer
-APPROVE, PR ready with `Closes #N`, summary comment posted.
+APPROVE, PR ready with `Closes #N`, summary comment posted. On the lean
+track, substitute the reviewer's `CHECKS` line (all exit codes 0) for the
+tester verdict; see "Pipeline tracks" above.
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
 lead's checkout is left on the default branch with a clean tree.
