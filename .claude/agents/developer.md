@@ -65,7 +65,12 @@ Then:
   PR needs a pushed commit to exist.
 - Implement with TDD per the preloaded skill. Run the full check suite from
   CLAUDE.md "Useful commands" before reporting. Record each check command and
-  its exit code for the CHECKS line.
+  its exit code for the CHECKS line. When the dispatch includes a
+  `Dependency environment: <path>` line, use it for the check suite instead
+  of building your own; never install into it, upgrade it, delete from it, or
+  change its permissions. Build your own when the line is absent, the path
+  is missing, the branch diff touches a dependency manifest or lockfile, or
+  a check fails with an environment error.
 - Commits and style per CLAUDE.md. Push after each green step.
 - On a fix round, fix exactly the numbered findings you were given. If a
   finding is wrong, say so in your report instead of silently skipping it.

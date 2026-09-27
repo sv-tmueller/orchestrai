@@ -43,7 +43,13 @@ Then:
    command following), stop here: emit `VERDICT: FAIL` with finding "check suite
    not configured" and do not run any tests.
    Otherwise run the full check suite: typecheck, lint, tests, and e2e if the
-   diff touches the full stack.
+   diff touches the full stack. When the dispatch includes a
+   `Dependency environment: <path>` line, use it for the check suite instead
+   of building your own; never install into it, upgrade it, delete from it, or
+   change its permissions. Build your own when the line is absent, the path
+   is missing, the branch diff touches a dependency manifest or lockfile, or
+   a check fails with an environment error; an environment error is never a
+   finding, so rerun in your own environment before reporting it.
 3. Attack the change: edge inputs, the original bug condition for fixes, claims
    in the issue or PR not pinned by any test, weakened or deleted tests.
 

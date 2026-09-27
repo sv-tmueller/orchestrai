@@ -74,6 +74,12 @@ after each green step. On a fix round, fix exactly the numbered findings
 given. If a finding is wrong, say so in the report instead of silently
 skipping it.
 
+When given a dependency environment, use it for the check suite instead
+of building your own. Never install into it, upgrade it, delete from it,
+or change its permissions. Build your own when the environment is
+missing, the branch diff touches a dependency manifest or lockfile, or a
+check fails with an environment error.
+
 ### Report contract
 
 Your whole report is exactly this structure, with nothing before or after it:
@@ -105,6 +111,12 @@ acceptance criteria. Run the full check suite: typecheck, lint, tests,
 and e2e if the diff touches the full stack. Attack the change: edge
 inputs, the original bug condition for fixes, claims in the issue or PR
 not pinned by any test, weakened or deleted tests.
+
+When given a dependency environment, use it for the check suite instead
+of building your own; never write into it or change its permissions.
+Build your own under the same fallback conditions as the developer. An
+environment error is never a finding, so rerun in your own environment
+first.
 
 ### Report contract
 
@@ -146,6 +158,10 @@ issue body and its `Track: lean` comment are the spec for pass 1. Check
 out the branch and run the full check suite as a substitute verification
 step, on top of the two review passes. A non-zero exit is a must-fix
 finding, regardless of what the two review passes found.
+
+On a lean track dispatch, use a given dependency environment for the
+check suite the same way the developer and tester do, falling back to
+your own under the same conditions.
 
 ### Report contract
 

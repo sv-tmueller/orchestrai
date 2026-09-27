@@ -55,6 +55,13 @@ Merging stays human and gates the next wave. Caps, routing,
 and report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent
 files; they are not repeated here.
 
+The lead builds one read-only dependency environment per run and passes its
+path to the developer, tester, and lean-track reviewer dispatches, instead of
+each seat installing its own. A seat falls back to its own build when the
+line or path is missing, dependencies changed, or a check errors on the
+environment. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Dependency
+environment (once per run)".
+
 ### Plan-status block before dispatch
 
 Before the lead spawns any subagent that works a plan or sub-plan, it prints
