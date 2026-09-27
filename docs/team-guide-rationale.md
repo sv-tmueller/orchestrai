@@ -70,8 +70,8 @@ until quality drops.
 
 ### Orchestrator: comparable quality, lower cost
 
-Supports: "Comparable quality to Fable at well under half the cost per
-session, at low confidence."
+Supports: "Comparable quality to Fable at under half the cost per run,
+at low confidence."
 
 The 2026-09-23 lead-model comparison
 (`docs/reviews/2026-09-23-lead-model-comparison.md`) ran 5 valid headless
@@ -113,10 +113,10 @@ As a session setting, `ultracode` sends `xhigh` reasoning (one notch below
 those invented workflows carry no per-stage model pinning, so every stage
 runs at whatever the session's own model is: Opus by default now that it is
 the lead, or Fable if the user has put the main window on Fable. Fable
-over-spawns worst under exactly this shape. The measured trial behind this
-rule (288 agents attempted by an unbounded dynamic workflow against the
-bounded `tm-review-codebase` script's 9, spend cap exhausted) ran on a
-Fable-led session and is in
+over-spawns under exactly this shape. The measured trial behind this rule
+(288 agents attempted by an unbounded dynamic workflow against the bounded
+`tm-review-codebase` script's 9, spend cap exhausted) ran every stage on
+Sonnet 5 and is in the addendum of
 `docs/reviews/2026-06-30-orchestration-comparison.md`.
 (Source: code.claude.com/docs/en/model-config.md, "Adjust effort level".)
 

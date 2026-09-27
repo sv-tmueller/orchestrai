@@ -24,8 +24,9 @@
  * Since #380, Opus is the default lead and fable is a main-window user
  * choice only, never pinned anywhere in this file's policy. The guard
  * describe below (FORBIDDEN_MODEL) fails loudly if fable reappears in
- * any adapter table, agent or skill frontmatter, or workflow TIER_MODELS
- * map: a live 2x-cost regression path (review #320 finding 1).
+ * any adapter table, agent or skill frontmatter, workflow TIER_MODELS
+ * map, or a workflow/adapter file's raw source: a live 2.5x-cost
+ * regression path (review #320 finding 1).
  */
 
 import { test, describe } from 'node:test'
@@ -95,30 +96,7 @@ const SEAT_EXPECTATIONS = {
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
-// Parse the SPEC object from a JS source file. The SPEC is a top-level
-// const assigned with an object literal ending before the next top-level
-// const/export/statement. We extract it by brace-matching from `const SPEC = {`.
-// Hoisted to module scope (not just the "workflow stage tier pins" describe)
-// so the fable guard below can reuse it too.
-function parseSpec(src) {
-  const startIdx = src.indexOf('const SPEC = {')
-  assert.ok(startIdx !== -1, 'SPEC constant not found')
-  let pos = src.indexOf('{', startIdx)
-  let depth = 0
-  let started = false
-  while (pos < src.length) {
-    if (src[pos] === '{') { depth++; started = true }
-    if (src[pos] === '}') depth--
-    pos++
-    if (started && depth === 0) break
-  }
-  const specSrc = src.slice(startIdx, pos)
-  const ctx = createContext({})
-  runInContext(specSrc, ctx)
-  return runInContext('SPEC', ctx)
-}
-
-// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
+// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file. Module scope so the fable guard below can reuse it.
 function parseTierMaps(src) {
   function extractConst(name) {
     const re = new RegExp(`const ${name} = \\{`)
@@ -307,6 +285,27 @@ describe('agent frontmatter tier pins', () => {
 // in the source (defense in depth).
 // ===========================================================================
 describe('workflow stage tier pins', () => {
+  // Parse the SPEC object from a JS source file. The SPEC is a top-level
+  // const assigned with an object literal ending before the next top-level
+  // const/export/statement. We extract it by brace-matching from `const SPEC = {`.
+  function parseSpec(src) {
+    const startIdx = src.indexOf('const SPEC = {')
+    assert.ok(startIdx !== -1, 'SPEC constant not found')
+    let pos = src.indexOf('{', startIdx)
+    let depth = 0
+    let started = false
+    while (pos < src.length) {
+      if (src[pos] === '{') { depth++; started = true }
+      if (src[pos] === '}') depth--
+      pos++
+      if (started && depth === 0) break
+    }
+    const specSrc = src.slice(startIdx, pos)
+    const ctx = createContext({})
+    runInContext(specSrc, ctx)
+    return runInContext('SPEC', ctx)
+  }
+
   for (const file of WORKFLOW_FILES) {
     const src = readFileSync(join(workflowsDir, file), 'utf8')
 
@@ -414,7 +413,7 @@ describe('fable is never pinned in the reference policy', () => {
   }
 
   // (c) any TIER_MODELS value
-  for (const file of WORKFLOW_FILES) {
+  for (const file of readdirSync(workflowsDir).filter((f) => f.endsWith('.js'))) {
     test(`${file}: TIER_MODELS values do not name fable`, () => {
       const { models } = parseTierMaps(readFileSync(join(workflowsDir, file), 'utf8'))
       for (const [tier, model] of Object.entries(models)) {
@@ -428,7 +427,7 @@ describe('fable is never pinned in the reference policy', () => {
 
   // (d) the raw source of any workflow .js or adapter .json
   const rawScanTargets = [
-    ...WORKFLOW_FILES.map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
+    ...readdirSync(workflowsDir).filter((f) => f.endsWith('.js')).map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
     ...adapterFiles.map((f) => ({ label: `adapters/${f}`, path: join(adaptersDir, f) })),
   ]
   for (const { label, path } of rawScanTargets) {

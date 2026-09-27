@@ -2,16 +2,16 @@
 
 ## Scope
 
-Since issue #380, Opus is the default lead on every plan tier, so there is
-no lead-session fallback left to flip when moving between Max and Pro: the
-lead already runs the same model either way. What this runbook still
-covers is Fable's own Max-vs-Pro availability difference, relevant only if
-a user chooses Fable for the main window (`.claude/team-guide.md`, "Model
-policy"), and the batch-pacing recommendation below. Nothing in the
-machinery changes: no agent frontmatter pin moves, no skill or workflow
-file changes, no new config lever is introduced. This is a procedure for a
-human decision (downgrade to Pro, or revert to Max), not a mechanism the
-team runs on its own.
+Since issue #380, Opus is the default lead on every plan tier, so there is no
+lead-session fallback left to flip when moving between Max and Pro: the lead
+already runs the same model either way (assuming Opus 5.5 is available on
+Pro; see below). What this runbook still covers is Fable's own Max-vs-Pro
+availability difference, relevant only if a user chooses Fable for the main
+window (`.claude/team-guide.md`, "Model policy"), and the batch-pacing
+recommendation below. Nothing in the machinery changes: no agent frontmatter
+pin moves, no skill or workflow file changes, no new config lever is
+introduced. This is a procedure for a human decision (downgrade to Pro, or
+revert to Max), not a mechanism the team runs on its own.
 
 ## What changes on Pro
 
@@ -70,9 +70,10 @@ Other things that matter while on Pro:
 
 ## Revert steps (Pro to Max)
 
-1. Nothing to flip on the lead; Opus stays the default. If the main window
-   was switched to Fable for the Pro stint, flip that back to whatever the
-   user wants on Max.
+1. Nothing to flip on the lead; Opus stays the default. Fable is
+   plan-included again on Max, so a user who moved the main window off
+   Fable for the Pro stint may move it back; that stays the user's own
+   choice.
 2. Restore the standard caps: up to 6 packages per batch, 3 in flight.
 3. Log the change (dates, reason, any packages parked and resumed) wherever
    the batch or session tracked the downgrade, so the history is visible to

@@ -126,22 +126,23 @@ runs the team uninterrupted and reports (mechanics:
 
 Opus at xhigh in every plan-and-decide seat: architect, reviewer, workflow
 critics, and the lead itself. Efficient workers everywhere else. The lever is
-where each model runs, not raw effort everywhere. Fable is available only
-when the user sets it as the main-window model; no part of this machinery
-pins it. Rationale: docs/team-guide-rationale.md. The lead-model move:
-docs/reviews/2026-09-23-lead-model-comparison.md.
-Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
+where each model runs, not raw effort everywhere. Rationale:
+docs/team-guide-rationale.md. The lead-model move:
+docs/reviews/2026-09-23-lead-model-comparison.md. Moving the team between Max
+and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
   Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at xhigh effort, the
   same model family as the judgment seats. Comparable quality to Fable at
-  well under half the cost per session, at low confidence
+  under half the cost per run, at low confidence
   (docs/reviews/2026-09-23-lead-model-comparison.md; batch #371's own cost
   analysis, quoted in issue #380, put a lead session at about $9-11 on
   Opus 5.5 against about $17-23 on Fable 5.1). This adds a shared blind
   spot worth naming: with the lead on the same model family as every
   judgment seat, a systematic Opus-class mistake would go uncaught by any
-  seat in the pipeline (comparison report section 8).
+  seat in the pipeline (comparison report section 8). No lead fallback is
+  prescribed if Opus itself is unavailable; that stays open (comparison
+  report section 9).
 - Fable (main-window user choice only): available only when the user sets
   the main window itself to Fable. No part of the machinery, this policy
   included, ever pins Fable or switches to it automatically; a lead session
@@ -159,7 +160,7 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   never goes back to Opus even if quota returns mid-run
   (`.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long fallback
   and resume)"). The ladder is Opus -> Sonnet, flagged and re-run (the next
-  run reviews the PR head on Opus); nothing else in the machinery falls back
+  run reviews the PR head on Opus); nothing in the machinery falls back
   to Fable. If judgment quality visibly degrades on real batches, log the
   observation here.
 - Cost-based fallback trigger: superseded by the move to Opus recorded in
