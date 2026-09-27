@@ -306,6 +306,38 @@ When in doubt, full.
   `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
   (`[>] 3. test   <- dispatching tester`).
 
+### Dependency environment (once per run)
+
+The lead builds the dependency environment once per run, after the
+wave-plan confirmation or batch sign-off and before the first developer
+dispatch, so every seat that runs the check suite shares one build
+instead of paying for it per package.
+
+Build it from CLAUDE.md "Useful commands", against the default branch,
+into `mktemp -d "${TMPDIR:-/tmp}/tm-env.XXXXXX"`. Never inside the
+checkout or any worktree. Install dependencies only: never install the
+project under test into it, editable or not, or a seat would test the
+lead's checkout instead of its own branch.
+
+Add `Dependency environment: <absolute path>` to every dispatch that
+runs the check suite: developer, tester, and the lean-track reviewer,
+including fix rounds, resumes and respawns. The architect and the
+full-track reviewer get no line.
+
+After the build, `chmod -R a-w <path>` so the environment is read-only:
+no seat installs into it, upgrades it, deletes from it, or changes its
+permissions. At run end, after the wave-end or batch report,
+`chmod -R u+w <path> && rm -rf <path>`.
+
+A seat builds its own environment, as it did before this rule, when the
+line is absent, the path is missing, the branch diff touches a
+dependency manifest or lockfile, or a check fails with an environment
+error. For the tester, an environment error is never a finding: it
+reruns in its own environment first. This changes no report contract.
+
+If CLAUDE.md "Useful commands" has no install step, or marks it N/A, or
+the lead's build fails: no line, no park.
+
 ## Worktree cleanup (deterministic)
 
 The `developer` and `tester` run with Agent `isolation: worktree`, and so does

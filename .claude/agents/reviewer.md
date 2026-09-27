@@ -52,6 +52,10 @@ git checkout --detach FETCH_HEAD
 
 Then run the full check suite from CLAUDE.md "Useful commands". A non-zero
 exit is a must-fix finding, regardless of what the two review passes found.
+When the dispatch includes a `Dependency environment: <path>` line, use it
+for the check suite instead of building your own, the same way the
+developer and tester do; fall back to your own environment under the same
+conditions.
 
 On the lean track there is no sub-plan: the issue body and its
 `Track: lean` comment are the spec for pass 1.
