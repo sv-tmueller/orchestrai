@@ -25,6 +25,7 @@ import { join, dirname } from 'node:path'
 const __dir = dirname(fileURLToPath(import.meta.url))
 const agentsDir = join(__dir, '..', '..', 'agents')
 const rcPath = join(__dir, '..', '..', '..', 'docs', 'architecture', 'role-contracts.md')
+const promptsDir = join(__dir, '..', '..', 'adapters', 'prompts')
 
 const ROLES = readdirSync(agentsDir)
   .filter((f) => f.endsWith('.md'))
@@ -128,6 +129,52 @@ describe('role contract sync', () => {
       )
     })
   }
+
+  // LESSONS channel sentinel (issue #393): the report contract gained an
+  // optional LESSONS line, byte-identical across all six copies (agent
+  // file, role-contracts.md, and the Hermes prompt, for tester and
+  // reviewer).
+  const lessonRoles = ['tester', 'reviewer']
+
+  function lessonLines(text) {
+    return text.split('\n').filter((l) => l.startsWith('LESSONS:'))
+  }
+
+  for (const role of lessonRoles) {
+    test(`${role}: agent file has exactly one LESSONS line`, () => {
+      assert.equal(lessonLines(extractReportFromAgent(role)).length, 1)
+    })
+
+    test(`${role}: Hermes prompt has exactly one LESSONS line`, () => {
+      const promptSrc = readFileSync(join(promptsDir, `${role}.md`), 'utf8')
+      assert.equal(lessonLines(promptSrc).length, 1)
+    })
+  }
+
+  test('role-contracts.md has exactly two LESSONS lines', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    assert.equal(lessonLines(rcSrc).length, 2)
+  })
+
+  test('all six LESSONS lines are byte-identical and start with "LESSONS: <optional"', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const allLines = [
+      ...lessonRoles.map((role) => lessonLines(extractReportFromAgent(role))[0]),
+      ...lessonRoles.map(
+        (role) => lessonLines(readFileSync(join(promptsDir, `${role}.md`), 'utf8'))[0]
+      ),
+      ...lessonLines(rcSrc),
+    ]
+
+    assert.equal(allLines.length, 6, `expected 6 LESSONS lines, found ${allLines.length}`)
+    for (const line of allLines) {
+      assert.equal(line, allLines[0], 'LESSONS line differs across the six copies')
+    }
+    assert.ok(
+      allLines[0].startsWith('LESSONS: <optional'),
+      `LESSONS line does not start with "LESSONS: <optional": ${allLines[0]}`
+    )
+  })
 
   // Normative rule presence checks for roles with sentinel rules.
   for (const [role, phrases] of Object.entries(SENTINEL_RULES)) {
