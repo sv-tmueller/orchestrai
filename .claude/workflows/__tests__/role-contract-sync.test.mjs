@@ -91,14 +91,14 @@ const SENTINEL_RULES = {
     'four principles',
   ],
   'developer': [
-    'dependency environment',
+    'dependency manifest or lockfile',
   ],
   'tester': [
     'environment error is never a finding',
   ],
   'reviewer': [
     'a non-zero exit is a must-fix',
-    'dependency environment',
+    'use a given dependency environment',
   ],
 }
 
