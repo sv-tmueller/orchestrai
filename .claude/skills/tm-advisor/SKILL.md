@@ -205,7 +205,8 @@ say so in the comment.
 
 Then post the report to the batch issue:
 PRs ready for review, every decision made during the run, parked packages
-with their open questions, and anything deferred. End both the batch-issue
+with their open questions, anything deferred, and any lessons (collected as
+in kickoff section 4; promotion stays human). End both the batch-issue
 report and the chat digest with:
 
 ```
@@ -213,6 +214,7 @@ report and the chat digest with:
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Token report: <link to the batch-issue comment>
 
 ## Next steps
