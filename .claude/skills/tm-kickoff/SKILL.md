@@ -361,9 +361,10 @@ them deterministically.
 **Trigger.** Right after step 7 ships a package, and right after a package is
 parked.
 
-**Guard, mapping.** The lead records `worktreePath` and `worktreeBranch` per
-package for every worktree dispatch, and this pass touches only those plus
-the package's own local branch. Anything unmapped waits for wave end.
+**Guard, mapping.** The lead records `worktreePath` and `worktreeBranch` (the
+`worktree-agent-<id>` branch) per package for every worktree dispatch, and this
+pass touches only those plus the package's own local branch. Anything unmapped
+waits for wave end.
 
 **Guard, locks.** A single `--force`, never `--force --force`; a locked
 worktree is skipped.
@@ -373,12 +374,14 @@ switch, no HEAD repair.
 
 **Origin-safety rule.** After `git fetch --prune origin`:
 - remove a worktree only if `git -C <path> rev-list HEAD --not --remotes=origin`
-  prints nothing;
+  exits 0 and prints nothing;
 - delete a branch only if `git rev-list <branch> --not --remotes=origin`
-  prints nothing.
+  exits 0 and prints nothing.
 
 Uncommitted files in a removable worktree are discarded on purpose. A missing
-path is skipped. Anything that fails a check is left for the backstop.
+path is skipped. Anything that fails a check is left for the backstop. A
+package with several worktree dispatches runs the remove pair and the
+`worktree-agent-<id>` pair once per recorded worktree.
 
 ```
 git fetch --prune origin
@@ -388,8 +391,8 @@ git worktree remove --force <worktreePath>
 
 git rev-list worktree-agent-<id> --not --remotes=origin      # empty: safe to delete
 git branch -D worktree-agent-<id>
-git rev-list <worktreeBranch> --not --remotes=origin          # empty: safe to delete
-git branch -D <worktreeBranch>
+git rev-list <package-branch> --not --remotes=origin         # empty: safe to delete
+git branch -D <package-branch>
 
 git worktree prune
 ```
