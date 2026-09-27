@@ -5,7 +5,7 @@
   "tiers": {
     "judgment": { "model": "opus", "effort": "xhigh" },
     "worker": { "model": "sonnet", "effort": "high" },
-    "lead": { "model": "fable", "effort": "xhigh" }
+    "lead": { "model": "opus", "effort": "xhigh" }
   },
   "roles": {
     "architect": "judgment",

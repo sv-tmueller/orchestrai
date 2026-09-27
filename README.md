@@ -4,7 +4,8 @@ A tool-independent AI-team-orchestrator: a ready-made agent team that takes
 GitHub issues from sub-plan to ready PR through a flat-star pipeline
 (architect, developer, tester, reviewer). Runs on two hosts:
 
-- **Claude Code** via the plugin marketplace (Opus/Sonnet/Fable)
+- **Claude Code** via the plugin marketplace (Opus/Sonnet; Fable is a
+  main-window user choice only, never pinned)
 - **Hermes Agent** via a Hermes skill (GLM-5-2 or any configured model)
 
 A Codex adapter (subscription auth, o3/gpt-5.6) is built but not yet
@@ -127,10 +128,12 @@ The adapter table at `.claude/adapters/claude-code.json`:
 |------|-------|--------|-------|
 | judgment | opus | xhigh | architect, reviewer |
 | worker | sonnet | high | developer, tester, fact-checker, docs-writer, perf-investigator |
-| lead | fable | xhigh | the lead session |
+| lead | opus | xhigh | the lead session |
 
 Fallback: judgment-tier failures retry on the worker tier (Opus to Sonnet),
-flagged in the report. Nothing runs at max effort.
+flagged in the report. Nothing runs at max effort. Fable is never pinned
+in this table; it is available only as the user's own choice for the main
+window.
 
 ## Zone 2: Hermes Agent (GLM-5-2)
 

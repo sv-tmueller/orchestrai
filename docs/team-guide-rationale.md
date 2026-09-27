@@ -68,25 +68,41 @@ until quality drops.
 
 ## Model policy
 
-### Orchestrator: aggregate vs. per-batch token share
+### Orchestrator: comparable quality, lower cost
 
-Supports: "Fable costs 2x Opus 5 per token, as priced on 2026-07-24. The
-premium is bounded in aggregate, not per batch."
+Supports: "Comparable quality to Fable at under half the cost per run,
+at low confidence."
 
-Across the 14-day, 25-project aggregate, Fable's own token share stays small
-(5.5% raw, 18.7% weighted proxy), but within a single kickoff batch it flips:
-in batch #201, Fable-priced roles (lead, architect, reviewer) took 57.5% raw
-and 93.3% weighted proxy of that batch's tokens
+The 2026-09-23 lead-model comparison
+(`docs/reviews/2026-09-23-lead-model-comparison.md`) ran 5 valid headless
+`/tm-advisor` trials (2 Fable 5.1, 3 Opus 5.5) scored by a Sonnet judge:
+mean scores 19.0 (Fable) and 19.67 (Opus) out of 20, 0.67 points apart,
+inside the decision rule's 2-point "comparable" band; mean list-price cost
+per valid run $4.88 (Fable) against $2.20 (Opus), Opus well under half.
+Batch #371's own analysis (quoted in issue #380) put a full lead session
+at about $9-11 on Opus 5.5 against about $17-23 on Fable 5.1, the same
+direction at a coarser grain. Historical context, from before this move:
+the 14-day, 25-project token-burn aggregate found Fable's own token share
+stayed small (5.5% raw, 18.7% weighted proxy) except within a single
+kickoff batch, where it flipped (batch #201: Fable-priced roles took
+57.5% raw, 93.3% weighted proxy of that batch's tokens)
 (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
 
-### Cost-based fallback trigger: why it is quota, not dollars
+### Cost-based fallback trigger: superseded, not fired
 
-Supports: "if Fable stops being included under the Max-plan subscription
-and shifts to metered API billing, do not switch to Opus automatically."
+Supports: "superseded by the move to Opus recorded in
+docs/reviews/2026-09-23-lead-model-comparison.md... not a confirmed
+trigger condition."
 
-The "affordable" reasoning behind the orchestrator's model choice is weighed
-against Max-plan quota, not real dollars, so it stops applying the moment
-billing changes to metered API rates.
+The original trigger asked, if Fable stopped being plan-included, to
+measure the lead's actual $/session cost at API rates before deciding
+whether to keep Fable or move to Opus. The 2026-09-23 comparison's
+section 7 could not resolve whether the trial's account was on Max or Pro,
+so it cannot say whether the trigger's condition (metered billing) ever
+actually fired; its dollar figures are, however, exactly the measurement
+the trigger asked for, ready to use if the condition is later confirmed.
+The move to Opus itself was decided on the comparison's own decision rule
+(comparable quality, lower cost), independent of whether the trigger fired.
 
 ### Ultracode: mechanism and the measured trial
 
@@ -95,10 +111,13 @@ Supports: "No session-wide `ultracode`, ever, under this policy."
 As a session setting, `ultracode` sends `xhigh` reasoning (one notch below
 `max`) and has Claude author a dynamic workflow for every substantive task;
 those invented workflows carry no per-stage model pinning, so every stage
-would run at Fable rates, and Fable over-spawns under exactly this shape. The
-measured trial behind this rule (288 agents attempted by an unbounded
-dynamic workflow against the bounded `tm-review-codebase` script's 9, spend
-cap exhausted) is in `docs/reviews/2026-06-30-orchestration-comparison.md`.
+runs at whatever the session's own model is: Opus by default now that it is
+the lead, or Fable if the user has put the main window on Fable. Fable
+over-spawns under exactly this shape. The measured trial behind this rule
+(288 agents attempted by an unbounded dynamic workflow with every stage on
+Sonnet 5, against the bounded `tm-review-codebase` script's 9, spend cap
+exhausted) is in the addendum of
+`docs/reviews/2026-06-30-orchestration-comparison.md`.
 (Source: code.claude.com/docs/en/model-config.md, "Adjust effort level".)
 
 ### Role agents: execution vs. decision roles, and why fact-checker stays on Sonnet
