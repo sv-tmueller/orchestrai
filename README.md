@@ -53,6 +53,33 @@ graph TD
 Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 `docs/architecture/adapter-interface.md`.
 
+### Pipeline rules
+
+- **Lean vs full track.** A `size:S` package whose diff stays out of
+  `.claude/agents`, `.claude/skills`, `.claude/workflows`, and executable code
+  skips the architect and tester stages; everything else runs the full
+  five-stage pipeline. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
+  "Pipeline tracks (lean and full)".
+- **Dependency environment.** The lead builds one read-only dependency
+  environment per run and passes its path to the developer, tester, and
+  lean-track reviewer dispatches, instead of each seat installing its own.
+  Mechanics: "Dependency environment (once per run)" in the same file.
+- **Worktree cleanup.** Right after a package's PR ships or the package is
+  parked, the lead removes that package's worktree and local branches, but
+  only once their commits are on origin; a wave-end backstop catches the rest,
+  including a lead checkout whose HEAD a dispatched agent moved. Mechanics:
+  "Worktree cleanup (deterministic)" in the same file.
+- **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
+  seat contracts, so the lead routes on the short report instead of expanding
+  it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
+  tracked separately for the tester and the reviewer. Mechanics: "Fix rounds
+  (exact text and lead-verified rounds)" and the routing rules in the same
+  file.
+
+The lean track, the dependency environment, worktree cleanup, and capped seat
+reports apply to Claude Code only for now; Hermes and Codex mirroring is
+pending. Hermes already caps fix rounds at 3 per stage.
+
 ## Components
 
 - `.claude/agents/` - 7 role agents (architect, developer, tester, reviewer,
@@ -68,10 +95,12 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   and a sync test asserts alignment.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup). Hermes
-  variants ship as `SKILL.hermes.md` alongside the Claude versions;
-  `tm-kickoff` becomes the `orchestrai` skill and `tm-advisor` becomes
-  the `tm-advisor` skill on Hermes.
+  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup),
+  `/tm-review-changes` (diff review), `/tm-review-codebase` (repo review),
+  `/tm-map-codebase` (architecture map). Hermes variants ship as
+  `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
+  the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
+  on Hermes.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
@@ -90,7 +119,7 @@ Via the marketplace (recommended):
 /plugin install orchestrai@orchestrai
 ```
 
-Installs the agents and all 7 skills under the `orchestrai` namespace
+Installs the agents and all 8 skills under the `orchestrai` namespace
 (e.g. `/orchestrai:tm-kickoff`). Wire the process docs into your
 config-dir `CLAUDE.md`:
 
@@ -130,10 +159,13 @@ The adapter table at `.claude/adapters/claude-code.json`:
 | worker | sonnet | high | developer, tester, fact-checker, docs-writer, perf-investigator |
 | lead | opus | xhigh | the lead session |
 
-Fallback: judgment-tier failures retry on the worker tier (Opus to Sonnet),
-flagged in the report. Nothing runs at max effort. Fable is never pinned
-in this table; it is available only as the user's own choice for the main
-window.
+Fallback: an Opus quota death on a judgment dispatch (architect or reviewer)
+re-dispatches that call on Sonnet and sends every later judgment dispatch in
+the run straight to Sonnet, logged once as a decision; the run never goes back
+to Opus even if quota returns mid-run, and the next run tries Opus again.
+Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
+fallback and resume)". Nothing runs at max effort. Fable is never pinned in
+this table; it is available only as the user's own choice for the main window.
 
 ## Zone 2: Hermes Agent (GLM-5-2)
 
