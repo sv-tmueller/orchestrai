@@ -96,7 +96,8 @@ const SEAT_EXPECTATIONS = {
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
 
-// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file. Module scope so the fable guard below can reuse it.
+// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
+// Module scope so the fable guard below can reuse it.
 function parseTierMaps(src) {
   function extractConst(name) {
     const re = new RegExp(`const ${name} = \\{`)
@@ -376,12 +377,13 @@ describe('workflow stage tier pins', () => {
 //    it scans raw file source too, so a fable pin sneaking in outside a
 //    field this file already parses still fails loudly (review #320
 //    finding 1: letting fable onto a worker or judgment seat is a live
-//    2x-cost regression path). Only structured fields and raw code/config
+//    2.5x-cost regression path). Only structured fields and raw code/config
 //    source are scanned here, never prose docs.
 // ===========================================================================
 describe('fable is never pinned in the reference policy', () => {
   const FORBIDDEN_MODEL = /fable/i
   const skillsDir = join(__dir, '..', '..', 'skills')
+  const workflowJsFiles = readdirSync(workflowsDir).filter((f) => f.endsWith('.js'))
 
   function frontmatterModel(src) {
     const fm = src.match(/^---\n([\s\S]*?)\n---/)
@@ -413,7 +415,7 @@ describe('fable is never pinned in the reference policy', () => {
   }
 
   // (c) any TIER_MODELS value
-  for (const file of readdirSync(workflowsDir).filter((f) => f.endsWith('.js'))) {
+  for (const file of workflowJsFiles) {
     test(`${file}: TIER_MODELS values do not name fable`, () => {
       const { models } = parseTierMaps(readFileSync(join(workflowsDir, file), 'utf8'))
       for (const [tier, model] of Object.entries(models)) {
@@ -427,7 +429,7 @@ describe('fable is never pinned in the reference policy', () => {
 
   // (d) the raw source of any workflow .js or adapter .json
   const rawScanTargets = [
-    ...readdirSync(workflowsDir).filter((f) => f.endsWith('.js')).map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
+    ...workflowJsFiles.map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
     ...adapterFiles.map((f) => ({ label: `adapters/${f}`, path: join(adaptersDir, f) })),
   ]
   for (const { label, path } of rawScanTargets) {

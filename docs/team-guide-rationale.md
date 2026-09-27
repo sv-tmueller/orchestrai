@@ -114,9 +114,9 @@ those invented workflows carry no per-stage model pinning, so every stage
 runs at whatever the session's own model is: Opus by default now that it is
 the lead, or Fable if the user has put the main window on Fable. Fable
 over-spawns under exactly this shape. The measured trial behind this rule
-(288 agents attempted by an unbounded dynamic workflow against the bounded
-`tm-review-codebase` script's 9, spend cap exhausted) ran every stage on
-Sonnet 5 and is in the addendum of
+(288 agents attempted by an unbounded dynamic workflow with every stage on
+Sonnet 5, against the bounded `tm-review-codebase` script's 9, spend cap
+exhausted) is in the addendum of
 `docs/reviews/2026-06-30-orchestration-comparison.md`.
 (Source: code.claude.com/docs/en/model-config.md, "Adjust effort level".)
 
