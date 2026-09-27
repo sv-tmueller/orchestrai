@@ -356,6 +356,46 @@ against the good remote branch); the moved HEAD and the registered worktree are
 harness-side and cannot be prevented by agent commands, so the lead reverses
 them deterministically.
 
+### Per-package cleanup (PR ready or parked)
+
+**Trigger.** Right after step 7 ships a package, and right after a package is
+parked.
+
+**Guard, mapping.** The lead records `worktreePath` and `worktreeBranch` per
+package for every worktree dispatch, and this pass touches only those plus
+the package's own local branch. Anything unmapped waits for wave end.
+
+**Guard, locks.** A single `--force`, never `--force --force`; a locked
+worktree is skipped.
+
+**Guard, lead checkout.** The pass never touches the lead's own checkout: no
+switch, no HEAD repair.
+
+**Origin-safety rule.** After `git fetch --prune origin`:
+- remove a worktree only if `git -C <path> rev-list HEAD --not --remotes=origin`
+  prints nothing;
+- delete a branch only if `git rev-list <branch> --not --remotes=origin`
+  prints nothing.
+
+Uncommitted files in a removable worktree are discarded on purpose. A missing
+path is skipped. Anything that fails a check is left for the backstop.
+
+```
+git fetch --prune origin
+
+git -C <worktreePath> rev-list HEAD --not --remotes=origin   # empty: safe to remove
+git worktree remove --force <worktreePath>
+
+git rev-list worktree-agent-<id> --not --remotes=origin      # empty: safe to delete
+git branch -D worktree-agent-<id>
+git rev-list <worktreeBranch> --not --remotes=origin          # empty: safe to delete
+git branch -D <worktreeBranch>
+
+git worktree prune
+```
+
+### Wave-end cleanup (backstop)
+
 At wave end, with no agents in flight, run from the lead's main checkout:
 
 ```
@@ -364,14 +404,16 @@ git worktree list                  # expect only the main repo
 git status --short --branch        # expect the default branch, clean tree
 ```
 
-Remove anything still registered under `.claude/worktrees/`
+Remove anything still registered under `.claude/worktrees/` only if
+`git -C <path> rev-list HEAD --not --remotes=origin` prints nothing
 (`git worktree remove --force <path>`). If the lead's HEAD was moved off the
 default branch, return to it with `git switch <default>` (the lead's own checkout, the one
-place that command is right). Delete a stray local
-package branch only when its work is safe on origin (`git ls-remote --exit-code
-origin <branch>` succeeds), then `git branch -D <branch>`; never delete a branch
-whose commits are not on origin. Do not run `remove` or `branch -D` mid-wave:
-they must not touch a worktree another concurrent package is still using.
+place that command is right). Delete a stray local branch, including a
+leftover `worktree-agent-<id>` branch, only if `git rev-list <branch> --not
+--remotes=origin` prints nothing, then `git branch -D <branch>`; never delete
+a branch whose commits are not on origin. Mid-wave, only the per-package pass
+above runs these, under its guards. Whatever this backstop keeps is named in
+the wave-end report.
 
 ## 4. Wave end
 
