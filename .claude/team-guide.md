@@ -247,6 +247,13 @@ New project commands follow the same rule: name them `tm-<thing>`.
   to pick it up. The config-dir CLAUDE.md imports `process-core.md` and
   `team-guide.md` from the marketplace clone, so both files update
   automatically once the plugin does.
+- Don't merge a PR that changes `.claude/agents/`, `.claude/skills/`,
+  `.claude/workflows/`, or `.claude/adapters/` without bumping the
+  `version` field in `.claude/.claude-plugin/plugin.json`. CI enforces this
+  (`scripts/check-version-bump.mjs`); the PR's author picks the semver
+  level. Use the `skip-version-bump` label for a guarded change with no
+  behavior impact. `team-guide.md` and `process-core.md` are not guarded
+  and need no bump.
 
 See `.claude/process-core.md`'s "What not to do" for the branch, merge-gate,
 git-hook, and dependency rules.
