@@ -244,8 +244,9 @@ mid-run would contradict "the run never goes back to Opus." The debt is the
 Opus review of the PR head. A Sonnet sub-plan or arbitration is covered by
 that review and is not re-run by itself.
 
-- In the next run, it is an ordinary review. Post its verdict as a PR
-  comment, APPROVE included; an unmarked latest review comment clears the
+- In the next run, it is an ordinary review. While the latest review
+  comment on a PR carries the marker, post every reviewer verdict on it as a
+  PR comment, APPROVE included; an unmarked latest review comment clears the
   debt.
 - On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
 
