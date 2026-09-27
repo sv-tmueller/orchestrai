@@ -53,8 +53,12 @@ sized and stress-tested. Owned by `.claude/process-core.md` ("Issues and
 branches", "Sizing"), `/tm-grill-me`, and `/tm-advisor` (file only).
 
 **Flat-star pipeline.** Each issue runs through architect, developer, tester,
-reviewer, with a fact-checker on demand, to a mergeable PR. Owned by
-`docs/team-architecture.md` and `.claude/skills/tm-kickoff/SKILL.md`.
+reviewer, with a fact-checker on demand, to a mergeable PR. An eligible
+`size:S` package runs the lean track instead: the architect is skipped and
+the reviewer substitutes for the tester by running the check suite itself.
+Cross-checking still holds, because the reviewer verifies the developer
+either way. Owned by `docs/team-architecture.md` and
+`.claude/skills/tm-kickoff/SKILL.md`.
 
 **Agents cross-check.** Every role is read-only or independently verifying
 except the developer, so no single agent's claim goes unchecked. Owned by

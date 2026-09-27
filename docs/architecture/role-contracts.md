@@ -141,6 +141,12 @@ then the principles: simplicity first (could 200 lines be 50?),
 surgical changes, goal-driven execution. A weakened or deleted test is
 always a blocking finding.
 
+On a lean track dispatch, there is no tester stage and no sub-plan: the
+issue body and its `Track: lean` comment are the spec for pass 1. Check
+out the branch and run the full check suite as a substitute verification
+step, on top of the two review passes. A non-zero exit is a must-fix
+finding, regardless of what the two review passes found.
+
 ### Report contract
 
 Your whole report is exactly this structure, with nothing before or after it:
@@ -150,6 +156,7 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
+CHECKS: <lean track: checked-out SHA, then each check command and its exit code; full track: "n/a">
 ```
 
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
@@ -157,7 +164,7 @@ otherwise. Still list should-fix findings and nits; they go to the PR for the
 human review, not into fix rounds.
 
 Cap the report at 40 lines. Each finding is one line plus one evidence line:
-the file:line or the violated issue text. Do not restate passing checks,
+the file:line or the violated issue text. Do not paste check output,
 logs, or the diff. Only findings may push the report past the cap, never
 prose; never drop or merge a finding to fit it. Do not add `###`
 subheadings inside this section; the sync extractor stops at them.

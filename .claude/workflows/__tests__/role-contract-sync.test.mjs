@@ -90,6 +90,9 @@ const SENTINEL_RULES = {
   'architect': [
     'four principles',
   ],
+  'reviewer': [
+    'a non-zero exit is a must-fix',
+  ],
 }
 
 describe('role contract sync', () => {
