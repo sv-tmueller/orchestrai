@@ -89,6 +89,7 @@ const SENTINEL_RULES = {
   ],
   'architect': [
     'four principles',
+    'plan holds, no additions',
   ],
   'developer': [
     'dependency manifest or lockfile',
