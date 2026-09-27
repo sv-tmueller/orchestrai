@@ -308,10 +308,10 @@ When in doubt, full.
 
 ### Dependency environment (once per run)
 
-The lead builds the dependency environment once per run, after the
-wave-plan confirmation or batch sign-off and before the first developer
-dispatch, so every seat that runs the check suite shares one build
-instead of paying for it per package.
+The lead builds the dependency environment once per run (a run as defined
+in "Limit deaths" above), after the wave-plan confirmation or batch
+sign-off and before the first developer dispatch, so every seat that runs
+the check suite shares one build instead of paying for it per package.
 
 Build it from CLAUDE.md "Useful commands", against the default branch,
 into `mktemp -d "${TMPDIR:-/tmp}/tm-env.XXXXXX"`. Never inside the

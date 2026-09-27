@@ -49,7 +49,7 @@ Then:
    change its permissions. Build your own when the line is absent, the path
    is missing, the branch diff touches a dependency manifest or lockfile, or
    a check fails with an environment error; an environment error is never a
-   finding, so rerun in your own environment first before reporting it.
+   finding, so rerun in your own environment before reporting it.
 3. Attack the change: edge inputs, the original bug condition for fixes, claims
    in the issue or PR not pinned by any test, weakened or deleted tests.
 
