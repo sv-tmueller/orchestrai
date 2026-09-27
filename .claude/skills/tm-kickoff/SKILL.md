@@ -151,7 +151,8 @@ Routing rules:
   lead dispatches only.
 - A seat dispatch that returns empty, or returns text with no
   contract-shaped report (`STATUS:`, `VERDICT:`, the architect job header,
-  or `NEEDS_DECISION:`), and no limit error, is an empty or stalled return,
+  or `NEEDS_DECISION:`), and is not a limit death (as defined in "Limit
+  deaths" below, which takes priority), is an empty or stalled return,
   not a legitimate verdict: it gets a `SendMessage` resume, not a
   re-dispatch. See "Limit deaths (run-long fallback and resume)" below.
 - Never re-dispatch an unchanged prompt; something in the task must change
@@ -285,11 +286,11 @@ block is annotated `(resumed)`.
 a finding. It posts no round comment and never advances a fix-round
 counter. The resumed or respawned dispatch keeps the same round number. A
 fallback verdict counts as a normal round. If any attempt in the resume or
-respawn sequence returns a limit error, the Limit deaths rules apply from
-then on. Bound (accepted by the lead, see batch #390): for non-limit empty
-returns only, one resume per dispatch. If the fresh respawn also comes back
-empty or stalled, park the package under the existing parking bullet
-(below). Limit deaths stay as they are today.
+respawn sequence is a limit death, the Limit deaths rules apply from
+then on. Bound: for non-limit empty returns only, one resume per stage
+attempt: the fresh respawn gets no resume, and if it also comes back
+empty or stalled, park the package (see "Parking" in the routing rules
+above). Limit deaths have no such bound.
 
 ### Pipeline tracks (lean and full)
 
