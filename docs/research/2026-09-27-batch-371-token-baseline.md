@@ -30,7 +30,7 @@ work after it (including #379 itself) is not.
 
 - Session: d4567eab-4604-4dec-ba3f-2209ed6e64f0
 - Window: up to 2026-09-27T11:04:53.617Z
-- Price source: https://claude.com/pricing (retrieved 2026-09-27)
+- Price source: https://platform.claude.com/docs/en/about-claude/pricing (retrieved 2026-09-27)
 
 ## By role
 
@@ -46,16 +46,15 @@ work after it (including #379 itself) is not.
 
 | Model | Calls | Input | Cache read | Cache write (5m) | Cache write (1h) | Output (est.) | Cost |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| claude-opus-5-5 | 338 | 732 | 31,861,616 | 650,520 | 523,158 | 80,027 | $13.84 |
+| claude-opus-5-5 | 338 | 732 | 31,861,616 | 650,520 | 523,158 | 80,027 | $15.41 |
 | claude-sonnet-5 | 577 | 1,154 | 23,541,819 | 934,819 | 0 | 55,944 | $7.61 |
-| **Total** | 915 | 1,886 | 55,403,435 | 1,585,339 | 523,158 | 135,971 | **$21.45** |
+| **Total** | 915 | 1,886 | 55,403,435 | 1,585,339 | 523,158 | 135,971 | **$23.02** |
 
 ## Limitations
 
 - Output token counts are not in the transcripts; the "Output (est.)" column is estimated from visible text and tool-call input, divided by 4.
 - The estimate excludes thinking tokens, so it undercounts real output token usage.
 - Prices are Anthropic public list prices, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).
-- claude-opus-5-5: no verified 1h cache-write price, used the 5m rate.
 ```
 
 Independently verified against the raw transcripts before writing this doc:
@@ -83,10 +82,9 @@ The gap has two causes:
   gives 23.0M for the lead and 53.9M in total.
 - **Unverified family prices with a flat 2x cache write.** The in-session
   estimate priced every cache write at 2x the input rate ($8/MTok Opus,
-  $4/MTok Sonnet). `token-prices.json` uses the 5-minute write rate from
-  the pricing page ($5 and $2.50) and has no verified 1-hour rate, so 1h
-  writes fall back to the 5m rate (noted above). Re-pricing this run's
-  1,173,678 Opus and 934,819 Sonnet cache-write tokens at the flat 2x adds
-  $4.92, giving $26.37, inside the in-session range. The $31 top of that
+  $4/MTok Sonnet). `token-prices.json` uses the pricing page's rates: $5
+  and $2.50 for 5-minute writes, $8 and $4 for 1-hour writes. Re-pricing
+  this run's 650,520 Opus and 934,819 Sonnet 5-minute cache-write tokens at
+  the flat 2x adds $3.35, giving $26.37, inside the in-session range. The $31 top of that
   range also multiplied visible output by 4 for hidden thinking, which
   this script does not do.

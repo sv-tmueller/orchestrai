@@ -137,7 +137,9 @@ describe('aggregate: since/until window', () => {
     assert.equal(untilOnly.totals.calls, 1) // before
   })
 
-  test('compares instants, so a bound without milliseconds matches its own second', () => { assert.equal(aggregate(records, { since: '2026-09-27T10:00:30Z' }).totals.calls, 3) })
+  test('compares instants, so a bound without milliseconds matches its own second', () => {
+    assert.equal(aggregate(records, { since: '2026-09-27T10:00:30Z' }).totals.calls, 3)
+  })
 })
 
 describe('aggregate: grouping', () => {
@@ -188,7 +190,10 @@ describe('aggregate: grouping', () => {
     assert.notEqual(aggregated.byRole.lead.calls, aggregated.totals.calls)
   })
 
-  test('output estimates per role add up to the total estimate', () => { const a = aggregate([record('a', 'lead', 'claude-opus-5-5', 0, 2), record('b', 'developer', 'claude-sonnet-5', 0, 2)], {}); assert.equal(Object.values(a.byRole).reduce((n, b) => n + b.outputTokens, 0), a.totals.outputTokens) })
+  test('output estimates per role add up to the total estimate', () => {
+    const a = aggregate([record('a', 'lead', 'claude-opus-5-5', 0, 2), record('b', 'developer', 'claude-sonnet-5', 0, 2)], {})
+    assert.equal(Object.values(a.byRole).reduce((n, b) => n + b.outputTokens, 0), a.totals.outputTokens)
+  })
 })
 
 describe('price', () => {
@@ -251,6 +256,25 @@ describe('price', () => {
     assert.equal(priced.pricedTotal, 4) // only the known model's $4/MTok input cost
     const unknownRow = priced.rows.find((r) => r.model === 'claude-unknown-9')
     assert.equal(unknownRow.cost, null)
+  })
+
+  test('counts cache writes with no 5m/1h split as 5m, and notes it', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-09-27T10:00:00.000Z',
+      message: {
+        type: 'message',
+        id: 'msg_nosplit',
+        model: 'claude-opus-5-5',
+        content: [],
+        usage: { input_tokens: 0, cache_creation_input_tokens: 1_000_000 },
+      },
+    })
+    const priced = price(aggregate(parse({ lead: line }), {}), {
+      models: { 'claude-opus-5-5': { input: 4, cache_write_5m: 5, cache_read: 0.2, output: 20 } },
+    })
+    assert.equal(priced.rows[0].cost, 5)
+    assert.ok(priced.notes.some((n) => n.includes('no 5m/1h split')))
   })
 })
 
