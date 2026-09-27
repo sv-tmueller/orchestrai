@@ -99,14 +99,14 @@ package as one finishes. Worktree isolation keeps packages apart. Within a
 package the stages are serial:
 
 1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
-   When the issue body already carries signed-off batch decisions or links a
-   plan or spec, name that plan source in the dispatch so the architect
-   returns a delta instead of restating it. Post it as an issue comment. On
-   NEEDS_DECISION: inside an /tm-advisor batch,
-   decide it yourself when it stays within the signed-off scope, logging the
-   decision on the batch issue; outside an /tm-advisor batch, park the package
-   (below) and surface the question in the wave-end report, then continue the
-   others.
+   When the issue body already carries signed-off batch decisions, the batch
+   decision log, or links a plan or spec, name that plan source in the
+   dispatch as a pointer; the architect still decides whether it returns a
+   delta. Post it as an issue comment. On NEEDS_DECISION: inside an
+   /tm-advisor batch, decide it yourself when it stays within the signed-off
+   scope, logging the decision on the batch issue; outside an /tm-advisor
+   batch, park the package (below) and surface the question in the wave-end
+   report, then continue the others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
 3. On DONE or DONE_WITH_CONCERNS: dispatch the tester with the branch and

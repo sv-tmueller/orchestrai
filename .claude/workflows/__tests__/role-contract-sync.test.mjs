@@ -142,4 +142,30 @@ describe('role contract sync', () => {
       })
     }
   }
+
+  // Sentinel phrases required in BOTH the agent file and role-contracts.md
+  // (stricter than SENTINEL_RULES, which only checks role-contracts.md).
+  // Added for issue #381 fix round 1: the one-line `plan holds, no
+  // additions` form must state the size check's result (e.g. "fits
+  // size:S"), not just name the label, in both files.
+  const BOTH_SENTINEL_RULES = {
+    architect: ['fits size:'],
+  }
+
+  for (const [role, phrases] of Object.entries(BOTH_SENTINEL_RULES)) {
+    for (const phrase of phrases) {
+      test(`${role}: agent file and role-contracts.md both contain "${phrase}"`, () => {
+        const agentText = readFileSync(join(agentsDir, `${role}.md`), 'utf8').toLowerCase()
+        const rcText = readFileSync(rcPath, 'utf8').toLowerCase()
+        assert.ok(
+          agentText.includes(phrase.toLowerCase()),
+          `${role}.md is missing the one-line form's size-check wording "${phrase}"`
+        )
+        assert.ok(
+          rcText.includes(phrase.toLowerCase()),
+          `role-contracts.md is missing the one-line form's size-check wording "${phrase}"`
+        )
+      })
+    }
+  }
 })
