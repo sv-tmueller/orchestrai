@@ -138,14 +138,15 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   the same xhigh effort. The critic stage of every `tm-` workflow
   (`.claude/workflows/`) already retries on sonnet automatically when Opus
   returns nothing, though each run still burns one doomed Opus dispatch
-  before the retry fires. For a single architect or reviewer dispatch
-  hitting Opus quota mid-batch, the kickoff routing rules own the response:
-  a per-call Sonnet override (the Agent tool's `model` param), flagged in
-  the report, logged as a decision on the package issue, with the judgment
-  re-run on Opus once quota returns (`.claude/skills/tm-kickoff/SKILL.md`).
-  The ladder is Opus -> Sonnet, flagged and re-run; nothing else in the
-  machinery falls back to Fable. If judgment quality visibly degrades on
-  real batches, log the observation here.
+  before the retry fires. An architect or reviewer dispatch hitting Opus
+  quota mid-run triggers a run-long switch, not a single re-dispatch: every
+  later judgment dispatch in that run goes straight to Sonnet, and the run
+  never goes back to Opus even if quota returns mid-run
+  (`.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long fallback
+  and resume)"). The ladder is Opus -> Sonnet, flagged and re-run (the next
+  run reviews the PR head on Opus); nothing else in the machinery falls back
+  to Fable. If judgment quality visibly degrades on real batches, log the
+  observation here.
 - Cost-based fallback trigger: if Fable stops being included under the
   Max-plan subscription and shifts to metered API billing, do not switch to
   Opus automatically. Measure the lead's actual $/session cost at API rates

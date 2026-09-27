@@ -167,9 +167,13 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
   an interpretation call), decide it and post the decision with its reasoning
   as a comment on the batch issue before acting on it.
-  An Opus-quota death on a judgment-seat dispatch is such a decision:
-  apply kickoff's per-call Sonnet override routing rule and log the switch
-  on the batch issue. It is not grounds to park.
+  A run-long Sonnet fallback (kickoff's "Limit deaths" subsection) is such a
+  decision: log the switch once on the batch issue when it first fires, and
+  never as a park. Later Sonnet dispatches in the same run add no new
+  entries. Separately, each limit event (one usage or session limit, which
+  can stall several agents at once, whether or not it triggers the switch)
+  gets one batch-issue entry listing every agent it stalled and each one's
+  outcome (resumed or respawned).
 - **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
   for: a change to scope or acceptance criteria, a new dependency or cost,
   anything irreversible or outward-facing, or a conflict with
@@ -194,10 +198,11 @@ report and the chat digest with:
 - #NN parked (needs-human): <the open question>
 
 ## Next steps
-1. Review & merge: #NN, #NN (merging closes each package issue via its
+1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
+2. Review & merge: #NN, #NN (merging closes each package issue via its
    Closes #N)
-2. Decide on #NN (retry or close)
-3. Close this batch issue by hand once everything is merged (it is the
+3. Decide on #NN (retry or close)
+4. Close this batch issue by hand once everything is merged (it is the
    run record), or run /tm-advisor to confirm the merges, close it, and
    propose the next batch
 ```
