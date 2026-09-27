@@ -64,19 +64,21 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   environment per run and passes its path to the developer, tester, and
   lean-track reviewer dispatches, instead of each seat installing its own.
   Mechanics: "Dependency environment (once per run)" in the same file.
-- **Worktree cleanup.** The lead removes each package's worktree and local
-  branch right after its PR ships or the package is parked, because a
-  dispatched agent's checkout can otherwise leave a moved HEAD or a
-  registered worktree behind. Mechanics: "Worktree cleanup" in the same
+- **Worktree cleanup.** Right after a package's PR ships or the package is
+  parked, the lead removes that package's worktree and local branches, but
+  only once their commits are on origin; a wave-end backstop catches the rest,
+  including a lead checkout whose HEAD a dispatched agent moved. Mechanics:
+  "Worktree cleanup (deterministic)" in the same file.
+- **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
+  seat contracts, so the lead routes on the short report instead of expanding
+  it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
+  tracked separately for the tester and the reviewer. Mechanics: "Fix rounds
+  (exact text and lead-verified rounds)" and the routing rules in the same
   file.
-- **Capped seat reports, bounded fix rounds.** Every seat report is capped
-  by contract, so the lead routes on the short report instead of expanding
-  it or re-dispatching for a longer one; fix rounds are capped at 3 per
-  stage, tracked separately for the tester and the reviewer. Mechanics:
-  "Fix rounds" and the routing rules in the same file.
 
-These rules apply to Claude Code only for now; Hermes and Codex mirroring
-is pending.
+The lean track, the dependency environment, worktree cleanup, and capped seat
+reports apply to Claude Code only for now; Hermes and Codex mirroring is
+pending. Hermes already caps fix rounds at 3 per stage.
 
 ## Components
 
@@ -158,12 +160,12 @@ The adapter table at `.claude/adapters/claude-code.json`:
 | lead | opus | xhigh | the lead session |
 
 Fallback: an Opus quota death on a judgment dispatch (architect or reviewer)
-switches every later judgment dispatch in that run to Sonnet, logged once as
-a decision; the run never goes back to Opus even once quota returns, and the
-next run tries Opus again. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
-"Limit deaths (run-long fallback and resume)". Nothing runs at max effort.
-Fable is never pinned in this table; it is available only as the user's own
-choice for the main window.
+re-dispatches that call on Sonnet and sends every later judgment dispatch in
+the run straight to Sonnet, logged once as a decision; the run never goes back
+to Opus even if quota returns mid-run, and the next run tries Opus again.
+Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
+fallback and resume)". Nothing runs at max effort. Fable is never pinned in
+this table; it is available only as the user's own choice for the main window.
 
 ## Zone 2: Hermes Agent (GLM-5-2)
 
