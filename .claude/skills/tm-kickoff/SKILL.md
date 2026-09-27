@@ -163,7 +163,8 @@ Routing rules:
      text, and was forwarded unchanged;
    - (b) the reviewer ran its quality pass (`STAGE: quality`; a `STAGE:
      spec` report never qualifies);
-   - (c) the fix is not executable code or configuration (JSON, YAML, frontmatter);
+   - (c) the fix is not executable code or configuration (JSON, YAML,
+     frontmatter);
    - (d) the diff contains only that text;
    - (e) CI is green.
 3. **What the lead checks.**
@@ -197,7 +198,8 @@ Routing rules:
    - A failed check adds no round; the same round continues on the normal
      loop.
    - A round 3/3 that passes ships.
-   - A passed round satisfies step 7 and section 4 without a re-test or a new APPROVE.
+   - A passed round satisfies step 7 and section 4 without a re-test or a
+     new APPROVE.
 7. **Lean track.** Where a package has no tester stage, the round skips only
    the re-review, the base is the head the reviewer reviewed, and CI green
    on the new head replaces the reviewer's check results.

@@ -69,7 +69,7 @@ re-measure commands to the tester afterward.
 For one issue, the lead runs the agents in sequence and loops on failure. This is
 the happy path with the two fix loops. It omits parking (`needs-human`),
 `NEEDS_CONTEXT`, architect arbitration on developer pushback, the 3-round fix
-caps, and the lead-verified trivial round, all of which live in
+caps, and the lead-verified fix round, all of which live in
 `.claude/skills/tm-kickoff/SKILL.md`.
 
 ```mermaid
