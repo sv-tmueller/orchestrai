@@ -2,13 +2,16 @@
 
 ## Scope
 
-This runbook documents an existing lever, not a new one. Moving the team
-between the Max and Pro Claude subscription tiers uses the lead-session
-fallback already defined in `.claude/team-guide.md`, "Model policy". Nothing
-in the machinery changes: no agent frontmatter pin moves, no skill or
-workflow file changes, no new config lever is introduced. This is a
-procedure for a human decision (downgrade to Pro, or revert to Max), not a
-mechanism the team runs on its own.
+Since issue #380, Opus is the default lead on every plan tier, so there is
+no lead-session fallback left to flip when moving between Max and Pro: the
+lead already runs the same model either way. What this runbook still
+covers is Fable's own Max-vs-Pro availability difference, relevant only if
+a user chooses Fable for the main window (`.claude/team-guide.md`, "Model
+policy"), and the batch-pacing recommendation below. Nothing in the
+machinery changes: no agent frontmatter pin moves, no skill or workflow
+file changes, no new config lever is introduced. This is a procedure for a
+human decision (downgrade to Pro, or revert to Max), not a mechanism the
+team runs on its own.
 
 ## What changes on Pro
 
@@ -34,23 +37,17 @@ Opus 5 and Sonnet 5 carry no such metering on Pro.
 
 ## Downgrade steps (Max to Pro)
 
-1. Flip the lead session: `/model opus`. This is the same
-   lead-session fallback the Model policy already documents for a
-   Fable-unavailable event; a plan downgrade is just a different trigger for
-   the same switch.
-2. Run that command at the start of each lead session. Whether `/model`
-   persists a choice across sessions is not verifiable from the docs in this
-   repo, so treat the flip as a per-session step rather than a one-time
-   setting.
-3. Touch no frontmatter pin. `architect` and `reviewer` keep `model: opus` in
+1. Nothing to flip on the lead. Opus is the default lead on both tiers
+   (issue #380); there is no fallback command to run at the start of a
+   session anymore.
+2. Touch no frontmatter pin. `architect` and `reviewer` keep `model: opus` in
    their frontmatter either way; `developer`, `tester`, `fact-checker`,
    `docs-writer`, and `perf-investigator` keep `model: sonnet`. None of that
    changes on Pro.
-4. Stop routing anything to Fable. Wherever `.claude/team-guide.md`, "Model
-   policy", or the kickoff routing rules name a Fable fallback for any seat,
-   treat Fable as unavailable while on Pro and do not invoke it. See
-   `.claude/team-guide.md`, "Model policy", for what each seat falls back to
-   instead.
+3. If the main window is on Fable, know the cost. That is the user's own
+   choice (`.claude/team-guide.md`, "Model policy"), not something this
+   runbook or the machinery flips; Fable is not plan-included on Pro (see
+   "What changes on Pro" above) and meters as usage credits instead.
 
 ## Working under Pro limits
 
@@ -73,7 +70,9 @@ Other things that matter while on Pro:
 
 ## Revert steps (Pro to Max)
 
-1. Flip the lead session back: `/model fable`.
+1. Nothing to flip on the lead; Opus stays the default. If the main window
+   was switched to Fable for the Pro stint, flip that back to whatever the
+   user wants on Max.
 2. Restore the standard caps: up to 6 packages per batch, 3 in flight.
 3. Log the change (dates, reason, any packages parked and resumed) wherever
    the batch or session tracked the downgrade, so the history is visible to
@@ -82,9 +81,10 @@ Other things that matter while on Pro:
 ## Relationship to the cost-based fallback trigger
 
 The cost-based fallback trigger in `.claude/team-guide.md`, "Model policy",
-governs a different event: Fable losing its plan-included status under an
-unchanged Max plan, which calls for measuring the lead's actual $/session
-cost before deciding whether to keep Fable or move to Opus permanently. A
-voluntary downgrade to Pro is not that event, it is a decided move the human
-already made, so the already-documented lead-session fallback applies
-directly and no separate measurement step gates it.
+is superseded: the lead already defaults to Opus, decided by the
+2026-09-23 lead-model comparison's own decision rule (comparable quality,
+lower cost), not by a confirmed Fable-billing trigger condition
+(`docs/reviews/2026-09-23-lead-model-comparison.md`, section 7). A
+voluntary downgrade to Pro does not reopen that trigger; it only affects
+whether Fable, if a user chooses it for the main window, is plan-included
+or metered (see "What changes on Pro" above).

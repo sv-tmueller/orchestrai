@@ -124,26 +124,29 @@ runs the team uninterrupted and reports (mechanics:
 
 ## Model policy
 
-Fable in the one seat nothing backstops (the lead), Opus at xhigh in the
-backstopped judgment seats (architect, reviewer, workflow critics), efficient
-workers everywhere else. The lever is where each model runs, not raw effort
-everywhere. Rationale: docs/team-guide-rationale.md.
+Opus at xhigh in every plan-and-decide seat: architect, reviewer, workflow
+critics, and the lead itself. Efficient workers everywhere else. The lever is
+where each model runs, not raw effort everywhere. Fable is available only
+when the user sets it as the main-window model; no part of this machinery
+pins it. Rationale: docs/team-guide-rationale.md. The lead-model move:
+docs/reviews/2026-09-23-lead-model-comparison.md.
 Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Fable (the `fable` alias) at xhigh effort. Affordable only because the
-  lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
-  token, as priced on 2026-07-24
-  (docs/research/2026-07-24-opus-5-vs-fable-5-judgment-seats.md section 4).
-  The premium is bounded in aggregate, not per batch
-  (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Lead-session fallback: Opus at xhigh effort, a manual procedure. Fable is
-  lead-session-only: used as the orchestrator when available, and nothing
-  else in the machinery calls it. When Fable is unavailable, rate-limited,
-  quota-exhausted, or refuses the workload, switch the lead with
-  `/model opus`. Flip back when Fable returns. This fallback covers
-  the lead session only; no other seat pins Fable, so no other pin needs to
-  flip alongside it.
+  Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at xhigh effort, the
+  same model family as the judgment seats. Comparable quality to Fable at
+  well under half the cost per session, at low confidence
+  (docs/reviews/2026-09-23-lead-model-comparison.md; batch #371's own cost
+  analysis, quoted in issue #380, put a lead session at about $9-11 on
+  Opus 5.5 against about $17-23 on Fable 5.1). This adds a shared blind
+  spot worth naming: with the lead on the same model family as every
+  judgment seat, a systematic Opus-class mistake would go uncaught by any
+  seat in the pipeline (comparison report section 8).
+- Fable (main-window user choice only): available only when the user sets
+  the main window itself to Fable. No part of the machinery, this policy
+  included, ever pins Fable or switches to it automatically; a lead session
+  running on Fable is the user's own `/model` choice for that window, not a
+  fallback this policy prescribes.
 - Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
   effort is the primary model, backstopped by the lead and, for architect
   and reviewer, by the human merge gate. The per-call fallback is Sonnet at
@@ -159,16 +162,19 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   run reviews the PR head on Opus); nothing else in the machinery falls back
   to Fable. If judgment quality visibly degrades on real batches, log the
   observation here.
-- Cost-based fallback trigger: if Fable stops being included under the
-  Max-plan subscription and shifts to metered API billing, do not switch to
-  Opus automatically. Measure the lead's actual $/session cost at API rates
-  first, then decide whether to keep Fable or move to Opus permanently,
-  logging the decision and cost here.
+- Cost-based fallback trigger: superseded by the move to Opus recorded in
+  `docs/reviews/2026-09-23-lead-model-comparison.md`, which followed that
+  report's decision rule (comparable quality, lower cost), not a confirmed
+  trigger condition (that report's section 7 leaves the account's
+  Max-vs-Pro tier, and so whether the trigger itself ever fired, an open
+  question). If Fable's billing terms improve enough to revisit the move,
+  re-run a comparison before switching back; do not switch on an
+  availability event alone (see that report's section 7).
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
   `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
-  task with no tm- script, preferring an Opus lead for that prompt.
+  task with no tm- script.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
   (`sonnet` is the documented per-call fallback); `developer`, `tester`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
@@ -180,7 +186,9 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   `xhigh` effort instead.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
   that does not pin it. The effort-policy test in `npm test` fails any agent
-  or workflow stage that omits its pin or reintroduces max.
+  or workflow stage that omits its pin or reintroduces max, and its guard
+  describe fails if fable is pinned on any adapter tier, agent or skill
+  frontmatter, or workflow stage (issue #380).
 - Workflows: pin worker stages to a cheap model at `high` effort and reserve
   the strong model for synthesis or critique, bounded by construction so it
   cannot fan out unboundedly (`.claude/workflows/*.js`;
