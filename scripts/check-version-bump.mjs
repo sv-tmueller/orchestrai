@@ -17,6 +17,8 @@
 // Zero dependencies: plain Node (child_process), no npm installs.
 
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 // ---------------------------------------------------------------------------
 // Pure decision logic
@@ -33,8 +35,8 @@ export const GUARDED = [
   '.claude/adapters/',
 ]
 
-// Excluded from GUARDED even though it sits under .claude/workflows/: this
-// is the guard's own test suite (and any fixtures alongside it), not
+// Excluded from GUARDED even though it sits under .claude/workflows/: it
+// holds the repo's unit tests (and any fixtures alongside them), not
 // shipped plugin behavior.
 export const EXCLUDED = ['.claude/workflows/__tests__/']
 
@@ -143,7 +145,7 @@ function pluginVersionAt(ref) {
   return JSON.parse(raw).version
 }
 
-function parseLabelsEnv(raw) {
+export function parseLabelsEnv(raw) {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
@@ -156,7 +158,7 @@ function parseLabelsEnv(raw) {
 // Guarded: importing this module (as the test file does) must have no
 // side effects. Only running it directly as `node
 // scripts/check-version-bump.mjs <base> <head>` invokes main().
-export async function main() {
+function main() {
   const [baseRef, headRef] = process.argv.slice(2)
   if (!baseRef || !headRef) {
     console.error('usage: node scripts/check-version-bump.mjs <base-ref> <head-ref>')
@@ -176,6 +178,6 @@ export async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   main()
 }

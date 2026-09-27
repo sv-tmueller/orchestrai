@@ -248,7 +248,8 @@ New project commands follow the same rule: name them `tm-<thing>`.
   `team-guide.md` from the marketplace clone, so both files update
   automatically once the plugin does.
 - Don't merge a PR that changes `.claude/agents/`, `.claude/skills/`,
-  `.claude/workflows/`, or `.claude/adapters/` without bumping the
+  `.claude/workflows/` (tests in `__tests__/` excluded), or
+  `.claude/adapters/` without bumping the
   `version` field in `.claude/.claude-plugin/plugin.json`. CI enforces this
   (`scripts/check-version-bump.mjs`); the PR's author picks the semver
   level. Use the `skip-version-bump` label for a guarded change with no

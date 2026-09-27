@@ -18,6 +18,7 @@ import {
   SKIP_LABEL,
   isGuarded,
   checkVersionBump,
+  parseLabelsEnv,
 } from '../../../scripts/check-version-bump.mjs'
 
 describe('isGuarded', () => {
@@ -150,5 +151,12 @@ describe('checkVersionBump', () => {
       labels: 'skip-version-bump',
     })
     assert.equal(malformed.ok, false)
+  })
+})
+
+describe('parseLabelsEnv', () => {
+  test('parses the CI JSON array and tolerates empty or malformed input', () => {
+    assert.deepEqual(parseLabelsEnv('[\n  "skip-version-bump"\n]'), ['skip-version-bump'])
+    for (const raw of ['[]', '', undefined, 'not json', '{"a":1}']) assert.deepEqual(parseLabelsEnv(raw), [])
   })
 })

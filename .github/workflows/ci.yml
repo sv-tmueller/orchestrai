@@ -3,7 +3,10 @@
 # This repo has no install, typecheck, lint, build, or e2e step: no
 # dependencies, no lockfile, no application runtime (see CLAUDE.md's
 # "Useful commands"). The template's staged checks/build/e2e jobs collapse
-# to the one stage this repo actually has: unit tests.
+# to the one stage this repo actually has, unit tests, plus a PR-only
+# version-guard job (scripts/check-version-bump.mjs, issue #362). The
+# labeled and unlabeled PR types re-run it when the skip-version-bump
+# label is added or removed.
 
 name: CI
 
@@ -45,8 +48,9 @@ jobs:
 
   version-guard:
     name: Version bump guard
-    # PR-only: HEAD^1 (the merge base) only exists for a pull_request
-    # event's merge-commit checkout, not a push to main.
+    # PR-only: the skip label comes from the pull_request payload, and
+    # HEAD^1 is the PR's base commit only in a pull_request event's
+    # merge-commit checkout.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
