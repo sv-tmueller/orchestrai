@@ -13,13 +13,19 @@
  * the adapter table must conform to them, not the reverse. Otherwise
  * editing the JSON disables the lock (review #320 finding 2).
  *
- * Lead tier is rejected on agent seats and workflow stages: fable is
- * lead-session-only (team-guide Model policy); letting it onto a worker
- * seat is a live 2x-cost regression path (review #320 finding 1).
+ * Lead tier is rejected on agent seats and workflow stages: lead is
+ * reserved for the orchestrator session, structurally, regardless of
+ * which model tiers.lead maps to (team-guide Model policy).
  *
  * The workflow stage pins check the embedded SPEC and TIER_MODELS/
  * TIER_EFFORTS maps in each JS file, asserting they match the adapter
  * table.
+ *
+ * Since #380, Opus is the default lead and fable is a main-window user
+ * choice only, never pinned anywhere in this file's policy. The guard
+ * describe below (FORBIDDEN_MODEL) fails loudly if fable reappears in
+ * any adapter table, agent or skill frontmatter, or workflow TIER_MODELS
+ * map: a live 2x-cost regression path (review #320 finding 1).
  */
 
 import { test, describe } from 'node:test'
@@ -73,20 +79,70 @@ const adapterTables = adapterFiles.map((f) => ({
 }))
 
 // Hardcoded seat-level expectations for the REFERENCE adapter only.
-// These pin the Claude Code model assignments (opus/sonnet/fable) so a
-// coordinated edit to the JSON cannot weaken the reference policy (review
-// #320 finding 14). Non-reference adapters (Hermes, Codex) map tiers to
-// their own models; the universal checks above (forbidden efforts, ceiling,
-// tier completeness) apply to every table, but the model identities are
-// host-specific and not asserted here (issue #317).
+// These pin the Claude Code model assignments (opus for judgment and lead,
+// sonnet for worker) so a coordinated edit to the JSON cannot weaken the
+// reference policy (review #320 finding 14). Non-reference adapters
+// (Hermes, Codex) map tiers to their own models; the universal checks
+// above (forbidden efforts, ceiling, tier completeness) apply to every
+// table, but the model identities are host-specific and not asserted here
+// (issue #317).
 const REFERENCE_ADAPTER = 'claude-code.json'
 const SEAT_EXPECTATIONS = {
   judgment: { model: 'opus', effort: 'xhigh' },
   worker: { model: 'sonnet', effort: 'high' },
-  lead: { model: 'fable', effort: 'xhigh' },
+  lead: { model: 'opus', effort: 'xhigh' },
 }
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
+
+// Parse the SPEC object from a JS source file. The SPEC is a top-level
+// const assigned with an object literal ending before the next top-level
+// const/export/statement. We extract it by brace-matching from `const SPEC = {`.
+// Hoisted to module scope (not just the "workflow stage tier pins" describe)
+// so the fable guard below can reuse it too.
+function parseSpec(src) {
+  const startIdx = src.indexOf('const SPEC = {')
+  assert.ok(startIdx !== -1, 'SPEC constant not found')
+  let pos = src.indexOf('{', startIdx)
+  let depth = 0
+  let started = false
+  while (pos < src.length) {
+    if (src[pos] === '{') { depth++; started = true }
+    if (src[pos] === '}') depth--
+    pos++
+    if (started && depth === 0) break
+  }
+  const specSrc = src.slice(startIdx, pos)
+  const ctx = createContext({})
+  runInContext(specSrc, ctx)
+  return runInContext('SPEC', ctx)
+}
+
+// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
+function parseTierMaps(src) {
+  function extractConst(name) {
+    const re = new RegExp(`const ${name} = \\{`)
+    const match = re.exec(src)
+    if (!match) return null
+    let pos = src.indexOf('{', match.index)
+    let depth = 0
+    let started = false
+    while (pos < src.length) {
+      if (src[pos] === '{') { depth++; started = true }
+      if (src[pos] === '}') depth--
+      pos++
+      if (started && depth === 0) break
+    }
+    const constSrc = src.slice(match.index, pos)
+    const ctx = createContext({})
+    runInContext(constSrc, ctx)
+    return runInContext(name, ctx)
+  }
+  return {
+    models: extractConst('TIER_MODELS'),
+    efforts: extractConst('TIER_EFFORTS'),
+  }
+}
 
 // ===========================================================================
 // 0. Every adapter table conforms to the hardcoded policy.
@@ -190,7 +246,8 @@ describe('agent frontmatter tier pins', () => {
           `add it to .claude/adapters/claude-code.json`
       )
 
-      // Reject lead tier on agent seats: fable is lead-session-only.
+      // Reject lead tier on agent seats: lead is reserved for the
+      // orchestrator session, regardless of which model it maps to.
       assert.ok(
         ALLOWED_AGENT_TIERS.includes(tier),
         `${file} pins tier "${tier}", but agent seats may only use ` +
@@ -250,53 +307,6 @@ describe('agent frontmatter tier pins', () => {
 // in the source (defense in depth).
 // ===========================================================================
 describe('workflow stage tier pins', () => {
-  // Parse the SPEC object from a JS source file. The SPEC is a top-level
-  // const assigned with an object literal ending before the next top-level
-  // const/export/statement. We extract it by brace-matching from `const SPEC = {`.
-  function parseSpec(src) {
-    const startIdx = src.indexOf('const SPEC = {')
-    assert.ok(startIdx !== -1, 'SPEC constant not found')
-    let pos = src.indexOf('{', startIdx)
-    let depth = 0
-    let started = false
-    while (pos < src.length) {
-      if (src[pos] === '{') { depth++; started = true }
-      if (src[pos] === '}') depth--
-      pos++
-      if (started && depth === 0) break
-    }
-    const specSrc = src.slice(startIdx, pos)
-    const ctx = createContext({})
-    runInContext(specSrc, ctx)
-    return runInContext('SPEC', ctx)
-  }
-
-  // Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
-  function parseTierMaps(src) {
-    function extractConst(name) {
-      const re = new RegExp(`const ${name} = \\{`)
-      const match = re.exec(src)
-      if (!match) return null
-      let pos = src.indexOf('{', match.index)
-      let depth = 0
-      let started = false
-      while (pos < src.length) {
-        if (src[pos] === '{') { depth++; started = true }
-        if (src[pos] === '}') depth--
-        pos++
-        if (started && depth === 0) break
-      }
-      const constSrc = src.slice(match.index, pos)
-      const ctx = createContext({})
-      runInContext(constSrc, ctx)
-      return runInContext(name, ctx)
-    }
-    return {
-      models: extractConst('TIER_MODELS'),
-      efforts: extractConst('TIER_EFFORTS'),
-    }
-  }
-
   for (const file of WORKFLOW_FILES) {
     const src = readFileSync(join(workflowsDir, file), 'utf8')
 
@@ -312,7 +322,8 @@ describe('workflow stage tier pins', () => {
           TIERS[stage.tier],
           `${file}: stage "${name}" declares tier "${stage.tier}", which is not in the adapter table`
         )
-        // Reject lead tier on workflow stages: fable is lead-session-only.
+        // Reject lead tier on workflow stages: lead is reserved for the
+        // orchestrator session, regardless of which model it maps to.
         assert.ok(
           ALLOWED_AGENT_TIERS.includes(stage.tier),
           `${file}: stage "${name}" declares tier "${stage.tier}", but workflow ` +
@@ -353,6 +364,93 @@ describe('workflow stage tier pins', () => {
           `${file} contains effort: '${forbidden}'`
         )
       }
+    })
+  }
+})
+
+// ===========================================================================
+// 3. Guard: fable is never pinned anywhere in the reference policy (#380).
+//    Opus is the default lead now, and fable is a main-window user choice
+//    only, never pinned on any seat, workflow stage, or skill. This is
+//    defense in depth on top of the SEAT_EXPECTATIONS assertion above: it
+//    also covers non-reference adapters, agent and skill frontmatter, and
+//    it scans raw file source too, so a fable pin sneaking in outside a
+//    field this file already parses still fails loudly (review #320
+//    finding 1: letting fable onto a worker or judgment seat is a live
+//    2x-cost regression path). Only structured fields and raw code/config
+//    source are scanned here, never prose docs.
+// ===========================================================================
+describe('fable is never pinned in the reference policy', () => {
+  const FORBIDDEN_MODEL = /fable/i
+  const skillsDir = join(__dir, '..', '..', 'skills')
+
+  function frontmatterModel(src) {
+    const fm = src.match(/^---\n([\s\S]*?)\n---/)
+    return fm?.[1].match(/^model:\s*(\S+)/m)?.[1] ?? ''
+  }
+
+  // (a) any tiers.*.model in any .claude/adapters/*.json
+  for (const { name, table } of adapterTables) {
+    test(`${name}: no tiers.*.model names fable`, () => {
+      for (const [tier, cfg] of Object.entries(table.tiers)) {
+        assert.ok(
+          !FORBIDDEN_MODEL.test(cfg.model),
+          `${name}: tiers.${tier}.model is "${cfg.model}"; fable is never pinned`
+        )
+      }
+    })
+  }
+
+  // (b) any agent frontmatter model:
+  const agentFiles = readdirSync(agentsDir).filter((f) => f.endsWith('.md'))
+  for (const file of agentFiles) {
+    test(`${file}: frontmatter model: does not name fable`, () => {
+      const model = frontmatterModel(readFileSync(join(agentsDir, file), 'utf8'))
+      assert.ok(
+        !FORBIDDEN_MODEL.test(model),
+        `${file}: frontmatter model: "${model}" names fable; fable is never pinned`
+      )
+    })
+  }
+
+  // (c) any TIER_MODELS value
+  for (const file of WORKFLOW_FILES) {
+    test(`${file}: TIER_MODELS values do not name fable`, () => {
+      const { models } = parseTierMaps(readFileSync(join(workflowsDir, file), 'utf8'))
+      for (const [tier, model] of Object.entries(models)) {
+        assert.ok(
+          !FORBIDDEN_MODEL.test(model),
+          `${file}: TIER_MODELS.${tier} is "${model}"; fable is never pinned`
+        )
+      }
+    })
+  }
+
+  // (d) the raw source of any workflow .js or adapter .json
+  const rawScanTargets = [
+    ...WORKFLOW_FILES.map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
+    ...adapterFiles.map((f) => ({ label: `adapters/${f}`, path: join(adaptersDir, f) })),
+  ]
+  for (const { label, path } of rawScanTargets) {
+    test(`${label}: raw source does not name fable`, () => {
+      assert.ok(
+        !FORBIDDEN_MODEL.test(readFileSync(path, 'utf8')),
+        `${label}: raw source names fable; fable is never pinned anywhere in this file`
+      )
+    })
+  }
+
+  // (e) any skill frontmatter model:
+  const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+  for (const dir of skillDirs) {
+    test(`${dir}/SKILL.md: frontmatter model: does not name fable`, () => {
+      const model = frontmatterModel(readFileSync(join(skillsDir, dir, 'SKILL.md'), 'utf8'))
+      assert.ok(
+        !FORBIDDEN_MODEL.test(model),
+        `${dir}/SKILL.md: frontmatter model: "${model}" names fable; fable is never pinned`
+      )
     })
   }
 })
