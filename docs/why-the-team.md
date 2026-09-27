@@ -19,10 +19,11 @@ score 19.67 and 19.0 out of 20, 0.67 points apart, inside the pre-registered
 separate paired trial ran the same size:M issue two ways from the same base
 commit: the full kickoff pipeline (architect, developer, tester, reviewer)
 against a single developer dispatch with no other stage. The pipeline took
-15m23s, 4 subagents plus the lead, and cost $7.55 in output tokens
-(weighted). The lone dispatch took 6m12s, 1 subagent plus the lead, and cost
-$1.80. The lone dispatch was about 2.5x faster and 4x cheaper, and wrote
-more tests (`docs/reviews/2026-07-13-ab-plan-status-parser.md`).
+15m23s, 4 subagents plus the lead, for $7.55 in weighted total cost across
+all token classes. The lone dispatch took 6m12s, 1 subagent plus the lead,
+for $1.80 the same way. The lone dispatch was about 2.5x faster and 4x
+cheaper, and wrote more tests
+(`docs/reviews/2026-07-13-ab-plan-status-parser.md`).
 
 **One full batch run through the pipeline.** A measured token report over
 the session that ran batch #371 (several issues through `/tm-kickoff`, plus
@@ -35,45 +36,49 @@ the Opus seats (lead, architect, reviewer) and $7.61 on the Sonnet seats
 
 **Independent test and review.** In the same size:M trial above, an
 identical, independent review pass (`tm-review-changes`) was run against
-both diffs afterward. It found 0 must-fix issues in the full-pipeline diff
-(3 should-fix, 2 nits) and 1 must-fix plus 3 should-fix in the diff produced
-by the single, unaudited developer dispatch
-(`docs/reviews/2026-07-13-ab-plan-status-parser.md`). Neither the
-pipeline's own tester and reviewer stages nor the lone dispatch caught the
-one flaw both diffs shared (a fixed-order suffix strip that silently
-misparses a non-canonical input); only that separate independent audit
-pass did, on both diffs, which the report itself flags as a limit of the
-pipeline's own in-flow gates, not just an advantage over solo dispatch.
+both diffs afterward: 0 must-fix issues in the full-pipeline diff (3
+should-fix, 2 nits) against 1 must-fix plus 3 should-fix in the diff
+produced by the single, unaudited developer dispatch. That gap is not a
+clean code-quality result: both diffs share the same underlying flaw (a
+fixed-order suffix strip that silently misparses a non-canonical input),
+and the independent critic rated it should-fix in the pipeline's diff but
+must-fix in the solo diff, so part of the 0-vs-1 gap is critic-severity
+variance, not purely a quality difference. The pipeline's own tester and
+reviewer stages did catch two other, real but modest issues (an overstated
+docstring guarantee and unpinned render-path validation); neither they nor
+the lone dispatch caught the shared ordering flaw, only the separate
+independent audit pass did, on both diffs. One paired run is illustrative,
+not conclusive (`docs/reviews/2026-07-13-ab-plan-status-parser.md`).
 
 **What a stronger, backstopped judgment seat adds.** A second trial ran the
 same reviewer and architect prompts on the same PR and issue, once with
-Fable in the seat and once with Opus. Both passes flagged the same nit; the
-Opus pass alone verified its findings by rerunning the test suite and
-grepping the source, and surfaced three more real problems, one of them a
-must-fix (a policy sentence that had gone stale and now contradicted the
-document's own updated seat assignments). The Fable architect half wrote a
+Fable in the seat and once with Opus. Both reviewers re-ran the test suite
+and flagged the same nit; the Opus pass did more grep sweeps and script
+probes, and surfaced three more real problems, one of them a must-fix (a
+policy sentence that had gone stale and now contradicted the document's own
+updated seat assignments). The Fable architect half wrote a
 full, plausible plan without checking whether its own input data existed;
 the Opus half ran read-only probes first and reported the plan was not
 runnable yet, with evidence (`docs/reviews/2026-07-27-ab-judgment-seats.md`).
 
 **Fix rounds, parking, and resumability.** The pipeline loops a failing test
 or review verdict back to the developer for exactly the findings raised,
-re-tests, and re-reviews before a human ever sees it; the lead routes every
-handoff and writes state (sub-plan comments, PR verdicts, labels) to GitHub
-instead of holding it in one session, so a dropped connection resumes from
-GitHub instead of restarting a lost session (`docs/team-architecture.md`).
-A single plan-and-execute pass has none of this: it succeeds or fails once,
-and a dropped session loses the work in flight.
+re-tests, and re-reviews before a human ever sees it, up to a 3-round fix
+cap. A package that exhausts those rounds, hits a blocker, or needs a
+decision only a human can make is parked with the `needs-human` label
+instead of looping forever. The lead routes every handoff and writes state
+(sub-plan comments, PR verdicts, labels) to GitHub instead of holding it in
+one session, so a dropped connection resumes from GitHub instead of
+restarting a lost session (`docs/team-architecture.md`).
 
 **Bounded fan-out.** The team's workflow scripts pin worker and judgment
 model tiers and cap agent counts in code, independent of which model leads.
 A live trial pitted this bounded construction against a hand-authored
-stand-in for an unbounded, self-directed workflow (the shape a
-plan-and-execute session tends toward once it starts chaining steps on its
-own): both reviewed the same repository from the same commit. The bounded
-run finished cleanly with 9 agents. The unbounded stand-in reached 30
-review agents, generated 85 findings, then tried to verify each one with a
-3-vote pass (up to 255 agents) and collapsed under repeated organization
+stand-in for an ultracode-style workflow: both reviewed the same repository
+from the same commit. The bounded run finished cleanly with 9 agents. The
+unbounded stand-in reached 30 review agents, generated 85 findings, then
+tried to verify each one with a 3-vote pass (up to 255 agents) and
+collapsed under repeated organization
 spend-limit errors, returning no report. Combined, the two arms used 297
 agents and about 5.64M subagent tokens over roughly 51 minutes; the bounded
 run accounted for 9 of those (`docs/reviews/2026-06-30-orchestration-comparison.md`,
