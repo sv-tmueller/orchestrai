@@ -3,12 +3,16 @@
 # This repo has no install, typecheck, lint, build, or e2e step: no
 # dependencies, no lockfile, no application runtime (see CLAUDE.md's
 # "Useful commands"). The template's staged checks/build/e2e jobs collapse
-# to the one stage this repo actually has: unit tests.
+# to the one stage this repo actually has, unit tests, plus a PR-only
+# version-guard job (scripts/check-version-bump.mjs, issue #362). The
+# labeled and unlabeled PR types re-run it when the skip-version-bump
+# label is added or removed.
 
 name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -41,3 +45,25 @@ jobs:
           # No cache: 'npm' here. There is no lockfile for setup-node's
           # cache-path resolution to key off, so it would fail.
       - run: npm test
+
+  version-guard:
+    name: Version bump guard
+    # PR-only: the skip label comes from the pull_request payload, and
+    # HEAD^1 is the PR's base commit only in a pull_request event's
+    # merge-commit checkout.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # HEAD^1 is the PR's base commit under the default merge-commit
+          # checkout, so this needs the merge commit plus one parent, not
+          # the default depth-1 shallow clone.
+          fetch-depth: 2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: node scripts/check-version-bump.mjs HEAD^1 HEAD
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
