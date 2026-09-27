@@ -48,7 +48,7 @@ const SPEC = {
 // (.claude/adapters/claude-code.json) is the single source of truth; the SPEC
 // references tiers, never model names. On Claude Code the resolution is
 // inlined here because the workflow runtime has no imports.
-const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }
+const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
 const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
 
 export const meta = {
