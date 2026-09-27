@@ -54,6 +54,8 @@ Present the batch in chat, per package:
 - scope (one paragraph)
 - acceptance criteria
 - size label
+- track (lean or full, and why; see "Pipeline tracks" in
+  `.claude/skills/tm-kickoff/SKILL.md` for the eligibility rule)
 - explicit non-goals
 
 End every proposal with this sign-off block:

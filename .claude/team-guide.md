@@ -72,10 +72,22 @@ Plan status (issue #42):
 ```
 
 `[x]` marks a done step, `[>]` the current step (suffixed
-`<- dispatching <agent>`), `[ ]` a remaining step. A fix round annotates the
-current item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows
-the items are the pipeline stages (the skills pin them); an ad-hoc
-plan-backed dispatch uses the active plan's own steps as items.
+`<- dispatching <agent>`), `[ ]` a remaining step, `[-]` a step skipped by
+the lean track (suffixed `skipped (lean)`; see "Pipeline tracks" in
+`.claude/skills/tm-kickoff/SKILL.md`). A fix round annotates the current
+item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows the
+items are the pipeline stages (the skills pin them); an ad-hoc plan-backed
+dispatch uses the active plan's own steps as items. A lean package looks
+like:
+
+```
+Plan status (issue #58):
+  [-] 1. sub-plan skipped (lean)
+  [x] 2. develop
+  [-] 3. test skipped (lean)
+  [>] 4. review   <- dispatching reviewer
+  [ ] 5. PR ready
+```
 
 An ad-hoc dispatch with no plan behind it prints one fixed line instead:
 `Dispatching <agent>: <purpose>`. Agents spawned inside workflow scripts are
