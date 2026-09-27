@@ -65,6 +65,9 @@ to find an existing PR.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
+Record the run start now for the wave-end token report (see "Token report
+(wave end)").
+
 ## 2. Wave plan
 
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
@@ -418,6 +421,25 @@ never delete a branch whose commits are not on origin. Mid-wave, only the
 per-package pass above runs these, under its guards. Whatever this backstop
 keeps is named in the wave-end report.
 
+## Token report (wave end)
+
+At the gate (before any package is dispatched), record the run start:
+`date -u +%Y-%m-%dT%H:%M:%S.000Z`.
+
+At wave end, once the worktree cleanup above is done, run:
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
+  --session "${CLAUDE_CODE_SESSION_ID}" --since <run start>
+```
+
+and post its output as a comment on each package issue in the wave. Skip
+this step entirely inside an advisor batch (`/tm-advisor` posts its own
+report; see section 5 of its skill). On a resumed session, omit `--since`
+(there is no reliable run-start timestamp to anchor it to) and say so in
+the posted comment. A failed run (missing transcript, script error) is
+noted in the wave-end report below and never blocks it.
+
 ## 4. Wave end
 
 Definition of done per package: last tester verdict is PASS, reviewer
@@ -426,7 +448,8 @@ track, substitute the reviewer's `CHECKS` line (all exit codes 0) for the
 tester verdict; see "Pipeline tracks" above.
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
-lead's checkout is left on the default branch with a clean tree.
+lead's checkout is left on the default branch with a clean tree, then post the
+token report from "Token report (wave end)" above on each package issue.
 
 Report to the user: PRs ready for review, packages parked (`needs-human`,
 with their open questions), and issues deferred to later waves or stopped at
