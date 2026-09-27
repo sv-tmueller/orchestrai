@@ -11,6 +11,10 @@ GitHub issues from sub-plan to ready PR through a flat-star pipeline
 A Codex adapter (subscription auth, o3/gpt-5.6) is built but not yet
 live-tested.
 
+For what the team costs and catches against just asking an LLM to plan and
+execute a task in one pass, and when plain plan-and-execute is the better
+choice, see `docs/why-the-team.md`.
+
 ## How the team works
 
 The same pipeline runs on every host. Models are abstracted through tiers
