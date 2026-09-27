@@ -100,8 +100,9 @@ package the stages are serial:
    then send the findings verbatim to a fresh developer dispatch ("issue
    #<n>, branch <branch>: fetch it, work detached on it, fix exactly
    these"), then re-test.
-5. On PASS: post the verdict as a PR comment, then dispatch the reviewer
-   with the PR, the issue number, and the tester's UNTESTED CLAIMS, if any.
+5. On PASS: post the tester's report as a PR comment, not only the verdict,
+   then dispatch the reviewer with the PR, the issue number, and the
+   tester's UNTESTED CLAIMS, if any.
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
    number, then send the must-fix findings to a fresh developer dispatch in
    the same format as step 4, then re-test, then re-review forwarding the
@@ -115,6 +116,10 @@ package the stages are serial:
 
 Routing rules:
 
+- Seat reports are capped by the seat contracts. Route on the short report
+  as it stands. Where steps 4, 5, and 6 post a tester or reviewer report as
+  a PR comment, post it verbatim; that comment is the full evidence record.
+  Do not expand it, and do not re-dispatch a seat to get a longer version.
 - NEEDS_CONTEXT: answer from the issue, the sub-plan, and the repo docs. If
   you cannot, park the package.
 - BLOCKED: park the package (below) immediately; BLOCKED means the developer

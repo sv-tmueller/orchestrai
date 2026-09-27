@@ -35,7 +35,7 @@ deleted test is always a blocking finding.
 
 ## Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 VERDICT: APPROVE | CHANGES_REQUESTED
@@ -47,3 +47,9 @@ nit), the problem, and the required fix; "none" if there are no findings>
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
 otherwise. Still list should-fix findings and nits; they go to the PR for the
 human review, not into fix rounds.
+
+Cap the report at 40 lines. Each finding is one line plus one evidence line:
+the file:line or the violated issue text. Do not restate passing checks,
+logs, or the diff. Only findings may push the report past the cap, never
+prose; never drop or merge a finding to fit it. Do not add `###`
+subheadings inside this section; the sync extractor stops at them.

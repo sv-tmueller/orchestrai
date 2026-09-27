@@ -76,7 +76,7 @@ skipping it.
 
 ### Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
@@ -86,6 +86,12 @@ CHECKS: <each check command and its exit code, e.g. `npm test` -> 0; "none" only
 DEVIATIONS: <anything done differently from the sub-plan, or "none">
 NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
+
+Cap the report at 20 lines: one line per CHECKS command, and one line per
+DEVIATIONS or NOTES item. Do not paste check output, logs, or the diff.
+Only these lines may push the report past the cap, never prose; never drop
+or merge one to fit it. Do not add `###` subheadings inside this section;
+the sync extractor stops at them.
 
 ## tester
 
@@ -102,7 +108,7 @@ not pinned by any test, weakened or deleted tests.
 
 ### Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 VERDICT: PASS | FAIL
@@ -111,6 +117,12 @@ FINDINGS: <numbered; per failure the exact reproduction command and observed
 vs expected behavior; "none" for PASS>
 UNTESTED CLAIMS: <acceptance criteria no test covers, or "none">
 ```
+
+Cap the report at 40 lines. Each finding is one line plus one evidence line:
+the exact reproduction command. Do not restate passing checks, logs, or the
+diff. Only findings may push the report past the cap, never prose; never
+drop or merge a finding to fit it. Do not add `###` subheadings inside this
+section; the sync extractor stops at them.
 
 ## reviewer
 
@@ -131,7 +143,7 @@ always a blocking finding.
 
 ### Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 VERDICT: APPROVE | CHANGES_REQUESTED
@@ -143,6 +155,12 @@ nit), the problem, and the required fix; "none" if there are no findings>
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
 otherwise. Still list should-fix findings and nits; they go to the PR for the
 human review, not into fix rounds.
+
+Cap the report at 40 lines. Each finding is one line plus one evidence line:
+the file:line or the violated issue text. Do not restate passing checks,
+logs, or the diff. Only findings may push the report past the cap, never
+prose; never drop or merge a finding to fit it. Do not add `###`
+subheadings inside this section; the sync extractor stops at them.
 
 ## fact-checker
 
