@@ -193,4 +193,105 @@ describe('hermes workflow renderer', () => {
     assert.ok(report)
     assert.equal(report._dryRun, true)
   })
+
+  test('tm-map-codebase (dry-run): logs when items_source falls back to the stub', async () => {
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(msg)
+    try {
+      await renderWorkflow('tm-map-codebase', {})
+    } finally {
+      console.warn = origWarn
+    }
+    const stageStartLine = warnings.find((w) => w.includes('stage: area_map (tier:'))
+    assert.ok(stageStartLine, 'expected the stage-start log line')
+    const stubLines = warnings.filter(
+      (w) => w !== stageStartLine && w.includes('area_map') && w.includes('stub')
+    )
+    assert.equal(stubLines.length, 1, 'expected exactly one distinct stub-fallback log line')
+  })
+
+  test('tm-map-codebase: area_map stage receives the real scout areas, not the stub', async () => {
+    const calls = []
+    const origDryRun = process.env.DRY_RUN
+    const origDelegate = globalThis.delegate_task
+    process.env.DRY_RUN = 'false'
+    globalThis.delegate_task = async ({ goal, output_schema }) => {
+      calls.push({ goal, output_schema })
+      if (output_schema === 'MAP_SCHEMA') {
+        return {
+          areas: [
+            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
+            { name: 'beta-area', paths: ['beta/'], why: 'support' },
+          ],
+          dropped: [],
+        }
+      }
+      return { findings: [], summary: 'ok' }
+    }
+
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(msg)
+
+    try {
+      await renderWorkflow('tm-map-codebase', {})
+    } finally {
+      console.warn = origWarn
+      globalThis.delegate_task = origDelegate
+      process.env.DRY_RUN = origDryRun
+    }
+
+    const areaMapGoals = calls
+      .filter((c) => c.output_schema === 'AREA_MAP_SCHEMA')
+      .map((c) => c.goal)
+
+    assert.equal(areaMapGoals.length, 2, 'expected one dispatch per real scout area')
+    assert.ok(areaMapGoals.some((g) => g.includes('alpha-area')), 'missing alpha-area dispatch')
+    assert.ok(areaMapGoals.some((g) => g.includes('beta-area')), 'missing beta-area dispatch')
+    assert.ok(
+      !areaMapGoals.some((g) => g.includes('stub-area')),
+      'must not fall back to the stub area when a real scout result is available'
+    )
+    assert.ok(
+      !warnings.some((w) => w.includes('falling back to 1 stub item')),
+      'stub fallback log must not fire when the real scout result resolves'
+    )
+  })
+
+  test('tm-review-codebase: area_review stage receives the real scout areas, not the stub', async () => {
+    const calls = []
+    const origDryRun = process.env.DRY_RUN
+    const origDelegate = globalThis.delegate_task
+    process.env.DRY_RUN = 'false'
+    globalThis.delegate_task = async ({ goal, output_schema }) => {
+      calls.push({ goal, output_schema })
+      if (output_schema === 'MAP_SCHEMA') {
+        return {
+          areas: [
+            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
+            { name: 'beta-area', paths: ['beta/'], why: 'support' },
+          ],
+          dropped: [],
+        }
+      }
+      return { findings: [], summary: 'ok' }
+    }
+
+    try {
+      await renderWorkflow('tm-review-codebase', {})
+    } finally {
+      globalThis.delegate_task = origDelegate
+      process.env.DRY_RUN = origDryRun
+    }
+
+    // architecture_review shares the same FINDINGS_SCHEMA but never carries
+    // an area name in its goal, so filter by area name rather than schema.
+    const areaGoals = calls
+      .map((c) => c.goal)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
+
+    assert.equal(areaGoals.length, 2, 'expected one dispatch per real scout area')
+    assert.ok(!areaGoals.some((g) => g.includes('stub-area')))
+  })
 })

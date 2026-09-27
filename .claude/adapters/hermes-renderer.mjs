@@ -109,7 +109,10 @@ export async function renderWorkflow(workflowName, args = {}) {
   const root = safeArg(args.path, '.')
   const base = safeArg(args.base, 'origin/main')
 
-  // Execution context: accumulates results from each stage.
+  // Execution context: accumulates results from each stage, keyed by
+  // "<stage>_result" (not the bare stage name). This is the vocabulary the
+  // spec files use for items_source (e.g. "scout_result.areas"), so a
+  // dynamic-list stage's dotted path resolves against a real prior result.
   const ctx = {}
 
   // Execute stages in declaration order. Dynamic-list stages read their
@@ -119,15 +122,15 @@ export async function renderWorkflow(workflowName, args = {}) {
 
     if (stage.parallelism === 'single') {
       const report = await executeStage(stage, name, ctx, args, log, prompts, root, base)
-      ctx[name] = report
+      ctx[`${name}_result`] = report
     } else if (stage.parallelism === 'fixed-list') {
       const items = getFixedListItems(stage, ctx, args)
       const reports = await executeParallel(stage, name, items, ctx, args, log, prompts, root, base)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else if (stage.parallelism === 'dynamic-list') {
-      const items = getDynamicListItems(stage, ctx, args)
+      const items = getDynamicListItems(stage, ctx, args, name, log)
       const reports = await executeParallel(stage, name, items, ctx, args, log, prompts, root, base)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else {
       throw new Error(`Unknown parallelism "${stage.parallelism}" in stage "${name}"`)
     }
@@ -137,7 +140,7 @@ export async function renderWorkflow(workflowName, args = {}) {
   // final stage is the consolidate/synthesize stage (single, judgment tier).
   const stageNames = Object.keys(stages)
   const lastName = stageNames[stageNames.length - 1]
-  return ctx[lastName]
+  return ctx[`${lastName}_result`]
 }
 
 // Execute a single-agent stage, with fallback if the stage declares one.
@@ -245,7 +248,7 @@ function getFixedListItems(stage, ctx, args) {
 }
 
 // Resolve the item list for a dynamic-list stage.
-function getDynamicListItems(stage, ctx, args) {
+function getDynamicListItems(stage, ctx, args, name, log) {
   // Dynamic-list stages read items from a previous stage's output.
   // items_source is a dotted path like "scout_result.areas".
   const parts = stage.items_source.split('.')
@@ -254,7 +257,12 @@ function getDynamicListItems(stage, ctx, args) {
     val = val?.[part]
   }
   if (!Array.isArray(val)) {
-    // Dry-run fallback: stub a single area.
+    // Fallback (also exercised by dry-run, which never populates ctx with
+    // real stage output): stub a single area, but log it so a silent
+    // resolution failure on a live host is visible.
+    log(
+      `stage ${name}: items_source "${stage.items_source}" did not resolve to an array; falling back to 1 stub item`
+    )
     return [{ name: 'stub-area', paths: ['.'], why: 'stub' }]
   }
   // Cap the item count.

@@ -129,9 +129,10 @@ Top-level fields:
     the prefix concatenated with each item to form the agent() label.
   - `item_label`: for `single` stages that use a descriptive label
     rather than a literal (e.g. `architecture`).
-  - `items_source`: for `dynamic-list` stages, the path in the
-    previous stage's output that yields the item list (e.g.
-    `scout_result.areas`).
+  - `items_source`: for `dynamic-list` stages, a dotted path into the
+    run context, where each finished stage's output is stored under
+    `<stage>_result` (e.g. `scout_result.areas` reads the `areas`
+    field off the `scout` stage's result).
   - `items_key`: for `fixed-list` stages, the name of the data array
     in the SPEC that enumerates the items.
   - `items_cap`: for `dynamic-list` stages, the name of the args
