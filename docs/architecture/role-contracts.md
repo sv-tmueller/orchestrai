@@ -27,10 +27,24 @@ type as the first line of the message: `JOB: SUB_PLAN`,
 ### SUB_PLAN
 
 Input: an issue number. Read the issue, its comments, and the relevant
-code. Produce checkpoint bullets: the approach, the files expected to be
-touched, the order, the verification step. Check the plan against the
-issue's size label; if the work is clearly bigger than the label, say
-so and recommend re-labeling.
+code.
+
+A plan already exists when the issue body carries signed-off batch
+decisions, links a plan file, or links an approved spec. Batch
+membership alone is not a plan; the decision comes from what is read,
+not from a caller-named source. When a plan exists, do not restate it:
+return only the delta, the file order, contracts or tests that
+constrain the change, conflicts with the architecture docs, and the
+size check against the label. If reading the code turns up nothing the
+plan misses, return the one-line `plan holds, no additions` form,
+naming the plan source and the size label; it still serves as the
+checkpoint and resume marker.
+
+When the issue carries only scope and acceptance criteria (no plan),
+produce the full checkpoint bullets instead: the approach, the files
+expected to be touched, the order, the verification step. Check the
+plan against the issue's size label; if the work is clearly bigger than
+the label, say so and recommend re-labeling.
 
 ### SPLIT_PROPOSAL
 
