@@ -408,15 +408,15 @@ git status --short --branch        # expect the default branch, clean tree
 ```
 
 Remove anything still registered under `.claude/worktrees/` only if
-`git -C <path> rev-list HEAD --not --remotes=origin` prints nothing
+`git -C <path> rev-list HEAD --not --remotes=origin` exits 0 and prints nothing
 (`git worktree remove --force <path>`). If the lead's HEAD was moved off the
 default branch, return to it with `git switch <default>` (the lead's own checkout, the one
 place that command is right). Delete a stray local branch, including a
 leftover `worktree-agent-<id>` branch, only if `git rev-list <branch> --not
---remotes=origin` prints nothing, then `git branch -D <branch>`; never delete
-a branch whose commits are not on origin. Mid-wave, only the per-package pass
-above runs these, under its guards. Whatever this backstop keeps is named in
-the wave-end report.
+--remotes=origin` exits 0 and prints nothing, then `git branch -D <branch>`;
+never delete a branch whose commits are not on origin. Mid-wave, only the
+per-package pass above runs these, under its guards. Whatever this backstop
+keeps is named in the wave-end report.
 
 ## 4. Wave end
 
