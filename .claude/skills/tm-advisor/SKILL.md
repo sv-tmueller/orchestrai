@@ -188,7 +188,22 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
 
 ## 5. Report
 
-When every package is ready or parked, post the report to the batch issue:
+When every package is ready or parked, run the token report and post it as
+its own comment on the batch issue, before the report comment below (which
+links to it):
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
+  --session "${CLAUDE_CODE_SESSION_ID}" \
+  --since "$(gh issue view <batch#> --json createdAt --jq .createdAt)"
+```
+
+A failed run (missing transcript, script error) is noted in the report
+below and never blocks it. If the batch ran across more than one session
+(a resume, section 6), the report covers only this session's transcript;
+say so in the comment.
+
+Then post the report to the batch issue:
 PRs ready for review, every decision made during the run, parked packages
 with their open questions, and anything deferred. End both the batch-issue
 report and the chat digest with:
@@ -198,6 +213,7 @@ report and the chat digest with:
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Token report: <link to the batch-issue comment>
 
 ## Next steps
 1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
