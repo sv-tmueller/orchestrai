@@ -423,3 +423,104 @@ One 429 hit during this diagnostic phase (individual spend limit,
 follow-up check (Grep boundary test) that had already returned its result
 before the error; not counted as a probe or arm run under section 8's end
 states, since it was neither. Resumed after the stated reset time.
+
+## Arm run 1 (invalid, superseded by Amendment 2)
+
+Session `26905c9d-4490-4ef0-8c88-ebee1b590dc9`, `RC=0 WALL=695` (11.6
+minutes, well under the 90-minute ceiling). `terminal_reason: "completed"`,
+63 turns, `total_cost_usd: 3.9138096`, 11 permission denials.
+
+**Gates:** model, `mcp_servers`, `permissionMode` (`dontAsk`) all pass.
+**Plugin-off gate now passes**: the init event lists zero
+`orchestrai:`-prefixed skills or agents, confirming that Amendment 1's
+combined `{"orchestrai@orchestrai":false,"orchestrai@synced":false}` (both
+keys together, where either alone had failed in diagnostics) does disable
+the synced plugin for a session. **Contamination gate: clear.** Every
+absolute path outside the arm's own `repo/`/`input/` touched anywhere in
+the transcript is either a plugin/skill listing from the init event itself
+(not a tool call) or a path this developer's own report text quotes back
+for citation, not a tool target; no `Read`, `Grep`, or `Glob` call
+resolved outside the working directory or `--add-dir` grant.
+
+**Outcome: crippled, not by contamination or by ultracode, but by a
+protected-path rule this protocol did not anticipate.** All 11 permission
+denials, and specifically 7 of 9 `Write` attempts plus the only `Edit`
+attempt, target paths under `.claude/` in the arm's own repo (the fixture
+tree under `.claude/workflows/__tests__/fixtures/token-report/` and
+`.claude/skills/tm-kickoff/SKILL.md`); every `Write`/`Edit` call to a
+non-`.claude/` path (a scratch survey script under `/tmp`, and the
+baseline doc under `docs/research/`) succeeded. Per
+`code.claude.com/docs/en/permission-modes.md`: `.claude` (like `.git`) is
+a built-in **protected path**; "writes to protected paths are never
+auto-approved except in `bypassPermissions` mode," and `dontAsk` mode
+"auto-denies every tool call that would otherwise prompt you," including
+protected-path writes, with **no `--allowedTools`/`--settings` rule able
+to override that** (confirmed by testing an explicit `Write`/`Edit` grant
+above, which had no effect). Since #379's actual deliverable is
+`.claude/skills/tm-kickoff/token-report.mjs` plus tests and fixtures under
+`.claude/workflows/__tests__/`, this blocks the task's core almost
+entirely under `dontAsk`. The one artifact that landed,
+`docs/research/2026-09-28-batch-371-token-baseline.md`, sits outside
+`.claude/` and is left in the arm's `repo/` as evidence, not committed (no
+commit exists at all: `git log` at the arm's end state still shows the
+base commit as `HEAD`).
+
+This is orthogonal to ultracode and to Amendment 1's contamination fix
+(the plugin-off and boundary gates both passed cleanly on this same run);
+it would have hit any headless `dontAsk` arm attempting this specific
+issue, with or without ultracode. Not a pre-registered end state under
+section 8 (not budget-capped, not a 429, not a wall-clock kill): a new,
+fourth category this protocol did not anticipate, logged here rather than
+silently reported as the n=1 result. This run's `total_cost_usd` is
+counted in the diagnostic total, not against the retry's $40 cap, the
+same convention as the diagnostic sessions above and as #404's round-1
+spend.
+
+## Amendment 2: permission mode for the arm (committed and pushed before the retry runs)
+
+Root cause (`code.claude.com/docs/en/permission-modes.md`, quoted above):
+`dontAsk` mode hard-denies protected-path writes with no override. `auto`
+mode instead routes a protected-path write to a classifier for
+case-by-case review ("writes to protected paths route to the classifier
+even when an allow rule matches"), and in a non-interactive `-p` session
+with nothing to prompt, a classifier block "doesn't run and Claude keeps
+working" rather than hanging or erroring. `auto` mode is a documented,
+non-bypass permission mode (distinct from `bypassPermissions`,
+`--dangerously-skip-permissions`, or any sandbox override, none of which
+this package uses).
+
+**Verified before the retry:** a diagnostic session, identical settings
+to Amendment 1's revised block except `--permission-mode auto`, wrote
+`.claude/scratch-write-probe.md` successfully (`total_cost_usd: 0.266`, 0
+denials). `permissions.blockReadsOutsideWorkingDirectories` is documented
+to hold "in every permission mode," so Amendment 1's boundary fix is
+unaffected by this mode change.
+
+**Retry CLI (supersedes section 4 and Amendment 1's block; the only
+change is the permission mode):**
+
+```sh
+ARM_TRIAL="$HOME/.cache/orchestrai-ultracode-arm/2026-09-28"
+rm -rf "$ARM_TRIAL/repo" && cp -R "$ARM_TRIAL/pristine" "$ARM_TRIAL/repo"
+SID=$(uuidgen | tr 'A-Z' 'a-z'); T0=$(date +%s)
+cd "$ARM_TRIAL/repo" && env -i HOME="$HOME" USER="$USER" SHELL=/bin/zsh LANG=en_US.UTF-8 TMPDIR="$TMPDIR" \
+  PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  CLAUDE_CONFIG_DIR="$HOME/.claude-work" GH_CONFIG_DIR="$ARM_TRIAL/gh-empty" \
+  timeout 5400 /opt/homebrew/bin/claude -p --model claude-opus-5-5 --effort ultracode \
+    --output-format stream-json --verbose --session-id "$SID" \
+    --permission-mode auto --strict-mcp-config --max-budget-usd 40 \
+    --add-dir "$ARM_TRIAL/input" \
+    --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"modelSettings":{"claude-opus-5-5":{"effortLevel":"xhigh"}},"permissions":{"blockReadsOutsideWorkingDirectories":true}}' \
+    --allowedTools "Glob,Write,Edit,Agent,Task,Workflow,Bash(git *),Bash(npm *)" \
+    --disallowedTools "Skill,AskUserQuestion,WebFetch,WebSearch,Bash(gh *),Bash(git push *),Bash(git remote *),Bash(curl *)" \
+    < "$ARM_TRIAL/task-prompt.md" > "$ARM_TRIAL/runs/arm2.jsonl" 2> "$ARM_TRIAL/runs/arm2.stderr"
+RC=$?
+WALL=$(( $(date +%s) - T0 ))
+```
+
+Same 90-minute wall-clock ceiling. Same gates as section 4, plus a new
+one: zero `Write`/`Edit` denials on a `.claude/` path (if any occur, the
+same defect persists and the run is invalid again). Same $40 cap and 429
+handling as section 8; arm run 1's cost is not counted against it. This
+is the second and last permission-mode change this protocol makes; a
+further failure here parks `needs-human` rather than a third invention.
