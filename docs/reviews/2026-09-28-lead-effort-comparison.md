@@ -1,265 +1,253 @@
 # Lead effort comparison: Opus 5.5 at high vs xhigh - 2026-09-28
 
-Issue #404, batch #403 (P1). Pre-registered protocol delta:
-[2026-09-28-lead-effort-comparison-protocol.md](2026-09-28-lead-effort-comparison-protocol.md).
-Per-run data and hashes:
+Issue #404, batch #403 (P1). Pre-registered protocol and its round-2
+amendment: [2026-09-28-lead-effort-comparison-protocol.md](2026-09-28-lead-effort-comparison-protocol.md).
+Per-run data, judge scores, and hashes:
 [2026-09-28-lead-effort-comparison-data.json](2026-09-28-lead-effort-comparison-data.json).
 Reused xhigh arm (O1-O3): #358's own files, unedited by this PR.
 
 ## 1. Bottom line
 
-**Insufficient evidence. Keep the lead at xhigh.** All three new high-effort
-runs (H1, H2, H3) failed a gate: H1 hit an HTTP 429 individual spend limit
-after 4 turns; H2 and H3 each hit the new contamination gate (a `Glob` call
-whose `path` argument scoped in the sibling 2026-09-23 trial root). The
-high-effort arm has 0 valid runs out of 3, short of the decision rule's
-"fewer than 2 valid runs in either arm" floor. No judge pass ran: the
-protocol delta skips the judge below that same threshold. `.claude/team-guide.md`
-is unedited; the rule's own decision is "keep xhigh," not "switch."
+**Switch the lead's advisor refinement (sections 1-2 only) to `--effort
+high`.** Round 1 (H1-H3) delivered 0 valid runs (a 429 and two contamination-
+gate hits) and reported "insufficient evidence." Per a decision logged on
+batch #403
+([comment 5872761987](https://github.com/sv-tmueller/orchestrai/issues/403#issuecomment-5872761987)),
+one more round ran (H4-H6, amendment 1 to the protocol, a trial root with no
+2026-09-23 sibling to sweep into). All three round-2 runs were valid; the
+judge ran over O1-O3 plus H4-H6 and both decision-rule conditions held:
+
+- **Score gap:** xhigh mean 20.0/20 (O1, O2, O3 all scored 20), high mean
+  19.67/20 (H4 20, H5 20, H6 19). Gap 0.33, inside the 1.0-point ceiling.
+- **Cost ratio:** xhigh mean cost $2.2008/run, high mean cost $1.0581/run.
+  Ratio 0.48, inside the 0.80x ceiling (high-effort runs cost well under
+  half of xhigh's).
+
+Both hold, so the pre-registered rule's answer is **switch**. Per the
+protocol's own "if switch" clause, only `.claude/team-guide.md` is edited,
+and only a refinement-only note: advisor sections 1-2 may run at `high`,
+flipped back to `xhigh` before replying "dispatch." `tiers.lead` in
+`.claude/adapters/claude-code.json` and `SEAT_EXPECTATIONS` in
+`effort-policy.test.mjs` are untouched, both guarded and outside this
+package's contract.
 
 The batch's deferred run-phase measurement ("only if P1 shows high holds on
-refinement," issue #403) is **not triggered**: P1 shows neither hold nor
-fail, it shows no usable measurement.
+refinement," issue #403) **is now triggered**: this trial's own scores show
+high holding within the rule's own band. Whether to act on that trigger is
+outside this package's non-goals (run-phase decisions); it is flagged here
+for whoever picks up that follow-on measurement.
 
-Total new list-price spend for this package: **$2.5095844** (H1 $0.1806318
-+ H2 $1.0894124 + H3 $1.2395402), against the protocol delta's $44 hard
-ceiling. The reused O1-O3 runs cost nothing new today; their original
-combined cost was $6.60 (#358's own data.json), not respent.
+**Total list-price spend, both rounds: $8.6144074** (round 1: $2.5095844,
+all invalidated; round 2: $6.104823, comprising $3.174341 across H4-H6 plus
+$2.930482 for the judge), against round 2's own $35 cap (round 1's spend is
+not counted against it, per the amendment). The reused O1-O3 runs cost
+nothing new today; their original $6.60 was #358's own spend.
 
-## 2. What killed each high-effort run
+## 2. Round 1 (H1-H3): what killed each high-effort run
 
 **H1 - HTTP 429, individual spend limit.** Died at 4 turns, `is_error: true`,
 `terminal_reason: "api_error"`, `api_error_status: 429`, `result`: "You've
 hit your individual spend limit · run /usage-credits to raise it, or visit
 claude.ai/admin-settings/usage · your session limit resets 4:50pm
-(Europe/Berlin)." Cost $0.1806318 before failing. Per the protocol delta's
-"If blocked" clause, the run was marked invalid, not replaced; the
-developer stopped launching further runs and treated it as a limit death.
-On resume, the developer's own `date` command read 2026-09-28T14:52:04Z,
-past the reset time (14:50 UTC / 16:50 CEST) read out of the run's own
-`rate_limit_info.resetsAt` (unix `1790607000`), independently confirming
-the reset before H2 launched (not solely trusting the resume prompt's own
-claim). This is the same class of availability event #358's F3 hit (an
-individual/session spend limit, not a per-model quota message); this trial
-does not attempt to settle Max-vs-Pro or account-wide-vs-model-specific
-questions any further than #358 already did.
+(Europe/Berlin)." Cost $0.1806318 before failing. Per the protocol's "If
+blocked" clause, marked invalid, not replaced; the developer stopped
+launching further runs. On resume, the developer's own `date` command read
+2026-09-28T14:52:04Z, past the reset time (14:50 UTC), independently
+confirming the reset before H2 launched. Same class of availability event
+as #358's F3 (an individual/session spend limit, not a per-model quota
+message).
 
-**H2 and H3 - contamination gate, a structural gap, not a fluke.** Both
-runs issued a `Glob` tool call with `path` set to
-`/Users/TM/.cache/orchestrai-lead-trial` (the parent directory enclosing
-*both* trial roots), rather than a path scoped to their own `repo/` or
-`2026-09-28/` directory:
+**H2 and H3 - contamination gate, a structural gap.** Both issued a `Glob`
+call with `path` set to `/Users/TM/.cache/orchestrai-lead-trial` (the
+parent enclosing both the 2026-09-23 and 2026-09-28 roots):
 
 - H2: `{"pattern": "**/issues-open.json", "path":
   "/Users/TM/.cache/orchestrai-lead-trial"}`, and the result actually
-  returned three matches, two of them under the 2026-09-23 sibling root
-  (`_snapshot/issues-open.json` and `judge-repo/_snapshot/issues-open.json`).
-  This is a real leak: the run observed that a `judge-repo/` directory
-  exists in the old root, information a blinded run should not have.
+  returned three matches, two under the 2026-09-23 sibling root
+  (`_snapshot/issues-open.json` and `judge-repo/_snapshot/issues-open.json`,
+  a real leak: the run learned a `judge-repo/` directory exists in the old
+  root).
 - H3: `{"pattern": "**/_snapshot*", "path":
   "/Users/TM/.cache/orchestrai-lead-trial"}`, and the result was "No files
-  found" (the pattern does not match a bare directory name, so nothing
-  came back from either root).
+  found."
 
-Both were marked invalid. H3's call returned nothing, but the gate's own
-text ("no tool input touches the 2026-09-23 root... a hit invalidates the
-run") was applied literally, on the input's scope, not on whether content
-happened to come back, so both runs get the same treatment rather than one
-being excused by a pattern-matching accident. This keeps the call
-mechanical instead of a judgment call that could look like it favors
-whichever run has the more convenient outcome, especially since (section 3)
-the decision-rule outcome is identical either way.
+Both were marked invalid, applying the gate's literal text (the input's
+scope) rather than an effect-based reading, so H3 is not excused by its
+pattern happening to match nothing. `--allowedTools` grants `Glob` by name
+with no path restriction, unlike the `Bash(...)` entries, which restrict by
+literal command-string prefix; a run that calls `Glob` with an absolute
+path one level above its own trial root can sweep in a sibling directory
+with nothing in the allowlist able to stop it. Not fixed for round 2 (see
+section 3); reported here as a finding for any future trial reusing this
+allowlist.
 
-**Root cause, worth naming for any future trial using this allowlist:**
-`--allowedTools` grants `Glob` by name with no path restriction, unlike the
-`Bash(...)` entries, which restrict by literal command-string prefix. A run
-that calls `Glob` with an absolute path one level above its own trial root
-can sweep in a sibling directory with no allowlist entry able to stop it.
-This is a different, more direct version of the "filesystem jail gap"
-#358 already documented (reads reaching `~/.hermes/skills`): there, the
-escape needed no unusual path argument, since `~/.hermes` sits outside any
-clone entirely; here, the model had to actively supply a parent-directory
-path, and did so independently in both H2 and H3, on two different
-`Glob` patterns. Two for three is not enough to call this a > 50% failure
-rate at n=3, but it is enough to say the isolation this protocol relies on
-for the CLI-level lockdown (`--disallowedTools` on `Edit`/`Write`/`gh
-*`/etc.) does not extend to read-only path scoping, and any future
-high-vs-xhigh or model-vs-model trial reusing this same command block
-should expect the same gap.
+**A separate, non-invalidating hit:** H3 also read
+`/Users/TM/.hermes/skills/autonomous-ai-agents/orchestrai/SKILL.md`, the
+same `~/.hermes` filesystem-jail class #358 documented on F1, O1, and F2.
+Not on this protocol's forbidden-path list, so it did not invalidate H3 on
+its own.
 
-**A separate, non-invalidating hit, for completeness:** H3 also read
-`/Users/TM/.hermes/skills/autonomous-ai-agents/orchestrai/SKILL.md` and
-globbed that directory, the same `~/.hermes` filesystem-jail class #358
-documented on F1, O1, and F2. `~/.hermes` is not on this protocol delta's
-forbidden-path list (it is a live install, not this trial's own data), so
-this does not invalidate H3 on its own; it is recorded here as the same
-known limitation recurring, not a new gate failure.
+Round 1 total: 0 of 3 valid, short of the decision rule's 2-valid floor, so
+round 1's own result was "insufficient evidence, keep xhigh" with no judge
+pass (skipped below that floor).
 
-## 3. Decision rule, applied
+## 3. Round 2 (H4-H6): amendment and results
 
-Per the protocol delta:
+Decision to run one more round, logged on batch #403: round 1 measured
+nothing and spend ($2.51) was far under the signed-off $10-20. Amendment 1
+(full text in the protocol file) moved the trial root to
+`~/.cache/orchestrai-lead-trial-r2/2026-09-28/`, a parent directory with no
+2026-09-23 sibling, structurally removing the sweep that invalidated H2 and
+H3, while leaving every other gate (including the contamination gate
+itself, unchanged) and the frozen CLI block in place. The Glob-allowlist
+gap itself was deliberately **not** fixed: tightening `--allowedTools`
+mid-trial would change the high-effort arm's tool conditions relative to
+O1-O3, which already ran under the unrestricted allowlist.
 
-- A run is valid if it passes every #358 gate plus the new gates
-  (`claude_code_version` match, the effort gate, the contamination gate)
-  and was not budget-capped.
-- H1: invalid (429, an availability failure unrelated to any gate content,
-  but no result was ever produced to gate).
-- H2: invalid (contamination gate).
-- H3: invalid (contamination gate).
-- High-effort arm: **0 valid runs**, short of the rule's 2-valid-run floor.
-- xhigh arm (O1-O3, reused from #358): 3 valid runs, unchanged.
+All three round-2 runs completed cleanly and passed every gate, including
+the contamination gate: each run did issue at least one `Glob` call scoped
+one level above its own trial root
+(`/Users/TM/.cache/orchestrai-lead-trial-r2`), the same pattern as H2/H3,
+but that parent directory contains only `2026-09-28`, so there was nothing
+outside the run's own data for it to reach. No run read `~/.hermes`. No em
+dashes or banned phrases in any of the three final messages.
 
-**"Fewer than 2 valid runs in either arm: insufficient evidence, keep
-xhigh."** This branch fires cleanly; the score-gap and cost-ratio branches
-of the rule are never reached, because the judge never ran (protocol
-delta: judge is skipped below 2 valid high runs). Nothing about this
-result is close to the switch threshold either way, it is a measurement
-failure on this trial's own operational reliability (an account spend
-limit plus a tool-scoping gap), not a quality or cost finding about
-`--effort high` itself.
+| Run | Cost (list) | Wall | Turns | Denials | Effort gate | Contamination gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| H4 | $0.9441 | 3m08s | 22 | 1 | pass (29 turns, all high) | clear |
+| H5 | $1.1041 | 3m51s | 30 | 1 | pass (42 turns, all high) | clear |
+| H6 | $1.1261 | 4m23s | 33 | 1 | pass (46 turns, all high) | clear |
 
-## 4. Per-run table
+## 4. Judge
 
-O1-O3 columns are copied from #358's own `data.json` (unedited); H1-H3 are
-new. Cost is list price; tokens in thousands (K) except input (raw count).
-No run spawned a subagent.
+One fresh Sonnet judge pass (`claude-sonnet-5`, xhigh, `--output-format
+json`), run outside both lead trial roots
+(`~/.cache/orchestrai-judge/2026-09-28/judge-repo`), over all 6 valid
+outputs: O1, O2, O3 (xhigh, reused from #358) plus H4, H5, H6 (high, round
+2). $2.9304820000000005, 92 turns, 3 permission denials, parsed as valid
+JSON on the first attempt, no retry needed.
 
-| Run | Arm | Model | Effort | Input | Cache write (1h) | Cache read | Output (of which thinking) | Cost (list) | Wall | Turns | Denials | Valid |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| O1 | xhigh (reused) | Opus 5.5 | xhigh | 46 | 142.6K | 1,916.6K | 59.6K (46.7K) | $2.7167 | 9m50s | 49 | 0 | yes |
-| O2 | xhigh (reused) | Opus 5.5 | xhigh | 34 | 96.1K | 1,150.3K | 48.8K (38.3K) | $1.9748 | 7m38s | 36 | 0 | yes |
-| O3 | xhigh (reused) | Opus 5.5 | xhigh | 44 | 94.3K | 1,523.8K | 42.6K (32.1K) | $1.9110 | 7m24s | 38 | 0 | yes |
-| H1 | high (new) | Opus 5.5 | high | 4 | 20.0K | 48.8K | 0.6K (0.02K), then a 429 | $0.1806 | 11s | 4 | 1 | **no (429)** |
-| H2 | high (new) | Opus 5.5 | high | 28 | 80.7K | 701.4K | 15.2K (8.2K) | $1.0894 | 2m52s | 26 | 1 | **no (contamination)** |
-| H3 | high (new) | Opus 5.5 | high | 40 | 65.7K | 1,324.6K | 22.5K (13.7K) | $1.2395 | 4m14s | 37 | 1 | **no (contamination)** |
+**Redaction:** model names/IDs, `Generated with`/`Co-Authored-By` lines,
+and every `redact.txt` host, checked against all 6 outputs. Nothing
+matched in any of the 6 (same as #358's own experience with F1/F2/O1-O3):
+no model self-identification, no attribution lines, no real-host mentions.
+The new normalization step (run dates later than the snapshot, trial-root
+paths) also found nothing to replace in H4-H6.
 
-**Per-arm means:** xhigh (n=3, all valid): mean cost $2.2008 (unchanged from
-#358). High (n=0 valid of 3 launched): no mean; all three data points exist
-only as invalidated runs, table above for transparency.
+**Manual self-identification pass:** all 6 redacted files checked for
+missed self-identification (a run naming its own capabilities or context
+window); nothing found.
 
-**Cost recomputed independently for all three new runs**, against the
-Opus 5.5 row of #358's price table (`prices_usd_per_mtok` in the new
-`data.json`, copied unedited from #358's):
+**Labels**, by sorted sha256 of the 6 redacted files: R1=H4, R2=O1, R3=O2,
+R4=O3, R5=H5, R6=H6.
 
-- H1: 4x$4 + 19,966x$8 + 48,839x$0.20 + 556x$20, all /1e6 = $0.1806318,
-  matching `total_cost_usd` exactly.
-- H2: 28x$4 + 80,668x$8 + 701,382x$0.20 + 15,184x$20, all /1e6 =
-  $1.0894124, matching exactly.
-- H3: 40x$4 + 65,652x$8 + 1,324,621x$0.20 + 22,462x$20, all /1e6 =
-  $1.2395402, matching exactly.
+**Blinding-breach scan:** the judge's own CLI session log
+(`~/.claude-work/projects/-Users-TM--cache-orchestrai-judge-2026-09-28-judge-repo/<SID>.jsonl`)
+scanned for any tool input path under `orchestrai-lead-trial/`: 0 hits.
 
-## 5. Gate results
+**Unblinding** happened only after the scores above were committed to
+`data.json` (commit `5fd7648`).
 
-| Run | Model matches | mcp empty | permissionMode | apiKeySource | CLI 2.1.280 | Budget-capped | Effort=high every turn | Contamination-clear |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| H1 | yes | yes | dontAsk | none | yes | no | yes (5 turns recorded, all high) | yes |
-| H2 | yes | yes | dontAsk | none | yes | no | yes (37 turns, all high) | **no** |
-| H3 | yes | yes | dontAsk | none | yes | no | yes (51 turns, all high) | **no** |
+### Scores
 
-The effort gate holds on all three: every `perTurnEffort` recorded in each
-run's own CLI session log
-(`~/.claude-work/projects/-Users-TM--cache-orchestrai-lead-trial-2026-09-28-repo/<SID>.jsonl`)
-is `high`, confirming the explicit `--effort high` flag won over
-`~/.claude-work/settings.json`'s `modelSettings.claude-opus-5-5.effortLevel:
-"high"` entry (which would have produced the same value anyway) and the
-global `xhigh` default (which it did not).
+| Run | Arm | Label | Total (out of 20) |
+| --- | --- | --- | --- |
+| O1 | xhigh | R2 | 20 |
+| O2 | xhigh | R3 | 20 |
+| O3 | xhigh | R4 | 20 |
+| H4 | high | R1 | 20 |
+| H5 | high | R5 | 20 |
+| H6 | high | R6 | 19 |
 
-`init` counted 7 plugins, 137 skills, 24 agents on all three H runs,
-matching O1's own baseline exactly (the sub-plan's own drift check found no
-actual difference despite the 2026-09-27 plugin update landing between the
-two trial dates).
+**Judge-stability check** (not used in the decision rule, reported for
+context): #358's own judge scored O1=20, O2=19, O3=20. This trial's fresh
+pass scored O1=20, O2=20, O3=20, a 1-point move on O2 only, in the
+direction that narrows this trial's own already-small gap. Both passes
+agree O1 and O3 at 20/20.
 
-## 6. Reused xhigh arm: verification this session
+## 5. Decision rule, applied
 
-Before any new run, this session verified (data unchanged, checks re-run
-independently rather than trusted from the sub-plan comment):
+Per the protocol (unchanged from round 1) and amendment 1:
 
-- `runs/O{1,2,3}.jsonl` sha256 match `data.json`'s `raw_log_sha256` for
-  each: `07396673e1...`, `141696a5ee...`, `8c051d1f52...`.
-- `runs/O{1,2,3}.output.md` are byte-for-byte equal to `tail -1
-  O{1,2,3}.jsonl | jq -r '.result'` (the same extraction #358 used), and
-  byte-for-byte equal to #358's own blinded `_judge/R2.md`, `R3.md`,
-  `R5.md`.
-- CLI still `/opt/homebrew/bin/claude` v2.1.280.
-- `pristine/` (the 2026-09-23 root's own copy, and the new 2026-09-28
-  copy made from it) is at BASE `1730257e1d979bda7cd60967012165d8a4b236d1`,
-  no remote, clean, in both roots.
-- Snapshot and task-prompt sha256 match `data.json`'s recorded values in
-  both roots.
-- `redact.txt` was read only from the 2026-09-23 root, only when the
-  scoped grep ran before each commit; never copied, never `cat`.
+- Valid runs: xhigh (O1, O2, O3), high (H4, H5, H6). Both arms clear the
+  2-valid floor (3 each), so the judge ran and the rule's substantive
+  branches apply.
+- **Condition 1 (score):** mean xhigh 20.0, mean high 19.6667, gap 0.3333.
+  0.3333 <= 1.0: **holds**.
+- **Condition 2 (cost):** mean xhigh cost $2.2008358667, mean high cost
+  $1.0581136667, ratio 0.4807780910. 0.4808 <= 0.80: **holds**.
+- Both hold: **switch**.
 
-None of these checks failed, so this trial took the reuse branch (O1-O3
-stand as the xhigh arm) rather than the else-branch (re-running the xhigh
-arm as X1-X3 interleaved with H1-H3).
+Cost recomputed independently for one round-2 run (H5), against the Opus
+5.5 row of the (unchanged) price table: 32x$4 + 61,920x$8 + 944,692x$0.20 +
+20,984x$20, all /1e6 = $0.000128 + $0.49536 + $0.1889384 + $0.41968 =
+$1.1041064, matching `total_cost_usd` exactly.
 
-**Permission-denial recount** (matching the protocol delta's new gate 7):
-#358's `data.json` recorded `permission_denial_count: 0` for every run, but
-each run's raw `result.permission_denials` array is non-empty: O1 1, O2 1,
-O3 2, F1 1, F2 1. Recorded in the new `data.json`'s `reused_from_358` block;
-#358's own committed file is unedited.
+## 6. Recommendation
 
-## 7. No-writes check
+**Switch.** `.claude/team-guide.md`'s Model policy section gets one
+refinement-only note: `/tm-advisor` sections 1 (Refine) and 2 (Propose) may
+run at `--effort high` instead of the session default `xhigh`, citing this
+report; flip back to `xhigh` before replying "dispatch" (sections 3-6, and
+every other seat, are unaffected and stay at their existing pins).
+`tiers.lead` in `.claude/adapters/claude-code.json` and
+`SEAT_EXPECTATIONS` in `effort-policy.test.mjs` are not touched: both are
+guarded, and this package's own non-goals exclude run-phase decisions,
+which is what a `tiers.lead` change would actually govern.
 
-`gh issue list --repo sv-tmueller/orchestrai --state all --search
-"updated:>=2026-09-28T10:56:00Z"` and the equivalent `gh pr list`, run after
-H3 completed: hits are #399, #400, #401, #403, #405 and PRs #402, #408 (this
-package's own draft PR). All are expected: #403 is this batch's tracking
-issue, #405 is batch #403's other package (P2), #399/#400/#401/#402 are a
-separate, concurrently running batch. Nothing traces to a write by H1, H2,
-or H3, all three of which ran with no GitHub credentials reachable
-(`GH_CONFIG_DIR` pointed at an empty directory) and `Bash(gh *)`
-disallowed.
+This result covers the refine-task only, at n=3 per arm, one task, one
+judge model family, the same limitations #358's own report listed for its
+Fable-vs-Opus comparison (section 8 there). The batch's deferred run-phase
+measurement is now triggered per issue #403's own condition ("only if P1
+shows high holds on refinement"); a separate package should measure high
+vs. xhigh across the fuller kickoff run phase (parking, arbitration,
+dispatch) before extending this refinement-only finding any further.
 
-## 8. Limitations
+## 7. Limitations
 
-- **A limit death mid-package.** H1's 429 paused the package; the developer
-  independently confirmed the reset time had passed (system clock read
-  2026-09-28T14:52:04Z against a 14:50 UTC reset) before resuming with H2,
-  rather than relying solely on the resume instruction's own claim.
-- **The contamination gate's own design choice.** H3 was marked invalid on
-  a tool-input scope match that returned zero content, the same as H2's
-  match that returned real content. Section 2 explains the reasoning
-  (consistency, avoiding a result-dependent judgment call); a reader who
-  prefers an effect-only reading would keep H3 as the trial's one surviving
-  high-effort data point, still short of the rule's 2-valid floor on its
-  own, so the decision-rule outcome in section 3 is unchanged either way.
-- **n=0 valid high-effort runs is not evidence against `--effort high`.**
-  Every failure here was operational (an account-wide spend limit, a
-  Glob path-scoping gap), not a quality or cost signal about the effort
-  level itself. This report recommends *retrying* the high arm under a
-  tighter Glob restriction and a cooldown from the xhigh arm's own spend,
-  not concluding anything about high-effort quality.
-- **No judge pass ran.** The protocol delta's own skip condition (fewer
-  than 2 valid high runs) fired as designed; the rubric, redaction, and
-  blinding machinery built for this trial (normalization step, judge-repo
-  layout) were never exercised end to end.
+- **Round 1's own limitations still apply to its own data**, though round
+  1 contributes nothing to the final decision: the limit-death pause
+  (independently confirmed against the account clock) and the contamination
+  gate's literal-vs-effect reading choice for H3 (section 2). Neither
+  changes round 2's result.
+- **n=3 per arm, one task.** Same statistical caveat #358's own report
+  named for its Fable-vs-Opus comparison: a small sample size, one
+  refine-task probe, not a general claim about `--effort high` everywhere.
+- **The Glob-allowlist gap is not fixed, by design** (section 3):
+  round 2's isolation came from moving the trial root, not from
+  restricting the tool. A future trial reusing this same command block
+  should expect the same gap and either restrict `Glob`'s path or budget
+  for another parent-directory move.
+- **Two different trial roots** (`orchestrai-lead-trial/2026-09-28` for
+  round 1, `orchestrai-lead-trial-r2/2026-09-28` for round 2) both start
+  from the identical `pristine/`, `_snapshot/`, and `task-prompt.md`
+  copies (hash-checked), so this is a location change only, not a change
+  in frozen inputs.
+- **Judge-stability check (section 4)** shows a 1-point move on O2 between
+  #358's judge pass and this one; consistent with #358's own limitation
+  that a single judge model provides no inter-rater agreement measure.
 - **Everything #358's own report already listed as a limitation for O1-O3**
-  (n=3 xhigh only one task, one judge model family, cache warmth, headless
-  no-user-turns, the filesystem-jail gap on `~/.hermes`) still applies to
-  the reused arm; not repeated in full here, see that report's section 10.
+  (cache warmth, headless no-user-turns, the filesystem-jail gap on
+  `~/.hermes`, one judge model family) still applies to the reused arm; see
+  that report's section 10.
 
-## 9. Recommendation
-
-Keep the lead at `--effort xhigh`. No change to `.claude/team-guide.md`.
-Re-run P1 as a separate package if a future session wants a real
-high-vs-xhigh signal: fix the `Glob` path-scoping gap first (either drop
-`Glob` from `--allowedTools` in favor of `Bash(find "$TRIAL/repo" ...)`
-patterns, or wrap the read-only tools in a sandboxed working directory), and
-either wait out the account's spend-limit window before the high-effort arm
-or split the two arms across separate windows.
-
-## 10. Reproduction
+## 8. Reproduction
 
 - BASE, snapshot, task-prompt, rubric hashes: unchanged from #358, listed
-  in the protocol delta file.
-- New trial root layout: sibling to the 2026-09-23 root, not part of this
-  PR (raw logs, transcripts, and the real Hermes provider host are never
-  committed).
-- Per-run raw log and stderr hashes: `data.json`'s `runs[].raw_log_sha256`
-  / `stderr_sha256` for H1-H3; O1-O3 entries carry the same hashes #358
-  already committed.
-- CLI command: the protocol delta's "CLI" section, byte-identical to what
-  ran, `$ID` swapped per run (`H1`, `H2`, `H3`).
-- Cost formula: section 4 above, reproducible from `data.json`'s
-  `tokens` block per run against the Opus 5.5 row of `prices_usd_per_mtok`.
+  in the protocol file; both trial roots (round 1 and round 2) hash-checked
+  against the same values.
+- Round 2 trial root layout: sibling structure to round 1's, at a
+  different parent, not part of this PR (raw logs, transcripts, and the
+  real Hermes provider host are never committed).
+- Per-run raw log and stderr hashes, and the judge's own: `data.json`'s
+  `runs[].raw_log_sha256` / `stderr_sha256` and `judge.raw_log_sha256` /
+  `judge.stderr_sha256`.
+- CLI command: the protocol file's "CLI" section (round 1) and amendment 1
+  (round 2, path only differs), byte-identical to what ran, `$ID` swapped
+  per run.
+- Cost formula: section 5 above, reproducible from `data.json`'s `tokens`
+  block per run against the Opus 5.5 row of `prices_usd_per_mtok`.
+- Judge label-to-run mapping: `data.json`'s `judge.label_to_run_id`,
+  reproducible from the sorted sha256 of the 6 redacted `_judge/R#.md`
+  files (nothing changed by redaction in any of the 6, so their sha256
+  equals their source `.output.md` files' own sha256).
