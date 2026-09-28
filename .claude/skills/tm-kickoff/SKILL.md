@@ -149,6 +149,12 @@ Routing rules:
   deaths (run-long fallback and resume)" below. Workflow critic stages
   recover on their own (criticWithFallback, also sonnet); this rule covers
   lead dispatches only.
+- A seat dispatch that returns empty, or returns text with no
+  contract-shaped report (`STATUS:`, `VERDICT:`, the architect job header,
+  or `NEEDS_DECISION:`), and is not a limit death (as defined in "Limit
+  deaths" below, which takes priority), is an empty or stalled return,
+  not a legitimate verdict: it gets a `SendMessage` resume, not a
+  re-dispatch. See "Limit deaths (run-long fallback and resume)" below.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and
@@ -262,21 +268,29 @@ that review and is not re-run by itself.
   debt.
 - On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
 
-**Resume before respawn.** After a limit death, once the lead can dispatch
-again, it makes one `SendMessage` to the same agent ID. The plan-status
+**Resume before respawn.** After a limit death (once the lead can dispatch
+again) or an empty or stalled return (at once), it makes one `SendMessage`
+to the same agent ID, with a nudge to finalize its report. The plan-status
 block is annotated `(resumed)`.
 
 - Respawn fresh if the agent cannot be addressed, `SendMessage` errors, or
   the resumed agent dies again or returns nothing usable.
 - A judgment seat's Opus-limit death skips the resume and goes straight to
   the Sonnet respawn: a resumed agent keeps its exhausted model.
-- The respawn prompt adds one line naming the limit death and what the dead
-  attempt left on origin.
+- The nudge is new input; a resume with no new content is what the
+  unchanged-prompt rule forbids.
+- The respawn prompt adds one line naming the limit death or the empty
+  return and what the dead attempt left on origin.
 
-**Counters.** A quota or limit death is not a finding. It posts no round
-comment and never advances a fix-round counter. The resumed or respawned
-dispatch keeps the same round number. A fallback verdict counts as a normal
-round.
+**Counters.** A quota or limit death, or an empty or stalled return, is not
+a finding. It posts no round comment and never advances a fix-round
+counter. The resumed or respawned dispatch keeps the same round number. A
+fallback verdict counts as a normal round. If any attempt in the resume or
+respawn sequence is a limit death, the Limit deaths rules apply from
+then on. Bound: for non-limit empty returns only, one resume per stage
+attempt: the fresh respawn gets no resume, and if it also comes back
+empty or stalled, park the package (see "Parking" in the routing rules
+above). Limit deaths have no such bound.
 
 ### Pipeline tracks (lean and full)
 
