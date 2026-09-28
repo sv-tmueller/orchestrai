@@ -35,6 +35,9 @@ export async function renderWorkflow(workflowName, args = {}) {
   const stages = spec.stages
   const log = (msg) => console.warn(`[codex-renderer:${workflowName}] ${msg}`)
 
+  // Execution context: accumulates results from each stage, keyed by
+  // "<stage>_result" (not the bare stage name), matching the spec files'
+  // items_source vocabulary (e.g. "scout_result.areas").
   const ctx = {}
 
   for (const [name, stage] of Object.entries(stages)) {
@@ -42,15 +45,15 @@ export async function renderWorkflow(workflowName, args = {}) {
 
     if (stage.parallelism === 'single') {
       const report = await executeStage(stage, name, ctx, args, log)
-      ctx[name] = report
+      ctx[`${name}_result`] = report
     } else if (stage.parallelism === 'fixed-list') {
       const items = getFixedListItems(stage, ctx, args)
       const reports = await executeParallel(stage, name, items, ctx, args, log)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else if (stage.parallelism === 'dynamic-list') {
-      const items = getDynamicListItems(stage, ctx, args)
+      const items = getDynamicListItems(stage, ctx, args, name, log)
       const reports = await executeParallel(stage, name, items, ctx, args, log)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else {
       throw new Error(`Unknown parallelism "${stage.parallelism}" in stage "${name}"`)
     }
@@ -58,7 +61,7 @@ export async function renderWorkflow(workflowName, args = {}) {
 
   const stageNames = Object.keys(stages)
   const lastName = stageNames[stageNames.length - 1]
-  return ctx[lastName]
+  return ctx[`${lastName}_result`]
 }
 
 async function executeStage(stage, name, ctx, args, log) {
@@ -98,13 +101,20 @@ function getFixedListItems(stage, ctx, args) {
   return args[stage.items_key] || [{ key: 'stub', name: 'stub-item' }]
 }
 
-function getDynamicListItems(stage, ctx, args) {
+function getDynamicListItems(stage, ctx, args, name, log) {
+  // items_source is a dotted path like "scout_result.areas".
   const parts = stage.items_source.split('.')
   let val = ctx
   for (const part of parts) {
     val = val?.[part]
   }
   if (!Array.isArray(val)) {
+    // Fallback (also exercised by dry-run, which never populates ctx with
+    // real stage output): stub a single area, but log it so a silent
+    // resolution failure on a live host is visible.
+    log(
+      `stage ${name}: items_source "${stage.items_source}" did not resolve to an array; falling back to 1 stub item`
+    )
     return [{ name: 'stub-area', paths: ['.'], why: 'stub' }]
   }
   const cap = args[stage.items_cap] || stage.items_default_cap || Infinity

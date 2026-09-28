@@ -161,6 +161,23 @@ describe('codex workflow renderer', () => {
       assert.equal(report._tier, 'judgment')
     })
   }
+
+  test('tm-map-codebase (dry-run): logs when items_source falls back to the stub', async () => {
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(msg)
+    try {
+      await renderWorkflow('tm-map-codebase', {})
+    } finally {
+      console.warn = origWarn
+    }
+    const stageStartLine = warnings.find((w) => w.includes('stage: area_map (tier:'))
+    assert.ok(stageStartLine, 'expected the stage-start log line')
+    const stubLines = warnings.filter(
+      (w) => w !== stageStartLine && w.includes('area_map') && w.includes('stub')
+    )
+    assert.equal(stubLines.length, 1, 'expected exactly one distinct stub-fallback log line')
+  })
 })
 
 // ===========================================================================
