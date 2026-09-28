@@ -63,7 +63,13 @@ COMMIT: <full SHA of FETCH_HEAD recorded at checkout>
 FINDINGS: <numbered; per failure the exact reproduction command and observed
 vs expected behavior; "none" for PASS>
 UNTESTED CLAIMS: <acceptance criteria no test covers, or "none">
+LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
+
+LESSONS is optional. Write it only when this run taught a process lesson
+other packages would hit too, for example a rule that took several fix
+rounds to get right. Never restate a finding there, and leave the line out
+rather than write "none".
 
 Cap the report at 40 lines. Each finding is one line plus one evidence line:
 the exact reproduction command. Do not restate passing checks, logs, or the

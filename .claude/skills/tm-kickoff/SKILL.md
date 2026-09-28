@@ -468,15 +468,22 @@ Before reporting, run the worktree cleanup above (no agents in flight) so the
 lead's checkout is left on the default branch with a clean tree, then post the
 token report from "Token report (wave end)" above on each package issue.
 
+Collect the `LESSONS:` lines from the wave's tester and reviewer reports, one
+bullet per distinct lesson. This channel ends at the report: promoting a
+lesson into `.claude/process-core.md` or `docs/architecture/` is a human
+decision. Inside an `/tm-advisor` batch, lessons go in the batch report
+instead (its skill section 5).
+
 Report to the user: PRs ready for review, packages parked (`needs-human`,
-with their open questions), and issues deferred to later waves or stopped at
-the gate. End with:
+with their open questions), issues deferred to later waves or stopped at the
+gate, and any lessons. End with:
 
 ```
 ## What happened
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
 ## Next steps

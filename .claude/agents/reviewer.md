@@ -71,11 +71,17 @@ STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
 CHECKS: <lean track: checked-out SHA, then each check command and its exit code; full track: "n/a">
+LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
 
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
 otherwise. Still list should-fix findings and nits; they go to the PR for the
 human review, not into fix rounds.
+
+LESSONS is optional. Write it only when this run taught a process lesson
+other packages would hit too, for example a rule that took several fix
+rounds to get right. Never restate a finding there, and leave the line out
+rather than write "none".
 
 Cap the report at 40 lines. Each finding is one line plus one evidence line:
 the file:line or the violated issue text. Do not paste check output,
