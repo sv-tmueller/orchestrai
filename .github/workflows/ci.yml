@@ -3,12 +3,17 @@
 # This repo has no install, typecheck, lint, build, or e2e step: no
 # dependencies, no lockfile, no application runtime (see CLAUDE.md's
 # "Useful commands"). The template's staged checks/build/e2e jobs collapse
-# to the one stage this repo actually has: unit tests.
+# to the two stages this repo actually has: unit tests and the version-bump
+# check (issue #411).
 
 name: CI
 
 on:
   pull_request:
+    # GitHub's default three, plus the two label events: adding
+    # skip-version-bump re-runs the version-bump job without a push, and
+    # removing it fails the check again.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -41,3 +46,30 @@ jobs:
           # No cache: 'npm' here. There is no lockfile for setup-node's
           # cache-path resolution to key off, so it would fail.
       - run: npm test
+
+  version-bump:
+    name: Version bump check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Need the test-merge commit's parent (the base tip) as well as
+          # the merge commit itself, so fetch-depth 1 (the default) is not
+          # enough.
+          fetch-depth: 2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      # On pull_request, HEAD here is GitHub's test merge commit, and its
+      # first parent is the current base tip. Diffing HEAD^1...HEAD gives
+      # the exact net diff for this PR, and HEAD^1's plugin.json gives the
+      # base version in the same step. This also catches a PR whose bump
+      # is no longer a bump because another PR already merged the same
+      # version.
+      - run: node scripts/check-version-bump.mjs HEAD^1
+        env:
+          # Never interpolate label names into `run:` directly (script
+          # injection); pass them through env instead.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
