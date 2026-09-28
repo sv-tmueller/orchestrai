@@ -215,7 +215,7 @@ which is what a `tiers.lead` change would actually govern.
 
 This result covers the refine-task only, at n=3 per arm, one task, one
 judge model family, the same limitations #358's own report listed for its
-Fable-vs-Opus comparison (section 8 there). The batch's deferred run-phase
+Fable-vs-Opus comparison (section 10 there). The batch's deferred run-phase
 measurement is now triggered per issue #403's own condition ("only if P1
 shows high holds on refinement"); a separate package should measure high
 vs. xhigh across the fuller kickoff run phase (parking, arbitration,
