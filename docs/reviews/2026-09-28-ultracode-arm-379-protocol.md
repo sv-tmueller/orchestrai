@@ -309,3 +309,117 @@ diff is empty (nothing to review).
 If `claude -p` cannot launch from this environment (sandbox, keychain, or
 the nested-session check), the package reports `BLOCKED` with the prepared
 command blocks above. No bypass flag is used to work around it.
+
+## Probe result (run 2026-09-28)
+
+Session `935bb48c-1f0d-424b-bcc5-bf70ee52981a`, `RC=0 WALL=48` (48 seconds,
+well inside the 15-minute ceiling; no hang). `terminal_reason: "completed"`,
+9 turns, `total_cost_usd: 0.2866058`, 2 permission denials (it tried
+`node --test ...` directly, which the `Bash(git *)`/`Bash(npm *)` allowlist
+correctly denies; a probe-design gap, not an ultracode signal).
+
+**Gates:** `model` `claude-opus-5-5` (pass); `mcp_servers` empty (pass);
+`permissionMode` `dontAsk` (pass); `apiKeySource` `none`, i.e. subscription
+billing (pass). **Plugin-off gate: fails.** The init event lists
+`orchestrai:tm-kickoff`, `orchestrai:tm-advisor`, `orchestrai:architect`,
+etc.; the `--settings enabledPlugins` override did not remove them (see
+Amendment 1).
+
+**Evidence (a), Workflow authored:** not found; no `tool_use` named
+`Workflow` anywhere in the transcript.
+
+**Evidence (b), ultracode self-reference:** found, in the first assistant
+turn: *"This is a small task, so I'll do it inline without a workflow.
+Ultracode says to go solo on trivial edits, and the team guide says to
+save ultracode for heavy one-off tasks."* This is not a restatement of
+`.claude/team-guide.md`'s own wording (which never says "go solo on
+trivial edits"); it reads as the model paraphrasing an in-context
+instruction Claude Code injects when ultracode is actually active,
+consistent with the documented mechanism ("has Claude orchestrate dynamic
+workflows for substantive tasks", implying a per-task orchestrate-or-not
+decision). Read together with evidence (a)'s absence, the most likely
+account is that ultracode activated and the model correctly judged this
+probe's task too small to warrant a dynamic workflow, not that ultracode
+failed to activate. The sub-plan's own risk ("a one-line task risks a
+false negative") is a live caveat here: this probe cannot distinguish
+"ultracode on, workflow-authoring correctly skipped for a small task" from
+"ultracode off, ordinary inline work"; it establishes headless
+compatibility (no hang, no interactive-confirmation stall, evidence (b)
+present) but does not, on its own, prove evidence (a) would ever fire for
+*any* task size, since no task in this trial tried to force it. Per
+section 1, evidence (b) alone is sufficient to clear the park condition;
+this limitation is carried into the final report rather than triggering a
+probe re-run with a different task (not something this protocol, once
+committed, permits).
+
+**Verdict: park condition not triggered. Proceed to the arm**, after
+Amendment 1 below (the plugin-off gate's failure is the same defect that
+makes the arm's isolation, section 2, unverified as originally specified).
+
+## Amendment 1: isolation fix for the arm (committed and pushed before the arm runs)
+
+Diagnostic sessions after the probe (each `--effort low`, `--max-budget-usd`
+0.05-0.2, plugin-off `--settings` as in section 1) found two problems with
+section 2's stated isolation, both discovered empirically, not assumed:
+
+1. **The plugin-off `--settings` override does not take effect.** Tried
+   both `{"enabledPlugins":{"orchestrai@orchestrai":false}}` (the key
+   `~/.claude-work/settings.json` itself uses) and
+   `{"enabledPlugins":{"orchestrai@synced":false}}` (the `source` field the
+   init event actually reports for this plugin instance, since it is
+   synced from the claude.ai account rather than installed from a local
+   marketplace entry). Neither removes `orchestrai:`-prefixed skills or
+   agents from the init event. This confirms #400 §13's "untried (gated)"
+   flag: tried, and it fails for an account-synced plugin.
+2. **A `Read` (and `Grep`) tool named bare in `--allowedTools` bypasses
+   `permissions.blockReadsOutsideWorkingDirectories`.** A diagnostic
+   session with `--allowedTools "Read"` and
+   `--settings '{"permissions":{"blockReadsOutsideWorkingDirectories":true}}'`
+   successfully read
+   `~/.claude-work/plugins/cache/orchestrai/orchestrai/2.4.0/skills/tm-kickoff/token-report.mjs`,
+   i.e. **the merged #379 reference solution, verbatim, from outside the
+   trial's working directory**, despite the block setting. The same
+   setting correctly blocked an equivalent `Glob` call in a separate
+   diagnostic session (`Glob`'s own `path` argument is not exempt the way
+   `Read`'s and `Grep`'s bare grants are). This is a materially worse
+   version of #404's Glob-path finding: there, a sweep could reach sibling
+   trial data; here, an unrestricted `Read`/`Grep` can reach the exact
+   file whose contents this arm's diff is later scored against.
+
+**Fix, verified empirically before use:** drop `Read` and `Grep` from
+`--allowedTools` (do not name them bare); keep `--permission-mode dontAsk`,
+which auto-approves in-boundary tool use on its own (confirmed: a
+diagnostic session with `--allowedTools "Glob"` only, no `Read` entry,
+still read `package.json` inside its own repo without a prompt) and add
+`--settings '{"permissions":{"blockReadsOutsideWorkingDirectories":true}, ...}'`
+(merged with the existing `enabledPlugins`/`modelSettings` keys from
+sections 1 and 4). A diagnostic session with this exact combination
+correctly denied the same out-of-boundary `Read` ("Permission to use Read
+has been denied because Claude Code is running in don't ask mode") while
+still reading `package.json` inside the repo. `Glob` stays in
+`--allowedTools` (it already respects the boundary). This closes the raw
+filesystem leak; it does not fix problem 1 (the plugin's skills/agents
+still list `orchestrai:`-prefixed entries), which is reported as a known,
+unfixed limitation: the arm cannot invoke them (`Skill` stays
+disallowed), so the residual risk is metadata visibility, not code access.
+
+**Revised tool blocks for the arm (supersedes sections 3-4 above):**
+
+```
+--allowedTools "Glob,Write,Edit,Agent,Task,Workflow,Bash(git *),Bash(npm *)"
+--disallowedTools "Skill,AskUserQuestion,WebFetch,WebSearch,Bash(gh *),Bash(git push *),Bash(git remote *),Bash(curl *)"
+--settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"modelSettings":{"claude-opus-5-5":{"effortLevel":"xhigh"}},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
+```
+
+`Read` and `Grep` are intentionally absent from `--allowedTools`; the
+session still uses them freely inside its own working directory and
+`--add-dir` grants (dontAsk auto-approves in-boundary use), and is denied,
+not prompted, outside them. Diagnostic cost so far, not counted against
+the arm's $40 cap (same convention as #404's round-1/round-2 split):
+recorded in the final report's cost table as its own line.
+
+One 429 hit during this diagnostic phase (individual spend limit,
+`your session limit resets 9:50pm (Europe/Berlin)`), on a low-value
+follow-up check (Grep boundary test) that had already returned its result
+before the error; not counted as a probe or arm run under section 8's end
+states, since it was neither. Resumed after the stated reset time.
