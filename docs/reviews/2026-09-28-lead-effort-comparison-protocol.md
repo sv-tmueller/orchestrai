@@ -262,3 +262,59 @@ the prepared command block above. No bypass flag is used to work around it.
 On an HTTP 429 or spend-limit error mid-trial: the run is marked invalid,
 not replaced; no further run is launched; the package parks `needs-human`
 with the reset time if shown; on resume, the next unstarted run launches.
+
+## Amendment 1 (2026-09-28): re-run round H4-H6
+
+Decision logged on batch #403 (comment
+[5872761987](https://github.com/sv-tmueller/orchestrai/issues/403#issuecomment-5872761987)):
+H1-H3 delivered 0 valid runs (H1: 429; H2, H3: the contamination gate),
+so the decision rule returned "insufficient evidence" without measuring
+anything, and new spend so far ($2.51) is far below the signed-off
+$10-20. One more round, same package, same issue, same PR. H1-H3 are not
+re-run, edited, or replaced; their data and invalidity reasons stand as
+committed.
+
+**What changes:**
+
+- **Trial root.** H4-H6 run under a new parent directory that does not
+  contain the 2026-09-23 root, `~/.cache/orchestrai-lead-trial-r2/2026-09-28/`
+  (not repeated outside this developer's own filesystem). Built the same
+  way as the current root: `pristine/`, `_snapshot/`, `task-prompt.md`
+  copied over, `gh-empty/` created fresh, same hash checks (BASE, snapshot
+  sha256, task-prompt sha256) run and confirmed before any run, same as
+  section "What changes from #358, what does not" above.
+- **Effort gate path.** The effort gate now reads
+  `~/.claude-work/projects/-Users-TM--cache-orchestrai-lead-trial-r2-2026-09-28-repo/<SID>.jsonl`
+  (the CLI session-log slug follows the new trial root's own path), not
+  the H1-H3 slug.
+- **Nothing else changes.** The frozen CLI command block is unchanged
+  apart from `$TRIAL` resolving to the new root. Every existing gate
+  applies unchanged, including the contamination gate (still checked
+  against the 2026-09-23 root, `~/.claude-work/projects/*.jsonl`, any
+  `*lead-model-comparison*` file, `*.output.md`, and the developer's own
+  checkout or worktree; moving the trial root does not relax it, it
+  removes the specific parent-directory sweep that tripped H2 and H3,
+  since `orchestrai-lead-trial-r2` has no 2026-09-23 sibling to sweep in).
+  Budget: `--max-budget-usd 8` per run, unchanged.
+
+**Judge, this round:** runs over O1-O3 plus the valid runs among H4-H6, if
+at least 2 of H4-H6 are valid. Below that floor, the judge is skipped
+again and the result stays "insufficient evidence, keep xhigh," this time
+as the round's own final answer, not a fallback pending a further round.
+
+**Stop rule:** another HTTP 429 or spend-limit error stops launching, no
+further round after this one; the run that hit it is marked invalid, not
+replaced, same as H1.
+
+**Budget cap, this round:** $35 (3 x $8 high-effort runs plus $10 judge,
+plus headroom for one JSON-parse retry). Spend from round 1 ($2.51) is not
+counted against this cap; it is reported separately as the trial's running
+total.
+
+**Not applied:** the structural Glob-allowlist gap H2 and H3 exposed
+(`Glob` has no path restriction in `--allowedTools`, unlike the
+`Bash(...)` entries) is not fixed for this round. Tightening it would
+change the high-effort arm's tool conditions relative to O1-O3, which
+already ran under the unrestricted allowlist; the gap stays a named
+finding in the report, not a mid-trial protocol change to the tool
+surface.
