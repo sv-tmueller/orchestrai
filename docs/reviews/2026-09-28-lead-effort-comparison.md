@@ -231,6 +231,11 @@ dispatch) before extending this refinement-only finding any further.
 - **n=3 per arm, one task.** Same statistical caveat #358's own report
   named for its Fable-vs-Opus comparison: a small sample size, one
   refine-task probe, not a general claim about `--effort high` everywhere.
+- Ceiling effect: 5 of the 6 judged outputs scored 20/20, and the one lower
+  score (H6, 19/20) traces to a single factual error. With both arms at or
+  near the rubric's ceiling, the score condition can show that high does
+  not fall far below xhigh on this task, but it has little room to detect
+  a smaller quality gap.
 - **The Glob-allowlist gap is not fixed, by design** (section 4):
   round 2's isolation came from moving the trial root, not from
   restricting the tool. A future trial reusing this same command block
@@ -248,6 +253,15 @@ dispatch) before extending this refinement-only finding any further.
   (cache warmth, headless no-user-turns, the filesystem-jail gap on
   `~/.hermes`, one judge model family) still applies to the reused arm; see
   that report's section 10.
+
+Context: the lead session that ran batch #403, including this package's
+dispatches, itself ran at `high`, not the `xhigh` session default in
+`.claude/team-guide.md`. `~/.claude-work/settings.json` sets a global
+`effortLevel` of `xhigh` and a per-model
+`modelSettings.claude-opus-5-5.effortLevel` of `high`, and the lead's CLI
+session log records `perTurnEffort` `high` on every turn. The trial runs
+were not affected: each valid run passed the per-run effort gate. Whether
+to change that setting is the owner's call.
 
 ## 9. Reproduction
 
