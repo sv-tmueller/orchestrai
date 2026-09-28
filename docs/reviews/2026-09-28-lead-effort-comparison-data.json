@@ -214,6 +214,50 @@
       "raw_log_sha256": "3a7ef3cb9ddf5df52e464e9040024e1dac794e3f060f099a8be85050cb835588",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "INVALID: is_error true, terminal_reason api_error, api_error_status 429, result text reports an individual spend limit hit, session limit resets 4:50pm (Europe/Berlin). Died at 4 turns, cost 0.18 list-price before failing. Per the protocol delta's If-blocked clause: marked invalid, not replaced; the package paused (parked needs-human) and resumed after the reset time passed (confirmed independently against the developer's own system clock, which read past the reset time on resume). One permission_denial is a compound Bash command that does not match a single allowlisted pattern, expected allowlist behavior, unrelated to the 429."
+    },
+    {
+      "id": "H2",
+      "arm": "high",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "6dc17ace-0ff3-4019-8f9b-b591c6555a20",
+      "start_utc": "2026-09-28T14:52:19Z",
+      "end_utc": "2026-09-28T14:55:11Z",
+      "wall_seconds": 172,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "claude_code_version_matches": true,
+        "budget_capped": false,
+        "effort_gate_high": true,
+        "contamination_gate_clear": false,
+        "valid": false
+      },
+      "tokens": {
+        "input": 28,
+        "cache_creation_1h": 80668,
+        "cache_creation_5m": 0,
+        "cache_read": 701382,
+        "output": 15184,
+        "thinking": 8169
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.0894124,
+        "recomputed_lead_only": 1.0894124,
+        "formula": "28*4 + 80668*8 + 701382*0.20 + 15184*20, all /1e6"
+      },
+      "num_turns": 26,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1622,
+      "raw_log_sha256": "cc51cd3dfdc32574934a346e2c26361b33a348dc2b53c139350ff21d23957d59",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "INVALID: contamination gate hit. One Glob tool_use, {pattern: **/issues-open.json, path: /Users/TM/.cache/orchestrai-lead-trial} (the parent of both trial roots, not this run's own repo), whose tool_result returned a file path under the 2026-09-23 sibling root. All other tool inputs in this run stayed inside the 2026-09-28 root. Otherwise a clean completion: not budget-capped, no other gate failure, no em dashes found in the final message. This is the same class of filesystem-jail gap #358 documented (Glob/Grep/Read are not confined to the cloned repo), landing this time on the sibling trial root itself rather than an installed skills directory."
     }
   ],
   "judge": null,
