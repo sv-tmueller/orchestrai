@@ -437,10 +437,334 @@
     }
   ],
   "judge": {
-    "run": false,
-    "reason": "Skipped per the protocol delta's own budget-cap section: the judge runs only if at least 2 of H1-H3 are valid. All three were invalid (H1: 429; H2, H3: contamination gate), so the high-effort arm has 0 valid runs, short of the 2-run floor. No judge cost was spent."
+    "run": true,
+    "model_requested": "claude-sonnet-5",
+    "session_id": "06bb8134-b303-402e-ad26-6ae633f94224",
+    "start_utc": "2026-09-28T15:25:43Z",
+    "end_utc": "2026-09-28T15:37:03Z",
+    "wall_seconds": 680,
+    "retry_needed": false,
+    "gates": {
+      "init_model_matches": true,
+      "has_result": true,
+      "parsed_as_json": true,
+      "budget_capped": false
+    },
+    "cost_usd": 2.9304820000000005,
+    "num_turns": 92,
+    "permission_denial_count": 3,
+    "judge_repo_location": "outside both lead trial roots (~/.cache/orchestrai-judge/2026-09-28/judge-repo), effort and high/xhigh kept out of the path",
+    "blinding_breach_scan": "scanned the judge's own CLI session log for tool inputs under orchestrai-lead-trial/: 0 hits",
+    "manual_self_id_pass": "checked all 6 redacted files for missed self-identification: nothing found",
+    "redaction_log": "no changes in any of the 6 files (nothing matched: no model names/IDs, no attribution lines, no redact.txt hosts present in any of the 6 outputs)",
+    "label_assignment": "R1..R6 by ascending sha256 of the 6 redacted output files",
+    "label_to_run_id": {
+      "R1": "H4",
+      "R2": "O1",
+      "R3": "O2",
+      "R4": "O3",
+      "R5": "H5",
+      "R6": "H6"
+    },
+    "scores_by_run": {
+      "H4": {
+        "label_used": "R1",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "notes PR #354 is a draft blocked on credential and splits batch so wiring waits, Blocked by #351"
+          },
+          "C2": {
+            "score": 2,
+            "why": "first 5 checkable claims (no local branch, no CLI, gh helpers print-only lines 198-217, one fix round, no ARBITRATION/labels) all verified true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all S/M, no in-batch Blocked-by, deferred batches 2-3 named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "explicitly defers bundle generation to batch 3 'because bundle then carries less', echoing #355's own reasoning"
+          },
+          "C5": {
+            "score": 2,
+            "why": "every criterion is fixture/test-based and checkable, no vague language found"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals genuinely narrow scope per package (e.g. P1 excludes wiring, retries, REST API, #354 code)"
+          },
+          "C7": {
+            "score": 2,
+            "why": "offers a checkable cheaper alternative (manually copy repo SKILL.hermes.md over the installed copy) plus resizing challenge"
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 substantive questions with assumed answers, proposal consistent with each (e.g. DISPUTED line deferred to batch 2 as stated)"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present per package, sign-off block verbatim, no completed GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      },
+      "O1": {
+        "label_used": "R2",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "explicitly states draft/unmerged PR #354 and that live spawn still goes through delegate_task, drives batch scoping"
+          },
+          "C2": {
+            "score": 2,
+            "why": "first 5 claims (HEAD 1730257, no CLI, console.log helpers, delegate_task path, credential block) all verified true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages (at cap), all S/M, no in-batch Blocked-by, deferred batch 2/3 items named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "includes bundle generator as in-batch package P5 with explicit reasoning (fixes reported drift independent of #354)"
+          },
+          "C5": {
+            "score": 2,
+            "why": "criteria are specific and test-verifiable throughout (e.g. exact command args, byte-identical checks)"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals distinct from acceptance criteria and scope-narrowing per package"
+          },
+          "C7": {
+            "score": 2,
+            "why": "surfaces that the installed bundle can't even run its own driver (missing prompts/ and workflows/specs dirs), verified true"
+          },
+          "C8": {
+            "score": 2,
+            "why": "10 real questions incl. self-critical one about unused modules, proposal matches stated assumptions"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present, sign-off verbatim, no forbidden GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      },
+      "O2": {
+        "label_used": "R3",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "states PR #354 unmerged draft and main's delegate_task/console.log state explicitly, chooses to block whole batch on #351 as consequence"
+          },
+          "C2": {
+            "score": 2,
+            "why": "first 5 claims (HEAD 1730257, draft unmerged, delegate_task spawn, console.log lines 198-217, no CLI) all verified true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "6 packages, all S/M, Blocked-by only points to external #351 (not in-batch), deferred work named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "explicitly defers bundle generator to batch 3 noting it 'needs a new issue', a clear out-of-scope decision with reason"
+          },
+          "C5": {
+            "score": 2,
+            "why": "acceptance criteria are fixture/case-based and observable throughout"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals narrow scope distinctly per package, not restated criteria"
+          },
+          "C7": {
+            "score": 2,
+            "why": "offers a genuine cheaper alternative ('choose revise to shrink the batch to P5 alone') backed by the broken-bundle evidence"
+          },
+          "C8": {
+            "score": 2,
+            "why": "10 real design questions with recommended answers; batch consistently blocks every package on #351 per Q1's answer"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present, sign-off verbatim, no forbidden GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      },
+      "O3": {
+        "label_used": "R4",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "states draft PR #354 still pending live verification and unmerged, slices batch to avoid touching files #354 rewrites"
+          },
+          "C2": {
+            "score": 2,
+            "why": "first 5 claims (driver only on draft PR, pending verification, no CLI, print-only helpers lines 198-217, missing gate rules) all verified true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages A-D, all size:M, no in-batch Blocked-by, deferred items named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "includes bundle build as in-batch Package D, calling it 'a prerequisite, not a follow-up' with verified evidence (missing prompts/ dir)"
+          },
+          "C5": {
+            "score": 2,
+            "why": "criteria are specific, test/fixture based and checkable"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals narrow scope distinctly, e.g. excluding CI checks, vendoring renderer, five unported skills"
+          },
+          "C7": {
+            "score": 2,
+            "why": "surfaces a real hidden coupling (tm-advisor skill also depends on orchestrai via skill_view, cited exact lines) verified true"
+          },
+          "C8": {
+            "score": 2,
+            "why": "9 substantive questions with assumed answers; proposal consistently reflects them (e.g. host-neutral modules per Q4)"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present, sign-off verbatim, no forbidden GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      },
+      "H5": {
+        "label_used": "R5",
+        "total": 20,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "states PR #354 draft and not merged, slices batch around files #354 changes as the consequence"
+          },
+          "C2": {
+            "score": 2,
+            "why": "first 5 claims (dependency on unmerged #354, no CLI, print-only helpers lines 198-217, one fix round lines 103-153, subprocess only on #354) all verified true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "4 packages, all S/M, no in-batch Blocked-by, deferred batch 2/3 work named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "explicitly defers bundle generator citing #355's own 'shrinks what the bundle has to carry' reasoning"
+          },
+          "C5": {
+            "score": 2,
+            "why": "acceptance criteria are fixture-based and checkable throughout"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals narrow scope distinctly per package"
+          },
+          "C7": {
+            "score": 2,
+            "why": "offers a cheap stopgap alternative (manually copy SKILL.hermes.md over the installed copy) backed by checkable evidence"
+          },
+          "C8": {
+            "score": 2,
+            "why": "11 real questions with recommended answers, proposal consistent (e.g. marker-based resume feeds directly into P3)"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present, sign-off verbatim, no forbidden GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      },
+      "H6": {
+        "label_used": "R6",
+        "total": 19,
+        "by_criterion": {
+          "C1": {
+            "score": 2,
+            "why": "states PR #354 is still a draft awaiting credential and main is the pre-#351 version, drives the slice-around-it consequence"
+          },
+          "C2": {
+            "score": 1,
+            "why": "opening claim that _snapshot/ sits 'one level above the repo' is false (it's a subdirectory of the repo); other early claims (no local branch, driver is issue #334, credential block) check out true"
+          },
+          "C3": {
+            "score": 2,
+            "why": "3 packages, all size:M, no in-batch Blocked-by (explicitly independent of #354), deferred work named with reasons"
+          },
+          "C4": {
+            "score": 2,
+            "why": "explicitly defers bundle generation to a later batch with reason (after thin skills land)"
+          },
+          "C5": {
+            "score": 2,
+            "why": "acceptance criteria are fixture/case-based and checkable throughout"
+          },
+          "C6": {
+            "score": 2,
+            "why": "non-goals narrow scope distinctly per package"
+          },
+          "C7": {
+            "score": 2,
+            "why": "surfaces a verified hidden coupling (tm-advisor's skill_view dependency, exact lines 187-194,253) and a verified 3-way label-description mismatch"
+          },
+          "C8": {
+            "score": 2,
+            "why": "8 real questions with recommended answers, proposal consistent with each"
+          },
+          "C9": {
+            "score": 2,
+            "why": "all fields present, sign-off verbatim, no forbidden GitHub action claimed"
+          },
+          "C10": {
+            "score": 2,
+            "why": "no em dashes or banned phrases found"
+          }
+        }
+      }
+    },
+    "raw_log_sha256": "79108cce80dabea2fc55f2afc6ec12e59a1ce957d4b170e86909ee11a4cef39b",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
-  "judge_stability_check": null,
+  "judge_stability_check": {
+    "note": "O1-O3 scored by both #358's own judge pass and this trial's fresh pass. Not used in the decision rule (new pass only), reported for judge-stability context.",
+    "358_scores": {
+      "O1": 20,
+      "O2": 19,
+      "O3": 20
+    },
+    "this_trial_scores": {
+      "O1": 20,
+      "O2": 20,
+      "O3": 20
+    },
+    "diff": {
+      "O1": 0,
+      "O2": 1,
+      "O3": 0
+    }
+  },
   "no_writes_check": {
     "search_window_start_utc": "2026-09-28T10:56:00Z",
     "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T10:56:00Z\"",
@@ -457,5 +781,28 @@
       402
     ],
     "verdict": "clean: all hits are #399-#403/#405 (this batch and a concurrently running separate batch) and their own draft PRs (#408 is this package's own PR, #402 is #401's); nothing traces to a write by H1, H2, or H3, all three of which ran with GH_CONFIG_DIR pointed at an empty directory and Bash(gh *) disallowed."
+  },
+  "decision_rule_result": {
+    "valid_runs": {
+      "xhigh": [
+        "O1",
+        "O2",
+        "O3"
+      ],
+      "high": [
+        "H4",
+        "H5",
+        "H6"
+      ]
+    },
+    "mean_score_xhigh": 20.0,
+    "mean_score_high": 19.666666666666668,
+    "score_gap_xhigh_minus_high": 0.33333333333333215,
+    "condition1_score_gap_le_1_0": true,
+    "mean_cost_xhigh": 2.2008358666666665,
+    "mean_cost_high": 1.0581136666666666,
+    "cost_ratio_high_over_xhigh": 0.4807780910392288,
+    "condition2_cost_ratio_le_0_80": true,
+    "decision": "switch"
   }
 }
