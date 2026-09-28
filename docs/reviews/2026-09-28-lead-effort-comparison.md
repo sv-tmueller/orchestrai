@@ -46,7 +46,7 @@ nothing new today; their original $6.60 was #358's own spend.
 ## 2. Per-run table
 
 All 9 launches (3 reused xhigh, 6 new high-effort), from `data.json`.
-Score is the fresh judge pass (section 6); H1-H3 were invalidated before
+Score is the fresh judge pass (section 5); H1-H3 were invalidated before
 blinding, so they were never judged and carry no score. Denials, spawns,
 and word count are unscored context, not inputs to the decision rule.
 Wall-clock and turns for H1-H3 are short because each died or was cut off
@@ -55,9 +55,9 @@ section 4.
 
 | Run | Arm | Score | Cost (list) | Output tok | Thinking tok | Wall | Turns | Denials | Spawns | Words |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| O1 | xhigh | 20/20 | $2.7167 | 59,608 | 46,740 | 9m50s | 49 | 0 | 0 | 2,689 |
-| O2 | xhigh | 20/20 | $1.9748 | 48,801 | 38,320 | 7m38s | 36 | 0 | 0 | 2,439 |
-| O3 | xhigh | 20/20 | $1.9110 | 42,594 | 32,069 | 7m24s | 38 | 0 | 0 | 2,628 |
+| O1 | xhigh | 20/20 | $2.7167 | 59,608 | 46,740 | 9m50s | 49 | 1* | 0 | 2,689 |
+| O2 | xhigh | 20/20 | $1.9748 | 48,801 | 38,320 | 7m38s | 36 | 1* | 0 | 2,439 |
+| O3 | xhigh | 20/20 | $1.9110 | 42,594 | 32,069 | 7m24s | 38 | 2* | 0 | 2,628 |
 | H1 | high | invalid, not scored | $0.1806 | 556 | 20 | 0m11s | 4 | 1 | 0 | n/a |
 | H2 | high | invalid, not scored | $1.0894 | 15,184 | 8,169 | 2m52s | 26 | 1 | 0 | 1,622 |
 | H3 | high | invalid, not scored | $1.2395 | 22,462 | 13,990 | 4m14s | 37 | 1 | 0 | 1,790 |
@@ -65,11 +65,8 @@ section 4.
 | H5 | high | 20/20 | $1.1041 | 20,984 | 12,759 | 3m51s | 30 | 1 | 0 | 1,976 |
 | H6 | high | 19/20 | $1.1261 | 22,353 | 13,645 | 4m23s | 33 | 1 | 0 | 2,023 |
 
-O1-O3's Denials column is `data.json`'s own `permission_denial_count`
-field (0 for all three, copied verbatim from #358). The recounted raw
-`result.permission_denials` values (1, 1, 2) are recorded separately, in
-`reused_from_358.permission_denial_recount`, not in this field; see that
-note for detail, not repeated here.
+* Raw recount from the #358 run logs (`result.permission_denials`);
+#358's data.json recorded 0 for these runs.
 
 ## 3. Round 1 (H1-H3): what killed each high-effort run
 
