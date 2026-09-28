@@ -2,16 +2,15 @@
 
 ## Bottom line
 
-This repo was built on Claude Code's native mechanics from its own first
-commits on them, not catching up to native later: subagent frontmatter has
-carried `model`, `effort`, `isolation: worktree`, and `skills` fields since
-the agent team's introducing commit, and `tm-review-changes.js` and its
-siblings have been `export const meta` scripts calling
-`agent()`/`parallel()`/`phase()` since the workflow runtime's own
-introducing commit, the same primitive the docs describe, not an
-architecture merely shaped like it. What has caught up since, with
-evidence of change over time, is narrower: worktrees now get automatic
-locking and a periodic cleanup sweep.
+This repo has used native subagent frontmatter and the native workflow
+runtime since it first adopted each; neither was a gap it filled itself.
+Subagent frontmatter carries `model`, `effort`, `isolation: worktree`,
+and `skills` fields, and `tm-review-changes.js` and its siblings have
+been `export const meta` scripts calling `agent()`/`parallel()`/`phase()`
+since the workflow runtime's own introducing commit, the same primitive
+the docs describe, not an architecture merely shaped like it. What has
+caught up since, with evidence of change over time, is narrower:
+worktrees now get automatic locking and a periodic cleanup sweep.
 
 Once frontmatter and the workflow runtime are counted as native, what's
 left as this repo's own layer splits into two kinds. One is a pin layer on
@@ -58,7 +57,7 @@ specific flaw untested) and, for a deeper cloud pass, `/code-review ultra`
 
 | Feature | Where it lives | Native equivalent | Remaining gap | Verdict | Reason |
 | --- | --- | --- | --- | --- | --- |
-| Role-agent frontmatter (model, effort, isolation, skills) | `.claude/agents/architect.md`, `developer.md`, `tester.md`, `reviewer.md`, `fact-checker.md`, `docs-writer.md`, `perf-investigator.md` (frontmatter) | Subagent frontmatter fields `model`, `effort`, `isolation: worktree`, `skills` - [Subagents](https://code.claude.com/docs/en/sub-agents) | The frontmatter mechanism itself is native, field for field, and has been since this repo's first agent files. Only the prompt content (verdict taxonomies, two-pass review order, the TDD-skill preload) is still bespoke. | thin | Native does the frontmatter syntax; this repo's value is the written role contracts, not the pinning fields. |
+| Role-agent frontmatter (model, effort, isolation, skills) | `.claude/agents/architect.md`, `developer.md`, `tester.md`, `reviewer.md`, `fact-checker.md`, `docs-writer.md`, `perf-investigator.md` (frontmatter) | Subagent frontmatter fields `model`, `effort`, `isolation: worktree`, `skills` - [Subagents](https://code.claude.com/docs/en/sub-agents) | The frontmatter mechanism itself is native, and the repo adopted each field as it went. Only the prompt content (verdict taxonomies, two-pass review order, the TDD-skill preload) is still bespoke. | thin | Native does the frontmatter syntax; this repo's value is the written role contracts, not the pinning fields. |
 | Per-seat tier pinning (`tier:` in each agent, resolved through an adapter table, enforced by a policy test) | `.claude/agents/*.md` `tier:` field, `.claude/adapters/claude-code.json` (plus `codex.json`, `hermes.json` for other hosts), `.claude/workflows/__tests__/effort-policy.test.mjs` | Partial: model aliases (`opus`, `sonnet`) resolve to a concrete model per provider and are overridable per alias with `ANTHROPIC_DEFAULT_OPUS_MODEL`/`ANTHROPIC_DEFAULT_SONNET_MODEL`, and an organization's `availableModels`/`deniedModels` allowlist applies to the subagent `model` field - [Model config, "Model aliases" and "Environment variables"](https://code.claude.com/docs/en/model-config), [Model config, "Restrict model selection"](https://code.claude.com/docs/en/model-config) | Both are single-host indirections: neither resolves anything across Claude Code, codex, and hermes at once, and Claude Code's own frontmatter `model:` still takes a literal value (`tester.md` reads `model: sonnet`). `effort-policy.test.mjs` checks that value against the adapter table as a consistency check on Claude Code, not a runtime resolution; the adapter table is what lets the same `tier:` render a different model and effort per host. | keep | Model aliases and the allowlist operate inside one host. Keep rests on the adapter table rendering the same `tier:` to a different model and effort per host, and on the test that fails an agent or workflow stage carrying no pin at all, neither of which any native mechanism does. |
 | Deterministic worktree isolation and cleanup | `isolation: worktree` on developer/tester/reviewer; "Worktree cleanup (deterministic)" in `.claude/skills/tm-kickoff/SKILL.md` | `isolation: worktree` subagent field plus automatic worktree locking, a periodic cleanup sweep, origin-safety checks before removal, and, since v2.1.203, isolation checks that block an edit, a command whose working directory resolves to the main checkout, or a git redirect aimed at it - [Worktrees, "How Claude Code enforces isolation"](https://code.claude.com/docs/en/worktrees), [Sub-agents, "Write subagent files"](https://code.claude.com/docs/en/sub-agents) | Native's sweep is age-based (`cleanupPeriodDays`), not synchronous. `/tm-kickoff` needs the worktree gone right after a package ships or parks, not on the next sweep, so the next wave doesn't collide. | thin | Native now supplies the field, the lock, most of the safety check, and the command and git-redirect blocks that stop exactly the leak `/tm-kickoff`'s wave-end HEAD repair (`git switch <default>`, SKILL.md) exists to reverse. Keep the immediate per-package trigger; the HEAD-repair step is the thinning target now that native blocks a dispatched agent's command from resolving into the main checkout. |
 | The `tm-` review/audit workflows as a scripted orchestration layer | `.claude/workflows/tm-review-changes.js`, `tm-review-codebase.js`, `tm-map-codebase.js` | Dynamic workflows: the JS runtime these scripts already execute on - `export const meta`, `agent()`/`pipeline()`/`parallel()`/`phase()`, resumability, a progress view via `/workflows`, and concurrency caps - [Dynamic workflows](https://code.claude.com/docs/en/workflows) | The fan-out-plus-critic architecture is a native runtime capability, not an alternative to one. What's still bespoke: a versioned `SPEC` object mirrored to a JSON spec file and checked by `specs.test.mjs`, per-host renderers (codex, hermes) reading that same spec, a tier-to-model resolution hard-pinned in-script and enforced by `effort-policy.test.mjs` (a native `agent()` call takes whatever model the script author writes, with no checked-in enforcement), and fixed review dimensions instead of Claude drafting a fresh script per run. | thin | The orchestration primitive is native now, and more capable (resumable, capped, prompt-cache staggering, a built-in progress view). The versioned, spec-synced, policy-enforced script on top is a real but modest gap-filler, not a unique capability. |
@@ -128,11 +127,11 @@ Limits worth naming plainly:
 The table splits several rows into a native-primitive half and a
 repo-specific half: role-agent frontmatter syntax against tier pinning,
 and the workflow runtime against the `tm-` scripts built on top of it.
-Frontmatter fields and the fan-out-plus-critic runtime were never gaps
-this repo filled itself; the repo has run on both since its own first
-commits on them (see the bottom line above). What has newly caught up,
-with evidence of change over time, is narrower: automatic worktree
-locking and the isolation checks blocking edits and git redirects aimed
+This repo has used native subagent frontmatter and the native workflow
+runtime since it first adopted each; neither was a gap it filled itself
+(see the bottom line above). What has newly caught up, with evidence of
+change over time, is narrower: automatic worktree locking and the
+isolation checks blocking edits and git redirects aimed
 at the main checkout, and, for part of the batch jobs, one-approval
 unattended execution and a cross-session progress view. What's left as
 this repo's own value splits the same way as the bottom line above:
