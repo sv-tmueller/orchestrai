@@ -304,7 +304,26 @@
       "notes": "INVALID: contamination gate hit, same class as H2. One Glob tool_use, {pattern: **/_snapshot*, path: /Users/TM/.cache/orchestrai-lead-trial} (the parent of both trial roots). Its own result was 'No files found' (the pattern does not match a bare directory name), so unlike H2 this call leaked no content from the 2026-09-23 root; applying the gate's literal text (any tool input whose path argument scopes in the 2026-09-23 root) rather than an effect-based reading, for consistency with H2 and to avoid a post-hoc call that happens to favor this run. This is a repeatable structural gap, not a fluke: Glob is granted by --allowedTools with no path restriction (unlike the Bash(...) patterns, which do restrict by command form), so any run that Globs from an unscoped absolute path can sweep the sibling root; worth flagging for any future trial using this same allowlist. Separately, and not a gate violation under this protocol delta's forbidden-path list (~/.hermes is not on it): one Glob and one Read touched /Users/TM/.hermes/skills/autonomous-ai-agents/orchestrai/, the same filesystem-jail class #358 already documented (F1, O1, F2). Otherwise a clean completion: not budget-capped, no other gate failure, no em dashes found."
     }
   ],
-  "judge": null,
+  "judge": {
+    "run": false,
+    "reason": "Skipped per the protocol delta's own budget-cap section: the judge runs only if at least 2 of H1-H3 are valid. All three were invalid (H1: 429; H2, H3: contamination gate), so the high-effort arm has 0 valid runs, short of the 2-run floor. No judge cost was spent."
+  },
   "judge_stability_check": null,
-  "no_writes_check": null
+  "no_writes_check": {
+    "search_window_start_utc": "2026-09-28T10:56:00Z",
+    "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T10:56:00Z\"",
+    "issues_result_numbers": [
+      405,
+      403,
+      401,
+      400,
+      399
+    ],
+    "prs_command": "gh pr list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T10:56:00Z\"",
+    "prs_result_numbers": [
+      408,
+      402
+    ],
+    "verdict": "clean: all hits are #399-#403/#405 (this batch and a concurrently running separate batch) and their own draft PRs (#408 is this package's own PR, #402 is #401's); nothing traces to a write by H1, H2, or H3, all three of which ran with GH_CONFIG_DIR pointed at an empty directory and Bash(gh *) disallowed."
+  }
 }
