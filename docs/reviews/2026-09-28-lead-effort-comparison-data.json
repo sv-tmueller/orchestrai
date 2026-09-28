@@ -390,6 +390,50 @@
       "raw_log_sha256": "9f9deedc29c2cc0a20d514b26ac626b06d379cf1d4121f5dfa1e44d7bb2d054b",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "Valid. Round 2, new trial root. One Glob call scoped to /Users/TM/.cache/orchestrai-lead-trial-r2 (one level above this run's own root), but that parent contains only the 2026-09-28 directory, no forbidden sibling to sweep in; contamination gate clear. Not budget-capped, effort gate passes (all perTurnEffort high), no ~/.hermes reads this run, no em dashes or banned phrases in the final message."
+    },
+    {
+      "id": "H6",
+      "arm": "high",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "466b0756-2d7c-4fa0-bcc1-58724a8288e5",
+      "start_utc": "2026-09-28T15:19:05Z",
+      "end_utc": "2026-09-28T15:23:28Z",
+      "wall_seconds": 263,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "claude_code_version_matches": true,
+        "budget_capped": false,
+        "effort_gate_high": true,
+        "contamination_gate_clear": true,
+        "valid": true
+      },
+      "tokens": {
+        "input": 36,
+        "cache_creation_1h": 58764,
+        "cache_creation_5m": 0,
+        "cache_read": 1044128,
+        "output": 22353,
+        "thinking": 13645
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.1261416,
+        "recomputed_lead_only": 1.1261416,
+        "formula": "36*4 + 58764*8 + 1044128*0.20 + 22353*20, all /1e6"
+      },
+      "num_turns": 33,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2023,
+      "raw_log_sha256": "4a9f88e86b9615c92f0245d58a4d840ae6477d85e18613098b424a8f25d05cc3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "Valid. Round 2, new trial root. One Glob call scoped to /Users/TM/.cache/orchestrai-lead-trial-r2 (one level above this run's own root); that parent contains only 2026-09-28, no forbidden sibling; contamination gate clear. Not budget-capped, effort gate passes (all perTurnEffort high), no ~/.hermes reads this run, no em dashes or banned phrases in the final message. Third and last valid high-effort run: H4-H6 all valid, 3 of 3."
     }
   ],
   "judge": {
