@@ -1,0 +1,222 @@
+{
+  "_comment": "Per-run metrics and judge scores for the lead effort comparison trial (#404): Opus 5.5 at high vs xhigh on the advisor refine task. O1-O3 are reused verbatim from #358's data.json (xhigh arm); H1-H3 are new (high-effort arm). Raw logs, transcripts, and provider hosts are never committed; only hashes.",
+  "base_sha": "1730257e1d979bda7cd60967012165d8a4b236d1",
+  "snapshot_utc": "2026-09-23T08:16:47Z",
+  "snapshot_sha256": {
+    "issues-open.json": "d75cb1973f9ca8e2218f91841b2ee17a3c4102b1bd9b2167fc6df97ec54d618b",
+    "prs-open.json": "3676d9f89775e3acedf921c9c5c269dd146c13d7745a5f89fecdf96c98ff5c9e"
+  },
+  "task_prompt_sha256": "429284cf98429a3a7deb9677b554bb40a2fdb177a883f0a9d41d5aa35605a4ac",
+  "cli": {
+    "version": "2.1.280",
+    "config_dir": "$HOME/.claude-work"
+  },
+  "prices_usd_per_mtok": {
+    "retrieved_utc": "2026-09-23T08:20Z",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "claude-fable-5-1": {
+      "input": 10,
+      "cache_write_5m": 12.5,
+      "cache_write_1h": 20,
+      "cache_read": 0.25,
+      "output": 50
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "cache_write_5m": 5,
+      "cache_write_1h": 8,
+      "cache_read": 0.2,
+      "output": 20
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.2,
+      "output": 10
+    }
+  },
+  "reused_from_358": {
+    "note": "O1, O2, O3 copied verbatim from 2026-09-23-lead-model-comparison-data.json's runs array (with arm relabeled xhigh). Verified this session, before any new run: raw_log_sha256 for O1/O2/O3 match; O{1,2,3}.output.md are byte-identical to #358's own extraction and to its blinded _judge/R2.md, R3.md, R5.md; CLI still 2.1.280.",
+    "permission_denial_recount": {
+      "note": "#358's data.json recorded permission_denial_count: 0 for every run, but raw result.permission_denials arrays are non-empty. Recomputed this session from the raw logs, #358's own committed data.json is not edited.",
+      "O1": 1,
+      "O2": 1,
+      "O3": 2,
+      "F1": 1,
+      "F2": 1
+    }
+  },
+  "runs": [
+    {
+      "id": "O1",
+      "arm": "xhigh",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "80d7ccf2-1883-4946-8bab-de961257d835",
+      "start_utc": "2026-09-23T08:33:36Z",
+      "end_utc": "2026-09-23T08:43:26Z",
+      "wall_seconds": 590,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 46,
+        "cache_creation_1h": 142626,
+        "cache_creation_5m": 0,
+        "cache_read": 1916585,
+        "output": 59608,
+        "thinking": 46740
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 2.716669,
+        "recomputed_lead_only": 2.716669,
+        "formula": "46*4 + 142626*8 + 1916585*0.20 + 59608*20, all /1e6"
+      },
+      "num_turns": 49,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2689,
+      "raw_log_sha256": "07396673e17cf0fdd41e4330df1d5cd3070706dffb7ba7e400bcc1015fec7889",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned; ran solo. Correctly identified PR #354 as still a draft/open at BASE (C1 ground truth). No em dashes found. Read tool use also touched paths outside the cloned repo (the installed Hermes bundle under ~/.hermes/skills)."
+    },
+    {
+      "id": "O2",
+      "arm": "xhigh",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "0aa4115b-1e30-423f-beb0-5697ad3750a3",
+      "start_utc": "2026-09-23T08:53:59Z",
+      "end_utc": "2026-09-23T09:01:37Z",
+      "wall_seconds": 458,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 34,
+        "cache_creation_1h": 96074,
+        "cache_creation_5m": 0,
+        "cache_read": 1150344,
+        "output": 48801,
+        "thinking": 38320
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9748168,
+        "recomputed_lead_only": 1.9748168,
+        "formula": "34*4 + 96074*8 + 1150344*0.20 + 48801*20, all /1e6"
+      },
+      "num_turns": 36,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2439,
+      "raw_log_sha256": "141696a5ee89572a0d5d2c144d4ef5cc149cb5d62f30d2c0b502e43eee83866b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Recommends file only pending #354 merge."
+    },
+    {
+      "id": "O3",
+      "arm": "xhigh",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "c28ebf4d-2551-49b8-b5ec-8376c49ee18d",
+      "start_utc": "2026-09-23T09:06:45Z",
+      "end_utc": "2026-09-23T09:14:09Z",
+      "wall_seconds": 444,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "budget_capped": false,
+        "valid": true
+      },
+      "tokens": {
+        "input": 44,
+        "cache_creation_1h": 94275,
+        "cache_creation_5m": 0,
+        "cache_read": 1523829,
+        "output": 42594,
+        "thinking": 32069
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 1.9110218,
+        "recomputed_lead_only": 1.9110218,
+        "formula": "44*4 + 94275*8 + 1523829*0.20 + 42594*20, all /1e6"
+      },
+      "num_turns": 38,
+      "spawn_count": 0,
+      "permission_denial_count": 0,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 2628,
+      "raw_log_sha256": "8c051d1f5294309e89ce88f3970d6b4fb71d21524f72bf7cb667206edcfa422d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "no subagents spawned. No em dashes found. Last of the 6 pre-registered lead runs."
+    },
+    {
+      "id": "H1",
+      "arm": "high",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "e8acd3e8-457f-445f-b93c-ad976d693f56",
+      "start_utc": "2026-09-28T10:56:48Z",
+      "end_utc": "2026-09-28T10:56:59Z",
+      "wall_seconds": 11,
+      "exit_code": 1,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "claude_code_version_matches": true,
+        "budget_capped": false,
+        "effort_gate_high": true,
+        "contamination_gate_clear": true,
+        "valid": false
+      },
+      "tokens": {
+        "input": 4,
+        "cache_creation_1h": 19966,
+        "cache_creation_5m": 0,
+        "cache_read": 48839,
+        "output": 556,
+        "thinking": 20
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 0.1806318,
+        "recomputed_lead_only": 0.1806318,
+        "formula": "4*4 + 19966*8 + 48839*0.20 + 556*20, all /1e6"
+      },
+      "num_turns": 4,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": null,
+      "raw_log_sha256": "3a7ef3cb9ddf5df52e464e9040024e1dac794e3f060f099a8be85050cb835588",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "INVALID: is_error true, terminal_reason api_error, api_error_status 429, result text reports an individual spend limit hit, session limit resets 4:50pm (Europe/Berlin). Died at 4 turns, cost 0.18 list-price before failing. Per the protocol delta's If-blocked clause: marked invalid, not replaced; the package paused (parked needs-human) and resumed after the reset time passed (confirmed independently against the developer's own system clock, which read past the reset time on resume). One permission_denial is a compound Bash command that does not match a single allowlisted pattern, expected allowlist behavior, unrelated to the 429."
+    }
+  ],
+  "judge": null,
+  "judge_stability_check": null,
+  "no_writes_check": null
+}
