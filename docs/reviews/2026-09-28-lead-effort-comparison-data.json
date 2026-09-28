@@ -302,6 +302,50 @@
       "raw_log_sha256": "09a67902d324bbd879f79cc03e86d671b3b983c11ac59e13c35b4c266acbfb7b",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "notes": "INVALID: contamination gate hit, same class as H2. One Glob tool_use, {pattern: **/_snapshot*, path: /Users/TM/.cache/orchestrai-lead-trial} (the parent of both trial roots). Its own result was 'No files found' (the pattern does not match a bare directory name), so unlike H2 this call leaked no content from the 2026-09-23 root; applying the gate's literal text (any tool input whose path argument scopes in the 2026-09-23 root) rather than an effect-based reading, for consistency with H2 and to avoid a post-hoc call that happens to favor this run. This is a repeatable structural gap, not a fluke: Glob is granted by --allowedTools with no path restriction (unlike the Bash(...) patterns, which do restrict by command form), so any run that Globs from an unscoped absolute path can sweep the sibling root; worth flagging for any future trial using this same allowlist. Separately, and not a gate violation under this protocol delta's forbidden-path list (~/.hermes is not on it): one Glob and one Read touched /Users/TM/.hermes/skills/autonomous-ai-agents/orchestrai/, the same filesystem-jail class #358 already documented (F1, O1, F2). Otherwise a clean completion: not budget-capped, no other gate failure, no em dashes found."
+    },
+    {
+      "id": "H4",
+      "arm": "high",
+      "model_requested": "claude-opus-5-5",
+      "session_id": "6daa2eeb-b0a9-49ce-bb40-8b2ceddc9438",
+      "start_utc": "2026-09-28T15:09:36Z",
+      "end_utc": "2026-09-28T15:12:44Z",
+      "wall_seconds": 188,
+      "exit_code": 0,
+      "gates": {
+        "init_model_matches": true,
+        "mcp_servers_empty": true,
+        "permission_mode": "dontAsk",
+        "has_result": true,
+        "api_key_source": "none",
+        "claude_code_version_matches": true,
+        "budget_capped": false,
+        "effort_gate_high": true,
+        "contamination_gate_clear": true,
+        "valid": true
+      },
+      "tokens": {
+        "input": 24,
+        "cache_creation_1h": 60414,
+        "cache_creation_5m": 0,
+        "cache_read": 603525,
+        "output": 16999,
+        "thinking": 10431
+      },
+      "subagent_tokens": null,
+      "cost_usd": {
+        "reported_total_cost_usd": 0.9440930000000001,
+        "recomputed_lead_only": 0.944093,
+        "formula": "24*4 + 60414*8 + 603525*0.20 + 16999*20, all /1e6"
+      },
+      "num_turns": 22,
+      "spawn_count": 0,
+      "permission_denial_count": 1,
+      "checkout_path_hits": 0,
+      "final_message_word_count": 1900,
+      "raw_log_sha256": "7d1e499515b3b27f4f049e985b21361382645fef6e0202d41d4e34f601bbb6ca",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "notes": "Valid. Round 2, new trial root with no 2026-09-23 sibling. Clean completion, not budget-capped, effort gate passes (all perTurnEffort high), contamination gate clear (the one Glob call outside the repo was scoped to this run's own 2026-09-28-r2 root, which has no 2026-09-23 sibling to sweep in), no ~/.hermes reads this run, no em dashes or banned phrases in the final message."
     }
   ],
   "judge": {
