@@ -1,7 +1,7 @@
 # A/B test: native plan-and-execute vs the kickoff pipeline - 2026-09-28
 
-Numbers, hashes and raw judge output are in
-`docs/reviews/2026-09-28-ab-native-vs-kickoff-data.json`.
+Numbers and hashes are in data.json; verbatim judge output is in the #400
+comments.
 Protocol (frozen, do not edit): `docs/reviews/2026-09-28-ab-native-vs-kickoff-protocol.md`,
 commit `919fb64` (2026-09-28T22:03:49+02:00). Issue #400. Arm PRs: #413
 (pipeline), #414 (native). Scratch issues: #411 (pipeline), #412 (native).
@@ -60,7 +60,7 @@ hash posted before judging).
 | Measure | Arm A (pipeline) | Arm B (native) | Ratio (B/A) | Band |
 | --- | --- | --- | --- | --- |
 | `token-report.mjs` (list price, output estimated from visible chars/4, excludes thinking) | $4.72 | $2.94 | R = 0.62 | 0.5-2 |
-| Actual (CLI `total_cost_usd`, last result event per session id, includes thinking) | $6.29 | $4.46 | R(actual) = 0.71 | 0.5-2 |
+| CLI cost on actual tokens (list price) (CLI `total_cost_usd`, last result event per session id, includes thinking) | $6.29 | $4.46 | R(actual) = 0.71 | 0.5-2 |
 | Adjusted (below) | $4.72 | $4.17 | adjusted R = 0.88 | 0.5-2 |
 
 The actual figures take the last result event's `total_cost_usd` per session
@@ -224,9 +224,9 @@ gap, not a full accounting of actual spend.
 These are the operational deviations logged while running the arms and
 judging, distinct from the protocol's own pre-registered list of departures
 from `tm-ab-test` (protocol section 11, decided before any arm ran). 1-5 are
-from the #400 "Part 2 setup done" issue comment; 6-11 are from
-`~/.cache/orchestrai-ab-400/deviations.txt` (a run-time log, not committed to
-the repo). A twelfth operational deviation, the wall-clock method change, is
+from the #400 "Part 2 setup done" issue comment; 6-10 are from
+deviations.txt; 11 was found at review. A twelfth operational deviation, the
+wall-clock method change, is
 logged inline above ("Reported beside the verdict") rather than renumbered
 into this list.
 
