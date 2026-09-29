@@ -252,9 +252,12 @@ New project commands follow the same rule: name them `tm-<thing>`.
   Installed copies keep the old behavior until the version changes. CI
   (`Plugin version bump`) fails a PR that touches `.claude/agents`,
   `.claude/skills`, `.claude/workflows` (outside `__tests__`) or
-  `.claude/adapters` with the version unchanged. For a change with no
+  `.claude/adapters` without raising the version. For a change with no
   behavior effect, add the `skip-version-bump` label instead. The author
-  picks the semver level.
+  picks the semver level. Check locally with
+  `node scripts/check-version-bump.mjs --base origin/main`. Two open PRs
+  that bump to the same version merge without a conflict, so after one
+  lands, merge `main` into the other and bump again.
 
 See `.claude/process-core.md`'s "What not to do" for the branch, merge-gate,
 git-hook, and dependency rules.

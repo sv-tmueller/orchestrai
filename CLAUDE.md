@@ -60,6 +60,7 @@ docs/
 
 ```bash
 npm test          # unit tests (node:vm, zero deps); run before commit
+node scripts/check-version-bump.mjs --base origin/main   # plugin version-bump gate, as CI runs it
 # gh issue create
 # gh pr create --draft
 ```
