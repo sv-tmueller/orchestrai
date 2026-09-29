@@ -105,6 +105,28 @@ describe('check', () => {
     assert.equal(result.ok, false)
   })
 
+  for (const [baseVersion, headVersion, why] of [
+    ['2.4.0', '2.3.0', 'went down'],
+    ['2.4.0', undefined, 'is missing'],
+    ['2.4.0', '2.5', 'is not x.y.z'],
+    ['2.4.0', '2.4.0-rc.1', 'carries a pre-release tag'],
+  ]) {
+    test(`fails a guarded change when the version ${why}`, () => {
+      const result = check({ changedFiles: agentEdit, baseVersion, headVersion, labels: [] })
+      assert.equal(result.ok, false)
+    })
+  }
+
+  test('compares version parts as numbers, not strings', () => {
+    const result = check({
+      changedFiles: agentEdit,
+      baseVersion: '2.9.0',
+      headVersion: '2.10.0',
+      labels: [],
+    })
+    assert.equal(result.ok, true)
+  })
+
   test('passes when no guarded path changed', () => {
     const result = check({
       changedFiles: ['.claude/team-guide.md', '.claude/workflows/__tests__/x.test.mjs', 'docs/a.md'],
@@ -115,6 +137,12 @@ describe('check', () => {
     assert.equal(result.ok, true)
   })
 })
+
+// Git exports GIT_DIR and friends to hooks, so a hook running npm test
+// would otherwise point every command here at the outer repository.
+const cleanEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && k !== 'PR_LABELS')
+)
 
 describe('CLI against a PR merge commit', () => {
   let repo
@@ -129,7 +157,7 @@ describe('CLI against a PR merge commit', () => {
         '-c', 'core.hooksPath=/dev/null',
         ...args,
       ],
-      { cwd: repo, encoding: 'utf8' }
+      { cwd: repo, env: cleanEnv, encoding: 'utf8' }
     )
     assert.equal(r.status, 0, `git ${args.join(' ')} failed: ${r.stderr}`)
     return r.stdout
@@ -155,15 +183,17 @@ describe('CLI against a PR merge commit', () => {
     git('merge', '-q', '--no-ff', '-m', `merge ${name}`, `feat/${name}`)
   }
 
-  function run(labels) {
-    const env = { ...process.env }
-    delete env.PR_LABELS
-    if (labels !== undefined) env.PR_LABELS = JSON.stringify(labels)
-    return spawnSync(process.execPath, [scriptPath, '--base', 'HEAD^1'], {
-      cwd: repo,
-      env,
+  function run(labels, { base = 'HEAD^1', cwd = repo, env = {} } = {}) {
+    return spawnSync(process.execPath, [scriptPath, '--base', base], {
+      cwd,
+      env: { ...cleanEnv, PR_LABELS: JSON.stringify(labels), ...env },
       encoding: 'utf8',
     })
+  }
+
+  function commitAll(message) {
+    git('add', '-A')
+    git('commit', '-q', '-m', message)
   }
 
   before(() => {
@@ -178,6 +208,7 @@ describe('CLI against a PR merge commit', () => {
 
   after(() => {
     rmSync(repo, { recursive: true, force: true })
+    rmSync(`${repo}-shallow`, { recursive: true, force: true })
   })
 
   test('exits 1 on an agent edit without a version bump', () => {
@@ -210,9 +241,66 @@ describe('CLI against a PR merge commit', () => {
   })
 
   test('exits 1 with a message when --base is missing', () => {
-    const r = spawnSync(process.execPath, [scriptPath], { cwd: repo, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [scriptPath], { cwd: repo, env: cleanEnv, encoding: 'utf8' })
     assert.equal(r.status, 1)
     assert.match(r.stderr, /--base/)
+  })
+
+  test('exits 1 on a non-ASCII guarded path without a bump', () => {
+    // Default core.quotePath would print this path quoted, hiding its prefix.
+    mergedPr('non-ascii', () => write('.claude/skills/tm-\u00fc/SKILL.md', 'skill\n'))
+    const r = run([])
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stderr, /\.claude\/skills\/tm-.+\/SKILL\.md/)
+  })
+
+  test('exits 1 when PR_LABELS is not a JSON array', () => {
+    mergedPr('labels-string', () => write('.claude/agents/tester.md', 'tester v2\n'))
+    const r = run(SKIP_LABEL)
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stderr, /PR_LABELS/)
+  })
+
+  test('names the cause when git cannot be run', () => {
+    const r = run([], { env: { PATH: join(repo, 'no-such-dir') } })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /ENOENT/)
+  })
+
+  test('works in a depth-2 clone of the merge commit, as actions/checkout fetches it', () => {
+    mergedPr('shallow', () => write('.claude/agents/tester.md', 'tester v2\n'))
+    git('clone', '-q', '--depth', '2', '--branch', 'merge/shallow', `file://${repo}`, `${repo}-shallow`)
+    const r = run([], { cwd: `${repo}-shallow` })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stderr, /\.claude\/agents\/tester\.md/)
+  })
+
+  // Local use: --base names the branch the PR merges into, not a merge
+  // commit parent, and the branch has not been merged with it.
+  test('locally, exits 1 when the base has since bumped past an unbumped branch', () => {
+    git('checkout', '-q', '-b', 'main-a', 'base')
+    git('checkout', '-q', '-b', 'local-a')
+    write('.claude/agents/tester.md', 'tester v2\n')
+    commitAll('feat: unbumped agent edit')
+    git('checkout', '-q', 'main-a')
+    setVersion('2.4.0')
+    commitAll('chore: bump')
+    git('checkout', '-q', 'local-a')
+    const r = run([], { base: 'main-a' })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+  })
+
+  test("locally, does not count the base's own later changes as the branch's", () => {
+    git('checkout', '-q', '-b', 'main-b', 'base')
+    git('checkout', '-q', '-b', 'local-b')
+    write('README.md', 'readme\n')
+    commitAll('docs: readme')
+    git('checkout', '-q', 'main-b')
+    write('.claude/skills/tm-x/SKILL.md', 'skill v2\n')
+    commitAll('fix: skip-labeled skill typo')
+    git('checkout', '-q', 'local-b')
+    const r = run([], { base: 'main-b' })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
   })
 })
 
