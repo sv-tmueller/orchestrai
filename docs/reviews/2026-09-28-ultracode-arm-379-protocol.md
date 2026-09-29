@@ -524,3 +524,165 @@ same defect persists and the run is invalid again). Same $40 cap and 429
 handling as section 8; arm run 1's cost is not counted against it. This
 is the second and last permission-mode change this protocol makes; a
 further failure here parks `needs-human` rather than a third invention.
+
+## Arm run 2 result (run 2026-09-29, owner-executed)
+
+Per the park comment's owner decision (option a), the owner ran the retry
+CLI above unchanged from their own terminal, not from a developer session,
+and added one line writing an `.rc` file on exit. Result: `runs/arm2.jsonl`
+(stream-json, 1247 lines), `runs/arm2.rc` = `RC=0 WALL=1996
+SID=ae287ce2-613e-4077-9de8-9d9681a2ca3b`, `runs/arm2.stderr` =
+`Background tasks still running after 600s; terminating. Set
+CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.`
+
+**Gates (section 4, plus Amendment 2's new one): all pass.**
+
+- `model` `claude-opus-5-5`; `mcp_servers` empty; `permissionMode` `auto`;
+  `apiKeySource` `none` (subscription billing); a `result` event exists
+  (`stop_reason: end_turn`).
+- Plugin-off gate: the init event lists 129 skills, 17 agents, 163 slash
+  commands; zero of any of them are `orchestrai:`-prefixed.
+- Contamination gate: every absolute path outside `repo/`/`input/` that
+  appears anywhere in a tool_use input is either the one denied `Glob` on
+  `~/.claude-work/projects` (boundary held) or a synthetic example path
+  embedded in written file content (a doc-comment string inside the new
+  test file), never a real tool target.
+- Amendment 2's new gate: zero `Write`/`Edit` denials of any kind occurred
+  (0 of 23 total denials touch `Write` or `Edit`; compare run 1's 7 of 9
+  `Write` plus its only `Edit`, both denied).
+
+**Outcome: valid, complete, n=1 illustrative run.** Neither pre-registered
+invalid end state (section 8) applies: `total_cost_usd` 12.76833 is well
+under the $40 cap, and there was no 429. It also did not hit the 90-minute
+wall-clock ceiling (`timeout 5400`; actual wall-clock 1996 s). This is a
+plain successful completion, not one of section 8's capped or killed
+cases.
+
+**Product diff.** `.claude/scripts/token-report.mjs` (439 lines) plus
+`.claude/scripts/model-prices.json`, a 343-line test file and synthetic
+fixtures under `.claude/workflows/__tests__/`, and
+`docs/research/2026-09-29-batch-371-token-baseline.md`, alongside the
+SKILL.md/README/rationale wiring. `git diff --stat` from a committed copy
+of the arm's tree (never the trial directory itself, which stays
+uncommitted as the session left it): 18 files changed, 1057
+insertions(+), 5 deletions(-). No commit exists in `repo/`; `HEAD` there
+still reads the base commit, with the whole product diff sitting as
+modified and untracked files.
+
+**Agents, workflow, and per-stage pins (sub-plan section 6).**
+
+- One `Workflow` authored and run: `tm-token-report-review` (2 phases, up
+  to 4 review dimensions each followed by a skeptic), persisted at
+  `~/.claude-work/projects/-Users-TM--cache-orchestrai-ultracode-arm-2026-09-28-repo/ae287ce2-613e-4077-9de8-9d9681a2ca3b/workflows/wf_0ffd27eb-e79.json`.
+- 7 subagent transcripts under `.../subagents/workflows/wf_0ffd27eb-e79/agent-*.jsonl`,
+  one per workflow-agent slot: `review:recompute`, `review:spec`,
+  `review:code`, `review:integration` (Review phase, all `state: done`),
+  `verify:spec`, `verify:integration` (Verify phase, `done`), `verify:code`
+  (`state: progress`, killed mid-tool-call). `verify:recompute` was never
+  dispatched: its review found zero findings, and the pipeline's own code
+  skips the skeptic call when a review returns no findings.
+- 8 agents total (1 lead + 7 workflow subagents), all `claude-opus-5-5`:
+  uniform model, no per-model pin.
+- Effort: the lead ran under `--effort ultracode` (session-wide, per the
+  documented mechanism). Every one of the 7 subagent transcripts carries
+  `"perTurnEffort":"high"` explicitly, matching the workflow source's own
+  `effort: 'high'` on both `agent()` calls in the pipeline. An
+  ultracode-authored workflow pinned its own worker stages down to plain
+  `high`, one level under the parent's `xhigh`/ultracode, on the same
+  model rather than a cheaper one.
+
+**Cost, list price.**
+
+- Session `result` event (measured, real usage): `total_cost_usd
+  12.76833`; `cache_creation_input_tokens` 244,824;
+  `cache_read_input_tokens` 8,631,936; `output_tokens` 132,845 (of which
+  74,775 thinking); uniformly `claude-opus-5-5`.
+- The merged reference's `token-report.mjs` (`.claude/skills/tm-kickoff/`,
+  from this developer's own checkout), run against this session: sees
+  only the **lead**, 63 calls, estimated **$4.28**. Its subagent lookup
+  (`<session>/subagents/agent-*.jsonl`, not recursive) does not reach
+  `subagents/workflows/<run-id>/agent-*.jsonl`, so it misses all 7
+  workflow subagents and roughly two-thirds of the run's real spend.
+- The arm's *own* `token-report.mjs` (a different file, under
+  `.claude/scripts/`, recurses with `readdirSync(subagentDir, {
+  recursive: true })`; its own source comment names this exact case:
+  "workflow agents write to subagents/workflows/<run>/agent-*.jsonl"), run
+  against the same session from a scoring copy: 8 agents, 215 calls,
+  **$7.48** input cost + **$1.25** output estimate ($8.73 total estimate).
+  Still under the measured $12.76833: the gap is thinking tokens (135,422
+  across the session), which the visible-output estimate excludes by
+  design and states as a limitation.
+- Diagnostic and prior-run spend, unchanged from the park-time report:
+  probe $0.2866, ten isolation/permission diagnostics $0.9047, arm run 1
+  $3.9138. **Total list-price spend across the whole package: $17.87343**
+  ($5.1051 before run 2, plus run 2's $12.76833).
+
+**The 600-second background kill.** Not a pre-registered end state;
+reported as a finding, not grounds to invalidate the run. `Workflow` runs
+as a background task; Claude Code's own default wait ceiling for a
+background task still running when the main turn tries to end is 600
+seconds (the run's stderr names the override,
+`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, which this run did not set). The
+workflow launched at 11:22:30 UTC, about 1346 s (67%) into the run's
+1996 s wall-clock; the last visible assistant/user content in the
+transcript is 43 s later, at 11:23:13 (consistent with the session
+ending its own turn right after kicking the review off in the
+background, `Workflow`'s documented async pattern); the workflow itself
+kept running for 643 s total before Claude Code killed it at 11:33:14 for
+exceeding the 600 s ceiling. So of the run's 1996 s wall-clock, about
+650 s (33%) is dead time: the CLI waiting on a background task with
+nothing left for the lead to do until the ceiling fired.
+
+**The lead never consumed the workflow's result.** The transcript ends at
+the kill: a `task_notification` (status `stopped`) immediately followed
+by the session's own terminal `result` event (`stop_reason: end_turn`),
+with no further assistant turn reading the task's output file or acting
+on it. No commit followed, and the review's own findings (below) never
+reached the session that could have acted on them. For the fan-out
+reading: the workflow did fan out (7 agents across 2 phases, all
+completing or nearly completing their individual dispatches before the
+kill); the kill is a harness-level grace-period mismatch between a
+multi-agent review workflow's likely runtime and Claude Code's own
+default background-task patience, not evidence that ultracode failed to
+orchestrate. It does mean this run produced no wrapped-up result: the
+review ran, found real issues, and then vanished before anything could
+act on them.
+
+**What the killed workflow found, for the record (never surfaced to the
+arm's own session).** `review:spec` found one low-severity issue (an
+unlabeled output-cost field in `--json`), which `verify:spec` REFUTED.
+`review:code` found a medium-severity issue (non-ISO or no-offset
+`--since`/`--until` timestamps parsed as local time); its skeptic,
+`verify:code`, was mid-reproduction (16 tool calls in) when killed,
+verdict unknown. `review:integration` found a medium-severity issue (the
+`--session <id>` escape hatch documented in the SKILL.md diffs is not
+practically actionable by the lead as written); `verify:integration`
+**CONFIRMED** it: a real, live gap in AC 4's wiring that this run's own
+review caught and the run never got to fix.
+
+**Denials, categorized (23 total).**
+
+- 19 `Bash`, `safetyCheck`: the boundary check
+  (`permissions.blockReadsOutsideWorkingDirectories`) cannot statically
+  verify a command whose target path is computed at run time (`find`,
+  `ls`, `grep`, `cat`, `sed` with a variable path) or that the shell
+  parser cannot fully analyze (brace or variable expansion, an inline
+  `node -e`, an off-allowlist `sed` script). These read as the same
+  "sandbox quirks" the workflow's own prompt later warns its review
+  subagents about, almost verbatim ("the shell blocks `node -e`,
+  heredocs, ... write scripts to files with the Write tool"): the main
+  session hit this limitation itself while building the script and
+  encoded the workaround into the workflow it then authored.
+- 3 `Bash`, `subcommandResults`: a multi-operation Bash command where one
+  part needed approval the classifier could not grant headlessly.
+- 1 `Glob`, `other`: denied a `Glob` on `~/.claude-work/projects` (outside
+  the trial's working directory and `--add-dir` grant), the boundary gate
+  holding exactly as designed.
+- 0 `Write`/`Edit` denials of any kind.
+
+**Redaction check.** Grepped the scoring copy and both run transcripts
+(`arm.jsonl`, `arm2.jsonl`) for the real provider host named in
+`docs/architecture/hermes-adapter.md`: zero matches in either transcript.
+The only occurrence in the copy is the pre-existing line in
+`hermes-adapter.md` itself (already on `main`, predating this trial and
+not introduced or quoted by it).
