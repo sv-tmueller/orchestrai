@@ -6,7 +6,7 @@ Protocol (frozen, do not edit): `docs/reviews/2026-09-28-ab-native-vs-kickoff-pr
 commit `919fb64` (2026-09-28T22:03:49+02:00). Issue #400. Arm PRs: #413
 (pipeline), #414 (native). Scratch issues: #411 (pipeline), #412 (native).
 The lead closes the scratch issues and PRs after this report's PR is
-approved (protocol section 8, step 9).
+approved (architect sub-plan on #400, section 8, Part 2 step (9)).
 
 Task: #362, "Fail CI when seat or skill behavior changes without a version
 bump" (T2 in the protocol), replayed from base `1b4b8c5f` against reference
@@ -21,9 +21,8 @@ exactly as written.
 **Validity.** Both arms reached their end state. Arm A (pipeline): PR #413
 marked ready, tip `1ccb1e0`. Arm B (native): the fourth fixed invocation
 completed with the work pushed, tip `2035958`. PR #414 was opened ready for
-review during run 2, then converted back to a draft during run 4 (its own
-fixed final prompt asks only for a draft PR); that end state is arm B's own
-fixed prompt's instruction, not an invalidity. Neither arm hit
+review during run 2, then converted back to a draft during run 4; the
+fixed final prompt asked for a draft, so this is not an invalidity. Neither arm hit
 `--max-budget-usd`. The contamination sweep found no READ exposure on either
 arm (see "Contamination" below). Both arms are valid.
 
@@ -96,16 +95,25 @@ headless lead session(s)"):
    the rule scales only arm B) = **0.8844**, rounded 0.88.
 
 Pooling arm A's lead and subagent output to build the scale factor is one
-reading of "arm A's headless lead session(s)"; it is not the only one.
-Lead-only output (2.53x) gives an adjusted R of 0.77; Opus-only output
-(4.06x) gives 0.91. Both land in the same 0.5-2 band as the reading used
-above.
+reading of "arm A's headless lead session(s)"; it is not the only one. Both
+alternate readings take the result event's top-level `usage.output_tokens`
+(actual output per invocation) as the numerator and `token-report.mjs`'s
+per-session output-estimate rows as the denominator, so either reproduces
+from the raw logs. Lead-only: 6,119 + 8,089 + 15,527 = 29,735 actual, over
+the lead role's estimated rows, 5,571 + 6,195 = 11,766 (ratio 2.527x,
+adjusted R 0.767). Opus-only: the same result events' `modelUsage`
+claude-opus-5-5 entries, 40,131 + 32,646 = 72,777 actual, over the by-model
+table's opus rows, 9,626 + 8,293 = 17,919 (ratio 4.061x, adjusted R 0.913).
+Both land in the same 0.5-2 band as the reading used above.
 
 All three ratios (0.62, 0.71, 0.88) land in the same 0.5-2 band and all put
 native cheaper than the pipeline. Rule 5 ("INCONCLUSIVE (cost measurement)"
 on a band split) needs the pair to be comparable on quality on *both* of two
 pairs, so it cannot apply here regardless of the bands; with one pair, rule 1
 already matched and governs the verdict.
+
+**Total spend** (data.json): arms $10.75, judging $6.34, probes $0.72, total
+$17.81, under the $40 cap and the $35 pre-judging stop.
 
 ## Verdict line
 
@@ -178,10 +186,12 @@ had no limit event.
 
 **Base-era pipeline.** Arm A ran inside a base clone whose project-level
 `.claude/` is the pipeline as it stood one commit before #362 merged: it
-lacks #395, #397, #398 and #384 (the token-report feature itself, irrelevant
-to a #362 replay). None of those changes a seat's core job (protocol
-section 2), but arm A's numbers reflect that older pipeline, not the one on
-current `main`.
+lacks #395, #397 and #398. None of those changes a seat's core job
+(protocol section 2), but arm A's numbers reflect that older pipeline, not
+the one on current `main`. Erratum: the base commit `1b4b8c5f` is #384's
+own merge commit (protocol section 1), so arm A ran with #384 already in
+place; protocol section 2 still lists #384 among the missing changes, which
+contradicts section 1 and is wrong.
 
 **Contamination.** No READ exposure on either arm; every GitHub-numbered hit
 in both transcripts was the arm's own scratch issue or PR (#411/#413 for
@@ -204,8 +214,9 @@ estimate). Arm B's four chained invocations carried 12,789 / 2,449 / 26,576
 carried the most; the session total of 56,028 is cumulative across all
 four, not a single invocation's count). Both the list-price ratio (R 0.62)
 and the actual-cost ratio (R(actual) 0.71) already put native cheaper; the
-larger undercount on arm B is why the list-price ratio understates that gap
-more than the actual figures do, and why the adjusted-R calculation above
+larger undercount on arm B is why the list-price ratio (0.62) shows native
+further ahead than the actual figures (0.71) do, and why the adjusted-R
+calculation above
 exists: it is a same-method attempt to close part of that gap, not a full
 accounting of actual spend.
 
@@ -216,7 +227,9 @@ judging, distinct from the protocol's own pre-registered list of departures
 from `tm-ab-test` (protocol section 11, decided before any arm ran). 1-5 are
 from the #400 "Part 2 setup done" issue comment; 6-11 are from
 `~/.cache/orchestrai-ab-400/deviations.txt` (a run-time log, not committed to
-the repo).
+the repo). A twelfth operational deviation, the wall-clock method change, is
+logged inline above ("Reported beside the verdict") rather than renumbered
+into this list.
 
 1. **Plugin-off settings.** A probe showed a second, synced copy of the
    plugin (`orchestrai@synced`, v2.0.1) still loaded with only
@@ -251,8 +264,9 @@ the repo).
    was dispatched again from scratch in session 2, and the fresh lead had to
    rebuild context before continuing; that restart overhead adds cost and
    wall-clock to arm A that a run without a limit death would not carry, so
-   it biases R and R(actual) toward native looking relatively cheaper and
-   faster than a limit-free pipeline run would.
+   it biases all three ratios (R, R(actual) and adjusted R, whose
+   denominator is arm A's same token-report cost) toward native looking
+   relatively cheaper and faster than a limit-free pipeline run would.
 8. **Judge permission mode.** Judge sessions ran with
    `--permission-mode auto` (the protocol names no mode, and the headless
    default mode would deny tool calls the workflow needs); `GH_CONFIG_DIR`
@@ -279,7 +293,14 @@ and as arm A's judgment seats (architect, reviewer), though not as arm A's
 developer, who wrote on Sonnet. The protocol flags shared model family as a
 blind spot; any judge self-preference from it would tend to favor arm B,
 whose whole diff came from an Opus session, over arm A, part of whose diff
-came from Sonnet. The native arm ran headless throughout, standing in for
+came from Sonnet. That bias is clean only for the reconciliation pass
+(Opus only); pass 1's own worker stage runs on Sonnet, with one Opus critic
+consolidating (`tm-review-changes.js`), so most of pass 1's own spend on
+both candidates was Sonnet, the same model that wrote arm A's diff. Two
+biases point toward native in this run: this judge-family bias, and
+deviation 7's restart overhead after arm A's limit death, which raises all
+three cost and wall-clock ratios in native's favor beyond what a limit-free
+pipeline run would show. The native arm ran headless throughout, standing in for
 the owner's real interactive
 use with fixed prompts in place of the owner's own judgment at each step;
 it is an approximation of native use, not a record of it. No policy change

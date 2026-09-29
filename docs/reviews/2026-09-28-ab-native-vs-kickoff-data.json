@@ -25,6 +25,7 @@
       "prStatus": "ready",
       "tip": "1ccb1e0f2a479c21ed6277f9fcdc21486d9c74ff",
       "sessionIds": ["35123145-40b1-424f-aa8a-495aa7ca45de", "1596da4e-c162-4693-bfa4-bc81e280ab78"],
+      "invocationsNote": "totalCostUsd and durationApiMs below are the CLI's session-cumulative values as of that invocation's end, not a per-invocation delta; summing them across a --resume chain double-counts. durationMs is the per-invocation wall time.",
       "invocations": [
         {"run": 1, "sessionId": "35123145-40b1-424f-aa8a-495aa7ca45de", "prompt": "/tm-kickoff #411", "durationMs": 83109, "durationApiMs": 67621, "totalCostUsd": 0.5284778, "numTurns": 8, "isError": false},
         {"run": 2, "sessionId": "35123145-40b1-424f-aa8a-495aa7ca45de", "prompt": "Confirmed. Run the wave.", "durationMs": 830628, "durationApiMs": 751144, "totalCostUsd": 3.153248299999999, "numTurns": 6, "isError": true, "note": "hit the owner's individual spend limit; arm resumed via kickoff's own resume path (deviation 7)"},
@@ -40,7 +41,8 @@
       "permissionDenials": 1,
       "permissionDenialNote": "a tester Bash call in run 3 requesting dangerouslyDisableSandbox, denied",
       "blockedOnHumanSeconds": 0,
-      "baseEraPipelineCaveat": "ran on the pipeline as it stood one commit before #362 merged; lacks #395, #397, #398 and #384 (protocol section 2)",
+      "baseEraPipelineCaveat": "ran on the pipeline as it stood one commit before #362 merged; lacks #395, #397 and #398 (protocol section 2)",
+      "baseEraPipelineErratum": "protocol section 2 also lists #384 among the missing changes, but the base commit 1b4b8c5f is #384's own merge commit (protocol section 1), so arm A ran with #384 in place; protocol section 2 contradicts section 1 there and is wrong",
       "diffStat": {"files": 5, "insertions": 366, "deletions": 2, "filesChanged": [".claude/.claude-plugin/plugin.json", ".claude/team-guide.md", ".claude/workflows/__tests__/version-bump-check.test.mjs", ".github/workflows/ci.yml", "scripts/check-version-bump.mjs"]},
       "npmTestAtTip": {"exitCode": 0, "pass": 382, "total": 382, "suites": 50},
       "touchpoints": 3,
@@ -57,6 +59,7 @@
       "prStatus": "draft",
       "tip": "203595890c205c71070ee368573e91b72440a4b5",
       "sessionIds": ["6f6d715d-73b4-413a-a59f-cf624325af7b"],
+      "invocationsNote": "totalCostUsd and durationApiMs below are the CLI's session-cumulative values as of that invocation's end, not a per-invocation delta; summing them across a --resume chain double-counts. durationMs is the per-invocation wall time.",
       "invocations": [
         {"run": 1, "prompt": "Implement GitHub issue #412.", "permissionMode": "plan", "durationMs": 249319, "durationApiMs": 241015, "totalCostUsd": 0.9833770000000001, "numTurns": 14, "isError": false},
         {"run": 2, "prompt": "Approved. Implement the plan.", "permissionMode": "auto", "durationMs": 234256, "durationApiMs": 411047, "totalCostUsd": 1.7893044, "numTurns": 20, "isError": false},
@@ -116,8 +119,8 @@
       "adjustedR": 0.8844301622374724,
       "band": "0.5-2",
       "alternateReadings": {
-        "leadOnly": {"ratio": 2.53, "adjustedR": 0.77},
-        "opusOnly": {"ratio": 4.06, "adjustedR": 0.91}
+        "leadOnly": {"ratio": 2.527, "adjustedR": 0.767, "source": "result event top-level usage.output_tokens per invocation (6119+8089+15527=29735) over token-report.mjs's lead-role output-estimate rows (5571+6195=11766)"},
+        "opusOnly": {"ratio": 4.061, "adjustedR": 0.913, "source": "result event modelUsage claude-opus-5-5 output tokens (40131+32646=72777) over token-report.mjs's by-model opus output-estimate rows (9626+8293=17919)"}
       }
     },
     "bandAgreement": "R, R(actual) and adjusted R all fall in the same 0.5-2 band; all put native cheaper",
@@ -171,7 +174,7 @@
     {"n": 4, "text": "stdin: every headless call got < /dev/null, to skip a 3-second stdin wait."},
     {"n": 5, "text": "Probes: two probe sessions (Sonnet low and Haiku, about $0.72 together) checked that a headless session waits for background subagents and tested the plugin gate; not part of any arm's cost."},
     {"n": 6, "text": "Arm A run-1 logs were first written inside the arm A clone (untracked files the arm noticed and left alone); after run 1 they were moved to ~/.cache/orchestrai-ab-400/logs-A/. All later logs go outside the clones."},
-    {"n": 7, "text": "Arm A run 2 hit the owner's individual spend limit after 830s ($2.62 of run 2's own spend; the session's cumulative total at that point was $3.15). After the reset, arm A resumed through kickoff's own resume path: a new headless session (SID_A2) with the fixed prompt /tm-kickoff #411. The resumed kickoff skipped its wave-plan stop, treating the resume as the go-ahead, so no confirmation was sent. Cost covers both session ids; the limit wait is excluded from wall-clock. The tester subagent running when session 1 died (agent-a6ee70bb, 20:23:41-20:24:31) was dispatched again from scratch in session 2, and the fresh lead had to rebuild context before continuing; that restart overhead biases R and R(actual) toward native looking relatively cheaper and faster than a limit-free pipeline run would."},
+    {"n": 7, "text": "Arm A run 2 hit the owner's individual spend limit after 830s ($2.62 of run 2's own spend; the session's cumulative total at that point was $3.15). After the reset, arm A resumed through kickoff's own resume path: a new headless session (SID_A2) with the fixed prompt /tm-kickoff #411. The resumed kickoff skipped its wave-plan stop, treating the resume as the go-ahead, so no confirmation was sent. Cost covers both session ids; the limit wait is excluded from wall-clock. The tester subagent running when session 1 died (agent-a6ee70bb, 20:23:41-20:24:31) was dispatched again from scratch in session 2, and the fresh lead had to rebuild context before continuing; that restart overhead biases all three ratios (R, R(actual) and adjusted R) toward native looking relatively cheaper and faster than a limit-free pipeline run would."},
     {"n": 8, "text": "Judge sessions ran with --permission-mode auto (the protocol omits a mode, and the headless default mode would deny tool calls the workflow needs); GH_CONFIG_DIR set inside env -i (see deviation 2)."},
     {"n": 9, "text": "Judge prompts went through stdin, because --disallowedTools takes several values and swallowed the prompt argument on the first attempt (that launch failed before any model call, no spend)."},
     {"n": 10, "text": "The first launch of the arm A resume failed in the shell before starting (zsh expanded opus[1m] as a glob in an eval). No model call, no spend. Relaunched through a helper script (run.sh) with the same flags."},
