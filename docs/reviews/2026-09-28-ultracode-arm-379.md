@@ -38,7 +38,14 @@ input):
 **Total list-price spend, all sessions: $17.87343** (probe $0.2866, ten
 isolation/permission diagnostics $0.9047, arm run 1 $3.9138, arm run 2
 $12.76833). Well inside the $3 probe cap; run 2's own $40 cap was never
-approached (it ended on a normal `end_turn`, not the budget cap).
+approached (it ended on a normal `end_turn`, not the budget cap). This
+figure covers only the arm-under-test; it excludes `tm-review-changes`
+(section 7), which ran later in the lead's own session and cannot be
+priced with the merged, non-recursive `token-report.mjs` (reported in
+tokens instead, section 7).
+
+`tm-review-changes` has since run on run 2's diff (section 7): **approve**,
+0 must-fix, 1 should-fix (untested failure paths), 4 nits. AC 4 is met.
 
 ## 2. Probe (AC 1)
 
@@ -210,29 +217,106 @@ issue #362, not #379. No kickoff-arm result exists for #379 to compare
 against, so this stays reference-only against PR #384, the protocol's
 default.
 
-## 7. `tm-review-changes`: blocked, not run
+## 7. `tm-review-changes` on the arm's diff: run and result
 
-Attempted once, from this developer's own session, against a committed
-copy of the arm's diff, with the permission stance the sub-plan specifies
-(default permission mode, read-only tools, plugin off, no `gh`, no web).
-This developer's own sandbox denied the command before it could launch,
-on the same class of ground as the developer's earlier `[Auto-Mode
-Bypass]` denials in the park comment: a permission check refused to run a
-command line naming `git` operations inside a child-process argument
-string, even though those arguments were a `--allowedTools` allowlist for
-the child, not a git invocation by this session itself. Per the sub-plan's
-own instruction, no reword, split, or retry was attempted.
+**AC 4 is met.** The prior developer dispatch could not launch
+`tm-review-changes` as a child CLI session (its own sandbox denied the
+command line before it could start, on the same class of ground as its
+earlier `[Auto-Mode Bypass]` denials). The lead ran it instead, in-session,
+after owner approval, rather than a further child-process attempt:
 
-**Unreviewed.** The scoring copy is at
-`/private/tmp/claude-501/-Users-TM-Desktop-github-orchestrai/c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a/scratchpad/arm2-copy`,
-committed at base `aba6cb4eb93074b54f1324a90269e570b7755d5b`. That path is
-this session's own scratch directory and may not persist; recreating it is
-cheap (`cp -R` from the still-intact
-`~/.cache/orchestrai-ultracode-arm/2026-09-28/repo`, `git add -A`, one
-throwaway commit). The workflow file that would run is
-`.claude/workflows/tm-review-changes.js`, unchanged by the arm, at commit
-`41f3fc595578bc2ea141ac5a9703999e1eb52e33` (blob
-`0f940c3f2314a0846d0db3ffb164bc4684ebe73e`).
+- The lead made a throwaway git worktree of this repo, detached at base
+  `aba6cb4eb93074b54f1324a90269e570b7755d5b`, and applied the arm's diff
+  from the previous developer's scoring copy (`git diff --binary aba6cb4
+  226de7f`, the arm's uncommitted working tree committed as one throwaway
+  commit) as one local commit `858cfc6` (18 files, +1057 -5, matching
+  section 4's diff-size figure). It ran the
+  workflow in-session from that worktree with `args: { base:
+  'aba6cb4eb93074b54f1324a90269e570b7755d5b' }`. No child CLI session was
+  launched, and the throwaway worktree has since been removed.
+- Workflow version: `.claude/workflows/tm-review-changes.js` is
+  byte-identical at the base commit and on `origin/main` (last changed in
+  `41f3fc5`), so the production version ran, unmodified in substance.
+- One adaptation, logged as a deviation: the current Workflow runtime
+  refused the production file both by name ("not found") and by path
+  ("`export const meta = { name, description, phases }` must be the FIRST
+  statement in the script"), because the file computes `meta` from a
+  `SPEC` constant on line 43. The lead ran a copy with `meta` hoisted to a
+  literal first statement and every other byte unchanged (self-checked).
+  This is a separate bug in the Workflow runtime, out of scope for #405;
+  it is not fixed here.
+
+**Run stats.** 8 agents (7 Sonnet dimension workers: bugs, security,
+scope, tests, style, docs, perf; 1 Opus critic that consolidates), 3 of
+the 8 (security, style, docs) returned empty findings, 650,996 ms
+wall-clock, 678,834 subagent tokens, 162 tool uses. Journal (one result
+line per agent):
+`~/.claude-work/projects/-Users-TM-Desktop-github-orchestrai/c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a/subagents/workflows/wf_dbb9188f-59a/journal.jsonl`.
+
+**Verdict: approve.** 0 must-fix, 1 should-fix, 4 nits, 2 dismissed.
+`npm test` at the arm's tip: 361 tests, 0 failures (matching section 4 and
+section 6's own figure).
+
+- **Should-fix:** the failure path of `main()` (`findLeadTranscript` ->
+  `readSession`/`loadPrices` -> `buildReport`, exit 1 with a
+  `token-report: <message>` stderr line) has no test. The CLI tests only
+  cover argument errors (exit 2). This matters because both SKILL.md
+  changes in the diff rely on this script failing gracefully ("If the
+  script fails, say so in the report; never hold the report for it."),
+  and that exit-code/stderr contract is unverified.
+- **Nits:** (1) `parseArgs` takes the next argv element as a flag's value
+  even when it is itself a flag (`--session --json` silently sets
+  `session` to `"--json"`); (2) `inputTokens()` computes a 5-minute
+  cache-write bucket by subtraction with no guard against a negative
+  result if a future or malformed usage record ever reports the 1-hour
+  figure larger than the total (latent, not observed in about 50k real
+  records checked); (3) `AGENT_TOOLS` includes `'Task'` (the older name of
+  the Agent tool) with no comment explaining why; (4) the mixed
+  priced/unpriced `money()` branch's rendered `+ unpriced` suffix is
+  exercised by the fixture but never asserted in the markdown tests.
+- **Dismissed:** a micro-optimization (re-parsing cached timestamp strings
+  in a hot loop that runs at most a few thousand times) and the "drop
+  `Task` entirely" half of the `AGENT_TOOLS` finding (it is genuine
+  backward-compatibility, not dead configurability).
+
+**On the missing plugin-version bump.** The critic did not flag that the
+diff changes files under `.claude/skills/` without bumping `plugin.json`,
+reasoning that `scripts/check-version-bump.mjs` does not exist at the
+diff's base and CI does not check versions. Checked independently: this is
+accurate, and it is not a divergence the arm introduced. `check-version-
+bump.mjs` was added later, by #386 (`0a34bf2`), and does not exist at
+`aba6cb4e...`. The merged reference itself, PR #384
+(`1b4b8c5f5c95d28f06b417cf862b253bb7e3e589`), also never touched
+`plugin.json` despite changing `.claude/skills/tm-advisor/SKILL.md` and
+`.claude/skills/tm-kickoff/SKILL.md`. So the arm and the human-accepted
+reference behave identically on this point; the critic's non-flag matches
+the actual rule in force at that point in history, not a gap specific to
+the arm.
+
+**Relation to section 5's killed internal review.** This is a separate,
+independently commissioned pass from the arm's own authored `Workflow`
+(`tm-token-report-review`, section 5), which the lead never saw finish.
+The two reviews looked at different code (`tm-review-changes` reviews the
+whole diff against fixed dimensions; the arm's own workflow reviewed
+against dimensions it chose itself) and reached compatible verdicts:
+neither found a must-fix, and this pass's should-fix (untested failure
+paths) sits in the same area of the code as row 4 of section 6's table
+(the arm's own `review:integration` finding about the `--session <id>`
+escape hatch), both pointing at under-specified failure/edge-case handling
+in the same feature, found independently by two different reviews.
+
+**Cost.** Not folded into section 1's or section 4's dollar totals: the
+review ran inside the lead's own session
+(`c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a`), a different account context from
+the arm's own `$HOME/.claude-work`-scoped runs. `.claude/skills/tm-kickoff/
+token-report.mjs` (the merged, non-recursive tool) run against that
+session sees only its two direct subagent transcripts ($6.33 combined,
+lead role + one direct developer dispatch); it does not recurse into
+`subagents/workflows/wf_dbb9188f-59a/`, so it cannot price the review's own
+8 agents at all, the exact limitation section 4 already documents for the
+arm's own workflow. The review's own spend is therefore reported in tokens
+only: 678,834 subagent tokens, 162 tool calls, 650,996 ms wall-clock
+(above), not a list-price dollar figure.
 
 ## 8. Verdict on "No session-wide ultracode"
 
@@ -264,6 +348,15 @@ with a completed run:
   own (non-reference) version of that tool does. Any future cost
   accounting for an ultracode-authored workflow needs the recursive
   lookup, or it will silently under-report by the workflow's whole share.
+- The arm's deliverable also holds up under an independent, external
+  review: `tm-review-changes` (section 7), run on the same diff, verdict
+  **approve**, 0 must-fix, one should-fix (untested failure paths in the
+  same script). That should-fix sits in the same area of the code as the
+  arm's own internal review's confirmed finding (row 4 of section 6's
+  table), so two independent reviews, one run by the arm itself and killed
+  before it could act, one run afterward by the lead, converge on the same
+  kind of gap (failure-path and edge-case handling under-tested) without
+  finding anything that blocks the change.
 
 This is one illustrative run (n=1), not a statistically powered trial. It
 does not contradict "no session-wide ultracode" outright (a single

@@ -686,3 +686,57 @@ review caught and the run never got to fix.
 The only occurrence in the copy is the pre-existing line in
 `hermes-adapter.md` itself (already on `main`, predating this trial and
 not introduced or quoted by it).
+
+## `tm-review-changes` result (run 2026-09-29, lead-run)
+
+Section 6's own pass. Logged here as an addition to this otherwise-frozen
+file, since it is the piece of the developer stage a prior dispatch could
+not complete (its own sandbox denied the child-CLI launch); the addition
+itself is the deviation from "frozen once committed," and is recorded as
+such rather than silently edited in.
+
+**Method.** The prior developer's own sandbox denied launching
+`tm-review-changes` as a child `claude -p` process (a permission check
+refused a command line naming `git` operations inside a child-process
+`--allowedTools` argument string, even though those arguments were an
+allowlist for the child, not a git invocation by the denying session
+itself). The owner approved a lead-run path instead of a further
+child-process attempt: the lead made a throwaway git worktree of this
+repo, detached at base `aba6cb4eb93074b54f1324a90269e570b7755d5b`, and
+applied the arm's diff from the previous developer's scoring copy (`git
+diff --binary aba6cb4 226de7f`, the arm's uncommitted working tree
+committed as one throwaway commit) as one local commit `858cfc6` (18
+files, +1057 -5). It ran the workflow in-session from that worktree with
+`args: { base: 'aba6cb4eb93074b54f1324a90269e570b7755d5b' }`. No child CLI
+session was launched; the worktree has since been removed.
+`.claude/workflows/tm-review-changes.js` is byte-identical at that base
+and on `origin/main` (last changed in `41f3fc5`), so the production
+version ran. One adaptation: the Workflow runtime refused the production
+file both by name and by path, because the file's `meta` export is
+computed from a `SPEC` constant rather than being the literal first
+statement in the script; the lead ran a copy with `meta` hoisted to a
+literal first statement and every other byte unchanged (self-checked).
+This is a separate bug in the Workflow runtime, out of scope for #405 and
+not fixed here.
+
+**Run stats.** 8 agents (7 Sonnet dimension workers: bugs, security,
+scope, tests, style, docs, perf; 1 Opus critic that consolidates), 3 of
+the 8 (security, style, docs) returned empty findings, 650,996 ms
+wall-clock, 678,834 subagent tokens, 162 tool uses. Journal (one result
+line per agent):
+`~/.claude-work/projects/-Users-TM-Desktop-github-orchestrai/c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a/subagents/workflows/wf_dbb9188f-59a/journal.jsonl`.
+
+**Result: verdict approve**, 0 must-fix, 1 should-fix (the failure path of
+`main()`/`findLeadTranscript` is untested, which matters because both
+SKILL.md changes in the diff rely on this script failing gracefully), 4
+nits, 2 dismissed. `npm test` at the arm's tip: 361 tests, 0 failures. Full
+summary in the report file, section 7.
+
+The critic did not flag the diff's missing `plugin.json` version bump,
+reasoning that `scripts/check-version-bump.mjs` does not exist at this
+diff's base. Checked: correct, and the merged reference PR #384 also never
+bumped `plugin.json`, so this is not a divergence the arm introduced.
+
+Result JSON: `tm-review-changes-arm2.result.json` (lead's own scratch
+directory at run time; not committed, per this package's "no `.claude/`
+changes" constraint and since the report already carries the summary).
