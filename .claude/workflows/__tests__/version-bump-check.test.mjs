@@ -127,21 +127,24 @@ describe('CLI', () => {
     )
   }
 
-  // Builds a base commit (with plugin.json at baseVersion), a PR-branch
-  // commit applying `applyChange`, and a --no-ff merge commit onto main,
-  // then runs the script with HEAD^1 (the exact shape CI uses on a PR's
+  // Builds a base commit (with plugin.json at baseVersion, plus anything
+  // `seedBase` adds), a PR-branch commit applying `applyChange` (which
+  // receives the repo dir and the `git` helper, so it can `git mv` a file
+  // seeded in the base commit), and a --no-ff merge commit onto main, then
+  // runs the script with HEAD^1 (the exact shape CI uses on a PR's
   // test-merge commit). Returns the spawnSync result.
-  function runCase({ baseVersion, applyChange, env = {} }) {
+  function runCase({ baseVersion, seedBase, applyChange, env = {} }) {
     const { dir, git } = makeRepo()
     const commit = (msg) =>
       git(['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', msg])
 
     writePluginJson(dir, baseVersion)
+    if (seedBase) seedBase(dir)
     git(['add', '-A'])
     commit('base: seed plugin.json')
 
     git(['checkout', '-q', '-b', 'pr-branch'])
-    applyChange(dir)
+    applyChange(dir, git)
     git(['add', '-A'])
     commit('pr: apply change')
 
@@ -189,11 +192,20 @@ describe('CLI', () => {
   })
 
   test('rename out of .claude/skills/: exits 1', () => {
+    // Seed the guarded file in the base commit (unchanged content), then
+    // git mv it to an unguarded path in the PR commit. Git sees this as a
+    // rename, which is exactly the case --no-renames guards against: without
+    // that flag, the diff would show only the new, unguarded path and the
+    // guarded change would slip through undetected.
     const result = runCase({
       baseVersion: '2.3.0',
-      applyChange: (dir) => {
+      seedBase: (dir) => {
         mkdirSync(join(dir, '.claude', 'skills', 'tm-foo'), { recursive: true })
         writeFileSync(join(dir, '.claude', 'skills', 'tm-foo', 'SKILL.md'), 'skill\n')
+      },
+      applyChange: (dir, git) => {
+        mkdirSync(join(dir, 'docs'), { recursive: true })
+        git(['mv', join('.claude', 'skills', 'tm-foo', 'SKILL.md'), join('docs', 'SKILL.md')])
       },
     })
     assert.equal(result.status, 1)
