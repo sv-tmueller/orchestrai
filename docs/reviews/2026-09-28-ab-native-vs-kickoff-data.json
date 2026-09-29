@@ -1,0 +1,165 @@
+{
+  "issue": 400,
+  "protocol": {
+    "file": "docs/reviews/2026-09-28-ab-native-vs-kickoff-protocol.md",
+    "freezeCommit": "919fb64",
+    "freezeTimestamp": "2026-09-28T22:03:49+02:00",
+    "pinnedBlobShas": {
+      "tokenReportMjs": "46f0b3d597017efc19c7350ef96feed263fd8e57",
+      "tmReviewChangesJs": "0f940c3f2314a0846d0db3ffb164bc4684ebe73e"
+    }
+  },
+  "task": {
+    "id": "T2",
+    "issue": 362,
+    "referencePr": 386,
+    "referenceMergeCommit": "0a34bf2e3e6e19d74eefc4e96365a0ab90c7680c",
+    "baseCommit": "1b4b8c5f5c95d28f06b417cf862b253bb7e3e589",
+    "baseBranch": "ab/400-base-t2"
+  },
+  "arms": {
+    "A": {
+      "label": "pipeline (kickoff, headless)",
+      "scratchIssue": 411,
+      "pr": 413,
+      "prStatus": "ready",
+      "tip": "1ccb1e0f2a479c21ed6277f9fcdc21486d9c74ff",
+      "sessionIds": ["35123145-40b1-424f-aa8a-495aa7ca45de", "1596da4e-c162-4693-bfa4-bc81e280ab78"],
+      "invocations": [
+        {"run": 1, "sessionId": "35123145-40b1-424f-aa8a-495aa7ca45de", "prompt": "/tm-kickoff #411", "durationMs": 83109, "durationApiMs": 67621, "totalCostUsd": 0.5284778, "numTurns": 8, "isError": false},
+        {"run": 2, "sessionId": "35123145-40b1-424f-aa8a-495aa7ca45de", "prompt": "Confirmed. Run the wave.", "durationMs": 830628, "durationApiMs": 751144, "totalCostUsd": 3.153248299999999, "numTurns": 6, "isError": true, "note": "hit the owner's individual spend limit; arm resumed via kickoff's own resume path (deviation 7)"},
+        {"run": 3, "sessionId": "1596da4e-c162-4693-bfa4-bc81e280ab78", "prompt": "/tm-kickoff #411", "durationMs": 981879, "durationApiMs": 920644, "totalCostUsd": 3.135903900000001, "numTurns": 18, "isError": false, "note": "resume session after limit reset; kickoff skipped its wave-plan stop, treating the resume as go-ahead"}
+      ],
+      "wallClockSecondsSummed": 1894,
+      "limitWaitSeconds": 16021,
+      "limitWaitFromTo": {"tRun2EndEpoch": 1790627072, "tResumeEpoch": 1790643093},
+      "agentCount": 7,
+      "agentCountBySession": {"35123145-40b1-424f-aa8a-495aa7ca45de": 3, "1596da4e-c162-4693-bfa4-bc81e280ab78": 4},
+      "diffStat": {"files": 5, "insertions": 366, "deletions": 2, "filesChanged": [".claude/.claude-plugin/plugin.json", ".claude/team-guide.md", ".claude/workflows/__tests__/version-bump-check.test.mjs", ".github/workflows/ci.yml", "scripts/check-version-bump.mjs"]},
+      "npmTestAtTip": {"exitCode": 0, "pass": 382, "total": 382, "suites": 50},
+      "touchpoints": 3,
+      "touchpointTexts": ["/tm-kickoff #411", "Confirmed. Run the wave.", "/tm-kickoff #411 (resume, new session after limit reset)"],
+      "costTokenReportUsd": 4.72,
+      "costTokenReportBySession": {"35123145-40b1-424f-aa8a-495aa7ca45de": 2.34, "1596da4e-c162-4693-bfa4-bc81e280ab78": 2.38},
+      "costActualUsd": 6.81763
+    },
+    "B": {
+      "label": "native (headless plan-approve-execute-review-fix chain)",
+      "scratchIssue": 412,
+      "pr": 414,
+      "prStatus": "draft",
+      "tip": "203595890c205c71070ee368573e91b72440a4b5",
+      "sessionIds": ["6f6d715d-73b4-413a-a59f-cf624325af7b"],
+      "invocations": [
+        {"run": 1, "prompt": "Implement GitHub issue #412.", "permissionMode": "plan", "durationMs": 249319, "durationApiMs": 241015, "totalCostUsd": 0.9833770000000001, "numTurns": 14, "isError": false},
+        {"run": 2, "prompt": "Approved. Implement the plan.", "permissionMode": "auto", "durationMs": 234256, "durationApiMs": 411047, "totalCostUsd": 1.7893044, "numTurns": 20, "isError": false},
+        {"run": 3, "prompt": "/code-review", "permissionMode": "auto", "durationMs": 406591, "durationApiMs": 0, "totalCostUsd": 3.2816782, "numTurns": 0, "isError": false},
+        {"run": 4, "prompt": "Fix the findings from that review that you agree are real problems. Run npm test, commit, push, and make sure a draft pull request against ab/400-base-t2 exists with \"Closes #412\".", "permissionMode": "auto", "durationMs": 342823, "durationApiMs": 1086775, "totalCostUsd": 4.4609087999999995, "numTurns": 11, "isError": false}
+      ],
+      "wallClockSecondsSummed": 1231,
+      "limitWaitSeconds": 0,
+      "agentCount": 1,
+      "diffStat": {"files": 6, "insertions": 487, "deletions": 2, "filesChanged": [".claude/.claude-plugin/plugin.json", ".claude/team-guide.md", ".claude/workflows/__tests__/version-bump-check.test.mjs", ".github/workflows/ci.yml", "CLAUDE.md", "scripts/check-version-bump.mjs"]},
+      "npmTestAtTip": {"exitCode": 0, "pass": 399, "total": 399, "suites": 51},
+      "touchpoints": 4,
+      "touchpointTexts": ["Implement GitHub issue #412.", "Approved. Implement the plan.", "/code-review", "Fix the findings from that review that you agree are real problems. Run npm test, commit, push, and make sure a draft pull request against ab/400-base-t2 exists with \"Closes #412\"."],
+      "costTokenReportUsd": 2.94,
+      "costActualUsd": 10.5152684
+    }
+  },
+  "ownerAttention": {
+    "measured": false,
+    "reason": "both arms headless by construction (owner delta on #400); attention is 0 minutes for both, touchpoint log substitutes",
+    "minutesA": 0,
+    "minutesB": 0,
+    "touchpointsA": 3,
+    "touchpointsB": 4
+  },
+  "cost": {
+    "tokenReport": {"armA": 4.72, "armB": 2.94, "R": 0.6228813559322034, "band": "0.5-2"},
+    "actual": {
+      "armA": 6.81763,
+      "armB": 10.5152684,
+      "Ractual": 1.5423641940087685,
+      "band": "0.5-2",
+      "note": "sum of each invocation's result-event total_cost_usd; includes thinking tokens, which token-report.mjs's estimate excludes"
+    },
+    "adjustedR": {
+      "rule": "scale arm B's Opus output-token estimate by the actual-to-estimated output ratio measured on arm A's headless lead session(s), then reprice arm B and recompute R against arm A's unadjusted token-report cost",
+      "armAActualOutputTokensAllModels": 144482,
+      "armAActualOutputTokensBySession": {"run1_opus": 6119, "run2_opus": 40131, "run2_sonnet": 28560, "run3_opus": 32646, "run3_sonnet": 37026},
+      "armAEstimatedOutputTokensAllModels": 36800,
+      "armAEstimatedOutputTokensBySession": {"sid_a_total": 18367, "sid_a2_total": 18433},
+      "actualToEstimatedRatio": 3.926141304347826,
+      "armBEstimatedOpusOutputTokens": 22387,
+      "armBScaledOpusOutputTokens": 87894.52538043477,
+      "armBNonOutputCostUsd": 2.4910688,
+      "armBAdjustedOutputCostUsd": 1.7578905076086953,
+      "armBAdjustedCostUsd": 4.248959307608695,
+      "armACostUsedUsd": 4.72,
+      "adjustedR": 0.9002032431374355,
+      "band": "0.5-2"
+    },
+    "bandAgreement": "R, R(actual) and adjusted R all fall in the same 0.5-2 band",
+    "judging": {"pass1X": 2.6595930999999995, "pass1Y": 2.8624182, "recon": 0.8181335999999999, "totalUsd": 6.340144999999999},
+    "probesUsd": 0.72,
+    "grandTotalActualUsd": 24.393053300000002,
+    "costCapUsd": 40,
+    "stopRuleTriggeredBeforeJudging": false
+  },
+  "diffs": {
+    "reconciliationScope": "single reconciliation pass over both patches (owner delta: one pair, so 1 recon run instead of 2)"
+  },
+  "judging": {
+    "mapping": {"task": "362", "labels": {"X": {"arm": "B", "sha256": "74bf40bf809ecd1b2b4b5749bf2616caf78394a849b0f07e729bbf695c47f414"}, "Y": {"arm": "A", "sha256": "8c9c9faa48b985a451f538cb96d828789abc5f84f2cc7ddf9594f14214b3a239"}}},
+    "mappingFileSha256": "488f09220a12a0fbee56eaa6d8f26ed174681325279549163523c94bcc2aa505",
+    "patchHashes": {
+      "redacted-A.patch (arm A = Y)": "8c9c9faa48b985a451f538cb96d828789abc5f84f2cc7ddf9594f14214b3a239",
+      "redacted-B.patch (arm B = X)": "74bf40bf809ecd1b2b4b5749bf2616caf78394a849b0f07e729bbf695c47f414"
+    },
+    "redactions": {
+      "armA": ["#411 -> #362 (4 occurrences)"],
+      "armB": ["#412 -> #362 (2 occurrences)", "docs/plans/412- -> docs/plans/362- (1 occurrence, test fixture path)"],
+      "processFilesExcluded": "none in either arm"
+    },
+    "pass1": {
+      "X_native_armB": {"verdict": "approve", "mustFix": 0, "shouldFix": 0, "nits": 1, "dismissed": 0},
+      "Y_pipeline_armA": {"verdict": "approve", "mustFix": 0, "shouldFix": 2, "nits": 0, "dismissed": 2}
+    },
+    "recon": {
+      "mustFix": {"X": 0, "Y": 0, "both": 0},
+      "shouldFix": {"X": 1, "Y": 6, "both": 0},
+      "nits": {"X": 1, "Y": 1, "both": 2},
+      "acceptanceCriteriaMet": {"X": [true, true, true], "Y": [true, true, true]},
+      "nonGoalsViolated": {"X": [false, false], "Y": [false, false]}
+    },
+    "quality": {
+      "P": {"X": 0, "Y": 0},
+      "Q1": {"X": 0, "Y": 0},
+      "Q2": {"X": 0, "Y": 0},
+      "comparable": true
+    },
+    "contamination": {
+      "armA": {"read": 0, "mention": "coincidence: independently named scripts/check-version-bump.mjs, the reference's own script name; not present in the base checkout; no transcript read of the reference"},
+      "armB": {"read": 0, "mention": "same script-name coincidence as arm A"}
+    }
+  },
+  "deviations": [
+    {"n": 1, "text": "Plugin-off settings: a second, synced plugin copy (orchestrai@synced v2.0.1) still loaded with only orchestrai@orchestrai disabled. Every arm and judge session used --settings with both orchestrai@orchestrai and orchestrai@synced set false."},
+    {"n": 2, "text": "Judge GH_CONFIG_DIR: protocol section 8.5 sets it outside env -i, where it would be dropped; at judging it went inside ENV_WRAP instead."},
+    {"n": 3, "text": "Clone URL: clones used the repo's https remote, not the ssh URL."},
+    {"n": 4, "text": "stdin: every headless call got < /dev/null, to skip a 3-second stdin wait."},
+    {"n": 5, "text": "Probes: two probe sessions (Sonnet low and Haiku, about $0.72 together) checked that a headless session waits for background subagents and tested the plugin gate; not part of any arm's cost."},
+    {"n": 6, "text": "Arm A run-1 logs were first written inside the arm A clone (untracked files the arm noticed and left alone); after run 1 they were moved to ~/.cache/orchestrai-ab-400/logs-A/. All later logs go outside the clones."},
+    {"n": 7, "text": "Arm A run 2 hit the owner's individual spend limit after 830s ($3.15). After the reset, arm A resumed through kickoff's own resume path: a new headless session (SID_A2) with the fixed prompt /tm-kickoff #411. The resumed kickoff skipped its wave-plan stop, treating the resume as the go-ahead, so no confirmation was sent. Cost covers both session ids; the limit wait is excluded from wall-clock."},
+    {"n": 8, "text": "Judge sessions ran with --permission-mode auto (the protocol omits a mode, and the headless default mode would deny tool calls the workflow needs); GH_CONFIG_DIR set inside env -i (see deviation 2)."},
+    {"n": 9, "text": "Judge prompts went through stdin, because --disallowedTools takes several values and swallowed the prompt argument on the first attempt (that launch failed before any model call, no spend)."},
+    {"n": 10, "text": "The first launch of the arm A resume failed in the shell before starting (zsh expanded opus[1m] as a glob in an eval). No model call, no spend. Relaunched through a helper script (run.sh) with the same flags."}
+  ],
+  "verdict": {
+    "rule": "decision rule, docs/reviews/2026-09-28-ab-native-vs-kickoff-protocol.md section 9",
+    "validPairs": 1,
+    "result": "INCONCLUSIVE (insufficient pairs)",
+    "line": "INCONCLUSIVE (insufficient pairs); owner attention per task: native 0 min (4 touchpoints), pipeline 0 min (3 touchpoints)"
+  }
+}
