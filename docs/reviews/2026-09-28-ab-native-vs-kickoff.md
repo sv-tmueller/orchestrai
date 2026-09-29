@@ -21,10 +21,10 @@ exactly as written.
 **Validity.** Both arms reached their end state. Arm A (pipeline): PR #413
 marked ready, tip `1ccb1e0`. Arm B (native): the fourth fixed invocation
 completed with the work pushed, tip `2035958`. PR #414 was opened ready for
-review during run 2, then converted back to a draft during run 4; the
-fixed final prompt asked for a draft, so this is not an invalidity. Neither arm hit
-`--max-budget-usd`. The contamination sweep found no READ exposure on either
-arm (see "Contamination" below). Both arms are valid.
+review during run 2, then converted back to a draft during run 4; the fixed
+final prompt asked for a draft, so this is not an invalidity. Neither arm
+hit `--max-budget-usd`. The contamination sweep found no READ exposure on
+either arm (see "Contamination" below). Both arms are valid.
 
 **Rule 1** applies immediately: this run has one pair, and the rule requires
 at least two valid pairs before it scores a quality verdict. **Result:
@@ -95,13 +95,13 @@ headless lead session(s)"):
    the rule scales only arm B) = **0.8844**, rounded 0.88.
 
 Pooling arm A's lead and subagent output to build the scale factor is one
-reading of "arm A's headless lead session(s)"; it is not the only one. Both
-alternate readings take the result event's top-level `usage.output_tokens`
-(actual output per invocation) as the numerator and `token-report.mjs`'s
-per-session output-estimate rows as the denominator, so either reproduces
-from the raw logs. Lead-only: 6,119 + 8,089 + 15,527 = 29,735 actual, over
+reading of "arm A's headless lead session(s)"; it is not the only one.
+Lead-only takes each result event's top-level `usage.output_tokens` (per
+invocation). Opus-only takes the last result event's `modelUsage` opus
+entry per session (cumulative). Both divide by token-report's per-session
+estimate rows. Lead-only: 6,119 + 8,089 + 15,527 = 29,735 actual, over
 the lead role's estimated rows, 5,571 + 6,195 = 11,766 (ratio 2.527x,
-adjusted R 0.767). Opus-only: the same result events' `modelUsage`
+adjusted R 0.767). Opus-only: `modelUsage`
 claude-opus-5-5 entries, 40,131 + 32,646 = 72,777 actual, over the by-model
 table's opus rows, 9,626 + 8,293 = 17,919 (ratio 4.061x, adjusted R 0.913).
 Both land in the same 0.5-2 band as the reading used above.
@@ -216,9 +216,8 @@ four, not a single invocation's count). Both the list-price ratio (R 0.62)
 and the actual-cost ratio (R(actual) 0.71) already put native cheaper; the
 larger undercount on arm B is why the list-price ratio (0.62) shows native
 further ahead than the actual figures (0.71) do, and why the adjusted-R
-calculation above
-exists: it is a same-method attempt to close part of that gap, not a full
-accounting of actual spend.
+calculation above exists: it is a same-method attempt to close part of that
+gap, not a full accounting of actual spend.
 
 ## The 11 deviations (this run, logged during Part 2)
 
@@ -287,25 +286,25 @@ into this list.
 
 ## Confidence
 
-This is a single pair: one task, one run per arm, no replication. Both
-judging passes ran on the same model family (`opus[1m]`) as arm B's author
-and as arm A's judgment seats (architect, reviewer), though not as arm A's
-developer, who wrote on Sonnet. The protocol flags shared model family as a
-blind spot; any judge self-preference from it would tend to favor arm B,
-whose whole diff came from an Opus session, over arm A, part of whose diff
-came from Sonnet. That bias is clean only for the reconciliation pass
-(Opus only); pass 1's own worker stage runs on Sonnet, with one Opus critic
-consolidating (`tm-review-changes.js`), so most of pass 1's own spend on
-both candidates was Sonnet, the same model that wrote arm A's diff. Two
-biases point toward native in this run: this judge-family bias, and
-deviation 7's restart overhead after arm A's limit death, which raises all
-three cost and wall-clock ratios in native's favor beyond what a limit-free
-pipeline run would show. The native arm ran headless throughout, standing in for
-the owner's real interactive
-use with fixed prompts in place of the owner's own judgment at each step;
-it is an approximation of native use, not a record of it. No policy change
-follows from this report (issue non-goal); it is one illustrative data
-point, not a settled comparison between the two ways of working.
+This is a single pair: one task, one run per arm, no replication. Pass 1
+ran in an opus[1m] session with Sonnet workers as arm B's author and as arm
+A's judgment seats (architect, reviewer), though not as arm A's developer,
+who wrote on Sonnet. The protocol flags shared model family as a blind
+spot; any judge self-preference from it would tend to favor arm B, whose
+whole diff came from an Opus session, over arm A, whose whole diff came
+from its Sonnet developer. That bias is clean only for the reconciliation
+pass (Opus only); pass 1's own worker stage runs on Sonnet, with one Opus
+critic consolidating (`tm-review-changes.js`), so most of pass 1's own
+spend on both candidates was Sonnet, the same model that wrote arm A's
+diff. Two biases point toward native in this run: this judge-family bias,
+and deviation 7's restart overhead after arm A's limit death, which lowers
+all three cost ratios and lengthens arm A's wall-clock, both in native's
+favor, beyond what a limit-free pipeline run would show. The native arm ran
+headless throughout, standing in for the owner's real interactive use with
+fixed prompts in place of the owner's own judgment at each step; it is an
+approximation of native use, not a record of it. No policy change follows
+from this report (issue non-goal); it is one illustrative data point, not a
+settled comparison between the two ways of working.
 
 ## Links
 
@@ -319,6 +318,6 @@ point, not a settled comparison between the two ways of working.
 
 - [ ] Scratch issues #411 and #412 closed (after this report's PR is approved).
 - [ ] Arm PRs #413 and #414 closed (after this report's PR is approved).
-- [ ] Base branch `ab/400-base-t2` and the arm/judge clones removed.
+- [ ] Base branch `ab/400-base-t2` and the arm/judge clones removed; arm branches deleted.
 - [ ] Original task issue #362 left untouched; it was already closed by
       reference PR #386 before this replay started.
