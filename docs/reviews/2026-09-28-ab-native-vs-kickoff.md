@@ -287,19 +287,20 @@ into this list.
 ## Confidence
 
 This is a single pair: one task, one run per arm, no replication. Pass 1
-ran in an opus[1m] session with Sonnet workers as arm B's author and as arm
-A's judgment seats (architect, reviewer), though not as arm A's developer,
-who wrote on Sonnet. The protocol flags shared model family as a blind
-spot; any judge self-preference from it would tend to favor arm B, whose
-whole diff came from an Opus session, over arm A, whose whole diff came
-from its Sonnet developer. That bias is clean only for the reconciliation
-pass (Opus only); pass 1's own worker stage runs on Sonnet, with one Opus
-critic consolidating (`tm-review-changes.js`), so most of pass 1's own
-spend on both candidates was Sonnet, the same model that wrote arm A's
-diff. Two biases point toward native in this run: this judge-family bias,
-and deviation 7's restart overhead after arm A's limit death, which lowers
-all three cost ratios and lengthens arm A's wall-clock, both in native's
-favor, beyond what a limit-free pipeline run would show. The native arm ran
+ran in an opus[1m] session with Sonnet workers and one Opus critic; the
+reconciliation pass ran on Opus only. Opus also wrote arm B's diff and ran
+arm A's judgment seats (architect, reviewer), while arm A's developer wrote
+on Sonnet. The protocol flags shared model family as a blind spot; any
+judge self-preference from it would tend to favor arm B, whose whole diff
+came from an Opus session, over arm A, whose whole diff came from its
+Sonnet developer. That bias is clean only for the reconciliation pass (Opus
+only); pass 1's own worker stage runs on Sonnet, with one Opus critic
+consolidating (`tm-review-changes.js`), so most of pass 1's own spend on
+both candidates was Sonnet, the same model that wrote arm A's diff. Two
+biases point toward native in this run: this judge-family bias, and
+deviation 7's restart overhead after arm A's limit death, which lowers all
+three cost ratios and lengthens arm A's wall-clock, both in native's favor,
+beyond what a limit-free pipeline run would show. The native arm ran
 headless throughout, standing in for the owner's real interactive use with
 fixed prompts in place of the owner's own judgment at each step; it is an
 approximation of native use, not a record of it. No policy change follows
