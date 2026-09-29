@@ -350,7 +350,10 @@ present) but does not, on its own, prove evidence (a) would ever fire for
 section 1, evidence (b) alone is sufficient to clear the park condition;
 this limitation is carried into the final report rather than triggering a
 probe re-run with a different task (not something this protocol, once
-committed, permits).
+committed, permits). The probe prompt itself names the file
+`scratch/ultracode-probe.mjs`, so the word alone proves nothing; the
+signal is the phrase "go solo on trivial edits", which neither the prompt
+nor the team guide contains.
 
 **Verdict: park condition not triggered. Proceed to the arm**, after
 Amendment 1 below (the plugin-off gate's failure is the same defect that
@@ -551,12 +554,16 @@ CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.`
   (0 of 23 total denials touch `Write` or `Edit`; compare run 1's 7 of 9
   `Write` plus its only `Edit`, both denied).
 
-**Outcome: valid, complete, n=1 illustrative run.** Neither pre-registered
-invalid end state (section 8) applies: `total_cost_usd` 12.76833 is well
-under the $40 cap, and there was no 429. It also did not hit the 90-minute
-wall-clock ceiling (`timeout 5400`; actual wall-clock 1996 s). This is a
-plain successful completion, not one of section 8's capped or killed
-cases.
+**Outcome: valid under the pre-registered gates, n=1 illustrative run, cut
+short.** Neither pre-registered invalid end state (section 8) applies:
+`total_cost_usd` 12.76833 is well under the $40 cap, there was no 429, and
+the 90-minute ceiling never fired (1996 s). It is not a clean completion:
+the CLI terminated at its own 600-second background-task ceiling with the
+review workflow still running, and the lead's last message ("I'll fix
+whatever the review confirms, then run `npm test` and commit locally") was
+never acted on. Section 8 (c)'s reason for not trusting a forced-kill state
+would point to a retry; counting this run is a judgment made after the
+fact, since a retry would breach the issue's one-run non-goal.
 
 **Product diff.** `.claude/scripts/token-report.mjs` (439 lines) plus
 `.claude/scripts/model-prices.json`, a 343-line test file and synthetic
@@ -593,16 +600,19 @@ modified and untracked files.
 
 **Cost, list price.**
 
-- Session `result` event (measured, real usage): `total_cost_usd
-  12.76833`; `cache_creation_input_tokens` 244,824;
-  `cache_read_input_tokens` 8,631,936; `output_tokens` 132,845 (of which
-  74,775 thinking); uniformly `claude-opus-5-5`.
+- Session `result` event (measured, real usage): `total_cost_usd 12.76833`
+  from `modelUsage`, which covers the whole session (674,666 cache-write,
+  16,796,080 cache-read, 264,980 output tokens, of which 135,422 thinking).
+  The event's top-level `usage` block is lead-only (244,824 cache-write,
+  8,631,936 cache-read, 132,845 output, of which 74,775 thinking).
+  Uniformly `claude-opus-5-5`.
 - The merged reference's `token-report.mjs` (`.claude/skills/tm-kickoff/`,
   from this developer's own checkout), run against this session: sees
   only the **lead**, 63 calls, estimated **$4.28**. Its subagent lookup
   (`<session>/subagents/agent-*.jsonl`, not recursive) does not reach
   `subagents/workflows/<run-id>/agent-*.jsonl`, so it misses all 7
-  workflow subagents and roughly two-thirds of the run's real spend.
+  workflow subagents and about half of the run's real spend (the lead's
+  own measured usage prices at $6.34 of the $12.77).
 - The arm's *own* `token-report.mjs` (a different file, under
   `.claude/scripts/`, recurses with `readdirSync(subagentDir, {
   recursive: true })`; its own source comment names this exact case:
@@ -629,9 +639,9 @@ transcript is 43 s later, at 11:23:13 (consistent with the session
 ending its own turn right after kicking the review off in the
 background, `Workflow`'s documented async pattern); the workflow itself
 kept running for 643 s total before Claude Code killed it at 11:33:14 for
-exceeding the 600 s ceiling. So of the run's 1996 s wall-clock, about
-650 s (33%) is dead time: the CLI waiting on a background task with
-nothing left for the lead to do until the ceiling fired.
+exceeding the 600 s ceiling. So roughly 600 s (30%) of the total
+wall-clock is idle lead time: from the lead's last message at 11:23:13 to
+the kill at 11:33:14, the CLI only waited on the background task.
 
 **The lead never consumed the workflow's result.** The transcript ends at
 the kill: a `task_notification` (status `stopped`) immediately followed
@@ -708,7 +718,12 @@ diff --binary aba6cb4 226de7f`, the arm's uncommitted working tree
 committed as one throwaway commit) as one local commit `858cfc6` (18
 files, +1057 -5). It ran the workflow in-session from that worktree with
 `args: { base: 'aba6cb4eb93074b54f1324a90269e570b7755d5b' }`. No child CLI
-session was launched; the worktree has since been removed.
+session was launched; the worktree has since been removed. This also set
+aside section 6's isolation (fresh headless session, plugin off, no gh or
+web, restricted tools): the review ran with the lead's plugin and tools, in
+a worktree whose refs include the merged #384. Checked afterward: no
+review agent's tool input names the reference script, its price table, or
+the merge commit.
 `.claude/workflows/tm-review-changes.js` is byte-identical at that base
 and on `origin/main` (last changed in `41f3fc5`), so the production
 version ran. One adaptation: the Workflow runtime refused the production
@@ -716,8 +731,11 @@ file both by name and by path, because the file's `meta` export is
 computed from a `SPEC` constant rather than being the literal first
 statement in the script; the lead ran a copy with `meta` hoisted to a
 literal first statement and every other byte unchanged (self-checked).
-This is a separate bug in the Workflow runtime, out of scope for #405 and
-not fixed here.
+The same computed-`meta` pattern is in all three production workflows
+(`tm-map-codebase.js:54`, `tm-review-changes.js:43`,
+`tm-review-codebase.js:62`), so all three likely fail to load under the
+current Workflow runtime. Whether the runtime or the files are at fault is
+not settled here. It is out of scope for #405 and needs its own issue.
 
 **Run stats.** 8 agents (7 Sonnet dimension workers: bugs, security,
 scope, tests, style, docs, perf; 1 Opus critic that consolidates), 3 of

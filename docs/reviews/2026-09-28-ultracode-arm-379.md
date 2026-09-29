@@ -9,8 +9,11 @@ order, per its section 9.
 
 ## 1. Bottom line
 
-**One valid, complete arm run exists: run 2 (2026-09-29), the package's n=1
-result.** The probe cleared its own park condition (`--effort ultracode`
+**One valid arm run exists: run 2 (2026-09-29), the package's n=1 result. It
+passed every pre-registered gate but did not finish: Claude Code's 600-second
+background-task ceiling ended the session while its review workflow ran,
+before the lead's stated wrap-up.** The probe cleared its own park condition
+(`--effort ultracode`
 activates cleanly in headless `-p` mode). The $40-capped arm then ran
 twice against the pre-merge #379 replay (base
 `aba6cb4eb93074b54f1324a90269e570b7755d5b`, frozen batch #371 transcript
@@ -22,9 +25,15 @@ input):
   Since #379's entire deliverable lives under `.claude/`, the run ended
   with nothing committed and no real product diff. **Invalid as evidence
   about ultracode**, kept here as the documented first attempt (full
-  detail: protocol file, "Arm run 1").
-- **Run 2** (`--permission-mode auto`, the owner's own fix, verified in a
-  diagnostic before use): **valid and complete.** RC 0, 1996 s wall-clock,
+  detail: protocol file, "Arm run 1"). The pre-registered rules gave no
+  retry for this case: only a 429 or a wall-clock kill gets one (section
+  8), a gate failure is "invalid, not replaced" (section 4), and section 8
+  (a) treats even a capped run with an empty diff as the n=1 result. Run 2
+  exists because the owner chose option (a) on the park question, which
+  also set aside the issue's non-goal of more than one ultracode run.
+- **Run 2** (`--permission-mode auto`, Amendment 2's fix, verified in a
+  $0.27 diagnostic before use, launched by the owner from their own
+  terminal): **valid under the gates, cut short (section 5).** RC 0, 1996 s wall-clock,
   `total_cost_usd` 12.76833. It authored and ran one `Workflow`
   (`tm-token-report-review`, 7 subagents across 2 phases), produced a full
   product diff (18 files, 1057 insertions, 5 deletions against the base),
@@ -35,10 +44,16 @@ input):
   before the arm's session ever saw the result; full detail below and in
   the protocol file's "Arm run 2 result."
 
+AC 2: run 2's Write, Edit, and Bash writes, from the lead and all 7
+workflow subagents, stayed inside `repo/`. Run 1 wrote one scratch script
+outside its clone (`/tmp/tm-survey/survey.mjs`). No setting in either run
+blocks writes outside the clone, so run 2's clean record is observed, not
+enforced.
+
 **Total list-price spend, all sessions: $17.87343** (probe $0.2866, ten
 isolation/permission diagnostics $0.9047, arm run 1 $3.9138, arm run 2
-$12.76833). Well inside the $3 probe cap; run 2's own $40 cap was never
-approached (it ended on a normal `end_turn`, not the budget cap). This
+$12.76833). The probe ($0.2866) stayed well inside its $3 cap, and run 2
+($12.77) stayed well inside its $40 cap. This
 figure covers only the arm-under-test; it excludes `tm-review-changes`
 (section 7), which ran later in the lead's own session and cannot be
 priced with the merged, non-recursive `token-report.mjs` (reported in
@@ -62,6 +77,14 @@ plugin was still loaded); this led directly to Amendment 1, before the arm
 ran. Run 2 later gives the probe's missing case for free: it authored a
 real `Workflow` for a substantive task, so evidence (a) is now also
 established for at least one task shape.
+
+AC 1 asks about the `ultracode` prompt keyword. The probe did not test it:
+the fetched docs describe ultracode as a session setting (`--effort
+ultracode`, `/effort ultracode`, or `"ultracode": true`), so the probe and
+both arm runs used the flag (protocol, first section). Whether a prompt
+keyword does anything stays untested, and the team guide's description of
+ultracode as "a prompt keyword or `/effort` menu option" disagrees with
+those docs; that needs a follow-up issue, not an edit here.
 
 ## 3. Isolation and permission findings (Amendments 1 and 2)
 
@@ -88,6 +111,13 @@ here.
    "doesn't run and Claude keeps working" rather than hanging. Verified in
    a $0.27 diagnostic before the retry, and confirmed on run 2 itself:
    zero `.claude/`-path denials.
+4. The replay clone kept its local `main` branch at `8e60a31`, which
+   contains the merged #384, so the reference was reachable with `git show
+   main:<path>` under the allowed `Bash(git *)`. The path-based
+   contamination gate would not catch that. Checked afterward: no tool
+   input in either arm run, or in run 2's 7 workflow subagents, names
+   `main`, `.git/`, the merge commit, or the reference file paths. Future
+   replays should delete every ref except the detached base.
 
 ## 4. Run 2: metrics (sub-plan section 6)
 
@@ -99,10 +129,11 @@ here.
 | Agents spawned | 8 (1 lead + 7 workflow subagents) |
 | Workflows authored | 1: `tm-token-report-review` (2 phases: Review x4 dimensions, Verify x up to 4 skeptics; 7 of 8 possible agent slots dispatched, 1 skipped by design) |
 | Model, all 8 agents | `claude-opus-5-5` (uniform; no per-model pin) |
-| Effort, lead | `ultracode` (`--effort ultracode`, session-wide) |
+| Effort, lead | `ultracode` via `--effort ultracode`; the lead transcript records `perTurnEffort: xhigh` on every turn, so no logged field tells ultracode from plain `xhigh` |
 | Effort, 7 subagents | `high`, explicit (`perTurnEffort` in every subagent transcript, matching the workflow source's `effort: 'high'` on both `agent()` calls) |
 | Diff size | 18 files changed, 1057 insertions(+), 5 deletions(-) vs base |
 | `npm test` at the arm's tip (scoring copy) | 361 tests, 0 failures |
+| #379 ACs met | 6 of 6 on the letter; AC 4 with a confirmed integration gap (section 6) |
 
 The lead ran at ultracode/`xhigh`; the workflow it authored pinned its own
 worker stages down to plain `high`, one level under the parent, on the
@@ -117,15 +148,19 @@ author following that rule.
 session, reports only the lead: 63 calls, an estimated $4.28. Its
 subagent lookup is not recursive, so it never reaches
 `subagents/workflows/<run-id>/agent-*.jsonl`, and it misses all 7 workflow
-subagents, about two-thirds of the run's real spend. The arm's *own*
+subagents, about half of the run's real spend: the result event's lead-only
+`usage` block prices at $6.34 list, which leaves about $6.43 of the measured
+$12.77 for the workflow (the $4.28 lead figure is a visible-output estimate
+without the lead's 74,775 thinking tokens). The arm's *own*
 `token-report.mjs` (a different file, under `.claude/scripts/`, chosen
 independently of the reference) does recurse, and its own source comment
 names this exact scenario: "workflow agents write to
 subagents/workflows/<run>/agent-*.jsonl". Run against the same session it
 reports 8 agents, 215 calls, $7.48 input cost, $1.25 output estimate
-($8.73 total). The remaining gap to the measured $12.76833 is thinking
-tokens (135,422 across the session), which the visible-output estimate
-excludes by design and states as a limitation. In short: the tool this
+($8.73 total). The remaining $4.04 gap to the measured $12.76833 is all on
+the output side: the estimate prices $1.25 of $5.30 measured output cost,
+and thinking tokens (135,422 across the session, about $2.71) are most of
+what it leaves out, by design and as it states. In short: the tool this
 issue built cannot see a workflow-fanned-out run's own cost unless it
 recurses into `subagents/workflows/`, and only the arm's own
 (non-reference) implementation does.
@@ -139,9 +174,9 @@ run's 1996 s wall-clock; the transcript's last visible assistant/user
 content is 43 s later (the session ending its own turn right after
 kicking the review off in the background, `Workflow`'s documented async
 pattern). The workflow itself ran for 643 s total before being killed for
-exceeding the ceiling. So roughly 650 s (33%) of the total wall-clock is
-dead time: the CLI waiting on a background task with nothing left for the
-lead to do.
+exceeding the ceiling. So roughly 600 s (30%) of the total wall-clock is
+idle lead time: from the lead's last message at 11:23:13 to the kill at
+11:33:14, the CLI only waited on the background task.
 
 At the kill, of the workflow's 7 dispatched agents: the 4 Review-phase
 agents (`review:recompute`, `review:spec`, `review:code`,
@@ -187,7 +222,9 @@ uncommitted working tree committed so `base..HEAD` is its diff, and
 
 All six ACs are met on the letter; one (posting the report) carries a real,
 self-identified integration gap that the run's own review confirmed and
-did not get to fix.
+did not get to fix. Deviation from protocol section 5: no separate scoring
+session ran; the developer who wrote this report scored the ACs directly
+on the scoring copy.
 
 **How the arm's solution differs from the reference (PR #384):**
 
@@ -233,7 +270,12 @@ after owner approval, rather than a further child-process attempt:
   section 4's diff-size figure). It ran the
   workflow in-session from that worktree with `args: { base:
   'aba6cb4eb93074b54f1324a90269e570b7755d5b' }`. No child CLI session was
-  launched, and the throwaway worktree has since been removed.
+  launched, and the throwaway worktree has since been removed. This also
+  set aside section 6's isolation (fresh headless session, plugin off, no
+  gh or web, restricted tools): the review ran with the lead's plugin and
+  tools, in a worktree whose refs include the merged #384. Checked
+  afterward: no review agent's tool input names the reference script, its
+  price table, or the merge commit.
 - Workflow version: `.claude/workflows/tm-review-changes.js` is
   byte-identical at the base commit and on `origin/main` (last changed in
   `41f3fc5`), so the production version ran, unmodified in substance.
@@ -243,8 +285,12 @@ after owner approval, rather than a further child-process attempt:
   statement in the script"), because the file computes `meta` from a
   `SPEC` constant on line 43. The lead ran a copy with `meta` hoisted to a
   literal first statement and every other byte unchanged (self-checked).
-  This is a separate bug in the Workflow runtime, out of scope for #405;
-  it is not fixed here.
+  The same computed-`meta` pattern is in all three production workflows
+  (`tm-map-codebase.js:54`, `tm-review-changes.js:43`,
+  `tm-review-codebase.js:62`), so all three likely fail to load under the
+  current Workflow runtime. Whether the runtime or the files are at fault
+  is not settled here. It is out of scope for #405 and needs its own
+  issue.
 
 **Run stats.** 8 agents (7 Sonnet dimension workers: bugs, security,
 scope, tests, style, docs, perf; 1 Opus critic that consolidates), 3 of
@@ -293,25 +339,22 @@ reference behave identically on this point; the critic's non-flag matches
 the actual rule in force at that point in history, not a gap specific to
 the arm.
 
-**Relation to section 5's killed internal review.** This is a separate,
-independently commissioned pass from the arm's own authored `Workflow`
-(`tm-token-report-review`, section 5), which the lead never saw finish.
-The two reviews looked at different code (`tm-review-changes` reviews the
-whole diff against fixed dimensions; the arm's own workflow reviewed
-against dimensions it chose itself) and reached compatible verdicts:
-neither found a must-fix, and this pass's should-fix (untested failure
-paths) sits in the same area of the code as row 4 of section 6's table
-(the arm's own `review:integration` finding about the `--session <id>`
-escape hatch), both pointing at under-specified failure/edge-case handling
-in the same feature, found independently by two different reviews.
+**Relation to section 5's killed internal review.** This is a separate pass
+from the arm's own `Workflow` (`tm-token-report-review`, section 5), which
+the lead never saw finish. Both read the same arm tree, through different
+dimensions. The arm's workflow has no overall verdict: it was killed with
+`verify:code` unresolved. This pass's should-fix (untested failure path of
+`main()`) and the arm's confirmed `--session <id>` finding are different
+findings that both touch what happens when the script cannot find the lead
+transcript.
 
 **Cost.** Not folded into section 1's or section 4's dollar totals: the
 review ran inside the lead's own session
-(`c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a`), a different account context from
-the arm's own `$HOME/.claude-work`-scoped runs. `.claude/skills/tm-kickoff/
+(`c5168e00-8b3d-486c-9ad3-d2f4cd14cb6a`), not in the arm, and the merged
+tool cannot price it. `.claude/skills/tm-kickoff/
 token-report.mjs` (the merged, non-recursive tool) run against that
-session sees only its two direct subagent transcripts ($6.33 combined,
-lead role + one direct developer dispatch); it does not recurse into
+session sees only the lead transcript and its one direct developer
+dispatch ($6.33 combined); it does not recurse into
 `subagents/workflows/wf_dbb9188f-59a/`, so it cannot price the review's own
 8 agents at all, the exact limitation section 4 already documents for the
 arm's own workflow. The review's own spend is therefore reported in tokens
@@ -320,25 +363,25 @@ only: 678,834 subagent tokens, 162 tool calls, 650,996 ms wall-clock
 
 ## 8. Verdict on "No session-wide ultracode"
 
-The team-guide's rule rests on a 2026-06-30 trial measuring over-spawning
-under a Sonnet-5-led ultracode session. This package adds one same-model,
-single-arm data point on Opus 5.5, against a real, previously-merged task,
-with a completed run:
+The team-guide's rule cites `docs/reviews/2026-06-30-orchestration-comparison.md`,
+whose only trial data is a hand-authored stand-in for an ultracode-style
+workflow on Sonnet 5, not a live ultracode session. This package adds the
+first live ultracode data point: one single-arm run on Opus 5.5, against a
+real, previously merged task:
 
 - Ultracode activates and runs headlessly on Opus 5.5 (the probe, and run
   2's own `--effort ultracode`).
-- On a substantive, real task, ultracode did author a dynamic `Workflow`
-  and fan out 7 subagents across 2 phases, all but one either completing
-  or nearly completing before a harness-level timeout ended the run. This
-  is evidence *for* ultracode's own orchestration working as documented,
-  not against it.
+- On a substantive, real task, the session authored one dynamic `Workflow`
+  and fanned out 7 subagents across 2 phases; 6 finished and 1 was cut off
+  by the 600-second background-task ceiling. This shows ultracode's
+  orchestration can fire headlessly on Opus 5.5. No plain-`xhigh` control
+  ran, so the authoring is attributed to ultracode by the flag, not by
+  comparison.
 - The fan-out pinned its own worker stages to a lower effort (`high`
-  against the parent's `xhigh`/ultracode) but not a cheaper model; the
-  spend it added ($8.49 of the run's $12.77, on the arm's own accounting)
-  bought a real review pass that found one confirmed, live defect in the
-  arm's own deliverable, which the run never got to fix because Claude
-  Code's own 600-second background-task ceiling killed it first, not
-  because the workflow was unproductive.
+  against the parent's `xhigh`/ultracode) but not a cheaper model. It cost
+  about half the run (about $6.43 of $12.77). Its one confirmed finding
+  never reached the lead, so that spend changed nothing in the delivered
+  diff.
 - The account's own plugin-off and read-boundary isolation mechanisms
   needed non-obvious fixes to work at all in headless mode (Amendment 1),
   and a built-in protected-path rule under `dontAsk` mode produced a false
@@ -348,30 +391,22 @@ with a completed run:
   own (non-reference) version of that tool does. Any future cost
   accounting for an ultracode-authored workflow needs the recursive
   lookup, or it will silently under-report by the workflow's whole share.
-- The arm's deliverable also holds up under an independent, external
-  review: `tm-review-changes` (section 7), run on the same diff, verdict
-  **approve**, 0 must-fix, one should-fix (untested failure paths in the
-  same script). That should-fix sits in the same area of the code as the
-  arm's own internal review's confirmed finding (row 4 of section 6's
-  table), so two independent reviews, one run by the arm itself and killed
-  before it could act, one run afterward by the lead, converge on the same
-  kind of gap (failure-path and edge-case handling under-tested) without
-  finding anything that blocks the change.
+- `tm-review-changes` (section 7), run afterward by the lead on the same
+  diff, returned **approve**, 0 must-fix, one should-fix (untested failure
+  paths in the same script).
 
-This is one illustrative run (n=1), not a statistically powered trial. It
-does not contradict "no session-wide ultracode" outright (a single
-observation of productive fan-out is not the same claim the 2026-06-30
-trial made about over-spawning, and this run's own background-task kill
-shows a real, separate operational cost of running a multi-agent
-`Workflow` headlessly and unattended). But it also does not confirm the
-rule the way run 1 alone would have (run 1 measured a harness
-protected-path block, not ultracode). Read together, this package's
-evidence is: ultracode-driven fan-out on Opus 5.5 is real, can be
-productive, and carries a harness-level unattended-run risk (the
-background-task ceiling) this protocol had not previously named. No
-`team-guide.md` edit: this single run does not contradict the existing
-rule, but the finding is new enough to flag rather than file away
-silently.
+This is one illustrative run (n=1), not a statistically powered trial.
+**The rule stands.** This run could not contradict it: it ran ultracode on
+a one-off heavy task with no tm- script (Skill was disallowed), which is
+the exception the rule already allows, not session-wide use across the
+tm- flows. What it adds: ultracode fan-out on Opus 5.5 is real and pins its
+own worker effort, it cost about half of this run, and in an unattended
+headless run its output can be lost to the 600-second background-task
+ceiling (both workflows in this package, the arm's own and
+`tm-review-changes`, ran past 600 s). Run 1 adds no ultracode evidence: its
+writes were blocked before the implementation existed, so it never reached
+the review stage where run 2 authored its workflow. No `team-guide.md`
+edit.
 
 ## 9. Files, order, constraints
 
