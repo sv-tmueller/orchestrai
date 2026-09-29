@@ -31,17 +31,24 @@
         {"run": 3, "sessionId": "1596da4e-c162-4693-bfa4-bc81e280ab78", "prompt": "/tm-kickoff #411", "durationMs": 981879, "durationApiMs": 920644, "totalCostUsd": 3.135903900000001, "numTurns": 18, "isError": false, "note": "resume session after limit reset; kickoff skipped its wave-plan stop, treating the resume as go-ahead"}
       ],
       "wallClockSecondsSummed": 1894,
+      "wallClockSecondsSummedNote": "sum of invocation durations; deviation from the protocol's own T1-T0 measure (see wallClockSecondsProtocol), reported alongside it",
+      "wallClockSecondsProtocol": 1957,
       "limitWaitSeconds": 16021,
       "limitWaitFromTo": {"tRun2EndEpoch": 1790627072, "tResumeEpoch": 1790643093},
       "agentCount": 7,
       "agentCountBySession": {"35123145-40b1-424f-aa8a-495aa7ca45de": 3, "1596da4e-c162-4693-bfa4-bc81e280ab78": 4},
+      "permissionDenials": 1,
+      "permissionDenialNote": "a tester Bash call in run 3 requesting dangerouslyDisableSandbox, denied",
+      "blockedOnHumanSeconds": 0,
+      "baseEraPipelineCaveat": "ran on the pipeline as it stood one commit before #362 merged; lacks #395, #397, #398 and #384 (protocol section 2)",
       "diffStat": {"files": 5, "insertions": 366, "deletions": 2, "filesChanged": [".claude/.claude-plugin/plugin.json", ".claude/team-guide.md", ".claude/workflows/__tests__/version-bump-check.test.mjs", ".github/workflows/ci.yml", "scripts/check-version-bump.mjs"]},
       "npmTestAtTip": {"exitCode": 0, "pass": 382, "total": 382, "suites": 50},
       "touchpoints": 3,
       "touchpointTexts": ["/tm-kickoff #411", "Confirmed. Run the wave.", "/tm-kickoff #411 (resume, new session after limit reset)"],
       "costTokenReportUsd": 4.72,
       "costTokenReportBySession": {"35123145-40b1-424f-aa8a-495aa7ca45de": 2.34, "1596da4e-c162-4693-bfa4-bc81e280ab78": 2.38},
-      "costActualUsd": 6.81763
+      "costActualUsd": 6.2891522,
+      "costActualNote": "last result-event total_cost_usd per session id, summed across arm A's two sessions (session 1: run2's cumulative value 3.1532483; session 2: run3's value 3.1359039); not a sum of every invocation, which double-counts within a --resume chain"
     },
     "B": {
       "label": "native (headless plan-approve-execute-review-fix chain)",
@@ -57,14 +64,20 @@
         {"run": 4, "prompt": "Fix the findings from that review that you agree are real problems. Run npm test, commit, push, and make sure a draft pull request against ab/400-base-t2 exists with \"Closes #412\".", "permissionMode": "auto", "durationMs": 342823, "durationApiMs": 1086775, "totalCostUsd": 4.4609087999999995, "numTurns": 11, "isError": false}
       ],
       "wallClockSecondsSummed": 1231,
+      "wallClockSecondsSummedNote": "sum of invocation durations; deviation from the protocol's own T1-T0 measure (see wallClockSecondsProtocol), reported alongside it",
+      "wallClockSecondsProtocol": 1310,
       "limitWaitSeconds": 0,
       "agentCount": 1,
+      "agentCountNote": "the general-purpose agent spawned by /code-review's own invocation in run 3, one second after that prompt; not a subagent the session chose to spawn on its own initiative",
+      "permissionDenials": 0,
+      "blockedOnHumanSeconds": 0,
       "diffStat": {"files": 6, "insertions": 487, "deletions": 2, "filesChanged": [".claude/.claude-plugin/plugin.json", ".claude/team-guide.md", ".claude/workflows/__tests__/version-bump-check.test.mjs", ".github/workflows/ci.yml", "CLAUDE.md", "scripts/check-version-bump.mjs"]},
       "npmTestAtTip": {"exitCode": 0, "pass": 399, "total": 399, "suites": 51},
       "touchpoints": 4,
       "touchpointTexts": ["Implement GitHub issue #412.", "Approved. Implement the plan.", "/code-review", "Fix the findings from that review that you agree are real problems. Run npm test, commit, push, and make sure a draft pull request against ab/400-base-t2 exists with \"Closes #412\"."],
       "costTokenReportUsd": 2.94,
-      "costActualUsd": 10.5152684
+      "costActualUsd": 4.4609088,
+      "costActualNote": "last result-event total_cost_usd for the arm's single session (run4's cumulative value 4.4609088); not a sum of every invocation, which double-counts within a --resume chain"
     }
   },
   "ownerAttention": {
@@ -78,32 +91,39 @@
   "cost": {
     "tokenReport": {"armA": 4.72, "armB": 2.94, "R": 0.6228813559322034, "band": "0.5-2"},
     "actual": {
-      "armA": 6.81763,
-      "armB": 10.5152684,
-      "Ractual": 1.5423641940087685,
+      "armA": 6.2891522,
+      "armB": 4.4609088,
+      "Ractual": 0.7093020900336932,
       "band": "0.5-2",
-      "note": "sum of each invocation's result-event total_cost_usd; includes thinking tokens, which token-report.mjs's estimate excludes"
+      "note": "last result-event total_cost_usd per session id (cumulative for the whole --resume chain), summed across arm A's two sessions and taken once for arm B's one session; includes thinking tokens, which token-report.mjs's estimate excludes"
     },
     "adjustedR": {
       "rule": "scale arm B's Opus output-token estimate by the actual-to-estimated output ratio measured on arm A's headless lead session(s), then reprice arm B and recompute R against arm A's unadjusted token-report cost",
-      "armAActualOutputTokensAllModels": 144482,
-      "armAActualOutputTokensBySession": {"run1_opus": 6119, "run2_opus": 40131, "run2_sonnet": 28560, "run3_opus": 32646, "run3_sonnet": 37026},
+      "note": "actual output tokens are the last invocation's modelUsage per session, summed across sessions, not summed across every invocation, which would double-count within a --resume chain",
+      "armAActualOutputTokensAllModels": 138363,
+      "armAActualOutputTokensBySession": {"session1_run2_opus": 40131, "session1_run2_sonnet": 28560, "session2_run3_opus": 32646, "session2_run3_sonnet": 37026},
       "armAEstimatedOutputTokensAllModels": 36800,
       "armAEstimatedOutputTokensBySession": {"sid_a_total": 18367, "sid_a2_total": 18433},
-      "actualToEstimatedRatio": 3.926141304347826,
+      "actualToEstimatedRatio": 3.7598641304347824,
       "armBEstimatedOpusOutputTokens": 22387,
-      "armBScaledOpusOutputTokens": 87894.52538043477,
+      "armBActualOpusOutputTokens": 98492,
+      "armBActualToEstimatedRatio": 4.399517577165319,
+      "armBScaledOpusOutputTokens": 84172.07828804347,
       "armBNonOutputCostUsd": 2.4910688,
-      "armBAdjustedOutputCostUsd": 1.7578905076086953,
-      "armBAdjustedCostUsd": 4.248959307608695,
+      "armBAdjustedOutputCostUsd": 1.6834415657608695,
+      "armBAdjustedCostUsd": 4.174510365760869,
       "armACostUsedUsd": 4.72,
-      "adjustedR": 0.9002032431374355,
-      "band": "0.5-2"
+      "adjustedR": 0.8844301622374724,
+      "band": "0.5-2",
+      "alternateReadings": {
+        "leadOnly": {"ratio": 2.53, "adjustedR": 0.77},
+        "opusOnly": {"ratio": 4.06, "adjustedR": 0.91}
+      }
     },
-    "bandAgreement": "R, R(actual) and adjusted R all fall in the same 0.5-2 band",
+    "bandAgreement": "R, R(actual) and adjusted R all fall in the same 0.5-2 band; all put native cheaper",
     "judging": {"pass1X": 2.6595930999999995, "pass1Y": 2.8624182, "recon": 0.8181335999999999, "totalUsd": 6.340144999999999},
     "probesUsd": 0.72,
-    "grandTotalActualUsd": 24.393053300000002,
+    "grandTotalActualUsd": 17.810205899999996,
     "costCapUsd": 40,
     "stopRuleTriggeredBeforeJudging": false
   },
@@ -140,8 +160,8 @@
       "comparable": true
     },
     "contamination": {
-      "armA": {"read": 0, "mention": "coincidence: independently named scripts/check-version-bump.mjs, the reference's own script name; not present in the base checkout; no transcript read of the reference"},
-      "armB": {"read": 0, "mention": "same script-name coincidence as arm A"}
+      "armA": {"read": 0, "coincidenceNote": "independently named scripts/check-version-bump.mjs, the reference's own script name; not present in the base checkout; no transcript read of the reference; not scored as a MENTION"},
+      "armB": {"read": 0, "coincidenceNote": "same script-name coincidence as arm A; not scored as a MENTION"}
     }
   },
   "deviations": [
@@ -151,10 +171,11 @@
     {"n": 4, "text": "stdin: every headless call got < /dev/null, to skip a 3-second stdin wait."},
     {"n": 5, "text": "Probes: two probe sessions (Sonnet low and Haiku, about $0.72 together) checked that a headless session waits for background subagents and tested the plugin gate; not part of any arm's cost."},
     {"n": 6, "text": "Arm A run-1 logs were first written inside the arm A clone (untracked files the arm noticed and left alone); after run 1 they were moved to ~/.cache/orchestrai-ab-400/logs-A/. All later logs go outside the clones."},
-    {"n": 7, "text": "Arm A run 2 hit the owner's individual spend limit after 830s ($3.15). After the reset, arm A resumed through kickoff's own resume path: a new headless session (SID_A2) with the fixed prompt /tm-kickoff #411. The resumed kickoff skipped its wave-plan stop, treating the resume as the go-ahead, so no confirmation was sent. Cost covers both session ids; the limit wait is excluded from wall-clock."},
+    {"n": 7, "text": "Arm A run 2 hit the owner's individual spend limit after 830s ($2.62 of run 2's own spend; the session's cumulative total at that point was $3.15). After the reset, arm A resumed through kickoff's own resume path: a new headless session (SID_A2) with the fixed prompt /tm-kickoff #411. The resumed kickoff skipped its wave-plan stop, treating the resume as the go-ahead, so no confirmation was sent. Cost covers both session ids; the limit wait is excluded from wall-clock. The tester subagent running when session 1 died (agent-a6ee70bb, 20:23:41-20:24:31) was dispatched again from scratch in session 2, and the fresh lead had to rebuild context before continuing; that restart overhead biases R and R(actual) toward native looking relatively cheaper and faster than a limit-free pipeline run would."},
     {"n": 8, "text": "Judge sessions ran with --permission-mode auto (the protocol omits a mode, and the headless default mode would deny tool calls the workflow needs); GH_CONFIG_DIR set inside env -i (see deviation 2)."},
     {"n": 9, "text": "Judge prompts went through stdin, because --disallowedTools takes several values and swallowed the prompt argument on the first attempt (that launch failed before any model call, no spend)."},
-    {"n": 10, "text": "The first launch of the arm A resume failed in the shell before starting (zsh expanded opus[1m] as a glob in an eval). No model call, no spend. Relaunched through a helper script (run.sh) with the same flags."}
+    {"n": 10, "text": "The first launch of the arm A resume failed in the shell before starting (zsh expanded opus[1m] as a glob in an eval). No model call, no spend. Relaunched through a helper script (run.sh) with the same flags."},
+    {"n": 11, "text": "The reconciliation pass ran with cwd $TRIAL/recon on copied inputs, not --add-dir \"$TRIAL/blind\" as protocol section 8.6 names. No number changes (same four files, same content), but the command shape departed from the protocol."}
   ],
   "verdict": {
     "rule": "decision rule, docs/reviews/2026-09-28-ab-native-vs-kickoff-protocol.md section 9",
