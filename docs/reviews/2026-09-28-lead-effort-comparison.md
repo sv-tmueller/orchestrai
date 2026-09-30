@@ -34,14 +34,21 @@ package's contract.
 The batch's deferred run-phase measurement ("only if P1 shows high holds on
 refinement," issue #403) **is now triggered**: this trial's own scores show
 high holding within the rule's own band. Whether to act on that trigger is
-outside this package's non-goals (run-phase decisions); it is flagged here
-for whoever picks up that follow-on measurement.
+outside this package's scope (a non-goal: run-phase decisions); it is
+flagged here for whoever picks up that follow-on measurement.
 
 **Total list-price spend, both rounds: $8.6144074** (round 1: $2.5095844,
 all invalidated; round 2: $6.104823, comprising $3.174341 across H4-H6 plus
 $2.930482 for the judge), against round 2's own $35 cap (round 1's spend is
 not counted against it, per the amendment). The reused O1-O3 runs cost
 nothing new today; their original $6.60 was #358's own spend.
+
+Deviation: the amendment's own stated cap arithmetic ("$35 (3 x $8
+high-effort runs plus $10 judge, plus headroom for one JSON-parse retry)")
+does not add up: 3 x $8 + $10 = $34, and a $10 retry on top would make $44,
+not $35. The retry never ran (the judge parsed on the first attempt), so
+the cap was never actually at risk; logged here rather than corrected in
+the frozen protocol text.
 
 ## 2. Per-run table
 
@@ -112,6 +119,13 @@ same `~/.hermes` filesystem-jail class #358 documented on F1, O1, and F2.
 Not on this protocol's forbidden-path list, so it did not invalidate H3 on
 its own.
 
+Deviation: #358's protocol requires a commit after every run, before the
+next one starts. In round 1, each run's `data.json` commit landed after the
+next run had already started: H1's commit (14:59:23Z) is later than H2's
+start (14:52:19Z), and H2's commit (14:59:37Z) is later than H3's start
+(14:57:43Z). Round 2 (H4-H6) does not have this issue: each commit precedes
+the next run's start.
+
 Round 1 total: 0 of 3 valid, short of the decision rule's 2-valid floor, so
 round 1's own result was "insufficient evidence, keep xhigh" with no judge
 pass (skipped below that floor).
@@ -129,6 +143,13 @@ gap itself was deliberately **not** fixed: tightening `--allowedTools`
 mid-trial would change the high-effort arm's tool conditions relative to
 O1-O3, which already ran under the unrestricted allowlist.
 
+Deviation: the protocol's own verification checklist states "no later
+commit edits this file" (the protocol file). Amendment 1 was pushed as a
+commit appended to that same protocol file (additions only, before H4
+started), which is itself a later commit editing the protocol file; logged
+here rather than treated as a violation, since the amendment is disclosed,
+pre-registered before H4, and additions-only.
+
 All three round-2 runs completed cleanly and passed every gate, including
 the contamination gate: each run did issue at least one `Glob` call scoped
 one level above its own trial root
@@ -142,13 +163,23 @@ table. Gate detail (not part of that table): all three passed the effort
 gate (H4 29 turns, H5 42 turns, H6 46 turns, all `perTurnEffort: high`) and
 the contamination gate (clear on every run).
 
+**No-writes check.** `data.json`'s `no_writes_check` block (window starting
+at H1's start, 10:56:48Z) covers only H1-H3; H4-H6 had no recorded check of
+their own until this fix round. A second, read-only check
+(`no_writes_check_h4_h6`) now covers H4-H6, windowed from H4's own start
+(15:09:36Z); nothing in it traces to a write by H4, H5, or H6, the same
+GH_CONFIG_DIR-empty, `Bash(gh *)`-disallowed setup as H1-H3. It ran about 2
+days after the fact (this fix round, not the trial day), so its window also
+catches later, unrelated repo activity between H4-H6 and now; it does not
+isolate H4-H6's own writes as tightly as the same-day H1-H3 check did.
+
 ## 5. Judge
 
 One fresh Sonnet judge pass (`claude-sonnet-5`, xhigh, `--output-format
 json`), run outside both lead trial roots
 (`~/.cache/orchestrai-judge/2026-09-28/judge-repo`), over all 6 valid
 outputs: O1, O2, O3 (xhigh, reused from #358) plus H4, H5, H6 (high, round
-2). $2.9304820000000005, 92 turns, 3 permission denials, parsed as valid
+2). $2.9305, 92 turns, 3 permission denials, parsed as valid
 JSON on the first attempt, no retry needed.
 
 **Redaction:** model names/IDs, `Generated with`/`Co-Authored-By` lines,
@@ -203,8 +234,8 @@ $1.1041064, matching `total_cost_usd` exactly.
 
 ## 7. Recommendation
 
-**Switch.** `.claude/team-guide.md`'s Model policy section gets one
-refinement-only note: `/tm-advisor` sections 1 (Refine) and 2 (Propose) may
+**Switch.** `.claude/team-guide.md`'s "Operating model (advisor)" section
+gets one refinement-only note: `/tm-advisor` sections 1 (Refine) and 2 (Propose) may
 run at `--effort high` instead of the session default `xhigh`, citing this
 report; flip back to `xhigh` before replying "dispatch" (sections 3-6, and
 every other seat, are unaffected and stay at their existing pins).
@@ -228,14 +259,41 @@ dispatch) before extending this refinement-only finding any further.
   (independently confirmed against the account clock) and the contamination
   gate's literal-vs-effect reading choice for H3 (section 3). Neither
   changes round 2's result.
+- **Drift between arms, not a paired trial.** O1-O3 and H1-H6 ran under
+  different conditions beyond the run date: the orchestrai plugin was at
+  version 2.2.0 for O1-O3 and 2.4.0 for H1-H6 (each run's own init event,
+  `plugins[].version`; checked against all nine raw run logs this fix
+  round). `~/.claude-work/settings.json` changed 2026-09-27 per the
+  protocol's own contemporaneous note; re-checked this fix round, the
+  file's mtime now reads 2026-09-29T16:43:28Z, so it has since changed
+  again and no longer independently confirms that original date. H1-H6 ran
+  5 days after O1-O3. What turned out identical, checked directly against
+  each run's own init event: plugin/skill/agent counts (7 plugins, 137
+  skills, 24 agents, all nine runs) and the cache-cold first-turn prompt
+  size (O1 31,517 tokens vs H4 14,210 cache-creation + 17,322 cache-read =
+  31,532 tokens). The protocol predicted the skill/agent counts might
+  differ between arms; this fix round's check found they did not.
 - **n=3 per arm, one task.** Same statistical caveat #358's own report
   named for its Fable-vs-Opus comparison: a small sample size, one
   refine-task probe, not a general claim about `--effort high` everywhere.
 - Ceiling effect: 5 of the 6 judged outputs scored 20/20, and the one lower
-  score (H6, 19/20) traces to a single factual error. With both arms at or
-  near the rubric's ceiling, the score condition can show that high does
-  not fall far below xhigh on this task, but it has little room to detect
-  a smaller quality gap.
+  score (H6, 19/20) traces to the judge-checkout layout mismatch below, not
+  to a genuine factual error in H6's own output. With both arms at or near
+  the rubric's ceiling, the score condition can show that high does not
+  fall far below xhigh on this task, but it has little room to detect a
+  smaller quality gap. The only point separating the two arms' mean scores
+  comes from this artifact, so the score condition's margin (0.33 against
+  the 1.0 ceiling) is, if anything, wider than reported, not narrower.
+- Judge-checkout layout mismatch: H6's opening claim, that `_snapshot/`
+  "sits at `../_snapshot/`, one level above the repo," was true in H6's own
+  trial root (`_snapshot/` is a sibling of `repo/` there) but scored false
+  by the judge (C2: "it's a subdirectory of the repo," `data.json`'s H6
+  judge reason) because the judge's own pristine copy nests `_snapshot/`
+  inside `judge-repo/` instead of matching each run's own layout. The
+  pre-registered score (19/20) and the decision-rule result are unchanged;
+  this bullet only corrects why H6 lost its one point. A future trial
+  should give the judge a copy that reproduces the runs' own filesystem
+  layout.
 - **The Glob-allowlist gap is not fixed, by design** (section 4):
   round 2's isolation came from moving the trial root, not from
   restricting the tool. A future trial reusing this same command block

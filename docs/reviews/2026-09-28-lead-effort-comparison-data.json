@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-run metrics and judge scores for the lead effort comparison trial (#404): Opus 5.5 at high vs xhigh on the advisor refine task. O1-O3 are reused verbatim from #358's data.json (xhigh arm); H1-H3 are new (high-effort arm). Raw logs, transcripts, and provider hosts are never committed; only hashes.",
+  "_comment": "Per-run metrics and judge scores for the lead effort comparison trial (#404): Opus 5.5 at high vs xhigh on the advisor refine task. O1-O3 are reused verbatim from #358's data.json (xhigh arm); H1-H6 are new (high-effort arm; H1-H3 invalid). Raw logs, transcripts, and provider hosts are never committed; only hashes.",
   "base_sha": "1730257e1d979bda7cd60967012165d8a4b236d1",
   "snapshot_utc": "2026-09-23T08:16:47Z",
   "snapshot_sha256": {
@@ -781,6 +781,44 @@
       402
     ],
     "verdict": "clean: all hits are #399-#403/#405 (this batch and a concurrently running separate batch) and their own draft PRs (#408 is this package's own PR, #402 is #401's); nothing traces to a write by H1, H2, or H3, all three of which ran with GH_CONFIG_DIR pointed at an empty directory and Bash(gh *) disallowed."
+  },
+  "no_writes_check_h4_h6": {
+    "search_window_start_utc": "2026-09-28T15:09:36Z",
+    "checked_utc": "2026-09-30T00:00:00Z",
+    "note": "added in the PR #408 fix round (reviewer finding 3); the original no_writes_check block above used a window starting at H1's start and named only H1-H3, so H4-H6 had no recorded check of their own. Run read-only, after the fact, about 2 days after H4-H6 finished.",
+    "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T15:09:36Z\"",
+    "issues_result_numbers": [
+      412,
+      411,
+      405,
+      404,
+      403,
+      401,
+      400,
+      399
+    ],
+    "prs_command": "gh pr list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T15:09:36Z\"",
+    "prs_result_numbers": [
+      414,
+      413,
+      410,
+      409,
+      408,
+      402,
+      398,
+      397,
+      396,
+      395,
+      394,
+      389,
+      360,
+      359,
+      350,
+      343,
+      342,
+      341
+    ],
+    "verdict": "no result traces to a write by H4, H5, or H6 (same GH_CONFIG_DIR-empty, Bash(gh *)-disallowed setup as H1-H3; none of the three raw run logs contains a gh or git-push tool call), but this check ran about 2 days after H4-H6 finished, so the window also catches every issue/PR touched by all later, unrelated repo work (subsequent batches and fix rounds) in between; it no longer isolates H4-H6's own writes as tightly as the same-day H1-H3 check did."
   },
   "decision_rule_result": {
     "valid_runs": {
