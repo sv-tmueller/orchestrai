@@ -128,6 +128,14 @@ runs the team uninterrupted and reports (mechanics:
 - Each batch has a tracking issue (title `Batch: <slug>`): the approved
   contract, the decision log, parked questions, the final report. Dropped
   sessions resume from it.
+- Refinement-only effort note: sections 1 (Refine) and 2 (Propose) may run
+  at `/effort high` instead of the session default `xhigh`
+  (docs/reviews/2026-09-28-lead-effort-comparison.md: both decision-rule
+  conditions held, n=3 per arm, one refine-task probe). Flip back to
+  `/effort xhigh` before replying "dispatch"; sections 3-6 and every other
+  seat are unaffected. This covers the refine-task only, not the run
+  phase; the batch's own deferred run-phase measurement is a separate,
+  not-yet-run package.
 
 ## Model policy
 
