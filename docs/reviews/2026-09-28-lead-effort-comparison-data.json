@@ -784,7 +784,7 @@
   },
   "no_writes_check_h4_h6": {
     "search_window_start_utc": "2026-09-28T15:09:36Z",
-    "checked_utc": "2026-09-30T00:00:00Z",
+    "checked_utc": "2026-09-30",
     "note": "added in the PR #408 fix round (reviewer finding 3); the original no_writes_check block above used a window starting at H1's start and named only H1-H3, so H4-H6 had no recorded check of their own. Run read-only, after the fact, about 2 days after H4-H6 finished.",
     "issues_command": "gh issue list --repo sv-tmueller/orchestrai --state all --search \"updated:>=2026-09-28T15:09:36Z\"",
     "issues_result_numbers": [
