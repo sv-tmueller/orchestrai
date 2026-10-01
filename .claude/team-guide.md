@@ -131,11 +131,15 @@ runs the team uninterrupted and reports (mechanics:
 - Refinement-only effort note: sections 1 (Refine) and 2 (Propose) may run
   at `/effort high` instead of the session default `xhigh`
   (docs/reviews/2026-09-28-lead-effort-comparison.md: both decision-rule
-  conditions held, n=3 per arm, one refine-task probe). Flip back to
-  `/effort xhigh` before replying "dispatch"; sections 3-6 and every other
-  seat are unaffected. This covers the refine-task only, not the run
-  phase; the batch's own deferred run-phase measurement is a separate,
-  not-yet-run package.
+  conditions held, n=3 per arm, one refine-task probe). Typing
+  `/effort high` writes a persistent per-model override into the
+  user-level `settings.json` in the config dir (owner-confirmed
+  2026-10-01), so it stays in force in every later session. Switch back
+  to `/effort xhigh` before replying "dispatch" or "file only"; typing it
+  is what undoes the override. Both replies go on to section 3 (File);
+  sections 3-6 and every other seat are unaffected. This covers the
+  refine-task only, not the run phase; the batch's own deferred run-phase
+  measurement is a separate, not-yet-run package.
 
 ## Model policy
 
