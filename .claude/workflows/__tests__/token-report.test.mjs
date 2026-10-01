@@ -10,12 +10,13 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-import { parse, aggregate, price, render } from '../../skills/tm-kickoff/token-report.mjs'
+import { parse, aggregate, price, render, perAgent } from '../../skills/tm-kickoff/token-report.mjs'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const fixturesDir = join(__dir, 'fixtures', 'token-report')
@@ -392,5 +393,320 @@ describe('output snapshot', () => {
       markdown,
       readFileSync(join(fixturesDir, 'lead-dedupe.snapshot.md'), 'utf8')
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #416: workflow subagents and the per-agent wall-clock table.
+// ---------------------------------------------------------------------------
+
+const wfConfigDir = join(fixturesDir, 'cli-config')
+const wfProjectDir = join(wfConfigDir, 'projects', 'test-project')
+const wfSessionDir = join(wfProjectDir, 'workflow-session')
+const WINDOW = { since: '2026-10-01T10:00:00Z' }
+const WF_HEXES = ['aaaa0001', 'bbbb0002', 'cccc0003', 'dddd0004', 'eeee0005', 'a0a00001', 'b0b00002']
+
+// Loads the synthetic workflow session the way main() does, so the pure
+// functions see realistic input without going through the CLI.
+function loadWorkflowSession() {
+  const lead = readFileSync(join(wfProjectDir, 'workflow-session.jsonl'), 'utf8')
+  const subDir = join(wfSessionDir, 'subagents')
+  const subagents = readdirSync(subDir)
+    .filter((n) => n.startsWith('agent-') && n.endsWith('.jsonl'))
+    .map((n) => ({ hex: n.slice(6, -6), text: readFileSync(join(subDir, n), 'utf8') }))
+  const runDir = join(subDir, 'workflows', 'wf_fixture-001')
+  for (const n of readdirSync(runDir).filter((f) => f.startsWith('agent-') && f.endsWith('.jsonl'))) {
+    const hex = n.slice(6, -6)
+    const meta = JSON.parse(readFileSync(join(runDir, `agent-${hex}.meta.json`), 'utf8'))
+    subagents.push({ hex, text: readFileSync(join(runDir, n), 'utf8'), workflowRunId: 'wf_fixture-001', label: meta.description })
+  }
+  return { lead, subagents }
+}
+
+function rowFor(rows, role, label) {
+  const row = rows.find((r) => r.role === role && (label === undefined || r.label === label))
+  assert.ok(row, `row for ${role}${label ? ` (${label})` : ''}`)
+  return row
+}
+
+describe('parse: workflow subagents', () => {
+  test('tags a workflow subagent with the launching workflow name, and carries its label', () => {
+    const records = parse(loadWorkflowSession())
+    const bugs = records.filter((r) => r.agent === 'a0a00001')
+    assert.equal(bugs.length, 2)
+    assert.ok(bugs.every((r) => r.role === 'workflow:tm-review-changes'))
+    assert.ok(bugs.every((r) => r.label === 'review:bugs'))
+    // The model comes from each call, never from the sidecar alias.
+    assert.ok(bugs.every((r) => r.model === 'claude-sonnet-5'))
+    assert.equal(records.find((r) => r.agent === 'b0b00002').model, 'claude-opus-5-5')
+  })
+
+  test('falls back to the run id when no Workflow launch matches', () => {
+    const text = loadWorkflowSession().subagents.find((s) => s.hex === 'a0a00001').text
+    const records = parse({
+      lead: fixture('lead-dedupe.jsonl'),
+      subagents: [{ hex: 'a0a00001', text, workflowRunId: 'wf_unknown-9' }],
+    })
+    const sub = records.filter((r) => r.agent === 'a0a00001')
+    assert.equal(sub.length, 2)
+    assert.ok(sub.every((r) => r.role === 'workflow:wf_unknown-9'))
+  })
+
+  test('workflow cost lands in the by-role totals', () => {
+    const aggregated = aggregate(parse(loadWorkflowSession()), WINDOW)
+    assert.equal(aggregated.byRole['workflow:tm-review-changes'].calls, 3)
+    assert.equal(aggregated.byRole['workflow:tm-review-changes'].input, 400 + 410 + 500)
+  })
+})
+
+describe('parse: tool uses', () => {
+  test('sums tool_use blocks across the split lines of one message id', () => {
+    const line = (block) =>
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-10-01T10:00:00.000Z',
+        message: { type: 'message', id: 'msg_split', model: 'claude-opus-5-5', content: [block], usage: { input_tokens: 1 } },
+      })
+    const lead = [
+      line({ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }),
+      line({ type: 'text', text: 'hi' }),
+      line({ type: 'tool_use', id: 't2', name: 'Read', input: { file: 'a' } }),
+    ].join('\n')
+    const [record, ...rest] = parse({ lead })
+    assert.equal(rest.length, 0)
+    assert.equal(record.toolUses, 2)
+  })
+
+  test('is zero for a turn with no tool calls', () => {
+    assert.equal(parse({ lead: fixture('lead-dedupe.jsonl') }).find((r) => r.id === 'msg_BBB').toolUses, 0)
+  })
+})
+
+describe('perAgent: one row per transcript', () => {
+  const rows = perAgent(loadWorkflowSession(), WINDOW)
+
+  test('lists the lead, five dispatched seats and two workflow subagents', () => {
+    assert.equal(rows.length, 8)
+    assert.equal(rows[0].role, 'lead')
+    assert.equal(rows.filter((r) => r.role === 'workflow:tm-review-changes').length, 2)
+  })
+
+  test('never exposes an agent hex id', () => {
+    const json = JSON.stringify(rows)
+    for (const hex of WF_HEXES) assert.ok(!json.includes(hex), hex)
+  })
+
+  test('a dispatched seat uses its measured duration_ms, merged across duplicate carriers', () => {
+    const dev = rowFor(rows, 'developer')
+    assert.equal(dev.wallClockMs, 120000) // one enqueue and one attachment copy: not 240000
+    assert.equal(dev.source, 'notification')
+    assert.equal(dev.calls, 3)
+  })
+
+  test('ignores a notification quoted inside a tool result', () => {
+    // The lead's Bash result quotes duration_ms 999000 for the developer.
+    assert.notEqual(rowFor(rows, 'developer').wallClockMs, 999000)
+  })
+
+  test('counts tool uses from the transcript, not the notification field', () => {
+    assert.equal(rowFor(rows, 'developer').toolUses, 2) // the notification says 99
+  })
+
+  test('a resumed seat sums its run segments, marked estimated', () => {
+    const tester = rowFor(rows, 'tester')
+    assert.equal(tester.wallClockMs, 90000) // 60 s + 30 s, not the 1 h idle gap, not 30 s
+    assert.equal(tester.source, 'span')
+    assert.equal(tester.calls, 4)
+    assert.equal(tester.toolUses, 2)
+  })
+
+  test('an agent with no output still gets a row with its measured time', () => {
+    const reviewer = rowFor(rows, 'reviewer')
+    assert.equal(reviewer.calls, 1)
+    assert.equal(reviewer.outputTokens, 0)
+    assert.equal(reviewer.wallClockMs, 45000)
+    assert.equal(reviewer.source, 'notification')
+  })
+
+  test('a zero duration with no usable span is n/a, not a made-up value', () => {
+    const architect = rowFor(rows, 'architect')
+    assert.equal(architect.calls, 0)
+    assert.equal(architect.wallClockMs, null)
+    assert.equal(architect.source, 'none')
+  })
+
+  test('an unmapped agent with one timestamp and no notification is n/a', () => {
+    const orphan = rowFor(rows, 'unmapped')
+    assert.equal(orphan.calls, 1)
+    assert.equal(orphan.wallClockMs, null)
+    assert.equal(orphan.source, 'none')
+  })
+
+  test('a workflow subagent uses its transcript span, marked estimated', () => {
+    const bugs = rowFor(rows, 'workflow:tm-review-changes', 'review:bugs')
+    assert.equal(bugs.wallClockMs, 90000)
+    assert.equal(bugs.source, 'span')
+    assert.equal(bugs.calls, 2)
+    assert.equal(bugs.toolUses, 2)
+    assert.deepEqual(bugs.models, ['claude-sonnet-5'])
+    const consolidate = rowFor(rows, 'workflow:tm-review-changes', 'consolidate')
+    assert.equal(consolidate.wallClockMs, 30000)
+    assert.deepEqual(consolidate.models, ['claude-opus-5-5'])
+  })
+
+  test('the lead span is first to last line in the window, marked estimated', () => {
+    const lead = rows[0]
+    assert.equal(lead.wallClockMs, 90 * 60 * 1000) // the 09:59 line is before the window
+    assert.equal(lead.source, 'lead-span')
+    assert.equal(lead.calls, 7)
+    assert.equal(lead.toolUses, 6)
+  })
+
+  test('orders the lead first, then by start time', () => {
+    const starts = rows.slice(1).map((r) => r.start)
+    assert.deepEqual(starts, [...starts].sort())
+  })
+
+  test('estimates output tokens per row from visible chars, like the totals', () => {
+    assert.equal(rowFor(rows, 'developer').outputTokens, 13)
+  })
+
+  test('a notification outside the window is not used', () => {
+    // Until 10:01:55 excludes the developer notification at 10:02:00.
+    const early = perAgent(loadWorkflowSession(), { since: '2026-10-01T10:00:00Z', until: '2026-10-01T10:01:55Z' })
+    const dev = rowFor(early, 'developer')
+    assert.equal(dev.source, 'span')
+    assert.equal(dev.wallClockMs, 100000) // lines at 10:00:10, 10:00:40 and 10:01:50
+  })
+
+  test('drops a transcript with no line in the window, and measures a window that holds only a completed notification', () => {
+    const late = perAgent(loadWorkflowSession(), { since: '2026-10-01T11:00:00Z' })
+    assert.ok(!late.some((r) => r.role === 'developer'))
+    const tester = rowFor(late, 'tester')
+    assert.equal(tester.source, 'notification')
+    assert.equal(tester.wallClockMs, 30000)
+  })
+})
+
+describe('render: by agent table', () => {
+  function baseArgs(overrides = {}) {
+    return {
+      session: 'fixture-session',
+      aggregated: { since: null, until: null, byRole: {}, totals: { calls: 0, input: 0, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 0 } },
+      priced: { rows: [], unpriced: [], notes: [], pricedTotal: 0 },
+      priceTable: { source: 'fixture', retrieved: '2026-10-01' },
+      ...overrides,
+    }
+  }
+  const agent = (overrides) => ({
+    start: '2026-10-01T10:00:00.000Z',
+    role: 'developer',
+    label: null,
+    models: ['claude-sonnet-5'],
+    calls: 3,
+    toolUses: 2,
+    outputTokens: 13,
+    wallClockMs: 120000,
+    source: 'notification',
+    ...overrides,
+  })
+
+  test('prints no By agent section and no unread line when there is nothing to show', () => {
+    const markdown = render(baseArgs())
+    assert.ok(!markdown.includes('## By agent'))
+    assert.ok(!markdown.includes('Found but not read'))
+  })
+
+  test('renders the columns and a measured value without a marker', () => {
+    const markdown = render(baseArgs({ agents: [agent({})] }))
+    assert.match(markdown, /## By agent/)
+    assert.match(markdown, /\| Start \(UTC\) \| Role \| Model \| Calls \| Tool uses \| Output \(est\.\) \| Wall-clock \| Source \|/)
+    assert.match(markdown, /\| 2026-10-01 10:00:00 \| developer \| claude-sonnet-5 \| 3 \| 2 \| 13 \| 2m 0s \| task notification duration_ms \|/)
+  })
+
+  test('marks an estimated value and names its source', () => {
+    const markdown = render(baseArgs({ agents: [agent({ wallClockMs: 90000, source: 'span' }), agent({ role: 'lead', wallClockMs: 5400000, source: 'lead-span' })] }))
+    assert.match(markdown, /1m 30s \(est\.\) \| transcript span/)
+    assert.match(markdown, /1h 30m 0s \(est\.\) \| lead first-to-last span/)
+  })
+
+  test('shows n/a and never a number when there is no value', () => {
+    const markdown = render(baseArgs({ agents: [agent({ calls: 0, models: [], wallClockMs: null, source: 'none' })] }))
+    assert.match(markdown, /\| 0 \| 2 \| 13 \| n\/a \| n\/a \|/)
+    assert.ok(!/NaN|Infinity/.test(markdown))
+  })
+
+  test('shows a workflow label in the role cell and escapes a pipe in it', () => {
+    const markdown = render(baseArgs({ agents: [agent({ role: 'workflow:tm-review-changes', label: 'review|bugs' })] }))
+    assert.ok(markdown.includes('workflow:tm-review-changes (review\\|bugs)'))
+  })
+
+  test('joins several models with a comma', () => {
+    const markdown = render(baseArgs({ agents: [agent({ models: ['claude-opus-5-5', 'claude-sonnet-5'] })] }))
+    assert.match(markdown, /claude-opus-5-5, claude-sonnet-5/)
+  })
+
+  test('limitations explain est. and n/a when the table is present', () => {
+    const markdown = render(baseArgs({ agents: [agent({})] }))
+    assert.match(markdown, /"est\."/)
+    assert.match(markdown, /"n\/a"/)
+    assert.match(markdown, /idle and waiting time/)
+  })
+
+  test('names every path that was found but not read', () => {
+    const markdown = render(baseArgs({ unread: ['subagents/unknown-layout', 'subagents/workflows/wf_x'] }))
+    assert.match(markdown, /Found but not read.*subagents\/unknown-layout, subagents\/workflows\/wf_x/)
+  })
+})
+
+describe('CLI: workflow session', () => {
+  const leadPath = join(wfProjectDir, 'workflow-session.jsonl')
+  const since = '2026-10-01T10:00:00Z'
+  const sessionArgs = ['--session', 'workflow-session', '--config-dir', wfConfigDir, '--since', since]
+  const run = (args) => spawnSync(process.execPath, [scriptPath, ...args], { encoding: 'utf8' })
+
+  test('the path form and the --session form produce identical output', () => {
+    const byPath = run([leadPath, '--since', since])
+    const bySession = run(sessionArgs)
+    assert.equal(byPath.status, 0)
+    assert.equal(bySession.status, 0)
+    assert.equal(byPath.stdout, bySession.stdout)
+  })
+
+  test('includes the workflow role and the by agent table, and leaves out the unreadable layout', () => {
+    const out = run(sessionArgs).stdout
+    assert.match(out, /\| workflow:tm-review-changes \| 3 \|/)
+    assert.match(out, /## By agent/)
+    assert.match(out, /Found but not read.*subagents\/unknown-layout/)
+    assert.ok(!out.includes('999,999'), 'the unreadable transcript is in no total')
+    assert.ok(!out.includes('777,777'), 'the journal is in no total')
+    for (const hex of WF_HEXES) assert.ok(!out.includes(hex), `no agent hex ${hex} in the report`)
+  })
+
+  test('matches the saved snapshot', () => {
+    assert.equal(run(sessionArgs).stdout, readFileSync(join(fixturesDir, 'workflow-session.snapshot.md'), 'utf8'))
+  })
+
+  test('survives an unreadable run directory and a malformed sidecar, and reports the directory', (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return t.skip('chmod cannot block root')
+    const dir = mkdtempSync(join(tmpdir(), 'token-report-'))
+    const project = join(dir, 'projects', 'p')
+    const okRun = join(project, 'sess', 'subagents', 'workflows', 'wf_ok')
+    const blocked = join(project, 'sess', 'subagents', 'workflows', 'wf_blocked')
+    mkdirSync(okRun, { recursive: true })
+    mkdirSync(blocked, { recursive: true })
+    writeFileSync(join(project, 'sess.jsonl'), fixture('lead-dedupe.jsonl'))
+    writeFileSync(join(okRun, 'agent-abc123.jsonl'), fixture('agent-aaaa1111.jsonl'))
+    writeFileSync(join(okRun, 'agent-abc123.meta.json'), '{not json')
+    chmodSync(blocked, 0o000)
+    try {
+      const result = run(['--session', 'sess', '--config-dir', dir])
+      assert.equal(result.status, 0, result.stderr)
+      assert.match(result.stdout, /Found but not read.*subagents\/workflows\/wf_blocked/)
+      assert.match(result.stdout, /workflow:wf_ok/)
+    } finally {
+      chmodSync(blocked, 0o755)
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
