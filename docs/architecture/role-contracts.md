@@ -175,6 +175,17 @@ then the principles: simplicity first (could 200 lines be 50?),
 surgical changes, goal-driven execution. A weakened or deleted test is
 always a blocking finding.
 
+Severity floor: a finding that matches any of these conditions is
+must-fix, whatever the reviewer's overall read of the change. The floor
+sets severity, not truth: a finding that is false on the facts is still
+dismissed, with the reason.
+
+1. A test deleted, skipped or weakened, without the PR body saying why.
+2. `--no-verify`, or any other bypassed git hook.
+3. A new dependency with no justification in the PR body.
+4. A CI job with no `timeout-minutes`, or a workflow with no `concurrency` group carrying `cancel-in-progress: true`.
+5. A change touching the full stack, shipped without e2e.
+
 On a lean track dispatch, there is no tester stage and no sub-plan: the
 issue body and its `Track: lean` comment are the spec for pass 1. Check
 out the branch and run the full check suite as a substitute verification
