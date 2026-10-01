@@ -53,7 +53,11 @@ function visibleOf(content) {
 // and usage numbers; visible chars accumulate across every line sharing an
 // id, since a single turn can be split into thinking/text/tool_use lines
 // that all repeat the same usage object. Tool uses accumulate the same way.
-function parseTranscript(text, role, agentHex, label) {
+//
+// The lead's output_tokens is taken from the first line: every line of a lead
+// turn repeats the final count. Subagent transcripts carry no reliable count
+// (streamed lines can grow), so their output stays a visible-chars estimate.
+function parseTranscript(text, role, agentHex, label, isLead = false) {
   const byId = new Map()
   const order = []
 
@@ -97,6 +101,7 @@ function parseTranscript(text, role, agentHex, label) {
         visibleChars: 0,
         toolUses: 0,
       }
+      if (isLead && typeof usage.output_tokens === 'number') record.outputTokens = usage.output_tokens
       byId.set(id, record)
       order.push(id)
     }
@@ -104,7 +109,12 @@ function parseTranscript(text, role, agentHex, label) {
     record.toolUses += toolUses
   }
 
-  return order.map((id) => byId.get(id))
+  return order.map((id) => {
+    const record = byId.get(id)
+    record.outputEstimated = record.outputTokens === undefined
+    record.outputTokens ??= Math.round(record.visibleChars / 4)
+    return record
+  })
 }
 
 // Scans the lead transcript for Agent tool_use dispatches and their matching
@@ -164,7 +174,7 @@ function buildRoleMap(leadText) {
  * @param {{lead: string, subagents?: Array<{hex: string, text: string, workflowRunId?: string, label?: string}>}} sources
  */
 export function parse({ lead, subagents = [] }) {
-  const records = parseTranscript(lead, 'lead')
+  const records = parseTranscript(lead, 'lead', null, null, true)
   if (subagents.length > 0) {
     const roleMap = buildRoleMap(lead)
     for (const sub of subagents) {
@@ -191,7 +201,7 @@ function windowBounds({ since, until } = {}) {
 // ---------------------------------------------------------------------------
 
 function emptyBucket() {
-  return { calls: 0, input: 0, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 0, splitMissing: false }
+  return { calls: 0, input: 0, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 0, outputEstimated: false, splitMissing: false }
 }
 
 function addToBucket(bucket, record) {
@@ -201,7 +211,8 @@ function addToBucket(bucket, record) {
   bucket.cache5m += record.cache5m
   bucket.cache1h += record.cache1h
   bucket.visibleChars += record.visibleChars
-  bucket.outputTokens += Math.round(record.visibleChars / 4)
+  bucket.outputTokens += record.outputTokens
+  bucket.outputEstimated ||= record.outputEstimated
   bucket.splitMissing ||= record.splitMissing
 }
 
@@ -346,7 +357,8 @@ export function perAgent({ lead, subagents = [] }, window = {}) {
       models: [...new Set(mine.map((r) => r.model))].sort(),
       calls: mine.length,
       toolUses: mine.reduce((n, r) => n + r.toolUses, 0),
-      outputTokens: mine.reduce((n, r) => n + Math.round(r.visibleChars / 4), 0),
+      outputTokens: mine.reduce((n, r) => n + r.outputTokens, 0),
+      outputEstimated: mine.some((r) => r.outputEstimated),
       wallClockMs: wallClockMs > 0 ? wallClockMs : null,
       source: wallClockMs > 0 ? source : 'none',
     }
@@ -440,6 +452,10 @@ function fmtCost(n) {
   return n == null ? '-' : `$${n.toFixed(2)}`
 }
 
+function fmtOutput(item) {
+  return `${fmtInt(item.outputTokens)}${item.outputEstimated ? ' (est.)' : ''}`
+}
+
 function roleOrder(role) {
   if (role === 'lead') return 0
   if (role === 'unmapped') return 2
@@ -459,13 +475,13 @@ function roleTable(byRole) {
     return diff !== 0 ? diff : a.localeCompare(b)
   })
   const lines = [
-    '| Role | Calls | Input | Cache read | Cache write (5m) | Cache write (1h) | Output (est.) |',
+    '| Role | Calls | Input | Cache read | Cache write (5m) | Cache write (1h) | Output (est. where marked) |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
   ]
   for (const role of roles) {
     const b = byRole[role]
     lines.push(
-      `| ${role} | ${b.calls} | ${fmtInt(b.input)} | ${fmtInt(b.cacheRead)} | ${fmtInt(b.cache5m)} | ${fmtInt(b.cache1h)} | ${fmtInt(b.outputTokens)} |`
+      `| ${role} | ${b.calls} | ${fmtInt(b.input)} | ${fmtInt(b.cacheRead)} | ${fmtInt(b.cache5m)} | ${fmtInt(b.cache1h)} | ${fmtOutput(b)} |`
     )
   }
   return lines.join('\n')
@@ -473,17 +489,17 @@ function roleTable(byRole) {
 
 function modelTable(priced, totals) {
   const lines = [
-    '| Model | Calls | Input | Cache read | Cache write (5m) | Cache write (1h) | Output (est.) | Cost |',
+    '| Model | Calls | Input | Cache read | Cache write (5m) | Cache write (1h) | Output (est. where marked) | Cost |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ]
   for (const row of priced.rows) {
     const label = row.cost == null ? `${row.model} (unpriced)` : row.model
     lines.push(
-      `| ${label} | ${row.calls} | ${fmtInt(row.input)} | ${fmtInt(row.cacheRead)} | ${fmtInt(row.cache5m)} | ${fmtInt(row.cache1h)} | ${fmtInt(row.outputTokens)} | ${fmtCost(row.cost)} |`
+      `| ${label} | ${row.calls} | ${fmtInt(row.input)} | ${fmtInt(row.cacheRead)} | ${fmtInt(row.cache5m)} | ${fmtInt(row.cache1h)} | ${fmtOutput(row)} | ${fmtCost(row.cost)} |`
     )
   }
   lines.push(
-    `| **Total** | ${totals.calls} | ${fmtInt(totals.input)} | ${fmtInt(totals.cacheRead)} | ${fmtInt(totals.cache5m)} | ${fmtInt(totals.cache1h)} | ${fmtInt(totals.outputTokens)} | **${fmtCost(priced.pricedTotal)}** |`
+    `| **Total** | ${totals.calls} | ${fmtInt(totals.input)} | ${fmtInt(totals.cacheRead)} | ${fmtInt(totals.cache5m)} | ${fmtInt(totals.cache1h)} | ${fmtOutput(totals)} | **${fmtCost(priced.pricedTotal)}** |`
   )
   return lines.join('\n')
 }
@@ -506,7 +522,7 @@ const SOURCE_LABELS = {
 
 function agentTable(agents) {
   const lines = [
-    '| Start (UTC) | Role | Model | Calls | Tool uses | Output (est.) | Wall-clock | Source |',
+    '| Start (UTC) | Role | Model | Calls | Tool uses | Output (est. where marked) | Wall-clock | Source |',
     '| --- | --- | --- | ---: | ---: | ---: | ---: | --- |',
   ]
   for (const a of agents) {
@@ -514,7 +530,7 @@ function agentTable(agents) {
     const wallClock = source && a.wallClockMs != null ? `${fmtDuration(a.wallClockMs)}${source.estimated ? ' (est.)' : ''}` : 'n/a'
     const role = a.label ? `${a.role} (${a.label.replace(/\s*[\r\n]+\s*/g, ' ').replaceAll('|', '\\|')})` : a.role
     lines.push(
-      `| ${a.start.slice(0, 19).replace('T', ' ')} | ${role} | ${a.models.join(', ') || '-'} | ${a.calls} | ${a.toolUses} | ${fmtInt(a.outputTokens)} | ${wallClock} | ${source && a.wallClockMs != null ? source.text : 'n/a'} |`
+      `| ${a.start.slice(0, 19).replace('T', ' ')} | ${role} | ${a.models.join(', ') || '-'} | ${a.calls} | ${a.toolUses} | ${fmtOutput(a)} | ${wallClock} | ${source && a.wallClockMs != null ? source.text : 'n/a'} |`
     )
   }
   return lines.join('\n')
@@ -522,8 +538,8 @@ function agentTable(agents) {
 
 function limitations(priced, agents, unread) {
   const lines = [
-    '- Output token counts are not in the transcripts; the "Output (est.)" column is estimated from visible text and tool-call input, divided by 4.',
-    '- The estimate excludes thinking tokens, so it undercounts real output token usage.',
+    '- Output: lead figures are measured from the lead transcript\'s `usage.output_tokens`. Subagent transcripts carry no reliable count, so subagent figures are visible text plus tool-call input divided by 4, marked "(est.)". A by-model or total figure that includes any estimate is marked too.',
+    '- The estimate leaves out thinking tokens, so it undercounts real output token usage.',
     '- Prices are Anthropic public list prices, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).',
   ]
   if (agents.length > 0) {

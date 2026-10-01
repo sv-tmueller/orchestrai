@@ -239,8 +239,9 @@ the fix held), and the source. Report files are under `docs/reviews/`
   - Source: #400 report "Per-pair comparison" (after the "Cost, three ways"
     table) and "Cost-measurement gap"; #405 protocol "Arm run 2 result".
 - **`modelUsage` vs `token-report.mjs`.**
-  - Trap: the script estimates output as visible characters divided by 4 and
-    leaves out thinking. Measured output was 3.76x the estimate on #400 arm A
+  - Trap: the script estimates subagent output as visible characters divided
+    by 4 and leaves out thinking (before #425 it did the same for the lead's
+    output, which it now reads from `usage.output_tokens`). Measured output was 3.76x the estimate on #400 arm A
     and 4.40x on arm B, so the cost ratio read 0.62 on the estimate and 0.71
     measured. A script version that does not read `subagents/workflows/`
     also misses workflow agents: in #405 it reported $4.28 against $12.77

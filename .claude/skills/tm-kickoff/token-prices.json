@@ -1,6 +1,6 @@
 {
   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-  "retrieved": "2026-09-27",
+  "retrieved": "2026-10-01",
   "unit": "USD per 1,000,000 tokens",
   "models": {
     "claude-opus-5-5": {
@@ -9,6 +9,13 @@
       "cache_write_1h": 8,
       "cache_read": 0.2,
       "output": 20
+    },
+    "claude-sonnet-5-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.2,
+      "output": 10
     },
     "claude-sonnet-5": {
       "input": 2,
