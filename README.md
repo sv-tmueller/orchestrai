@@ -47,7 +47,7 @@ graph TD
     G -->|"6 human merges"| H
 
     subgraph WF["Review workflows"]
-        RC["tm-review-changes<br/>worker reviewers + 1 judgment critic"]
+        RC["tm-review-changes<br/>worker reviewers + worker verifiers + 1 judgment critic"]
         RB["tm-review-codebase<br/>worker scout + area workers + 1 judgment critic"]
     end
 
