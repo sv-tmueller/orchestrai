@@ -65,7 +65,7 @@ example, with GLM-5-2 served via a custom provider:
 model:
   default: vllm/release/glm-5-2
   provider: custom
-  base_url: https://ai.noris.de/v1
+  base_url: https://your-provider.example.com/v1
   api_key: ${HERMES_CUSTOM_API_KEY}
 ```
 
