@@ -150,7 +150,8 @@ Supports: "pin worker stages to a cheap model at `high` effort in the
 script and reserve the strong model for synthesis or critique."
 
 The `tm-review-changes` workflow in `.claude/workflows/` is the worked
-example: a fixed set of Sonnet reviewers plus one Opus critic pinned to
+example: a fixed set of Sonnet reviewers, a capped Sonnet verify pass on
+must-fix findings, and one Opus critic pinned to
 xhigh effort, bounded by construction so it cannot fan out into the
 100-agent review that an unpinned session model produces. `tm-review-codebase`
 applies the same discipline to a whole-repo audit: a Sonnet scout splits the

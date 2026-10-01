@@ -115,7 +115,11 @@ describe('prompt slot declarations are correct', () => {
   const KNOWN_SLOTS = {
     'tm-review-changes.js': {
       review: ['brief', 'diffHint'],
-      consolidate: ['coveredCount', 'coverageNote', 'diffHint', 'rawFindings'],
+      verify: ['finding', 'diffHint'],
+      consolidate: [
+        'coveredCount', 'coverageNote', 'diffHint', 'confirmedFindings',
+        'refutedFindings', 'unverifiedFindings', 'rawFindings',
+      ],
     },
     'tm-review-codebase.js': {
       scout: ['scope', 'root', 'maxAreas'],

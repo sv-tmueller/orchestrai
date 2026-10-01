@@ -49,6 +49,11 @@ function fakeAgentResult(label) {
     areas: [{ name: 'stub-area', paths: ['.'], why: 'stub' }],
     dropped: [],
     summary: 'stub summary',
+    // tm-review-changes: a must-fix finding makes the verify stage fire, and
+    // `confirmed` is the verifier's verdict.
+    findings: [{ file: 'stub.js', line: '1', severity: 'must-fix', problem: 'stub problem', fix: 'stub fix' }],
+    confirmed: true,
+    note: 'stub note',
     reportPath: 'docs/stub.md',
     openQuestions: [],
     coverage: {
@@ -231,6 +236,19 @@ describe('render-path callsite coverage', () => {
         )
       }
     })
+
+    if (file === 'tm-review-changes.js') {
+      // The stub's must-fix finding makes the verify stage fire, so the tier
+      // pin above is asserted for it too. Without this the verify callsite
+      // would never run under the stub runtime.
+      test(`${file}: the verify stage dispatches one verifier on the worker tier`, async () => {
+        const { calls } = await executeWorkflow(file)
+        const verifyCalls = calls.agent.filter((c) => c.opts.label.startsWith('verify:'))
+        assert.equal(verifyCalls.length, 1, 'every stub reviewer reports the same finding; dedup leaves one')
+        assert.equal(verifyCalls[0].opts.model, TIER_MODELS.worker)
+        assert.equal(verifyCalls[0].opts.effort, TIER_EFFORTS.worker)
+      })
+    }
 
     test(`${file}: no agent() call uses a forbidden effort`, async () => {
       const { calls } = await executeWorkflow(file)

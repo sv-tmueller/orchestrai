@@ -10,6 +10,7 @@ const SPEC = {
     'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
   phases: [
     { title: 'Review', detail: 'one Sonnet worker per dimension', tier: 'worker' },
+    { title: 'Verify', detail: 'one adversarial Sonnet worker per must-fix finding, capped', tier: 'worker' },
     { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', tier: 'judgment' },
   ],
   stages: {
@@ -20,6 +21,18 @@ const SPEC = {
       items_key: 'dimensions',
       item_label_prefix: 'review:',
       schema: 'FINDINGS_SCHEMA',
+      fallback: null,
+    },
+    verify: {
+      phase: 'Verify',
+      tier: 'worker',
+      parallelism: 'dynamic-list',
+      items_source: 'review_result',
+      items_transform: 'must_fix_deduped',
+      items_cap: 'args.maxVerify',
+      items_default_cap: 12,
+      item_label_prefix: 'verify:',
+      schema: 'VERIFY_SCHEMA',
       fallback: null,
     },
     consolidate: {
@@ -53,9 +66,11 @@ export const meta = {
 }
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
-// fan-out and no loop, so a run is exactly DIMENSIONS.length Sonnet workers plus
-// one Opus critic. It cannot become the 100-agent fan-out that an unpinned
-// session-model review produces. Models and effort are pinned per
+// fan-out and no loop, so a run is DIMENSIONS.length Sonnet reviewers, plus one
+// Sonnet verifier per must-fix finding (at most min(must-fix count, MAX_VERIFY),
+// the cap is what keeps this bounded), plus one Opus critic. It cannot become
+// the 100-agent fan-out that an unpinned session-model review produces. Models
+// and effort are pinned per
 // stage, so the session model and effort never leak into the workers; the
 // single critic runs Opus at xhigh effort and auto-retries once on sonnet
 // at the same effort if Opus returns nothing (criticWithFallback below;
@@ -71,6 +86,45 @@ function safeRef(value, fallback) {
   return typeof value === 'string' && /^[\w.~^\/\-]+$/.test(value) && !value.includes('..') ? value : fallback
 }
 const base = safeRef(args && args.base, 'origin/main')
+// Cap on verifier dispatches, same coercion as MAX_AREAS in tm-map-codebase.js.
+const MAX_VERIFY =
+  args && Number.isInteger(args.maxVerify) && args.maxVerify > 0 ? args.maxVerify : SPEC.stages.verify.items_default_cap
+
+// Flatten worker reports to the unique must-fix findings, deduped on file +
+// line + problem. Mirrors ITEM_TRANSFORMS.must_fix_deduped in the Hermes and
+// Codex renderers. parallel() null-pads a dead worker, and a report may carry
+// no findings array, so both are skipped.
+function mustFixDeduped(reports) {
+  const seen = new Set()
+  const out = []
+  for (const report of reports) {
+    if (!report || !Array.isArray(report.findings)) continue
+    for (const f of report.findings) {
+      if (!f || f.severity !== 'must-fix') continue
+      const key = JSON.stringify([f.file, f.line, f.problem])
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(f)
+    }
+  }
+  return out
+}
+
+// The script, not the critic, owns `refuted` and `unverified`: they are set
+// from the verify stage's own data, and any must-fix the verifiers refuted is
+// stripped from mustFix by file + line + problem. Returns a new object (same
+// reason as criticWithFallback: the runtime's result could be frozen). A report
+// with no mustFix array (the render-path stub) is left without one. The verdict
+// is recomputed to approve when only refuted findings were removed.
+function finalizeReport(report, refuted, unverified) {
+  const out = { ...report, refuted, unverified }
+  if (Array.isArray(report.mustFix)) {
+    const gone = new Set(refuted.map((f) => JSON.stringify([f.file, f.line, f.problem])))
+    out.mustFix = report.mustFix.filter((f) => !gone.has(JSON.stringify([f.file, f.line, f.problem])))
+    if (out.mustFix.length === 0 && report.mustFix.length > 0) out.verdict = 'approve'
+  }
+  return out
+}
 
 // Duplicated byte-for-byte across the three tm- workflows that run an Opus
 // critic (the workflow runtime has no shared imports); keep this copy in
@@ -173,6 +227,23 @@ const FINDINGS_SCHEMA = {
   required: ['findings'],
 }
 
+const VERIFY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    confirmed: { type: 'boolean', description: 'true only if the finding was reproduced against the current tree' },
+    note: { type: 'string', description: 'what was checked and what was found' },
+  },
+  required: ['confirmed', 'note'],
+}
+
+const REFUTED_FINDING = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { ...FINDING.properties, note: { type: 'string', description: "the verifier's note" } },
+  required: [...FINDING.required, 'note'],
+}
+
 const REPORT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -192,6 +263,16 @@ const REPORT_SCHEMA = {
       },
       description: 'findings judged false-positive or out of scope, with the reason',
     },
+    refuted: {
+      type: 'array',
+      items: REFUTED_FINDING,
+      description: 'set by the script from the verify stage (a verifier could not reproduce these); leave empty',
+    },
+    unverified: {
+      type: 'array',
+      items: FINDING,
+      description: 'set by the script (past the verify cap, or the verifier returned nothing); leave empty',
+    },
   },
   required: ['verdict', 'summary', 'mustFix', 'shouldFix', 'nits'],
 }
@@ -208,8 +289,10 @@ const diffHint =
 const PROMPTS = {
   review:
     'You review one dimension of a code change and report findings only; you never edit.\n\nDimension: {{brief}}\n\n{{diffHint}}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.',
+  verify:
+    'You are an adversarial verifier. A reviewer reported the finding below as must-fix. Start from the position that it is wrong or stale. It survives only if you can reproduce it against the current tree: open the file at the cited line, read the surrounding code, and show the problem is real. "Cannot reproduce", "already fixed" and "the evidence does not hold" all mean confirmed: false. You report only; you never edit.\n\n{{diffHint}}\n\nFinding (JSON):\n{{finding}}\n\nReturn confirmed (true only if you reproduced the problem) and a note of one or two sentences naming what you checked and what you found.',
   consolidate:
-    'You are the senior reviewer. {{coveredCount}} parallel reviewers produced the raw findings below.{{coverageNote}} {{diffHint}}\n\nFor each raw finding: verify it against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nRaw findings (JSON):\n{{rawFindings}}',
+    'You are the senior reviewer. {{coveredCount}} parallel reviewers produced the findings below.{{coverageNote}} {{diffHint}}\n\nEvery must-fix finding went through an adversarial verification pass against the current tree, so must-fix findings arrive in three groups. Confirmed: a verifier reproduced the finding; keep it as must-fix unless the diff shows otherwise. Refuted: a verifier could not reproduce it; do not report it as must-fix and do not repeat it in any field, because the script lists refuted findings in the report. Unverified: no verifier checked it (cap reached or the verifier returned nothing); judge each against the actual diff yourself. For the confirmed, unverified and raw findings: verify against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nConfirmed must-fix findings (JSON):\n{{confirmedFindings}}\n\nRefuted must-fix findings (JSON, with the verifier note):\n{{refutedFindings}}\n\nUnverified must-fix findings (JSON):\n{{unverifiedFindings}}\n\nRaw should-fix and nit findings (JSON):\n{{rawFindings}}',
 }
 
 // Replace {{slot}} markers with vals[slot]; throw on unknown slot.
@@ -233,16 +316,66 @@ const reviews = await parallel(
   )
 )
 
-const raw = reviews.filter(Boolean).flatMap((r) => r.findings)
+// Only should-fix and nit findings go to the critic raw; must-fix findings
+// reach it through the verify stage below. A report with no findings array
+// (the render-path stub) contributes nothing.
+const raw = reviews
+  .filter(Boolean)
+  .flatMap((r) => (Array.isArray(r.findings) ? r.findings : []))
+  .filter((f) => f.severity !== 'must-fix')
 
 // parallel() null-pads a worker that errors or is skipped, so a dead reviewer
 // would otherwise drop its whole dimension while the critic assumes full
 // coverage. Track which dimensions actually reported.
 const covered = DIMENSIONS.filter((_, i) => reviews[i])
 const dropped = DIMENSIONS.filter((_, i) => !reviews[i])
-const coverageNote = dropped.length
+const reviewNote = dropped.length
   ? ` ${dropped.length} reviewer(s) did not return, so these dimensions are NOT covered: ${dropped.map((d) => d.key).join(', ')}. Treat the review as partial and say so in your summary.`
   : ''
+
+// Stage: verify (parallel, dynamic-list of must-fix findings, worker tier).
+// Items are the reviewers' must-fix findings, deduped, then capped at
+// MAX_VERIFY. Findings past the cap are reported as unverified, not dropped.
+const verifyStage = SPEC.stages.verify
+phase(verifyStage.phase)
+const allMustFix = mustFixDeduped(reviews)
+const toVerify = allMustFix.slice(0, MAX_VERIFY)
+const overflow = allMustFix.slice(MAX_VERIFY)
+let verdicts = []
+if (toVerify.length === 0) {
+  log('verify: no must-fix findings, skipping the verify stage')
+} else {
+  verdicts = await parallel(
+    toVerify.map((f) => () =>
+      agent(
+        renderPrompt(PROMPTS.verify, { finding: JSON.stringify(f, null, 2), diffHint }),
+        { label: `${verifyStage.item_label_prefix}${f.file}:${f.line}`, phase: verifyStage.phase, model: TIER_MODELS[verifyStage.tier], effort: TIER_EFFORTS[verifyStage.tier], schema: VERIFY_SCHEMA }
+      )
+    )
+  )
+}
+
+// A dead verifier is unverified, never refuted: parallel() null-pads, and
+// treating a null verdict as a refutation would silently drop a must-fix.
+// A verdict whose `confirmed` is not a boolean is treated the same way.
+const confirmed = []
+const refuted = []
+const unverified = [...overflow]
+toVerify.forEach((f, i) => {
+  const v = verdicts[i]
+  if (!v || typeof v.confirmed !== 'boolean') unverified.push(f)
+  else if (v.confirmed) confirmed.push({ ...f, note: v.note })
+  else refuted.push({ ...f, note: v.note })
+})
+const verifierDead = unverified.length - overflow.length
+const verifyNote =
+  (overflow.length
+    ? ` ${overflow.length} must-fix finding(s) were past the verify cap of ${MAX_VERIFY} and were NOT verified; they are listed as unverified.`
+    : '') +
+  (verifierDead
+    ? ` ${verifierDead} verifier(s) returned nothing, so those must-fix findings are unverified, not refuted.`
+    : '')
+const coverageNote = reviewNote + verifyNote
 
 // Stage: consolidate (single, judgment tier, fallback to worker)
 const consolStage = SPEC.stages.consolidate
@@ -252,9 +385,12 @@ const report = await criticWithFallback(
     coveredCount: covered.length,
     coverageNote,
     diffHint,
+    confirmedFindings: JSON.stringify(confirmed, null, 2),
+    refutedFindings: JSON.stringify(refuted, null, 2),
+    unverifiedFindings: JSON.stringify(unverified, null, 2),
     rawFindings: JSON.stringify(raw, null, 2),
   }),
   { label: 'consolidate', phase: consolStage.phase, model: TIER_MODELS[consolStage.tier], effort: TIER_EFFORTS[consolStage.tier], fallbackModel: TIER_MODELS[consolStage.fallback.to_tier], schema: REPORT_SCHEMA }
 )
 
-return report
+return finalizeReport(report, refuted, unverified)
