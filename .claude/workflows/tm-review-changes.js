@@ -114,12 +114,14 @@ function mustFixDeduped(reports) {
 // from the verify stage's own data, and any must-fix the verifiers refuted is
 // stripped from mustFix by file + line + problem. Returns a new object (same
 // reason as criticWithFallback: the runtime's result could be frozen). A report
-// with no mustFix array (the render-path stub) is left without one.
+// with no mustFix array (the render-path stub) is left without one. The verdict
+// is recomputed to approve when only refuted findings were removed.
 function finalizeReport(report, refuted, unverified) {
   const out = { ...report, refuted, unverified }
   if (Array.isArray(report.mustFix)) {
     const gone = new Set(refuted.map((f) => JSON.stringify([f.file, f.line, f.problem])))
     out.mustFix = report.mustFix.filter((f) => !gone.has(JSON.stringify([f.file, f.line, f.problem])))
+    if (out.mustFix.length === 0 && report.mustFix.length > 0) out.verdict = 'approve'
   }
   return out
 }

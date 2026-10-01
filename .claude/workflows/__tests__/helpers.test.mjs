@@ -551,6 +551,21 @@ describe('finalizeReport', () => {
     assert.equal(out.refuted[0].note, 'already fixed')
   })
 
+  test('recomputes the verdict to approve when only refuted findings were removed', () => {
+    const gone = f('b.js', '2', 'stale')
+    const out = finalizeReport({ verdict: 'changes-requested', mustFix: [gone] }, [{ ...gone, note: 'n' }], [])
+    assert.equal(out.verdict, 'approve')
+    assert.deepEqual(Array.from(out.mustFix), [])
+  })
+
+  test('keeps changes-requested when a non-refuted finding remains', () => {
+    const kept = f('a.js', '1', 'real')
+    const gone = f('b.js', '2', 'stale')
+    const out = finalizeReport({ verdict: 'changes-requested', mustFix: [gone, kept] }, [{ ...gone, note: 'n' }], [])
+    assert.equal(out.verdict, 'changes-requested')
+    assert.deepEqual(out.mustFix.map((x) => x.problem), ['real'])
+  })
+
   test('matches on file + line + problem, not on problem alone', () => {
     const a = f('a.js', '1', 'same text')
     const b = f('b.js', '1', 'same text')
