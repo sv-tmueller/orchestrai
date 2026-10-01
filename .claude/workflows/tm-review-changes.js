@@ -1,3 +1,19 @@
+export const meta = {
+  name: 'tm-review-changes',
+  description:
+    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
+  phases: [
+    { title: 'Review', detail: 'one Sonnet worker per dimension', model: 'sonnet' },
+    { title: 'Verify', detail: 'one adversarial Sonnet worker per must-fix finding, capped', model: 'sonnet' },
+    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', model: 'opus' },
+  ],
+}
+// meta is a plain literal and the first statement because the workflow runtime
+// reads it before running the script. It repeats the name, description and
+// phases of SPEC below, with each phase's tier resolved through TIER_MODELS.
+// workflow-meta.test.mjs fails if the two drift.
+// The model is carried here for display purposes only.
+
 // Workflow spec (embedded; mirrors specs/tm-review-changes.spec.json)
 // The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
 // and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
@@ -52,18 +68,6 @@ const SPEC = {
 // inlined here because the workflow runtime has no imports.
 const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
 const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
-
-export const meta = {
-  name: SPEC.name,
-  description: SPEC.description,
-  phases: SPEC.phases.map((p) => ({
-    title: p.title,
-    detail: p.detail,
-    // The adapter table resolves the tier to a concrete model for the
-    // Claude Code host. meta.phases carries the model for display purposes.
-    model: TIER_MODELS[p.tier],
-  })),
-}
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is DIMENSIONS.length Sonnet reviewers, plus one
