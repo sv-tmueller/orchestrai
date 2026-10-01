@@ -23,6 +23,18 @@ first (could 200 lines be 50?), surgical changes, goal-driven execution. Match
 against the AGENTS.md code style and writing style sections. A weakened or
 deleted test is always a blocking finding.
 
+## Severity floor
+
+A finding that matches any of these conditions is must-fix, whatever your
+overall read of the change. The floor sets severity, not truth: a finding that
+is false on the facts is still dismissed, with the reason.
+
+1. A test deleted, skipped or weakened, without the PR body saying why.
+2. `--no-verify`, or any other bypassed git hook.
+3. A new dependency with no justification in the PR body.
+4. A CI job with no `timeout-minutes`, or a workflow with no `concurrency` group carrying `cancel-in-progress: true`.
+5. A change touching the full stack, shipped without e2e.
+
 ## Report contract
 
 End with exactly this structure:
