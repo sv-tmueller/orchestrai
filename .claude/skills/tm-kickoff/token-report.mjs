@@ -29,28 +29,31 @@ function stripPrefix(subagentType) {
   return i === -1 ? subagentType : subagentType.slice(i + 1)
 }
 
-// Extracts visible chars (text + JSON.stringify(tool_use.input)) from one
-// assistant line's content blocks. Thinking is never counted.
-function visibleCharsOf(content) {
-  if (!Array.isArray(content)) return 0
+// Extracts visible chars (text + JSON.stringify(tool_use.input)) and the
+// tool_use count from one assistant line's content blocks. Thinking is never
+// counted.
+function visibleOf(content) {
+  if (!Array.isArray(content)) return { chars: 0, toolUses: 0 }
   let chars = 0
+  let toolUses = 0
   for (const block of content) {
     if (!block || typeof block !== 'object') continue
     if (block.type === 'text' && typeof block.text === 'string') {
       chars += block.text.length
     } else if (block.type === 'tool_use') {
       chars += JSON.stringify(block.input ?? {}).length
+      toolUses += 1
     }
   }
-  return chars
+  return { chars, toolUses }
 }
 
 // Parses one transcript's raw JSONL text into deduplicated per-turn usage
 // records tagged with the given role. First line wins for model, timestamp
 // and usage numbers; visible chars accumulate across every line sharing an
 // id, since a single turn can be split into thinking/text/tool_use lines
-// that all repeat the same usage object.
-function parseTranscript(text, role, agentHex) {
+// that all repeat the same usage object. Tool uses accumulate the same way.
+function parseTranscript(text, role, agentHex, label) {
   const byId = new Map()
   const order = []
 
@@ -69,7 +72,7 @@ function parseTranscript(text, role, agentHex) {
     const id = message.id
     if (!id) continue
 
-    const chars = visibleCharsOf(message.content)
+    const { chars, toolUses } = visibleOf(message.content)
 
     let record = byId.get(id)
     if (!record) {
@@ -83,6 +86,7 @@ function parseTranscript(text, role, agentHex) {
         id,
         role,
         agent: agentHex ?? null,
+        label: label ?? null,
         model: message.model,
         timestamp: entry.timestamp,
         input: usage.input_tokens ?? 0,
@@ -91,21 +95,25 @@ function parseTranscript(text, role, agentHex) {
         cache1h,
         splitMissing: !cacheCreation && (usage.cache_creation_input_tokens ?? 0) > 0,
         visibleChars: 0,
+        toolUses: 0,
       }
       byId.set(id, record)
       order.push(id)
     }
     record.visibleChars += chars
+    record.toolUses += toolUses
   }
 
   return order.map((id) => byId.get(id))
 }
 
 // Scans the lead transcript for Agent tool_use dispatches and their matching
-// tool_result (which carries the agentId hex), building a hex -> role map.
+// tool_result (which carries the agentId hex), building a hex -> role map. It
+// also maps each Workflow launch's runId to its workflow name.
 function buildRoleMap(leadText) {
   const roleByToolUseId = new Map()
   const roleByAgentHex = new Map()
+  const workflowByRunId = new Map()
 
   for (const line of leadText.split('\n')) {
     if (!line.trim()) continue
@@ -114,6 +122,10 @@ function buildRoleMap(leadText) {
       entry = JSON.parse(line)
     } catch {
       continue
+    }
+    const launch = entry.type === 'user' ? entry.toolUseResult : null
+    if (launch?.taskType === 'local_workflow' && launch.runId && launch.workflowName) {
+      workflowByRunId.set(String(launch.runId), String(launch.workflowName))
     }
     const content = entry.message?.content
     if (!Array.isArray(content)) continue
@@ -138,25 +150,40 @@ function buildRoleMap(leadText) {
     }
   }
 
-  return roleByAgentHex
+  return { roleByAgentHex, workflowByRunId }
 }
 
 /**
  * Parses a lead transcript and, optionally, its subagent transcripts into a
  * flat array of deduplicated usage records tagged with a role.
  *
- * @param {{lead: string, subagents?: Array<{hex: string, text: string}>}} sources
+ * A subagent entry with a workflowRunId came from a Workflow run. Its role is
+ * workflow:<name> (the launching workflow's name, else the run id) and its
+ * optional label names the agent() call.
+ *
+ * @param {{lead: string, subagents?: Array<{hex: string, text: string, workflowRunId?: string, label?: string}>}} sources
  */
 export function parse({ lead, subagents = [] }) {
   const records = parseTranscript(lead, 'lead')
   if (subagents.length > 0) {
     const roleMap = buildRoleMap(lead)
-    for (const { hex, text } of subagents) {
-      const role = roleMap.get(hex) ?? 'unmapped'
-      records.push(...parseTranscript(text, role, hex))
+    for (const sub of subagents) {
+      records.push(...parseTranscript(sub.text, roleOf(sub, roleMap), sub.hex, sub.label))
     }
   }
   return records
+}
+
+function roleOf({ hex, workflowRunId }, { roleByAgentHex, workflowByRunId }) {
+  if (workflowRunId) return `workflow:${workflowByRunId.get(workflowRunId) ?? workflowRunId}`
+  return roleByAgentHex.get(hex) ?? 'unmapped'
+}
+
+function windowBounds({ since, until } = {}) {
+  const from = since ? Date.parse(since) : -Infinity
+  const to = until ? Date.parse(until) : Infinity
+  if (Number.isNaN(from) || Number.isNaN(to)) throw new Error('--since/--until must be ISO timestamps')
+  return { from, to }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,9 +218,7 @@ export function aggregate(records, { since, until } = {}) {
   const byModel = {}
   const totals = emptyBucket()
 
-  const from = since ? Date.parse(since) : -Infinity
-  const to = until ? Date.parse(until) : Infinity
-  if (Number.isNaN(from) || Number.isNaN(to)) throw new Error('--since/--until must be ISO timestamps')
+  const { from, to } = windowBounds({ since, until })
 
   for (const record of records) {
     const t = Date.parse(record.timestamp)
@@ -207,6 +232,144 @@ export function aggregate(records, { since, until } = {}) {
   }
 
   return { since: since ?? null, until: until ?? null, byRole, byModel, totals }
+}
+
+// ---------------------------------------------------------------------------
+// perAgent
+// ---------------------------------------------------------------------------
+
+function parseLines(text) {
+  const entries = []
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      entries.push(JSON.parse(line))
+    } catch {
+      // A torn or foreign line is skipped, like everywhere else in this file.
+    }
+  }
+  return entries
+}
+
+function tagValue(block, tag) {
+  const match = new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(block)
+  return match ? match[1].trim() : null
+}
+
+// The three line shapes a task notification arrives in. Tool results are
+// never read: a lead that greps transcripts quotes notifications in them.
+function notificationText(entry) {
+  if (entry.type === 'queue-operation' && entry.operation === 'enqueue') return entry.content
+  if (entry.type === 'attachment' && entry.attachment?.commandMode === 'task-notification') return entry.attachment.prompt
+  if (entry.type === 'user' && entry.origin?.kind === 'task-notification') return entry.message?.content
+  return null
+}
+
+// Task notifications found in the lead transcript, inside the window. The same
+// notification shows up in two or three carriers, so copies that agree on
+// task id, tool-use id, status and duration merge into one.
+function findNotifications(lead, { from, to }) {
+  const merged = new Map()
+  for (const entry of parseLines(lead)) {
+    const text = notificationText(entry)
+    if (typeof text !== 'string') continue
+    const t = Date.parse(entry.timestamp ?? entry.attachment?.timestamp)
+    if (Number.isNaN(t) || t < from || t >= to) continue
+    for (const [, block] of text.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
+      const taskId = tagValue(block, 'task-id')
+      if (!taskId) continue
+      const duration = tagValue(block, 'duration_ms')
+      const note = {
+        taskId,
+        toolUseId: tagValue(block, 'tool-use-id'),
+        status: tagValue(block, 'status'),
+        durationMs: duration !== null && Number.isFinite(Number(duration)) ? Number(duration) : null,
+      }
+      merged.set(`${note.taskId}|${note.toolUseId}|${note.status}|${note.durationMs}`, note)
+    }
+  }
+  return [...merged.values()]
+}
+
+// First timestamp in the window, the whole first-to-last span, and the sum of
+// per-run spans. A coordinator line (a SendMessage resume) starts a new run, so
+// a seat resumed hours later does not count the idle gap.
+function transcriptTiming(text, { from, to }) {
+  let start = Infinity
+  let first = Infinity
+  let last = -Infinity
+  let run = 0
+  const runs = new Map()
+  for (const entry of parseLines(text)) {
+    if (entry.type === 'user' && entry.origin?.kind === 'coordinator') run += 1
+    const t = Date.parse(entry.timestamp)
+    if (Number.isNaN(t) || t < from || t >= to) continue
+    start = Math.min(start, t)
+    first = Math.min(first, t)
+    last = Math.max(last, t)
+    const span = runs.get(run) ?? { min: t, max: t }
+    span.min = Math.min(span.min, t)
+    span.max = Math.max(span.max, t)
+    runs.set(run, span)
+  }
+  if (start === Infinity) return null
+  let runSpanMs = 0
+  for (const { min, max } of runs.values()) runSpanMs += max - min
+  return { start, spanMs: last - first, runSpanMs }
+}
+
+/**
+ * Builds one row per transcript with a timestamped line in the window: the
+ * lead, each dispatched seat and each workflow subagent. wallClockMs is null
+ * (source "none") when no source gives a positive value. Sources:
+ * "notification" (measured duration_ms), "span" (sum of run spans, estimated),
+ * "lead-span" (first to last line, estimated, includes idle time).
+ *
+ * @param {{lead: string, subagents?: Array}} sources
+ * @param {{since?: string, until?: string}} window
+ */
+export function perAgent({ lead, subagents = [] }, window = {}) {
+  const bounds = windowBounds(window)
+  const records = parse({ lead, subagents }).filter((r) => {
+    const t = Date.parse(r.timestamp)
+    return t >= bounds.from && t < bounds.to
+  })
+  const roleMap = buildRoleMap(lead)
+  const notifications = findNotifications(lead, bounds)
+
+  function row(owner, role, label, timing, wallClockMs, source) {
+    const mine = records.filter((r) => r.agent === owner)
+    return {
+      start: new Date(timing.start).toISOString(),
+      role,
+      label: label ?? null,
+      models: [...new Set(mine.map((r) => r.model))].sort(),
+      calls: mine.length,
+      toolUses: mine.reduce((n, r) => n + r.toolUses, 0),
+      outputTokens: mine.reduce((n, r) => n + Math.round(r.visibleChars / 4), 0),
+      wallClockMs: wallClockMs > 0 ? wallClockMs : null,
+      source: wallClockMs > 0 ? source : 'none',
+    }
+  }
+
+  const rows = []
+  const leadTiming = transcriptTiming(lead, bounds)
+  const leadRow = leadTiming && row(null, 'lead', null, leadTiming, leadTiming.spanMs, 'lead-span')
+
+  for (const sub of subagents) {
+    const timing = transcriptTiming(sub.text, bounds)
+    if (!timing) continue
+    const notes = sub.workflowRunId ? [] : notifications.filter((n) => n.taskId === sub.hex)
+    const measured = notes.length > 0 && notes.every((n) => n.durationMs > 0)
+    rows.push(
+      measured
+        ? row(sub.hex, roleOf(sub, roleMap), sub.label, timing, notes.reduce((n, x) => n + x.durationMs, 0), 'notification')
+        : row(sub.hex, roleOf(sub, roleMap), sub.label, timing, timing.runSpanMs, 'span')
+    )
+  }
+
+  rows.sort((a, b) => a.start.localeCompare(b.start) || a.role.localeCompare(b.role) || (a.label ?? '').localeCompare(b.label ?? ''))
+  return leadRow ? [leadRow, ...rows] : rows
 }
 
 // ---------------------------------------------------------------------------
@@ -325,12 +488,53 @@ function modelTable(priced, totals) {
   return lines.join('\n')
 }
 
-function limitations(priced) {
+function fmtDuration(ms) {
+  const total = Math.round(ms / 1000)
+  if (total < 1) return '<1s'
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
+const SOURCE_LABELS = {
+  notification: { text: 'task notification duration_ms', estimated: false },
+  span: { text: 'transcript span', estimated: true },
+  'lead-span': { text: 'lead first-to-last span', estimated: true },
+}
+
+function agentTable(agents) {
+  const lines = [
+    '| Start (UTC) | Role | Model | Calls | Tool uses | Output (est.) | Wall-clock | Source |',
+    '| --- | --- | --- | ---: | ---: | ---: | ---: | --- |',
+  ]
+  for (const a of agents) {
+    const source = SOURCE_LABELS[a.source]
+    const wallClock = source && a.wallClockMs != null ? `${fmtDuration(a.wallClockMs)}${source.estimated ? ' (est.)' : ''}` : 'n/a'
+    const role = a.label ? `${a.role} (${a.label.replaceAll('|', '\\|')})` : a.role
+    lines.push(
+      `| ${a.start.slice(0, 19).replace('T', ' ')} | ${role} | ${a.models.join(', ') || '-'} | ${a.calls} | ${a.toolUses} | ${fmtInt(a.outputTokens)} | ${wallClock} | ${source && a.wallClockMs != null ? source.text : 'n/a'} |`
+    )
+  }
+  return lines.join('\n')
+}
+
+function limitations(priced, agents, unread) {
   const lines = [
     '- Output token counts are not in the transcripts; the "Output (est.)" column is estimated from visible text and tool-call input, divided by 4.',
     '- The estimate excludes thinking tokens, so it undercounts real output token usage.',
     '- Prices are Anthropic public list prices, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).',
   ]
+  if (agents.length > 0) {
+    lines.push(
+      '- Wall-clock: "task notification duration_ms" is the time the harness measured for a dispatched seat. "transcript span" is the first-to-last timestamp span of each run in a transcript, used for workflow subagents and for a seat with no positive measured duration. "est." marks a span. The lead row spans its first to last line in the window, so it includes idle and waiting time. "n/a" means no source gave a positive value.',
+      '- Tool uses are counted from tool_use blocks in each transcript.'
+    )
+  }
+  if (unread.length > 0) {
+    lines.push(`- Found but not read (left out of every total): ${unread.join(', ')}.`)
+  }
   if (priced.unpriced.length > 0) {
     lines.push(`- Unpriced models (left out of the total): ${priced.unpriced.join(', ')}.`)
   }
@@ -344,9 +548,12 @@ function limitations(priced) {
  * Renders the markdown report. Never prints transcript content, only counts
  * and derived stats.
  *
- * @param {{session: string, aggregated: ReturnType<typeof aggregate>, priced: ReturnType<typeof price>, priceTable: object}} input
+ * agents (from perAgent) adds the By agent table when non-empty. unread lists
+ * paths that were found but could not be read.
+ *
+ * @param {{session: string, aggregated: ReturnType<typeof aggregate>, priced: ReturnType<typeof price>, priceTable: object, agents?: ReturnType<typeof perAgent>, unread?: string[]}} input
  */
-export function render({ session, aggregated, priced, priceTable }) {
+export function render({ session, aggregated, priced, priceTable, agents = [], unread = [] }) {
   const header = [
     '# Token report',
     '',
@@ -366,9 +573,10 @@ export function render({ session, aggregated, priced, priceTable }) {
     '',
     modelTable(priced, aggregated.totals),
     '',
+    ...(agents.length > 0 ? ['## By agent', '', agentTable(agents), ''] : []),
     '## Limitations',
     '',
-    limitations(priced),
+    limitations(priced, agents, unread),
     '',
   ].join('\n')
 }
@@ -397,17 +605,74 @@ function resolveConfigDir(opts) {
   return opts.configDir || process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
 }
 
+const isAgentTranscript = (name) => name.startsWith('agent-') && name.endsWith('.jsonl')
+const hexOf = (name) => name.slice('agent-'.length, -'.jsonl'.length)
+
+// The agent() label from a workflow subagent's meta sidecar. A missing or
+// malformed sidecar only costs the label, never the report.
+function readLabel(path) {
+  try {
+    const { description } = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof description === 'string' && description ? description : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // Given the lead transcript path (either from the positional argument or
-// resolved from --session), returns the sibling subagent transcripts.
+// resolved from --session), returns the sibling subagent transcripts: the
+// plain ones under subagents/ and the workflow ones under
+// subagents/workflows/<runId>/. Anything it finds but cannot read, or does not
+// know the layout of, goes into unread (paths relative to the session dir),
+// so the report can name it instead of leaving it out silently.
 function findSubagents(leadPath) {
-  const sessionDir = join(dirname(leadPath), basename(leadPath, '.jsonl'), 'subagents')
-  if (!existsSync(sessionDir)) return []
-  return readdirSync(sessionDir)
-    .filter((name) => name.startsWith('agent-') && name.endsWith('.jsonl'))
-    .map((name) => ({
-      hex: name.slice('agent-'.length, -'.jsonl'.length),
-      text: readFileSync(join(sessionDir, name), 'utf8'),
-    }))
+  const sessionDir = join(dirname(leadPath), basename(leadPath, '.jsonl'))
+  const subagents = []
+  const unread = []
+  const rel = (path) => path.slice(sessionDir.length + 1)
+
+  function list(dir) {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+    } catch {
+      unread.push(rel(dir))
+      return []
+    }
+  }
+
+  function readTranscript(path, extra) {
+    try {
+      subagents.push({ hex: hexOf(basename(path)), text: readFileSync(path, 'utf8'), ...extra })
+    } catch {
+      unread.push(rel(path))
+    }
+  }
+
+  const root = join(sessionDir, 'subagents')
+  if (!existsSync(root)) return { subagents, unread }
+
+  for (const entry of list(root)) {
+    const path = join(root, entry.name)
+    if (entry.isDirectory() && entry.name === 'workflows') {
+      for (const run of list(path)) {
+        if (!run.isDirectory()) continue
+        const runDir = join(path, run.name)
+        for (const item of list(runDir)) {
+          const itemPath = join(runDir, item.name)
+          if (item.isDirectory()) unread.push(rel(itemPath))
+          else if (isAgentTranscript(item.name)) {
+            const label = readLabel(join(runDir, `agent-${hexOf(item.name)}.meta.json`))
+            readTranscript(itemPath, { workflowRunId: run.name, label })
+          }
+        }
+      }
+    } else if (entry.isDirectory()) {
+      unread.push(rel(path))
+    } else if (isAgentTranscript(entry.name)) {
+      readTranscript(path)
+    }
+  }
+  return { subagents, unread }
 }
 
 function resolveLeadPath(opts) {
@@ -436,13 +701,15 @@ export function main(argv) {
   const opts = parseArgs(argv)
   const leadPath = resolveLeadPath(opts)
   const lead = readFileSync(leadPath, 'utf8')
-  const subagents = findSubagents(leadPath)
+  const { subagents, unread } = findSubagents(leadPath)
+  const window = { since: opts.since, until: opts.until }
   const records = parse({ lead, subagents })
-  const aggregated = aggregate(records, { since: opts.since, until: opts.until })
+  const aggregated = aggregate(records, window)
+  const agents = perAgent({ lead, subagents }, window)
   const priceTable = JSON.parse(readFileSync(join(__dir, 'token-prices.json'), 'utf8'))
   const priced = price(aggregated, priceTable)
   const session = opts.session || basename(leadPath, '.jsonl')
-  process.stdout.write(render({ session, aggregated, priced, priceTable }) + '\n')
+  process.stdout.write(render({ session, aggregated, priced, priceTable, agents, unread }) + '\n')
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
