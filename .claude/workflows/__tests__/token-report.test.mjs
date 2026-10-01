@@ -62,6 +62,36 @@ describe('parse: de-duplication', () => {
   })
 })
 
+describe('parse: output tokens', () => {
+  test('a lead turn keeps the measured output_tokens, not a multiple of it and not the estimate', () => {
+    const aaa = parse({ lead: fixture('lead-dedupe.jsonl') }).find((r) => r.id === 'msg_AAA')
+    assert.equal(aaa.outputTokens, 246) // repeated on all 3 split lines, taken once
+    assert.equal(aaa.outputEstimated, false)
+  })
+
+  test('a subagent turn uses visible chars divided by 4, not its output_tokens', () => {
+    const records = parse({
+      lead: fixture('lead-roles.jsonl'),
+      subagents: [{ hex: 'aaaa1111', text: fixture('agent-aaaa1111.jsonl') }],
+    })
+    const dev = records.find((r) => r.id === 'msg_dev1')
+    assert.equal(dev.outputTokens, Math.round(dev.visibleChars / 4))
+    assert.notEqual(dev.outputTokens, 50)
+    assert.equal(dev.outputEstimated, true)
+  })
+
+  test('a lead turn with no output_tokens falls back to the estimate and is marked', () => {
+    const lead = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-10-01T10:00:00.000Z',
+      message: { type: 'message', id: 'msg_nout', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'abcdefgh' }], usage: { input_tokens: 1 } },
+    })
+    const [record] = parse({ lead })
+    assert.equal(record.outputTokens, 2)
+    assert.equal(record.outputEstimated, true)
+  })
+})
+
 describe('parse: role mapping', () => {
   test('maps a subagent hex to its dispatcher\'s subagent_type, prefix stripped', () => {
     const lead = fixture('lead-roles.jsonl')
@@ -111,6 +141,8 @@ describe('aggregate: since/until window', () => {
       cache5m: 0,
       cache1h: 0,
       visibleChars: 0,
+      outputTokens: 0,
+      outputEstimated: false,
     }
   }
 
@@ -155,6 +187,8 @@ describe('aggregate: grouping', () => {
       cache5m: 0,
       cache1h: 0,
       visibleChars,
+      outputTokens: Math.round(visibleChars / 4),
+      outputEstimated: role !== 'lead',
     }
   }
 
@@ -194,12 +228,21 @@ describe('aggregate: grouping', () => {
   test('output estimates per role add up to the total estimate', () => {
     const a = aggregate([record('a', 'lead', 'claude-opus-5-5', 0, 2), record('b', 'developer', 'claude-sonnet-5', 0, 2)], {})
     assert.equal(Object.values(a.byRole).reduce((n, b) => n + b.outputTokens, 0), a.totals.outputTokens)
+    assert.equal(a.totals.outputTokens, 2) // round(2/4) twice, not NaN
+  })
+
+  test('a bucket is estimated when any of its records is, and measured otherwise', () => {
+    const a = aggregate(records, {})
+    assert.equal(a.byRole.lead.outputEstimated, false)
+    assert.equal(a.byRole.developer.outputEstimated, true)
+    assert.equal(a.byModel['claude-opus-5-5'].outputEstimated, true) // lead-1 plus orphan-1
+    assert.equal(a.totals.outputEstimated, true)
   })
 })
 
 describe('price', () => {
   function bucket(overrides) {
-    return { calls: 1, input: 0, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 0, ...overrides }
+    return { calls: 1, input: 0, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 0, outputEstimated: false, ...overrides }
   }
 
   test('splits cache-write cost by the ephemeral 5m/1h TTL', () => {
@@ -283,6 +326,33 @@ describe('token-prices.json shape', () => {
   const pricesPath = join(__dir, '..', '..', 'skills', 'tm-kickoff', 'token-prices.json')
   const priceTable = JSON.parse(readFileSync(pricesPath, 'utf8'))
 
+  test('prices claude-sonnet-5-5 at the published rates, with no 1h fallback', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-10-01T10:00:00.000Z',
+      message: {
+        type: 'message',
+        id: 'msg_s55',
+        model: 'claude-sonnet-5-5',
+        content: [],
+        usage: {
+          input_tokens: 1_000_000,
+          cache_read_input_tokens: 1_000_000,
+          cache_creation_input_tokens: 2_000_000,
+          cache_creation: { ephemeral_5m_input_tokens: 1_000_000, ephemeral_1h_input_tokens: 1_000_000 },
+          output_tokens: 1_000_000,
+        },
+      },
+    })
+    const priced = price(aggregate(parse({ lead: line }), {}), priceTable)
+    assert.deepEqual(priced.unpriced, [])
+    assert.equal(priced.notes.length, 0)
+    const row = priced.rows.find((r) => r.model === 'claude-sonnet-5-5')
+    // $2 input + $2.50 5m write + $4 1h write + $0.20 cache read + $10 output.
+    assert.ok(Math.abs(row.cost - 18.7) < 1e-9, `cost ${row.cost}`)
+    assert.ok(Math.abs(priced.pricedTotal - 18.7) < 1e-9)
+  })
+
   test('has source, retrieved and unit metadata', () => {
     assert.equal(typeof priceTable.source, 'string')
     assert.ok(priceTable.source.length > 0)
@@ -327,8 +397,16 @@ describe('render: limitations', () => {
   test('always states the output estimate and list-price caveats', () => {
     const markdown = render(baseArgs())
     assert.match(markdown, /## Limitations/)
-    assert.match(markdown, /output.*(is not in the transcripts|estimated)/i)
+    assert.match(markdown, /subagent transcripts carry no reliable count/i)
     assert.match(markdown, /not your actual billing/i)
+    assert.ok(!markdown.includes('Output token counts are not in the transcripts'))
+  })
+
+  test('says lead figures are measured and an estimate undercounts', () => {
+    const markdown = render(baseArgs())
+    assert.match(markdown, /lead figures are measured from the lead transcript's `usage\.output_tokens`/)
+    assert.match(markdown, /by-model or total figure that includes any estimate is marked too/)
+    assert.match(markdown, /estimate leaves out thinking/)
   })
 
   test('names unpriced models by id, not silently', () => {
@@ -567,8 +645,15 @@ describe('perAgent: one row per transcript', () => {
     assert.deepEqual(starts, [...starts].sort())
   })
 
-  test('estimates output tokens per row from visible chars, like the totals', () => {
-    assert.equal(rowFor(rows, 'developer').outputTokens, 13)
+  test('estimates a subagent row from visible chars and marks it', () => {
+    const dev = rowFor(rows, 'developer')
+    assert.equal(dev.outputTokens, 13)
+    assert.equal(dev.outputEstimated, true)
+  })
+
+  test('the lead row sums the measured output_tokens and is not marked', () => {
+    assert.equal(rows[0].outputTokens, 35) // 7 turns in the window at 5 each, not the 82 estimate
+    assert.equal(rows[0].outputEstimated, false)
   })
 
   test('a notification outside the window is not used', () => {
@@ -585,6 +670,43 @@ describe('perAgent: one row per transcript', () => {
     const tester = rowFor(late, 'tester')
     assert.equal(tester.source, 'notification')
     assert.equal(tester.wallClockMs, 30000)
+  })
+})
+
+describe('render: output markers in the role and model tables', () => {
+  const bucket = (overrides) => ({ calls: 2, input: 10, cacheRead: 0, cache5m: 0, cache1h: 0, visibleChars: 0, outputTokens: 1234, outputEstimated: false, ...overrides })
+  const aggregated = {
+    since: null,
+    until: null,
+    byRole: { lead: bucket({}), developer: bucket({ outputTokens: 20, outputEstimated: true }) },
+    byModel: {},
+    totals: bucket({ outputTokens: 1254, outputEstimated: true }),
+  }
+  const priced = {
+    rows: [
+      { model: 'claude-opus-5-5', ...bucket({}), cost: 1 },
+      { model: 'claude-sonnet-5', ...bucket({ outputTokens: 20, outputEstimated: true }), cost: 1 },
+    ],
+    unpriced: [],
+    notes: [],
+    pricedTotal: 2,
+  }
+  const markdown = render({ session: 's', aggregated, priced, priceTable: { source: 'fixture', retrieved: '2026-10-01' } })
+
+  test('the header says where the figure is estimated', () => {
+    assert.equal(markdown.match(/Output \(est\. where marked\)/g).length, 2)
+    assert.ok(!markdown.includes('Output (est.) |'))
+  })
+
+  test('a measured role cell is bare and an estimated one is marked', () => {
+    assert.match(markdown, /\| lead \| 2 \| 10 \| 0 \| 0 \| 0 \| 1,234 \|/)
+    assert.match(markdown, /\| developer \| 2 \| 10 \| 0 \| 0 \| 0 \| 20 \(est\.\) \|/)
+  })
+
+  test('model rows and the Total row are marked when any part is estimated', () => {
+    assert.match(markdown, /\| claude-opus-5-5 \| 2 \| 10 \| 0 \| 0 \| 0 \| 1,234 \| \$1\.00 \|/)
+    assert.match(markdown, /\| claude-sonnet-5 \| 2 \| 10 \| 0 \| 0 \| 0 \| 20 \(est\.\) \| \$1\.00 \|/)
+    assert.match(markdown, /\| \*\*Total\*\* \| 2 \| 10 \| 0 \| 0 \| 0 \| 1,254 \(est\.\) \|/)
   })
 })
 
@@ -620,8 +742,14 @@ describe('render: by agent table', () => {
   test('renders the columns and a measured value without a marker', () => {
     const markdown = render(baseArgs({ agents: [agent({})] }))
     assert.match(markdown, /## By agent/)
-    assert.match(markdown, /\| Start \(UTC\) \| Role \| Model \| Calls \| Tool uses \| Output \(est\.\) \| Wall-clock \| Source \|/)
+    assert.match(markdown, /\| Start \(UTC\) \| Role \| Model \| Calls \| Tool uses \| Output \(est\. where marked\) \| Wall-clock \| Source \|/)
     assert.match(markdown, /\| 2026-10-01 10:00:00 \| developer \| claude-sonnet-5 \| 3 \| 2 \| 13 \| 2m 0s \| task notification duration_ms \|/)
+  })
+
+  test('marks an estimated output cell and leaves a measured one bare', () => {
+    const markdown = render(baseArgs({ agents: [agent({ outputEstimated: true }), agent({ role: 'lead', outputTokens: 35, outputEstimated: false })] }))
+    assert.match(markdown, /\| developer \| claude-sonnet-5 \| 3 \| 2 \| 13 \(est\.\) \|/)
+    assert.match(markdown, /\| lead \| claude-sonnet-5 \| 3 \| 2 \| 35 \|/)
   })
 
   test('marks an estimated value and names its source', () => {
@@ -632,7 +760,7 @@ describe('render: by agent table', () => {
 
   test('shows n/a and never a number when there is no value', () => {
     const markdown = render(baseArgs({ agents: [agent({ calls: 0, models: [], wallClockMs: null, source: 'none' })] }))
-    assert.match(markdown, /\| 0 \| 2 \| 13 \| n\/a \| n\/a \|/)
+    assert.match(markdown, /\| 0 \| 2 \| 13 \| n\/a \| n\/a \|/) // outputEstimated unset: no marker
     assert.ok(!/NaN|Infinity/.test(markdown))
   })
 
