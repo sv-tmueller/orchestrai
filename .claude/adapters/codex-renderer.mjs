@@ -167,6 +167,7 @@ function inferRole(stageName) {
     area_review: 'developer',
     area_map: 'developer',
     architecture_review: 'developer',
+    verify: 'fact-checker',
     consolidate: 'reviewer',
     synthesize: 'architect',
   }

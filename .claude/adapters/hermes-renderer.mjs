@@ -65,6 +65,9 @@ export function renderTemplate(template, vals) {
 const STUB_SLOTS = {
   coverageNote: '',
   rawFindings: '[]',
+  confirmedFindings: '[]',
+  refutedFindings: '[]',
+  unverifiedFindings: '[]',
   reviewedAreas: '[]',
   mappedAreas: '[]',
   workersFailed: '[]',
@@ -205,6 +208,9 @@ function collectSlotVals(name, args, root, base) {
   } else if (name === 'review') {
     // brief and diffHint are per-item; supplied by buildItemTaskPrompt.
     vals.diffHint = buildDiffHint(base)
+  } else if (name === 'verify') {
+    // finding is per-item; supplied by buildItemTaskPrompt.
+    vals.diffHint = buildDiffHint(base)
   } else if (name === 'consolidate' || name === 'synthesize') {
     if (name === 'consolidate') vals.diffHint = buildDiffHint(base)
   }
@@ -234,6 +240,8 @@ function buildItemTaskPrompt(stage, name, item, ctx, args, prompts, root, base) 
     vals.areaPaths = Array.isArray(item.paths) ? item.paths.join(', ') : ''
     vals.repoMap = '' // stub: derived from the scout result in the JS
     vals.brief = item.brief || ''
+    // verify items are findings; the template takes the whole item as JSON.
+    vals.finding = JSON.stringify(item, null, 2)
   }
   return renderTemplate(template, vals)
 }
@@ -318,6 +326,8 @@ function inferRole(stageName) {
     area_review: 'developer',
     area_map: 'developer',
     architecture_review: 'developer',
+    // A read-only claim audit on the worker tier; the default would be developer.
+    verify: 'fact-checker',
     consolidate: 'reviewer',
     synthesize: 'architect',
   }

@@ -9,6 +9,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 process.env.DRY_RUN = 'true'
 
@@ -33,6 +34,16 @@ const verifyStage = (over = {}) => ({
   items_default_cap: 3,
   ...over,
 })
+
+// inferRole is not exported and Codex's spawn cannot be stubbed, so check the
+// role map text. A read-only claim audit on the worker tier is the
+// fact-checker role; the developer default would give the verifier edit rights.
+for (const [host, path] of Object.entries(RENDERERS)) {
+  test(`${host} renderer: the verify stage maps to the fact-checker role`, () => {
+    const src = readFileSync(new URL(path, import.meta.url), 'utf8')
+    assert.match(src, /verify:\s*'fact-checker'/)
+  })
+}
 
 for (const [host, path] of Object.entries(RENDERERS)) {
   describe(`${host} renderer: getDynamicListItems`, async () => {
