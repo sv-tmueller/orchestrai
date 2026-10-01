@@ -8,10 +8,10 @@ Reused xhigh arm (O1-O3): #358's own files, unedited by this PR.
 
 ## 1. Bottom line
 
-**Switch the lead's advisor refinement (sections 1-2 only) to `/effort
-high`.** Round 1 (H1-H3) delivered 0 valid runs (a 429 and two contamination-
-gate hits) and reported "insufficient evidence." Per a decision logged on
-batch #403
+**Switch the lead's advisor refinement (sections 1-2 only) to
+`/effort high`.** Round 1 (H1-H3) delivered 0 valid runs (a 429 and two
+contamination-gate hits) and reported "insufficient evidence." Per a
+decision logged on batch #403
 ([comment 5872761987](https://github.com/sv-tmueller/orchestrai/issues/403#issuecomment-5872761987)),
 one more round ran (H4-H6, amendment 1 to the protocol, a trial root with no
 2026-09-23 sibling to sweep into). All three round-2 runs were valid; the
@@ -25,11 +25,11 @@ judge ran over O1-O3 plus H4-H6 and both decision-rule conditions held:
 
 Both hold, so the pre-registered rule's answer is **switch**. Per the
 protocol's own "if switch" clause, only `.claude/team-guide.md` is edited,
-and only a refinement-only note: advisor sections 1-2 may run at `high`,
-flipped back to `xhigh` before replying "dispatch." `tiers.lead` in
-`.claude/adapters/claude-code.json` and `SEAT_EXPECTATIONS` in
-`effort-policy.test.mjs` are untouched, both guarded and outside this
-package's contract.
+and only a refinement-only note: advisor sections 1-2 may run at
+`/effort high`, flipped back to `/effort xhigh` before replying "dispatch"
+or "file only." `tiers.lead` in `.claude/adapters/claude-code.json` and
+`SEAT_EXPECTATIONS` in `effort-policy.test.mjs` are untouched, both guarded
+and outside this package's contract.
 
 The batch's deferred run-phase measurement ("only if P1 shows high holds on
 refinement," issue #403) **is now triggered**: this trial's own scores show
@@ -164,14 +164,15 @@ gate (H4 29 turns, H5 42 turns, H6 46 turns, all `perTurnEffort: high`) and
 the contamination gate (clear on every run).
 
 **No-writes check.** `data.json`'s `no_writes_check` block (window starting
-at 10:56:00Z, the recorded original window start) covers only H1-H3; H4-H6 had no recorded check of
-their own until the PR #408 review on 2026-09-30. A second, read-only check
-(`no_writes_check_h4_h6`) now covers H4-H6, windowed from H4's own start
-(15:09:36Z); nothing in it traces to a write by H4, H5, or H6, the same
-GH_CONFIG_DIR-empty, `Bash(gh *)`-disallowed setup as H1-H3. It ran about 2
-days after the fact (on 2026-09-30, during the PR #408 review, not the trial day), so its window also
-catches later, unrelated repo activity between H4-H6 and now; it does not
-isolate H4-H6's own writes as tightly as the same-day H1-H3 check did.
+at 10:56:00Z, the recorded original window start) covers only H1-H3; H4-H6
+had no recorded check of their own until the PR #408 review on 2026-09-30. A
+second, read-only check (`no_writes_check_h4_h6`) now covers H4-H6, windowed
+from H4's own start (15:09:36Z); nothing in it traces to a write by H4, H5,
+or H6, the same GH_CONFIG_DIR-empty, `Bash(gh *)`-disallowed setup as H1-H3.
+It ran about 2 days after the fact (on 2026-09-30, during the PR #408
+review, not the trial day), so its window also catches later, unrelated repo
+activity between H4-H6 and now; it does not isolate H4-H6's own writes as
+tightly as the same-day H1-H3 check did.
 
 ## 5. Judge
 
@@ -235,13 +236,13 @@ $1.1041064, matching `total_cost_usd` exactly.
 ## 7. Recommendation
 
 **Switch.** `.claude/team-guide.md`'s "Operating model (advisor)" section
-gets one refinement-only note: `/tm-advisor` sections 1 (Refine) and 2 (Propose) may
-run at `/effort high` instead of the session default `xhigh`, citing this
-report; flip back to `/effort xhigh` before replying "dispatch" or "file only" (sections 3-6, and
-every other seat, are unaffected and stay at their existing pins).
-`tiers.lead` in `.claude/adapters/claude-code.json` and
-`SEAT_EXPECTATIONS` in `effort-policy.test.mjs` are not touched: both are
-guarded, and this package's own non-goals exclude run-phase decisions,
+gets one refinement-only note: `/tm-advisor` sections 1 (Refine) and 2
+(Propose) may run at `/effort high` instead of the session default `xhigh`,
+citing this report; flip back to `/effort xhigh` before replying "dispatch"
+or "file only" (sections 3-6, and every other seat, are unaffected and stay
+at their existing pins). `tiers.lead` in `.claude/adapters/claude-code.json`
+and `SEAT_EXPECTATIONS` in `effort-policy.test.mjs` are not touched: both
+are guarded, and this package's own non-goals exclude run-phase decisions,
 which is what a `tiers.lead` change would actually govern.
 
 This result covers the refine-task only, at n=3 per arm, one task, one
@@ -262,17 +263,17 @@ dispatch) before extending this refinement-only finding any further.
 - **Drift between arms, not a paired trial.** O1-O3 and H1-H6 ran under
   different conditions beyond the run date: the orchestrai plugin was at
   version 2.2.0 for O1-O3 and 2.4.0 for H1-H6 (each run's own init event,
-  `plugins[].version`; checked against all nine raw run logs on
-  2026-09-30, during the PR #408 review). `~/.claude-work/settings.json` changed 2026-09-27 per the
-  protocol's own contemporaneous note; re-checked on 2026-09-30, the
-  file's mtime now reads 2026-09-29T16:43:28Z, so it has since changed
-  again and no longer independently confirms that original date. H1-H6 ran
-  5 days after O1-O3. What turned out identical, checked directly against
-  each run's own init event: plugin/skill/agent counts (7 plugins, 137
-  skills, 24 agents, all nine runs) and the first-turn prompt
+  `plugins[].version`; checked against all nine raw run logs on 2026-09-30,
+  during the PR #408 review). `~/.claude-work/settings.json` changed
+  2026-09-27 per the protocol's own contemporaneous note; re-checked on
+  2026-09-30, the file's mtime now reads 2026-09-29T16:43:28Z, so it has
+  since changed again and no longer independently confirms that original
+  date. H1-H6 ran 5 days after O1-O3. What turned out identical, checked
+  directly against each run's own init event: plugin/skill/agent counts (7
+  plugins, 137 skills, 24 agents, all nine runs) and the first-turn prompt
   size (O1 31,517 tokens vs H4 14,210 cache-creation + 17,322 cache-read =
-  31,532 tokens). The protocol predicted the skill/agent counts might
-  differ between arms; the 2026-09-30 check found they did not.
+  31,532 tokens). The protocol predicted the skill/agent counts might differ
+  between arms; the 2026-09-30 check found they did not.
 - **n=3 per arm, one task.** Same statistical caveat #358's own report
   named for its Fable-vs-Opus comparison: a small sample size, one
   refine-task probe, not a general claim about `/effort high` everywhere.
