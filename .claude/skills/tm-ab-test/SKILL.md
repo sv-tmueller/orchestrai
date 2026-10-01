@@ -101,7 +101,7 @@ Fill one copy of `templates/recording-checklist.md` per arm as it runs
 and hands it back). The checklist pins the exact commands for base commit,
 window, token usage, agent count, diff size, and the independent review
 pass; run each one, do not estimate. For a `claude -p` arm, record cost per
-the checklist's cost items below.
+"Recording cost" in the headless `claude -p` checklist below.
 
 ## 5. Report and ledger
 
@@ -127,8 +127,7 @@ separate from the `headless` arm mode above, where you drive the arm in your
 own session. Each item gives the trap, the fix (with the gate that proves
 the fix held), and the source. Report files are under `docs/reviews/`
 (`ab-native-vs-kickoff` is #400, `lead-effort-comparison` is #404,
-`ultracode-arm-379` is #405). Use placeholders in anything you write down:
-no local paths, no settings values, no provider hosts.
+`ultracode-arm-379` is #405).
 
 ### Before launch
 
@@ -164,8 +163,10 @@ no local paths, no settings values, no provider hosts.
     Signature: the stderr line `Background tasks still running after 600s;
     terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait
     indefinitely.`, and a `task_notification` with `status: stopped` just
-    before the final `result` event. Judge passes are exposed too:
-    `tm-review-changes` took 651 s in #405.
+    before the final `result` event. Judge passes are exposed too: #400's
+    judges ran `tm-review-changes` under `claude -p` (protocol section 8), and
+    the same workflow took 651 s when #405 ran it in-session (report
+    section 7).
   - Fix (documented, checked 2026-10-01): set
     `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, the ceiling in milliseconds on
     idle waiting for background subagents and workflows after the final turn
@@ -181,8 +182,11 @@ no local paths, no settings values, no provider hosts.
     "The 11 deviations" item 5.
 - **The `Glob` allowlist gap.**
   - Trap: `--allowedTools` grants `Glob` by name with no path limit (unlike
-    `Bash(...)` entries). In #404 round 1, H2 and H3 globbed one level above
-    the trial root and reached a sibling root, leaving 0 of 3 runs valid.
+    `Bash(...)` entries). In #404 round 1, H2 and H3 each ran `Glob` with a
+    path one level above the trial root, which also covered a sibling trial
+    root. H2's matches leaked two files from it; H3 matched nothing but was
+    still invalid under the gate's literal text (H1 had died of a 429, so
+    round 1 had 0 of 3 valid runs).
     From #405: a bare `Read` or `Grep` in `--allowedTools` bypasses
     `permissions.blockReadsOutsideWorkingDirectories`, and a diagnostic read
     the reference solution that way.
@@ -239,8 +243,9 @@ no local paths, no settings values, no provider hosts.
     leaves out thinking. Measured output was 3.76x the estimate on #400 arm A
     and 4.40x on arm B, so the cost ratio read 0.62 on the estimate and 0.71
     measured. A script version that does not read `subagents/workflows/`
-    also misses workflow agents: $4.28 reported against $12.77 measured in
-    #405.
+    also misses workflow agents: in #405 it reported $4.28 against $12.77
+    measured, and about $6.43 of that gap was the 7 workflow subagents (the
+    rest is lead output the estimate leaves out, thinking included).
   - Fix: the measured figure above is the cost of record. Report the script's
     number only as a labeled estimate, and never compare one arm's estimate
     with the other arm's measured figure. Before a workflow run, check that
