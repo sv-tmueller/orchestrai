@@ -8,7 +8,7 @@ Reused xhigh arm (O1-O3): #358's own files, unedited by this PR.
 
 ## 1. Bottom line
 
-**Switch the lead's advisor refinement (sections 1-2 only) to `--effort
+**Switch the lead's advisor refinement (sections 1-2 only) to `/effort
 high`.** Round 1 (H1-H3) delivered 0 valid runs (a 429 and two contamination-
 gate hits) and reported "insufficient evidence." Per a decision logged on
 batch #403
@@ -164,12 +164,12 @@ gate (H4 29 turns, H5 42 turns, H6 46 turns, all `perTurnEffort: high`) and
 the contamination gate (clear on every run).
 
 **No-writes check.** `data.json`'s `no_writes_check` block (window starting
-at H1's start, 10:56:48Z) covers only H1-H3; H4-H6 had no recorded check of
-their own until this fix round. A second, read-only check
+at 10:56:00Z, the recorded original window start) covers only H1-H3; H4-H6 had no recorded check of
+their own until the PR #408 review on 2026-09-30. A second, read-only check
 (`no_writes_check_h4_h6`) now covers H4-H6, windowed from H4's own start
 (15:09:36Z); nothing in it traces to a write by H4, H5, or H6, the same
 GH_CONFIG_DIR-empty, `Bash(gh *)`-disallowed setup as H1-H3. It ran about 2
-days after the fact (this fix round, not the trial day), so its window also
+days after the fact (on 2026-09-30, during the PR #408 review, not the trial day), so its window also
 catches later, unrelated repo activity between H4-H6 and now; it does not
 isolate H4-H6's own writes as tightly as the same-day H1-H3 check did.
 
@@ -236,8 +236,8 @@ $1.1041064, matching `total_cost_usd` exactly.
 
 **Switch.** `.claude/team-guide.md`'s "Operating model (advisor)" section
 gets one refinement-only note: `/tm-advisor` sections 1 (Refine) and 2 (Propose) may
-run at `--effort high` instead of the session default `xhigh`, citing this
-report; flip back to `xhigh` before replying "dispatch" (sections 3-6, and
+run at `/effort high` instead of the session default `xhigh`, citing this
+report; flip back to `/effort xhigh` before replying "dispatch" or "file only" (sections 3-6, and
 every other seat, are unaffected and stay at their existing pins).
 `tiers.lead` in `.claude/adapters/claude-code.json` and
 `SEAT_EXPECTATIONS` in `effort-policy.test.mjs` are not touched: both are
@@ -262,34 +262,37 @@ dispatch) before extending this refinement-only finding any further.
 - **Drift between arms, not a paired trial.** O1-O3 and H1-H6 ran under
   different conditions beyond the run date: the orchestrai plugin was at
   version 2.2.0 for O1-O3 and 2.4.0 for H1-H6 (each run's own init event,
-  `plugins[].version`; checked against all nine raw run logs this fix
-  round). `~/.claude-work/settings.json` changed 2026-09-27 per the
-  protocol's own contemporaneous note; re-checked this fix round, the
+  `plugins[].version`; checked against all nine raw run logs on
+  2026-09-30, during the PR #408 review). `~/.claude-work/settings.json` changed 2026-09-27 per the
+  protocol's own contemporaneous note; re-checked on 2026-09-30, the
   file's mtime now reads 2026-09-29T16:43:28Z, so it has since changed
   again and no longer independently confirms that original date. H1-H6 ran
   5 days after O1-O3. What turned out identical, checked directly against
   each run's own init event: plugin/skill/agent counts (7 plugins, 137
-  skills, 24 agents, all nine runs) and the cache-cold first-turn prompt
+  skills, 24 agents, all nine runs) and the first-turn prompt
   size (O1 31,517 tokens vs H4 14,210 cache-creation + 17,322 cache-read =
   31,532 tokens). The protocol predicted the skill/agent counts might
-  differ between arms; this fix round's check found they did not.
+  differ between arms; the 2026-09-30 check found they did not.
 - **n=3 per arm, one task.** Same statistical caveat #358's own report
   named for its Fable-vs-Opus comparison: a small sample size, one
-  refine-task probe, not a general claim about `--effort high` everywhere.
+  refine-task probe, not a general claim about `/effort high` everywhere.
 - Ceiling effect: 5 of the 6 judged outputs scored 20/20, and the one lower
   score (H6, 19/20) traces to the judge-checkout layout mismatch below, not
   to a genuine factual error in H6's own output. With both arms at or near
   the rubric's ceiling, the score condition can show that high does not
   fall far below xhigh on this task, but it has little room to detect a
   smaller quality gap. The only point separating the two arms' mean scores
-  comes from this artifact, so the score condition's margin (0.33 against
-  the 1.0 ceiling) is, if anything, wider than reported, not narrower.
+  comes from this artifact: without the artifact the gap would be 0, not
+  0.33, so condition 1 holds with more room than reported.
 - Judge-checkout layout mismatch: H6's opening claim, that `_snapshot/`
   "sits at `../_snapshot/`, one level above the repo," was true in H6's own
   trial root (`_snapshot/` is a sibling of `repo/` there) but scored false
   by the judge (C2: "it's a subdirectory of the repo," `data.json`'s H6
-  judge reason) because the judge's own pristine copy nests `_snapshot/`
-  inside `judge-repo/` instead of matching each run's own layout. The
+  judge reason) because the pre-registered judge layout (protocol, "Run
+  the judge outside both lead trial roots") nests `_snapshot/` inside the
+  judge's own pristine copy, `judge-repo/`, instead of matching each run's
+  own layout (protocol, round-2 trial root: `_snapshot/` next to `repo/`).
+  The mismatch is in the protocol's design, not an execution slip. The
   pre-registered score (19/20) and the decision-rule result are unchanged;
   this bullet only corrects why H6 lost its one point. A future trial
   should give the judge a copy that reproduces the runs' own filesystem
