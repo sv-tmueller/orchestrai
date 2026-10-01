@@ -1,3 +1,19 @@
+export const meta = {
+  name: 'tm-map-codebase',
+  description:
+    'Token-bounded full-repo map: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker maps each area (purpose, entry points, key modules, data and control flow, external dependencies, conventions), and one Opus critic synthesizes a dated architecture map. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling. This is a map, not a review: no findings, no severities, no recommendations.',
+  phases: [
+    { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', model: 'sonnet' },
+    { title: 'Map', detail: 'one Sonnet worker per area describes it', model: 'sonnet' },
+    { title: 'Synthesize', detail: 'one Opus critic writes the consolidated map', model: 'opus' },
+  ],
+}
+// meta is a plain literal and the first statement because the workflow runtime
+// reads it before running the script. It repeats the name, description and
+// phases of SPEC below, with each phase's tier resolved through TIER_MODELS.
+// workflow-meta.test.mjs fails if the two drift.
+// The model is carried here for display purposes only.
+
 // Workflow spec (embedded; mirrors specs/tm-map-codebase.spec.json)
 // The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
 // and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
@@ -50,16 +66,6 @@ const SPEC = {
 // inlined here because the workflow runtime has no imports.
 const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
 const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
-
-export const meta = {
-  name: SPEC.name,
-  description: SPEC.description,
-  phases: SPEC.phases.map((p) => ({
-    title: p.title,
-    detail: p.detail,
-    model: TIER_MODELS[p.tier],
-  })),
-}
 
 // Bounded by construction. The scout sizes the number of areas N to the repo, and
 // the script hard-clamps N to MAX_AREAS, so a run is 1 scout + N area workers +
