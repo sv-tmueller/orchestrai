@@ -1,3 +1,19 @@
+export const meta = {
+  name: 'tm-review-changes',
+  description:
+    'Token-bounded code review: Sonnet workers review the diff across fixed dimensions, one Opus critic consolidates. Models are pinned per stage in-script, so it never inherits the session model or fans out unboundedly.',
+  phases: [
+    { title: 'Review', detail: 'one Sonnet worker per dimension', model: 'sonnet' },
+    { title: 'Verify', detail: 'one adversarial Sonnet worker per must-fix finding, capped', model: 'sonnet' },
+    { title: 'Consolidate', detail: 'one Opus critic verifies and merges findings', model: 'opus' },
+  ],
+}
+// meta is a plain literal and the first statement because the workflow runtime
+// reads it before running the script. It repeats the name, description and
+// phases of SPEC below, with each phase's tier resolved through TIER_MODELS.
+// workflow-meta.test.mjs fails if the two drift.
+// The model is carried here for display purposes only.
+
 // Workflow spec (embedded; mirrors specs/tm-review-changes.spec.json)
 // The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
 // and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
@@ -52,18 +68,6 @@ const SPEC = {
 // inlined here because the workflow runtime has no imports.
 const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
 const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
-
-export const meta = {
-  name: SPEC.name,
-  description: SPEC.description,
-  phases: SPEC.phases.map((p) => ({
-    title: p.title,
-    detail: p.detail,
-    // The adapter table resolves the tier to a concrete model for the
-    // Claude Code host. meta.phases carries the model for display purposes.
-    model: TIER_MODELS[p.tier],
-  })),
-}
 
 // Bounded by construction. The dimension list is fixed, there is no per-file
 // fan-out and no loop, so a run is DIMENSIONS.length Sonnet reviewers, plus one
@@ -288,11 +292,11 @@ const diffHint =
 // runtime-assembled values (coverageNote, rawFindings) are plugged in there.
 const PROMPTS = {
   review:
-    'You review one dimension of a code change and report findings only; you never edit.\n\nDimension: {{brief}}\n\n{{diffHint}}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.',
+    'You review one dimension of a code change and report findings only; you never edit.\n\nDimension: {{brief}}\n\n{{diffHint}}\n\nReport every finding with file, line, severity (must-fix | should-fix | nit), the problem, and the required fix. If the dimension is clean, return an empty findings array. Stay strictly within your dimension.\n\nSeverity floor: if a finding you report matches one of these conditions, its severity is must-fix, whatever your overall read. 1. A test deleted, skipped or weakened, without the PR body saying why. 2. `--no-verify`, or any other bypassed git hook. 3. A new dependency with no justification in the PR body. 4. A CI job with no `timeout-minutes`, or a workflow with no `concurrency` group carrying `cancel-in-progress: true`. 5. A change touching the full stack, shipped without e2e.',
   verify:
     'You are an adversarial verifier. A reviewer reported the finding below as must-fix. Start from the position that it is wrong or stale. It survives only if you can reproduce it against the current tree: open the file at the cited line, read the surrounding code, and show the problem is real. "Cannot reproduce", "already fixed" and "the evidence does not hold" all mean confirmed: false. You report only; you never edit.\n\n{{diffHint}}\n\nFinding (JSON):\n{{finding}}\n\nReturn confirmed (true only if you reproduced the problem) and a note of one or two sentences naming what you checked and what you found.',
   consolidate:
-    'You are the senior reviewer. {{coveredCount}} parallel reviewers produced the findings below.{{coverageNote}} {{diffHint}}\n\nEvery must-fix finding went through an adversarial verification pass against the current tree, so must-fix findings arrive in three groups. Confirmed: a verifier reproduced the finding; keep it as must-fix unless the diff shows otherwise. Refuted: a verifier could not reproduce it; do not report it as must-fix and do not repeat it in any field, because the script lists refuted findings in the report. Unverified: no verifier checked it (cap reached or the verifier returned nothing); judge each against the actual diff yourself. For the confirmed, unverified and raw findings: verify against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nConfirmed must-fix findings (JSON):\n{{confirmedFindings}}\n\nRefuted must-fix findings (JSON, with the verifier note):\n{{refutedFindings}}\n\nUnverified must-fix findings (JSON):\n{{unverifiedFindings}}\n\nRaw should-fix and nit findings (JSON):\n{{rawFindings}}',
+    'You are the senior reviewer. {{coveredCount}} parallel reviewers produced the findings below.{{coverageNote}} {{diffHint}}\n\nEvery must-fix finding went through an adversarial verification pass against the current tree, so must-fix findings arrive in three groups. Confirmed: a verifier reproduced the finding; keep it as must-fix unless the diff shows otherwise. Refuted: a verifier could not reproduce it; do not report it as must-fix and do not repeat it in any field, because the script lists refuted findings in the report. Unverified: no verifier checked it (cap reached or the verifier returned nothing); judge each against the actual diff yourself. For the confirmed, unverified and raw findings: verify against the actual diff, drop false positives and anything out of scope, merge duplicates, and set a final severity. You may add a finding only if it is a clear must-fix the reviewers missed. Severity floor: any finding that matches one of these conditions is must-fix, whatever your overall read. 1. A test deleted, skipped or weakened, without the PR body saying why. 2. `--no-verify`, or any other bypassed git hook. 3. A new dependency with no justification in the PR body. 4. A CI job with no `timeout-minutes`, or a workflow with no `concurrency` group carrying `cancel-in-progress: true`. 5. A change touching the full stack, shipped without e2e. A floor finding cannot be downgraded to should-fix or nit, but you may still dismiss it if it is false on the facts, with the reason under dismissed. Only must-fix findings block: verdict is changes-requested if any remain, approve otherwise. Record every dropped finding under dismissed with the reason.\n\nConfirmed must-fix findings (JSON):\n{{confirmedFindings}}\n\nRefuted must-fix findings (JSON, with the verifier note):\n{{refutedFindings}}\n\nUnverified must-fix findings (JSON):\n{{unverifiedFindings}}\n\nRaw should-fix and nit findings (JSON):\n{{rawFindings}}',
 }
 
 // Replace {{slot}} markers with vals[slot]; throw on unknown slot.
