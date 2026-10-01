@@ -512,7 +512,7 @@ function agentTable(agents) {
   for (const a of agents) {
     const source = SOURCE_LABELS[a.source]
     const wallClock = source && a.wallClockMs != null ? `${fmtDuration(a.wallClockMs)}${source.estimated ? ' (est.)' : ''}` : 'n/a'
-    const role = a.label ? `${a.role} (${a.label.replaceAll('|', '\\|')})` : a.role
+    const role = a.label ? `${a.role} (${a.label.replace(/\s*[\r\n]+\s*/g, ' ').replaceAll('|', '\\|')})` : a.role
     lines.push(
       `| ${a.start.slice(0, 19).replace('T', ' ')} | ${role} | ${a.models.join(', ') || '-'} | ${a.calls} | ${a.toolUses} | ${fmtInt(a.outputTokens)} | ${wallClock} | ${source && a.wallClockMs != null ? source.text : 'n/a'} |`
     )
@@ -533,7 +533,9 @@ function limitations(priced, agents, unread) {
     )
   }
   if (unread.length > 0) {
-    lines.push(`- Found but not read (left out of every total): ${unread.join(', ')}.`)
+    // The report is posted publicly: never print an agent id, even from an unknown entry.
+    const names = unread.map((entry) => entry.replace(/agent-[^/\s,]+/g, 'agent-<id>'))
+    lines.push(`- Found but not read (left out of every total): ${names.join(', ')}.`)
   }
   if (priced.unpriced.length > 0) {
     lines.push(`- Unpriced models (left out of the total): ${priced.unpriced.join(', ')}.`)
@@ -624,11 +626,14 @@ function readLabel(path) {
 // plain ones under subagents/ and the workflow ones under
 // subagents/workflows/<runId>/. Anything it finds but cannot read, or does not
 // know the layout of, goes into unread (paths relative to the session dir),
-// so the report can name it instead of leaving it out silently.
+// so the report can name it instead of leaving it out silently. An unreadable
+// transcript is reported as its directory plus a count, so no agent id (the
+// file name) reaches the public report.
 function findSubagents(leadPath) {
   const sessionDir = join(dirname(leadPath), basename(leadPath, '.jsonl'))
   const subagents = []
   const unread = []
+  const unreadTranscripts = new Map()
   const rel = (path) => path.slice(sessionDir.length + 1)
 
   function list(dir) {
@@ -644,12 +649,17 @@ function findSubagents(leadPath) {
     try {
       subagents.push({ hex: hexOf(basename(path)), text: readFileSync(path, 'utf8'), ...extra })
     } catch {
-      unread.push(rel(path))
+      const dir = rel(dirname(path))
+      unreadTranscripts.set(dir, (unreadTranscripts.get(dir) || 0) + 1)
     }
   }
 
   const root = join(sessionDir, 'subagents')
   if (!existsSync(root)) return { subagents, unread }
+  const finish = () => {
+    for (const [dir, count] of unreadTranscripts) unread.push(`${dir} (${count} ${count === 1 ? 'transcript' : 'transcripts'})`)
+    return { subagents, unread }
+  }
 
   for (const entry of list(root)) {
     const path = join(root, entry.name)
@@ -672,7 +682,7 @@ function findSubagents(leadPath) {
       readTranscript(path)
     }
   }
-  return { subagents, unread }
+  return finish()
 }
 
 function resolveLeadPath(opts) {

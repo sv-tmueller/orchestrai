@@ -10,7 +10,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
@@ -657,6 +657,19 @@ describe('render: by agent table', () => {
     const markdown = render(baseArgs({ unread: ['subagents/unknown-layout', 'subagents/workflows/wf_x'] }))
     assert.match(markdown, /Found but not read.*subagents\/unknown-layout, subagents\/workflows\/wf_x/)
   })
+
+  test('puts no agent id in the unread line, even for an unknown entry named after one', () => {
+    const markdown = render(baseArgs({ unread: ['subagents/agent-deadbeef01', 'subagents/workflows/wf_x/agent-0a0b0c0d'] }))
+    assert.match(markdown, /Found but not read/)
+    assert.ok(!/deadbeef01|0a0b0c0d/.test(markdown))
+  })
+
+  test('keeps a pipe or newline in a label from splitting its table row', () => {
+    const markdown = render(baseArgs({ agents: [agent({ role: 'workflow:x', label: 'a\nb|c\r\nd' })] }))
+    assert.ok(markdown.includes('workflow:x (a b\\|c d)'))
+    const rows = markdown.split('\n').filter((line) => line.includes('workflow:x'))
+    assert.equal(rows.length, 1)
+  })
 })
 
 describe('CLI: workflow session', () => {
@@ -706,6 +719,51 @@ describe('CLI: workflow session', () => {
       assert.match(result.stdout, /workflow:wf_ok/)
     } finally {
       chmodSync(blocked, 0o755)
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('CLI: unreadable transcripts and odd sidecars', () => {
+  const run = (args) => spawnSync(process.execPath, [scriptPath, ...args], { encoding: 'utf8' })
+  const copyConfig = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'token-report-'))
+    cpSync(wfConfigDir, dir, { recursive: true })
+    return dir
+  }
+  const sessionDir = (dir) => join(dir, 'projects', 'test-project', 'workflow-session', 'subagents')
+
+  test('an unreadable transcript names its directory and count, never its agent id', (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return t.skip('chmod cannot block root')
+    const dir = copyConfig()
+    const subagents = sessionDir(dir)
+    const wfRun = join(subagents, 'workflows', 'wf_fixture-001')
+    const blocked = [join(subagents, 'agent-aaaa0001.jsonl'), join(wfRun, 'agent-a0a00001.jsonl'), join(wfRun, 'agent-b0b00002.jsonl')]
+    for (const path of blocked) chmodSync(path, 0o000)
+    try {
+      const result = run(['--session', 'workflow-session', '--config-dir', dir])
+      assert.equal(result.status, 0, result.stderr)
+      const line = result.stdout.split('\n').find((l) => l.includes('Found but not read'))
+      assert.ok(line, 'the unread line is printed')
+      assert.match(line, /subagents \(1 transcript\)/)
+      assert.match(line, /subagents\/workflows\/wf_fixture-001 \(2 transcripts\)/)
+      for (const hex of [...WF_HEXES, 'aaaa0001']) assert.ok(!result.stdout.includes(hex), `no agent hex ${hex} in the report`)
+    } finally {
+      for (const path of blocked) chmodSync(path, 0o644)
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a sidecar description with a newline and a pipe stays in one table row', () => {
+    const dir = copyConfig()
+    try {
+      const meta = join(sessionDir(dir), 'workflows', 'wf_fixture-001', 'agent-a0a00001.meta.json')
+      writeFileSync(meta, JSON.stringify({ description: 'a\nb|c' }))
+      const result = run(['--session', 'workflow-session', '--config-dir', dir])
+      assert.equal(result.status, 0, result.stderr)
+      assert.ok(result.stdout.includes('(a b\\|c)'))
+      assert.ok(!/^b\\\|c\)/m.test(result.stdout), 'no row starts mid-description')
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
