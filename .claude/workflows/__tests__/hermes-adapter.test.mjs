@@ -259,6 +259,39 @@ describe('hermes workflow renderer', () => {
     )
   })
 
+  test('tm-map-codebase: items_cap "args.areas" resolves to the passed args.areas value', async () => {
+    const calls = []
+    const origDryRun = process.env.DRY_RUN
+    const origDelegate = globalThis.delegate_task
+    process.env.DRY_RUN = 'false'
+    globalThis.delegate_task = async ({ goal, output_schema }) => {
+      calls.push({ goal, output_schema })
+      if (output_schema === 'MAP_SCHEMA') {
+        return {
+          areas: [
+            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
+            { name: 'beta-area', paths: ['beta/'], why: 'support' },
+          ],
+          dropped: [],
+        }
+      }
+      return { findings: [], summary: 'ok' }
+    }
+
+    try {
+      await renderWorkflow('tm-map-codebase', { areas: 1 })
+    } finally {
+      globalThis.delegate_task = origDelegate
+      process.env.DRY_RUN = origDryRun
+    }
+
+    const areaMapGoals = calls
+      .filter((c) => c.output_schema === 'AREA_MAP_SCHEMA')
+      .map((c) => c.goal)
+    assert.equal(areaMapGoals.length, 1, 'args.areas = 1 must cap the dispatch at one area')
+    assert.ok(areaMapGoals[0].includes('alpha-area'), 'the cap keeps the first area')
+  })
+
   test('tm-review-codebase: area_review stage receives the real scout areas, not the stub', async () => {
     const calls = []
     const origDryRun = process.env.DRY_RUN

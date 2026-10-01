@@ -247,8 +247,37 @@ function getFixedListItems(stage, ctx, args) {
   return args[stage.items_key] || [{ key: 'stub', name: 'stub-item' }]
 }
 
-// Resolve the item list for a dynamic-list stage.
-function getDynamicListItems(stage, ctx, args, name, log) {
+// Closed set of item reducers a dynamic-list stage can name with
+// items_transform. A reducer only flattens, filters and dedups; the cap stays
+// the one generic step in getDynamicListItems. Keep in sync with
+// codex-renderer.mjs and the "Spec format" section of adapter-interface.md.
+const ITEM_TRANSFORMS = {
+  // Worker reports ({ findings: [...] }) -> unique must-fix findings.
+  must_fix_deduped(reports) {
+    const seen = new Set()
+    const out = []
+    for (const report of reports) {
+      if (!report || !Array.isArray(report.findings)) continue
+      for (const f of report.findings) {
+        if (!f || f.severity !== 'must-fix') continue
+        const key = JSON.stringify([f.file, f.line, f.problem])
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(f)
+      }
+    }
+    return out
+  },
+}
+
+// Resolve the item list for a dynamic-list stage. Exported for testing.
+export function getDynamicListItems(stage, ctx, args, name, log) {
+  // An unknown transform must fail loudly: a host without the reducer would
+  // otherwise fan out over unreduced items.
+  const transform = stage.items_transform
+  if (transform !== undefined && !Object.hasOwn(ITEM_TRANSFORMS, transform)) {
+    throw new Error(`stage ${name}: unknown items_transform "${transform}"`)
+  }
   // Dynamic-list stages read items from a previous stage's output.
   // items_source is a dotted path like "scout_result.areas".
   const parts = stage.items_source.split('.')
@@ -265,9 +294,16 @@ function getDynamicListItems(stage, ctx, args, name, log) {
     )
     return [{ name: 'stub-area', paths: ['.'], why: 'stub' }]
   }
-  // Cap the item count.
-  const cap = args[stage.items_cap] || stage.items_default_cap || Infinity
-  return val.slice(0, cap)
+  const items = transform ? ITEM_TRANSFORMS[transform](val) : val
+  // items_cap names an args field as "args.<field>"; same coercion as the JS
+  // workflows' MAX_AREAS (positive integer, else the default).
+  const capField = typeof stage.items_cap === 'string' ? stage.items_cap.replace(/^args\./, '') : undefined
+  const passed = capField ? args?.[capField] : undefined
+  const cap = Number.isInteger(passed) && passed > 0 ? passed : stage.items_default_cap || Infinity
+  if (items.length > cap) {
+    log(`stage ${name}: ${items.length - cap} item(s) past the cap of ${cap} were not dispatched`)
+  }
+  return items.slice(0, cap)
 }
 
 // Infer the role agent for a stage from the stage name.
