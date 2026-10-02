@@ -98,12 +98,39 @@ session with the model provider configured.
 
 ## Live mode
 
-In a live Hermes session, `spawn` delegates to `delegate_task` with an
-`output_schema` for structured report collection. The `delegate_task`
-global must be available in the runtime (it is injected by the Hermes
-agent framework). Standalone Node.js execution without `DRY_RUN=true`
-will throw, because `delegate_task` is not defined outside a Hermes
-session.
+In live mode `spawn` runs one `hermes` subprocess per seat:
+
+```
+hermes -z "<role prompt + task>" -m <model> --provider <p> \
+  --reasoning <effort> -t <toolsets> --in <worktree> --yolo --accept-hooks
+```
+
+`-z` prints only the final response, so the report is parsed from stdout
+by `parseReport`, keyed by role against the contracts in
+`docs/architecture/role-contracts.md`. Hermes documents no
+structured-output parameter, so there is no schema to pass.
+
+This runs as ordinary Node: `hermes` is a CLI reached through
+`child_process`, with no host-injected globals. A Hermes lead session is
+therefore not required. `node hermes-pipeline.mjs` plus `hermes -z`
+workers is the whole team, and the Hermes skill is one way to launch it
+rather than the only way.
+
+Set `HERMES_BIN` to point at a different binary; tests use it so CI never
+shells out to a real install.
+
+The adapter never passes `-w`. Hermes' worktree mode registers an
+`atexit` cleanup that force-removes the worktree and deletes its branch
+unless there are unpushed commits, and it names branches from a UUID
+rather than `<type>/<issue>-<slug>`. The driver creates one worktree per
+package instead (`worktreePlan` and `ensureWorktree` in
+`hermes-pipeline.mjs`) and passes it as `--in`.
+
+`-t` restricts the tool surface but cannot express read-only: every seat
+needs `terminal` for git, gh, and the check suite, and terminal implies
+write capability. Read-only stays a prompt-level contract on this host.
+What `-t` does enforce is flat-star: no seat gets the `delegation`
+toolset, so no seat can re-delegate.
 
 ## Workflow rendering
 
