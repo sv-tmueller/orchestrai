@@ -68,9 +68,12 @@ describe('hermes adapter table structure', () => {
     }
   })
 
-  test('effort ceiling and forbidden efforts match the universal policy', () => {
-    assert.equal(hermesTable.effort_ceiling, 'xhigh')
-    assert.deepEqual(hermesTable.forbidden_efforts, ['max'])
+  test('effort ceiling and forbidden efforts match the Hermes local-model policy', () => {
+    // Self-hosted vLLM models: no token-cost ceiling, so max effort is
+    // allowed. Paid-API hosts (claude-code.json, codex.json) keep the
+    // xhigh ceiling and forbid max; this table intentionally diverges.
+    assert.equal(hermesTable.effort_ceiling, 'max')
+    assert.deepEqual(hermesTable.forbidden_efforts, [])
   })
 
   test('shares the same role-to-tier mapping as the Claude Code table', () => {
