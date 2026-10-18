@@ -4,11 +4,16 @@ A tool-independent AI-team-orchestrator: a ready-made agent team that takes
 GitHub issues from sub-plan to ready PR through a flat-star pipeline
 (architect, developer, tester, reviewer). Runs on two hosts:
 
-- **Claude Code** via the plugin marketplace (Opus/Sonnet/Fable)
+- **Claude Code** via the plugin marketplace (Opus/Sonnet; Fable is a
+  main-window user choice only, never pinned)
 - **Hermes Agent** via a Hermes skill (GLM-5-2 or any configured model)
 
 A Codex adapter (subscription auth, o3/gpt-5.6) is built but not yet
 live-tested.
+
+For what the team costs and catches against just asking an LLM to plan and
+execute a task in one pass, and when plain plan-and-execute is the better
+choice, see `docs/why-the-team.md`.
 
 ## How the team works
 
@@ -42,7 +47,7 @@ graph TD
     G -->|"6 human merges"| H
 
     subgraph WF["Review workflows"]
-        RC["tm-review-changes<br/>worker reviewers + 1 judgment critic"]
+        RC["tm-review-changes<br/>worker reviewers + worker verifiers + 1 judgment critic"]
         RB["tm-review-codebase<br/>worker scout + area workers + 1 judgment critic"]
     end
 
@@ -51,6 +56,33 @@ graph TD
 
 Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 `docs/architecture/adapter-interface.md`.
+
+### Pipeline rules
+
+- **Lean vs full track.** A `size:S` package whose diff stays out of
+  `.claude/agents`, `.claude/skills`, `.claude/workflows`, and executable code
+  skips the architect and tester stages; everything else runs the full
+  five-stage pipeline. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
+  "Pipeline tracks (lean and full)".
+- **Dependency environment.** The lead builds one read-only dependency
+  environment per run and passes its path to the developer, tester, and
+  lean-track reviewer dispatches, instead of each seat installing its own.
+  Mechanics: "Dependency environment (once per run)" in the same file.
+- **Worktree cleanup.** Right after a package's PR ships or the package is
+  parked, the lead removes that package's worktree and local branches, but
+  only once their commits are on origin; a wave-end backstop catches the rest,
+  including a lead checkout whose HEAD a dispatched agent moved. Mechanics:
+  "Worktree cleanup (deterministic)" in the same file.
+- **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
+  seat contracts, so the lead routes on the short report instead of expanding
+  it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
+  tracked separately for the tester and the reviewer. Mechanics: "Fix rounds
+  (exact text and lead-verified rounds)" and the routing rules in the same
+  file.
+
+The lean track, the dependency environment, worktree cleanup, and capped seat
+reports apply to Claude Code only for now; Hermes and Codex mirroring is
+pending. Hermes already caps fix rounds at 3 per stage.
 
 ## Components
 
@@ -67,7 +99,12 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   and a sync test asserts alignment.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup).
+  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup),
+  `/tm-review-changes` (diff review), `/tm-review-codebase` (repo review),
+  `/tm-map-codebase` (architecture map). Hermes variants ship as
+  `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
+  the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
+  on Hermes.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
@@ -86,7 +123,7 @@ Via the marketplace (recommended):
 /plugin install orchestrai@orchestrai
 ```
 
-Installs the agents and all 7 skills under the `orchestrai` namespace
+Installs the agents and all 8 skills under the `orchestrai` namespace
 (e.g. `/orchestrai:tm-kickoff`). Wire the process docs into your
 config-dir `CLAUDE.md`:
 
@@ -124,19 +161,33 @@ The adapter table at `.claude/adapters/claude-code.json`:
 |------|-------|--------|-------|
 | judgment | opus | xhigh | architect, reviewer |
 | worker | sonnet | high | developer, tester, fact-checker, docs-writer, perf-investigator |
-| lead | fable | xhigh | the lead session |
+| lead | opus | xhigh | the lead session |
 
-Fallback: judgment-tier failures retry on the worker tier (Opus to Sonnet),
-flagged in the report. Nothing runs at max effort.
+Fallback: an Opus quota death on a judgment dispatch (architect or reviewer)
+re-dispatches that call on Sonnet and sends every later judgment dispatch in
+the run straight to Sonnet, logged once as a decision; the run never goes back
+to Opus even if quota returns mid-run, and the next run tries Opus again.
+Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
+fallback and resume)". Nothing runs at max effort. Fable is never pinned in
+this table; it is available only as the user's own choice for the main window.
 
 ## Zone 2: Hermes Agent (GLM-5-2)
 
 ### Install
 
-The Hermes skill is auto-discovered at
-`~/.hermes/skills/autonomous-ai-agents/orchestrai/`. Run
-`hermes skills list` to confirm it appears. No install step is needed on
-the machine where the skill files are present.
+Two Hermes skills ship with this repo:
+
+- **orchestrai** - the pipeline driver (architect, developer, tester,
+  reviewer). Auto-discovered at
+  `~/.hermes/skills/autonomous-ai-agents/orchestrai/`.
+- **tm-advisor** - the batch advisor (refine a need, propose a batch,
+  get sign-off, dispatch the pipeline). Auto-discovered at
+  `~/.hermes/skills/autonomous-ai-agents/tm-advisor/`.
+
+Both skill sources live in the repo as `SKILL.hermes.md` alongside
+their Claude counterparts under `.claude/skills/`. Run
+`hermes skills list` to confirm they appear. No install step is needed
+on the machine where the skill files are present.
 
 To install on another machine, publish the skill directory as a GitHub
 repo and tap it:
@@ -147,6 +198,8 @@ hermes skills install orchestrai
 ```
 
 ### Use
+
+#### orchestrai (pipeline driver)
 
 Just ask. The skill is auto-discovered in every Hermes session, so the
 model loads it when you mention the orchestrator team. No preload needed:
@@ -174,6 +227,71 @@ The lead session (GLM-5-2 or whatever you configured) reads the skill,
 follows the flat-star pipeline, and dispatches each role agent via
 `delegate_task` as a leaf worker. Role prompts are loaded from the
 skill's `references/roles/` directory.
+
+#### tm-advisor (batch advisory)
+
+Refine a raw need into a batch of work packages, get one sign-off, then
+run the batch unattended through the orchestrai pipeline:
+
+```bash
+hermes -s tm-advisor chat -q "We need to clean up the test helpers and add integration tests for the adapter layer"
+```
+
+Or interactively, preload the skill and then type your need:
+
+```bash
+hermes -s tm-advisor
+> We need to clean up the test helpers and add integration tests for the adapter layer
+```
+
+With no arguments, tm-advisor enters the resume path: it finds open batch
+tracking issues and continues or proposes the next batch:
+
+```bash
+hermes -s tm-advisor
+```
+
+The advisor loads the orchestrai pipeline via `skill_view` at dispatch
+time, so you do not need to preload orchestrai separately. The advisor
+holds the sign-off gate; after it, the run is unattended.
+
+#### Skill bundles
+
+Instead of preloading each skill individually with `-s`, you can group
+them into a bundle that loads all at once with a single slash command:
+
+```bash
+hermes bundles create advisor \
+  --skill tm-advisor \
+  --skill orchestrai \
+  --skill deep-codebase-audit \
+  --skill codebase-inspection \
+  --skill github-code-review \
+  --skill requesting-code-review \
+  --skill github-issue-to-pr \
+  --skill github-issues \
+  --skill github-pr-workflow \
+  --description "Advisory + codebase review + GitHub workflow toolkit"
+```
+
+Then in any Hermes session:
+
+```
+/advisor
+```
+
+Loads all nine skills for that session. The bundle file lives at
+`~/.hermes/skill-bundles/advisor.yaml` and is machine-local; it is not
+stored in this repo. To replicate on another client, rerun the
+`hermes bundles create` command above, or copy the YAML file to the
+same path and run `hermes bundles reload`.
+
+Bundles reference skill names but do not carry skill content. Skills
+that ship with Hermes (tm-advisor, orchestrai, etc.) are available on
+any installation; skills installed via `hermes skills install` must be
+installed on each client separately. `hermes sync` (requires Nous Portal
+login) can sync your installed skills across machines, but does not
+sync bundle files.
 
 ### How it maps to Hermes
 

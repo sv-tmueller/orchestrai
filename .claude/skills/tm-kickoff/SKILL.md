@@ -49,22 +49,33 @@ to find an existing PR.
   it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: report it as awaiting merge and skip it. If the issue carries
-  `in-progress` but has no open PR and no branch on origin, clear the label
-  and restart from the developer stage. Otherwise (a PR or branch exists)
-  read the sub-plan comment and the PR comments (verdicts and fix rounds live
-  there) to find the stage it stopped at, and re-enter there; re-enter at
-  the tester only when the stage cannot be determined from the PR comments.
-  Skip the architect when a sub-plan comment exists.
+  complete: report it as awaiting merge and skip it, unless its latest
+  review comment carries the `Model: sonnet (run-long fallback)` marker, in
+  which case it owes an Opus review and re-enters at the reviewer stage (see
+  "Limit deaths" below). If the issue carries `in-progress` but has no open
+  PR and no branch on origin, clear the label and restart from the developer
+  stage. Otherwise (a PR or branch exists) read the sub-plan comment and the
+  PR comments (verdicts and fix rounds live there) to find the stage it
+  stopped at, and re-enter there; re-enter at the tester only when the stage
+  cannot be determined from the PR comments. Skip the architect when a
+  sub-plan comment or a `Track: lean` comment exists. A lean package (a
+  `Track: lean` comment and no later `Track: full` comment) re-enters at the
+  developer or the reviewer, never the tester; when its stage cannot be
+  determined from the PR comments, re-enter at the reviewer.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
+
+Record the run start now for the wave-end token report (see "Token report
+(wave end)").
 
 ## 2. Wave plan
 
 Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
 by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
-PRs) and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended with no questions to the user mid-run.
+PRs, and each package's predicted track and why; see "Pipeline tracks" in
+section 3) and stop for the user's confirmation. This is the only
+confirmation in a run; after it, run the wave unattended with no questions to
+the user mid-run.
 Inside an /tm-advisor batch the batch sign-off replaces this confirmation; do
 not ask twice.
 
@@ -78,8 +89,9 @@ Before every agent dispatch in this pipeline, including fix-round
 re-dispatches and arbitration dispatches, print the
 plan-status block described in team-guide.md. The items are fixed to the
 five pipeline stages below (sub-plan, develop, test, review, PR ready);
-annotate fix rounds on the current item. When dispatching agents for several
-packages in one message, print one block per package.
+annotate fix rounds on the current item, and mark a stage skipped by the lean
+track (see "Pipeline tracks" below) as `[-]`. When dispatching agents for
+several packages in one message, print one block per package.
 
 Run up to 3 packages concurrently; dispatch their agents in parallel. When
 the queue is larger (up to 6 in an /tm-advisor batch), start the next queued
@@ -87,11 +99,14 @@ package as one finishes. Worktree isolation keeps packages apart. Within a
 package the stages are serial:
 
 1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
-   Post it as an issue comment. On NEEDS_DECISION: inside an /tm-advisor batch,
-   decide it yourself when it stays within the signed-off scope, logging the
-   decision on the batch issue; outside an /tm-advisor batch, park the package
-   (below) and surface the question in the wave-end report, then continue the
-   others.
+   When the issue body already carries signed-off batch decisions, the batch
+   decision log, or links a plan or spec, name that plan source in the
+   dispatch as a pointer; the architect still decides whether it returns a
+   delta. Post it as an issue comment. On NEEDS_DECISION: inside an
+   /tm-advisor batch, decide it yourself when it stays within the signed-off
+   scope, logging the decision on the batch issue; outside an /tm-advisor
+   batch, park the package (below) and surface the question in the wave-end
+   report, then continue the others.
 2. Label the issue `in-progress`. Dispatch the developer with the issue
    number and the sub-plan.
 3. On DONE or DONE_WITH_CONCERNS: dispatch the tester with the branch and
@@ -100,8 +115,9 @@ package the stages are serial:
    then send the findings verbatim to a fresh developer dispatch ("issue
    #<n>, branch <branch>: fetch it, work detached on it, fix exactly
    these"), then re-test.
-5. On PASS: post the verdict as a PR comment, then dispatch the reviewer
-   with the PR, the issue number, and the tester's UNTESTED CLAIMS, if any.
+5. On PASS: post the tester's report as a PR comment, not only the verdict,
+   then dispatch the reviewer with the PR, the issue number, and the
+   tester's UNTESTED CLAIMS, if any.
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
    number, then send the must-fix findings to a fresh developer dispatch in
    the same format as step 4, then re-test, then re-review forwarding the
@@ -115,6 +131,10 @@ package the stages are serial:
 
 Routing rules:
 
+- Seat reports are capped by the seat contracts. Route on the short report
+  as it stands. Where steps 4, 5, and 6 post a tester or reviewer report as
+  a PR comment, post it verbatim; that comment is the full evidence record.
+  Do not expand it, and do not re-dispatch a seat to get a longer version.
 - NEEDS_CONTEXT: answer from the issue, the sub-plan, and the repo docs. If
   you cannot, park the package.
 - BLOCKED: park the package (below) immediately; BLOCKED means the developer
@@ -125,17 +145,16 @@ Routing rules:
   do not re-raise it.
 - If the architect's sub-plan says the work exceeds the size label, stop
   that package and report it (re-label and split per CLAUDE.md "Sizing").
-- An architect or reviewer dispatch dies on an Opus 5 limit (the limit
-  error, or an empty return while Opus is exhausted): re-dispatch that one
-  agent with the same task and a per-call Sonnet override (the Agent tool's
-  `model` param, value `sonnet`). Do not flip a frontmatter pin or the
-  session model; the agent's own effort pin (xhigh) still applies. The
-  model override is the change that permits the re-dispatch. Flag the
-  fallback in the report, log the switch as a decision comment on the
-  package issue, and re-run the same judgment on Opus once quota returns;
-  a model switch is never silent and never the final word for a judgment
-  seat. Workflow critic stages recover on their own (criticWithFallback,
-  also sonnet); this rule covers lead dispatches only.
+- An architect or reviewer dispatch dies on an Opus limit: see "Limit
+  deaths (run-long fallback and resume)" below. Workflow critic stages
+  recover on their own (criticWithFallback, also sonnet); this rule covers
+  lead dispatches only.
+- A seat dispatch that returns empty, or returns text with no
+  contract-shaped report (`STATUS:`, `VERDICT:`, the architect job header,
+  or `NEEDS_DECISION:`), and is not a limit death (as defined in "Limit
+  deaths" below, which takes priority), is an empty or stalled return,
+  not a legitimate verdict: it gets a `SendMessage` resume, not a
+  re-dispatch. See "Limit deaths (run-long fallback and resume)" below.
 - Never re-dispatch an unchanged prompt; something in the task must change
   first.
 - Cap: 3 fix rounds per stage, counted from the PR comments. Tester and
@@ -148,21 +167,257 @@ Routing rules:
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 
+### Fix rounds (exact text and lead-verified rounds)
+
+1. **Exact text.** Any fix text the lead writes into a dispatch (arbitration
+   outcomes, lead decisions, NEEDS_CONTEXT answers) is the complete, exact
+   replacement text. When a sentence or list changes, quote the whole
+   resulting sentence or list. Never use `...`, "etc.", "for example A, B,
+   ..." or "keep the rest". A behavior fix that cannot be stated as text is
+   forwarded verbatim, with no partial text. If a reviewer finding contains a
+   placeholder, the lead writes out the full text, and the round is not
+   lead-verified.
+2. **When a round is lead-verified.** All must hold:
+   - (a) every finding came from the reviewer, quotes complete replacement
+     text, and was forwarded unchanged;
+   - (b) the reviewer ran its quality pass (`STAGE: quality`; a `STAGE:
+     spec` report never qualifies);
+   - (c) the fix is not executable code or configuration (JSON, YAML,
+     frontmatter);
+   - (d) the diff contains only that text;
+   - (e) CI is green.
+3. **What the lead checks.**
+   - Before the fix dispatch, record `gh pr view <pr> --json headRefOid` as
+     `<base>`. With a tester stage, `<base>` must equal the last tester PASS
+     `COMMIT`. After DONE, read it again as `<head>`. DONE_WITH_CONCERNS
+     falls back.
+   - Run `git fetch origin <branch>` and
+     `git merge-base --is-ancestor <base> <head>`.
+   - Run `git diff --stat <base> <head>`. Any file beyond the findings'
+     files means fall back.
+   - Run `git diff <base> <head>`. Every changed line must be the reviewer
+     text or the text it replaces, ignoring whitespace and wrapping.
+   - Run `gh pr checks <pr> --watch --fail-fast` with the output redirected,
+     so only the exit code counts. It must be 0, and `headRefOid` must be
+     unchanged.
+4. **Log line.** Posted on the PR, repeated in the step 7 summary, and,
+   inside an /tm-advisor batch, mirrored to the batch issue:
+   ```
+   Lead-verified round <r>/3 (reviewer findings <n, n>): verbatim reviewer text only, <base7>..<head7>, CI green on <head7>. No re-test, no re-review.
+   ```
+   The `Lead-verified` prefix is also the resume marker. On resume it
+   means the round passed only while `<head7>` still matches the PR head;
+   then continue at step 7. Otherwise re-test and re-review.
+5. **Every other fix** takes re-test and re-review: all tester FAIL rounds,
+   mixed or lead- or developer-worded rounds, any failed check, and CI that
+   is red, pending or reports no checks.
+6. **Counters and step 7.**
+   - A lead-verified round counts as one reviewer fix round, and the tester
+     counter does not move.
+   - A failed check adds no round; the same round continues on the normal
+     loop.
+   - A round 3/3 that passes ships.
+   - A passed round satisfies step 7 and section 4 without a re-test or a
+     new APPROVE.
+7. **Lean track.** Where a package has no tester stage, the round skips only
+   the re-review, the base is the head the reviewer reviewed, and CI green
+   on the new head replaces the reviewer's check results.
+
+### Limit deaths (run-long fallback and resume)
+
+A limit death is an agent dispatch that dies on an exhausted quota (the
+limit error, or an empty return while the model is exhausted), not a normal
+verdict. This is lead policy layered on top of the per-dispatch `retry` in
+`docs/architecture/adapter-interface.md`; it changes no agent contract.
+
+**Run.** One `/tm-kickoff` invocation, or one /tm-advisor batch run up to
+its report, is a run. A resumed session is a new run and tries Opus first
+again.
+
+**Switch.**
+
+- The first architect or reviewer death on an Opus limit is re-dispatched
+  with a per-call Sonnet override (the Agent tool's `model` param, value
+  `sonnet`).
+- Every later judgment dispatch in the run goes straight to Sonnet.
+- An in-flight Opus dispatch that dies the same way after the switch fired
+  goes to Sonnet too, with no second decision entry.
+- The run never goes back to Opus.
+- Frontmatter pins and the session model never change. The xhigh effort pin
+  still applies.
+
+**One decision entry per run.** Post it once, when the switch fires: on the
+batch issue inside an /tm-advisor batch, otherwise on the package issue
+whose dispatch died first.
+
+- Later fallbacks in the same run get no new decision entry.
+- Post every fallback verdict as a PR comment, APPROVE included. That
+  comment and every fallback sub-plan comment carry the marker line
+  `Model: sonnet (run-long fallback)` in the comment header, next to the
+  round number where there is one. The report body stays verbatim; the
+  marker never goes inside it.
+
+**Re-run on Opus.** "Once quota returns" means the next run: probing Opus
+mid-run would contradict "the run never goes back to Opus." The debt is the
+Opus review of the PR head. A Sonnet sub-plan or arbitration is covered by
+that review and is not re-run by itself.
+
+- In the next run, it is an ordinary review. While the latest review
+  comment on a PR carries the marker, post every reviewer verdict on it as a
+  PR comment, APPROVE included; an unmarked latest review comment clears the
+  debt.
+- On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
+
+**Resume before respawn.** After a limit death (once the lead can dispatch
+again) or an empty or stalled return (at once), it makes one `SendMessage`
+to the same agent ID, with a nudge to finalize its report. The plan-status
+block is annotated `(resumed)`.
+
+- Respawn fresh if the agent cannot be addressed, `SendMessage` errors, or
+  the resumed agent dies again or returns nothing usable.
+- A judgment seat's Opus-limit death skips the resume and goes straight to
+  the Sonnet respawn: a resumed agent keeps its exhausted model.
+- The nudge is new input; a resume with no new content is what the
+  unchanged-prompt rule forbids.
+- The respawn prompt adds one line naming the limit death or the empty
+  return and what the dead attempt left on origin.
+
+**Counters.** A quota or limit death, or an empty or stalled return, is not
+a finding. It posts no round comment and never advances a fix-round
+counter. The resumed or respawned dispatch keeps the same round number. A
+fallback verdict counts as a normal round. If any attempt in the resume or
+respawn sequence is a limit death, the Limit deaths rules apply from
+then on. Bound: for non-limit empty returns only, one resume per stage
+attempt: the fresh respawn gets no resume, and if it also comes back
+empty or stalled, park the package (see "Parking" in the routing rules
+above). Limit deaths have no such bound.
+
+### Pipeline tracks (lean and full)
+
+The numbered pipeline above is the full track, the default for every
+package. A package qualifies for the lean track only on `size:S` and a
+diff that avoids `.claude/agents`, `.claude/skills`, `.claude/workflows`
+and executable code. Everything else, and every `size:M`, runs full.
+When in doubt, full.
+
+- **Before dispatch.** Predict the track from the issue body and state it
+  and why in the wave plan or advisor proposal.
+- **Track comment.** For a lean package, post `Track: lean - <reason;
+  expected paths; verification: reviewer runs the check suite>` on the
+  issue. It is both the sub-plan checkpoint and the resume marker: skip
+  the architect stage.
+- **Stages.** Skip step 1 (architect). The developer dispatch (step 2)
+  says "lean track: no sub-plan, the issue body is the spec".
+- **Diff check.** Before every lean reviewer dispatch (after DONE or
+  DONE_WITH_CONCERNS, after each fix round, and on resume), check
+  `gh pr diff <n> --name-only`. If eligibility is broken, post
+  `Track: full - <reason; the paths that broke eligibility>` on the issue
+  and continue on the full track from step 3 (tester).
+- **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
+  (step 5) with the PR, branch, issue and "lean track", forwarding any
+  NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
+  a developer fix round (step 6), then re-review. There is no re-test.
+- **Done.** Step 7's "last tester verdict PASS" becomes: APPROVE and
+  every `CHECKS` exit code is 0. Only the reviewer's fix-round counter
+  applies; the cap of 3 is unchanged.
+- **Plan-status.** Keep the five items. A skipped stage (the architect,
+  and the tester) shows as `[-] <n>. <stage> skipped (lean)`. After a
+  track change to full, the architect item stays
+  `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
+  (`[>] 3. test   <- dispatching tester`).
+
+### Dependency environment (once per run)
+
+The lead builds the dependency environment once per run (a run as defined
+in "Limit deaths" above), after the wave-plan confirmation or batch
+sign-off and before the first developer dispatch, so every seat that runs
+the check suite shares one build instead of paying for it per package.
+
+Build it from CLAUDE.md "Useful commands", against the default branch,
+into `mktemp -d "${TMPDIR:-/tmp}/tm-env.XXXXXX"`. Never inside the
+checkout or any worktree. Install dependencies only: never install the
+project under test into it, editable or not, or a seat would test the
+lead's checkout instead of its own branch.
+
+Add `Dependency environment: <absolute path>` to every dispatch that
+runs the check suite: developer, tester, and the lean-track reviewer,
+including fix rounds, resumes and respawns. The architect and the
+full-track reviewer get no line.
+
+After the build, `chmod -R a-w <path>` so the environment is read-only:
+no seat installs into it, upgrades it, deletes from it, or changes its
+permissions. At run end, after the wave-end or batch report,
+`chmod -R u+w <path> && rm -rf <path>`.
+
+A seat builds its own environment, as it did before this rule, when the
+line is absent, the path is missing, the branch diff touches a
+dependency manifest or lockfile, or a check fails with an environment
+error. For the tester, an environment error is never a finding: it
+reruns in its own environment first. This changes no report contract.
+
+If CLAUDE.md "Useful commands" has no install step, or marks it N/A, or
+the lead's build fails: no line, no park.
+
 ## Worktree cleanup (deterministic)
 
-The `developer` and `tester` run with Agent `isolation: worktree`, but the
-isolation does not reliably separate the working tree: a dispatched agent's
-`git checkout`/`git switch` can land on the lead's shared checkout. That is the
-mechanical cause of the tangle, and it hits every checkout-running agent, not
-just one (observed live on issue #78: the `tester`'s `git checkout --detach
-FETCH_HEAD` left the lead's checkout detached at the branch tip). The agents
-publish to origin, so their work is safe there regardless; what leaks into the
-lead's checkout is a moved HEAD, sometimes a local branch, and a worktree
-registered under `.claude/worktrees/`. The `developer` fresh path uses a
-detached checkout instead of `git switch -c`, so it no longer leaves a stale
-local branch (the worst residue, a clobber risk against the good remote branch);
-the moved HEAD and the registered worktree are harness-side and cannot be
-prevented by agent commands, so the lead reverses them deterministically.
+The `developer` and `tester` run with Agent `isolation: worktree`, and so does
+the `reviewer`, which checks out the branch on the lean track (see "Pipeline
+tracks" above). The isolation does not reliably separate the working tree: a
+dispatched agent's `git checkout`/`git switch` can land on the lead's shared
+checkout. That is the mechanical cause of the tangle, and it hits every
+checkout-running agent, not just one (observed live on issue #78: the
+`tester`'s `git checkout --detach FETCH_HEAD` left the lead's checkout detached
+at the branch tip). The agents publish to origin, so their work is safe there
+regardless; what leaks into the lead's checkout is a moved HEAD, sometimes a
+local branch, and a worktree registered under `.claude/worktrees/`. The
+`developer` fresh path uses a detached checkout instead of `git switch -c`, so
+it no longer leaves a stale local branch (the worst residue, a clobber risk
+against the good remote branch); the moved HEAD and the registered worktree are
+harness-side and cannot be prevented by agent commands, so the lead reverses
+them deterministically.
+
+### Per-package cleanup (PR ready or parked)
+
+**Trigger.** Right after step 7 ships a package, and right after a package is
+parked.
+
+**Guard, mapping.** The lead records `worktreePath` and `worktreeBranch` (the
+`worktree-agent-<id>` branch) per package for every worktree dispatch, and this
+pass touches only those plus the package's own local branch. Anything unmapped
+waits for wave end.
+
+**Guard, locks.** A single `--force`, never `--force --force`; a locked
+worktree is skipped.
+
+**Guard, lead checkout.** The pass never touches the lead's own checkout: no
+switch, no HEAD repair.
+
+**Origin-safety rule.** After `git fetch --prune origin`:
+- remove a worktree only if `git -C <path> rev-list HEAD --not --remotes=origin`
+  exits 0 and prints nothing;
+- delete a branch only if `git rev-list <branch> --not --remotes=origin`
+  exits 0 and prints nothing.
+
+Uncommitted files in a removable worktree are discarded on purpose. A missing
+path is skipped. Anything that fails a check is left for the backstop. A
+package with several worktree dispatches runs the remove pair and the
+`worktree-agent-<id>` pair once per recorded worktree.
+
+```
+git fetch --prune origin
+
+git -C <worktreePath> rev-list HEAD --not --remotes=origin   # empty: safe to remove
+git worktree remove --force <worktreePath>
+
+git rev-list worktree-agent-<id> --not --remotes=origin      # empty: safe to delete
+git branch -D worktree-agent-<id>
+git rev-list <package-branch> --not --remotes=origin         # empty: safe to delete
+git branch -D <package-branch>
+
+git worktree prune
+```
+
+### Wave-end cleanup (backstop)
 
 At wave end, with no agents in flight, run from the lead's main checkout:
 
@@ -172,35 +427,68 @@ git worktree list                  # expect only the main repo
 git status --short --branch        # expect the default branch, clean tree
 ```
 
-Remove anything still registered under `.claude/worktrees/`
+Remove anything still registered under `.claude/worktrees/` only if
+`git -C <path> rev-list HEAD --not --remotes=origin` exits 0 and prints nothing
 (`git worktree remove --force <path>`). If the lead's HEAD was moved off the
 default branch, return to it with `git switch <default>` (the lead's own checkout, the one
-place that command is right). Delete a stray local
-package branch only when its work is safe on origin (`git ls-remote --exit-code
-origin <branch>` succeeds), then `git branch -D <branch>`; never delete a branch
-whose commits are not on origin. Do not run `remove` or `branch -D` mid-wave:
-they must not touch a worktree another concurrent package is still using.
+place that command is right). Delete a stray local branch, including a
+leftover `worktree-agent-<id>` branch, only if `git rev-list <branch> --not
+--remotes=origin` exits 0 and prints nothing, then `git branch -D <branch>`;
+never delete a branch whose commits are not on origin. Mid-wave, only the
+per-package pass above runs these, under its guards. Whatever this backstop
+keeps is named in the wave-end report.
+
+## Token report (wave end)
+
+At the gate (before any package is dispatched), record the run start:
+`date -u +%Y-%m-%dT%H:%M:%S.000Z`.
+
+At wave end, once the worktree cleanup above is done, run:
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
+  --session "${CLAUDE_CODE_SESSION_ID}" --since <run start>
+```
+
+and post its output as a comment on each package issue in the wave. Skip
+this step entirely inside an advisor batch (`/tm-advisor` posts its own
+report; see section 5 of its skill). On a resumed session, omit `--since`
+(there is no reliable run-start timestamp to anchor it to) and say so in
+the posted comment. A failed run (missing transcript, script error) is
+noted in the wave-end report below and never blocks it.
 
 ## 4. Wave end
 
 Definition of done per package: last tester verdict is PASS, reviewer
-APPROVE, PR ready with `Closes #N`, summary comment posted.
+APPROVE, PR ready with `Closes #N`, summary comment posted. On the lean
+track, substitute the reviewer's `CHECKS` line (all exit codes 0) for the
+tester verdict; see "Pipeline tracks" above.
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
-lead's checkout is left on the default branch with a clean tree.
+lead's checkout is left on the default branch with a clean tree, then post the
+token report from "Token report (wave end)" above on each package issue.
+
+Collect the `LESSONS:` lines from the wave's tester and reviewer reports, one
+bullet per distinct lesson. This channel ends at the report: promoting a
+lesson into `.claude/process-core.md` or `docs/architecture/` is a human
+decision. Inside an `/tm-advisor` batch, lessons go in the batch report
+instead (its skill section 5).
 
 Report to the user: PRs ready for review, packages parked (`needs-human`,
-with their open questions), and issues deferred to later waves or stopped at
-the gate. End with:
+with their open questions), issues deferred to later waves or stopped at the
+gate, and any lessons. End with:
 
 ```
 ## What happened
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
+- Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
 ## Next steps
-1. Review & merge: #NN, #NN
-2. Decide on #NN (retry or close)
-3. Run /tm-kickoff to start the next wave
+1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
+2. Review & merge: #NN, #NN
+3. Decide on #NN (retry or close)
+4. Run /tm-kickoff to start the next wave
 ```

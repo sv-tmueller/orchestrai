@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"synthetic workflow prompt"},"timestamp":"2026-10-01T10:02:10.000Z","sessionId":"workflow-session"}
+{"type":"assistant","message":{"model":"claude-opus-5-5","id":"msg_wfb1","type":"message","content":[{"type":"text","text":"Consolidated."}],"usage":{"input_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":5}},"timestamp":"2026-10-01T10:02:40.000Z","sessionId":"workflow-session"}

@@ -497,3 +497,101 @@ describe('criticWithFallback', () => {
     }
   })
 })
+
+// ===========================================================================
+// 6. mustFixDeduped and finalizeReport (issue #406)
+//
+// Both are plain function declarations so loadFn can slice them out. Neither
+// has free variables, so no sandbox is needed. mustFixDeduped mirrors the
+// ITEM_TRANSFORMS.must_fix_deduped reducer in the two renderers; the
+// renderers' copy is covered in item-transforms.test.mjs.
+// ===========================================================================
+describe('mustFixDeduped', () => {
+  const mustFixDeduped = loadFn('tm-review-changes.js', 'mustFixDeduped')
+  const f = (file, line, problem, severity = 'must-fix') => ({ file, line, problem, severity, fix: 'x' })
+
+  test('keeps only must-fix findings, flattened across reports', () => {
+    const out = mustFixDeduped([
+      { findings: [f('a.js', '1', 'p1'), f('a.js', '2', 'p2', 'nit')] },
+      { findings: [f('b.js', '3', 'p3'), f('c.js', '4', 'p4', 'should-fix')] },
+    ])
+    assert.deepEqual(Array.from(out, (x) => x.problem), ['p1', 'p3'])
+  })
+
+  test('dedups on file + line + problem, keeping the first', () => {
+    const out = mustFixDeduped([
+      { findings: [f('a.js', '1', 'p1')] },
+      { findings: [f('a.js', '1', 'p1'), f('a.js', '2', 'p1'), f('a.js', '1', 'other')] },
+    ])
+    assert.equal(out.length, 3)
+  })
+
+  test('skips null reports and reports with no findings array', () => {
+    const out = mustFixDeduped([null, undefined, {}, { findings: 'x' }, { findings: [f('a.js', '1', 'p1')] }])
+    assert.deepEqual(Array.from(out, (x) => x.problem), ['p1'])
+  })
+
+  test('returns an empty array for no reports', () => {
+    assert.deepEqual(Array.from(mustFixDeduped([])), [])
+  })
+})
+
+describe('finalizeReport', () => {
+  const finalizeReport = loadFn('tm-review-changes.js', 'finalizeReport')
+  const f = (file, line, problem) => ({ file, line, severity: 'must-fix', problem, fix: 'x' })
+
+  test('drops a refuted finding from mustFix and lists it under refuted', () => {
+    const kept = f('a.js', '1', 'real')
+    const gone = f('b.js', '2', 'stale')
+    const refuted = [{ ...gone, note: 'already fixed' }]
+    const out = finalizeReport({ verdict: 'changes-requested', summary: 's', mustFix: [kept, gone] }, refuted, [])
+    assert.deepEqual(out.mustFix.map((x) => x.problem), ['real'])
+    assert.equal(out.refuted.length, 1)
+    assert.equal(out.refuted[0].problem, 'stale')
+    assert.equal(out.refuted[0].note, 'already fixed')
+  })
+
+  test('recomputes the verdict to approve when only refuted findings were removed', () => {
+    const gone = f('b.js', '2', 'stale')
+    const out = finalizeReport({ verdict: 'changes-requested', mustFix: [gone] }, [{ ...gone, note: 'n' }], [])
+    assert.equal(out.verdict, 'approve')
+    assert.deepEqual(Array.from(out.mustFix), [])
+  })
+
+  test('keeps changes-requested when a non-refuted finding remains', () => {
+    const kept = f('a.js', '1', 'real')
+    const gone = f('b.js', '2', 'stale')
+    const out = finalizeReport({ verdict: 'changes-requested', mustFix: [gone, kept] }, [{ ...gone, note: 'n' }], [])
+    assert.equal(out.verdict, 'changes-requested')
+    assert.deepEqual(out.mustFix.map((x) => x.problem), ['real'])
+  })
+
+  test('matches on file + line + problem, not on problem alone', () => {
+    const a = f('a.js', '1', 'same text')
+    const b = f('b.js', '1', 'same text')
+    const out = finalizeReport({ mustFix: [a, b] }, [{ ...a, note: 'n' }], [])
+    assert.deepEqual(out.mustFix.map((x) => x.file), ['b.js'])
+  })
+
+  test('sets unverified from the script data, overriding what the model wrote', () => {
+    const u = [f('a.js', '1', 'unchecked')]
+    const out = finalizeReport({ mustFix: [], unverified: [f('z.js', '9', 'model made this up')], refuted: [f('y.js', '1', 'model made this up too')] }, [], u)
+    assert.deepEqual(out.unverified, u)
+    assert.deepEqual(out.refuted, [])
+  })
+
+  test('does not throw when the report has no mustFix array', () => {
+    const out = finalizeReport({ _stub: true }, [], [])
+    assert.equal(out._stub, true)
+    assert.equal('mustFix' in out, false)
+    assert.deepEqual(out.refuted, [])
+    assert.deepEqual(out.unverified, [])
+  })
+
+  test('returns a new object and does not mutate a frozen input', () => {
+    const input = Object.freeze({ verdict: 'approve', mustFix: Object.freeze([]) })
+    const out = finalizeReport(input, [], [])
+    assert.notEqual(out, input)
+    assert.equal('refuted' in input, false)
+  })
+})

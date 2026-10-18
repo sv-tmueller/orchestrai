@@ -55,6 +55,13 @@ Merging stays human and gates the next wave. Caps, routing,
 and report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent
 files; they are not repeated here.
 
+The lead builds one read-only dependency environment per run and passes its
+path to the developer, tester, and lean-track reviewer dispatches, instead of
+each seat installing its own. A seat falls back to its own build when the
+line or path is missing, dependencies changed, or a check errors on the
+environment. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Dependency
+environment (once per run)".
+
 ### Plan-status block before dispatch
 
 Before the lead spawns any subagent that works a plan or sub-plan, it prints
@@ -72,10 +79,22 @@ Plan status (issue #42):
 ```
 
 `[x]` marks a done step, `[>]` the current step (suffixed
-`<- dispatching <agent>`), `[ ]` a remaining step. A fix round annotates the
-current item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows
-the items are the pipeline stages (the skills pin them); an ad-hoc
-plan-backed dispatch uses the active plan's own steps as items.
+`<- dispatching <agent>`), `[ ]` a remaining step, `[-]` a step skipped by
+the lean track (suffixed `skipped (lean)`; see "Pipeline tracks" in
+`.claude/skills/tm-kickoff/SKILL.md`). A fix round annotates the current
+item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows the
+items are the pipeline stages (the skills pin them); an ad-hoc plan-backed
+dispatch uses the active plan's own steps as items. A lean package looks
+like:
+
+```
+Plan status (issue #58):
+  [-] 1. sub-plan skipped (lean)
+  [x] 2. develop
+  [-] 3. test skipped (lean)
+  [>] 4. review   <- dispatching reviewer
+  [ ] 5. PR ready
+```
 
 An ad-hoc dispatch with no plan behind it prints one fixed line instead:
 `Dispatching <agent>: <purpose>`. Agents spawned inside workflow scripts are
@@ -109,51 +128,73 @@ runs the team uninterrupted and reports (mechanics:
 - Each batch has a tracking issue (title `Batch: <slug>`): the approved
   contract, the decision log, parked questions, the final report. Dropped
   sessions resume from it.
+- Refinement-only effort note: sections 1 (Refine) and 2 (Propose) may run
+  at `/effort high` instead of the session default `xhigh`
+  (docs/reviews/2026-09-28-lead-effort-comparison.md: both decision-rule
+  conditions held, n=3 per arm, one refine-task probe). Typing
+  `/effort high` writes a persistent per-model override into the
+  user-level `settings.json` in the config dir (owner-confirmed
+  2026-10-01), so it stays in force in every later session. Switch back
+  to `/effort xhigh` before replying "dispatch" or "file only"; typing it
+  is what undoes the override. Both replies go on to section 3 (File);
+  sections 3-6 and every other seat are unaffected. This covers the
+  refine-task only, not the run phase; the batch's own deferred run-phase
+  measurement is a separate, not-yet-run package.
 
 ## Model policy
 
-Fable 5 in the one seat nothing backstops (the lead), Opus 5 at xhigh in the
-backstopped judgment seats (architect, reviewer, workflow critics), efficient
-workers everywhere else. The lever is where each model runs, not raw effort
-everywhere. Rationale: docs/team-guide-rationale.md.
-Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
+Opus at xhigh in every plan-and-decide seat: architect, reviewer, workflow
+critics, and the lead itself. Efficient workers everywhere else. The lever is
+where each model runs, not raw effort everywhere. Rationale:
+docs/team-guide-rationale.md. The lead-model move:
+docs/reviews/2026-09-23-lead-model-comparison.md. Moving the team between Max
+and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Fable 5 (`claude-fable-5`) at xhigh effort. Affordable only because the
-  lead stays on the bounded tm- machinery. Fable costs 2x Opus 5 per
-  token. The premium is bounded in aggregate, not per batch
-  (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
-- Lead-session fallback: Opus 5 at xhigh effort, a manual procedure. Fable is
-  lead-session-only: used as the orchestrator when available, and nothing
-  else in the machinery calls it. When Fable 5 is unavailable, rate-limited,
-  quota-exhausted, or refuses the workload, switch the lead with
-  `/model claude-opus-5`. Flip back when Fable returns. This fallback covers
-  the lead session only; no other seat pins Fable, so no other pin needs to
-  flip alongside it.
-- Judgment seats (architect, reviewer, workflow critics): Opus 5 at xhigh
+  Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at xhigh effort, the
+  same model family as the judgment seats. Comparable quality to Fable at
+  under half the cost per run, at low confidence
+  (docs/reviews/2026-09-23-lead-model-comparison.md; batch #371's own cost
+  analysis, quoted in issue #380, put a lead session at about $9-11 on
+  Opus 5.5 against about $17-23 on Fable 5.1). This adds a shared blind
+  spot worth naming: with the lead on the same model family as every
+  judgment seat, a systematic Opus-class mistake would go uncaught by any
+  seat in the pipeline (comparison report section 8). No lead fallback is
+  prescribed if Opus itself is unavailable; that stays open (comparison
+  report section 9).
+- Fable (main-window user choice only): available only when the user sets
+  the main window itself to Fable. No part of the machinery, this policy
+  included, ever pins Fable or switches to it automatically; a lead session
+  running on Fable is the user's own `/model` choice for that window, not a
+  fallback this policy prescribes.
+- Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
   effort is the primary model, backstopped by the lead and, for architect
   and reviewer, by the human merge gate. The per-call fallback is Sonnet at
   the same xhigh effort. The critic stage of every `tm-` workflow
   (`.claude/workflows/`) already retries on sonnet automatically when Opus
   returns nothing, though each run still burns one doomed Opus dispatch
-  before the retry fires. For a single architect or reviewer dispatch
-  hitting Opus quota mid-batch, the kickoff routing rules own the response:
-  a per-call Sonnet override (the Agent tool's `model` param), flagged in
-  the report, logged as a decision on the package issue, with the judgment
-  re-run on Opus once quota returns (`.claude/skills/tm-kickoff/SKILL.md`).
-  The ladder is Opus -> Sonnet, flagged and re-run; nothing else in the
-  machinery falls back to Fable. If judgment quality visibly degrades on
-  real batches, log the observation here.
-- Cost-based fallback trigger: if Fable 5 stops being included under the
-  Max-plan subscription and shifts to metered API billing, do not switch to
-  Opus automatically. Measure the lead's actual $/session cost at API rates
-  first, then decide whether to keep Fable or move to Opus 5 permanently,
-  logging the decision and cost here.
+  before the retry fires. An architect or reviewer dispatch hitting Opus
+  quota mid-run triggers a run-long switch, not a single re-dispatch: every
+  later judgment dispatch in that run goes straight to Sonnet, and the run
+  never goes back to Opus even if quota returns mid-run
+  (`.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long fallback
+  and resume)"). The ladder is Opus -> Sonnet, flagged and re-run (the next
+  run reviews the PR head on Opus); nothing in the machinery falls back
+  to Fable. If judgment quality visibly degrades on real batches, log the
+  observation here.
+- Cost-based fallback trigger: superseded by the move to Opus recorded in
+  `docs/reviews/2026-09-23-lead-model-comparison.md`, which followed that
+  report's decision rule (comparable quality, lower cost), not a confirmed
+  trigger condition (that report's section 7 leaves the account's
+  Max-vs-Pro tier, and so whether the trigger itself ever fired, an open
+  question). If Fable's billing terms improve enough to revisit the move,
+  re-run a comparison before switching back; do not switch on an
+  availability event alone (see that report's section 7).
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
   `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
-  task with no tm- script, preferring an Opus lead for that prompt.
+  task with no tm- script.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
   (`sonnet` is the documented per-call fallback); `developer`, `tester`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
@@ -165,7 +206,9 @@ Moving the team between Max and Pro: docs/operations/plan-downgrade-runbook.md.
   `xhigh` effort instead.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
   that does not pin it. The effort-policy test in `npm test` fails any agent
-  or workflow stage that omits its pin or reintroduces max.
+  or workflow stage that omits its pin or reintroduces max, and its guard
+  describe fails if fable is pinned on any adapter tier, agent or skill
+  frontmatter, or workflow stage (issue #380).
 - Workflows: pin worker stages to a cheap model at `high` effort and reserve
   the strong model for synthesis or critique, bounded by construction so it
   cannot fan out unboundedly (`.claude/workflows/*.js`;
@@ -216,6 +259,14 @@ New project commands follow the same rule: name them `tm-<thing>`.
   to pick it up. The config-dir CLAUDE.md imports `process-core.md` and
   `team-guide.md` from the marketplace clone, so both files update
   automatically once the plugin does.
+- Don't merge a PR that changes `.claude/agents/`, `.claude/skills/`,
+  `.claude/workflows/` (tests in `__tests__/` excluded), or
+  `.claude/adapters/` without bumping the
+  `version` field in `.claude/.claude-plugin/plugin.json`. CI enforces this
+  (`scripts/check-version-bump.mjs`); the PR's author picks the semver
+  level. Use the `skip-version-bump` label for a guarded change with no
+  behavior impact. `team-guide.md` and `process-core.md` are not guarded
+  and need no bump.
 
 See `.claude/process-core.md`'s "What not to do" for the branch, merge-gate,
 git-hook, and dependency rules.

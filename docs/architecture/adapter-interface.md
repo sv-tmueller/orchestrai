@@ -129,15 +129,36 @@ Top-level fields:
     the prefix concatenated with each item to form the agent() label.
   - `item_label`: for `single` stages that use a descriptive label
     rather than a literal (e.g. `architecture`).
-  - `items_source`: for `dynamic-list` stages, the path in the
-    previous stage's output that yields the item list (e.g.
-    `scout_result.areas`).
+  - `items_source`: for `dynamic-list` stages, a dotted path into the
+    run context, where each finished stage's output is stored under
+    `<stage>_result` (e.g. `scout_result.areas` reads the `areas`
+    field off the `scout` stage's result).
   - `items_key`: for `fixed-list` stages, the name of the data array
     in the SPEC that enumerates the items.
-  - `items_cap`: for `dynamic-list` stages, the name of the args
-    field that caps the item count (e.g. `args.areas`).
+  - `items_transform`: for `dynamic-list` stages, optional. The name of
+    a reducer from the closed set below, applied to the resolved
+    `items_source` array before the cap. A renderer that does not
+    know the name must throw, not fall back to the unreduced items.
+  - `items_cap`: for `dynamic-list` stages, the args field that caps
+    the item count, written `args.<field>` (e.g. `args.areas`). The
+    renderer strips the `args.` prefix and reads the field; a value
+    that is not a positive integer falls back to `items_default_cap`.
   - `items_default_cap`: for `dynamic-list` stages, the default cap
-    when the args field is absent (e.g. `24`).
+    when the args field is absent or invalid (e.g. `24`).
+
+Item reducers (`items_transform` values). A reducer only flattens,
+filters and dedups. The cap is the one generic step that runs after
+it, so overflow is computed in one place. Each renderer implements
+the full set; add a name here and in every renderer together.
+
+- `must_fix_deduped`: the source is an array of worker reports, each
+  `{ findings: [...] }`. Flatten the findings of every report that has
+  a `findings` array (skip null and malformed reports), keep
+  `severity === 'must-fix'`, and dedup on file + line + problem.
+
+When the cap drops items, a renderer logs the overflow. Only a
+renderer that builds its consolidate input from runtime data (the
+Claude Code one) can also put the overflow in the report.
 
 Stages do not carry `effort` or `model`; those are resolved from the
 tier via the adapter table at render time.

@@ -1,0 +1,2 @@
+{"type":"result","agent":"review:bugs","value":"ok"}
+{"type":"assistant","message":{"model":"claude-opus-5-5","id":"msg_journal","type":"message","content":[{"type":"text","text":"must not be counted"}],"usage":{"input_tokens":777777,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":5}},"timestamp":"2026-10-01T10:02:45.000Z","sessionId":"workflow-session"}

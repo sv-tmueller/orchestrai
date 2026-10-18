@@ -19,6 +19,13 @@ section 4 Phase C for the design.
   adapter's spawn/parallel operations.
 - `.claude/workflows/__tests__/hermes-adapter.test.mjs` -- tests for the
   adapter table, interface, and renderer (dry-run mode).
+- `.claude/skills/tm-kickoff/SKILL.hermes.md` -- the Hermes variant of the
+  pipeline-driver skill. Source for the auto-discovered
+  `~/.hermes/skills/autonomous-ai-agents/orchestrai/` skill.
+- `.claude/skills/tm-advisor/SKILL.hermes.md` -- the Hermes variant of the
+  batch-advisor skill (#346). Source for the auto-discovered
+  `~/.hermes/skills/autonomous-ai-agents/tm-advisor/` skill. Loads the
+  pipeline via `skill_view(name='orchestrai')` at dispatch time.
 
 ## Configuration
 
