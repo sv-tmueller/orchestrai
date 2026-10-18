@@ -4,13 +4,16 @@ The minimal interface a host adapter must implement. Derived from the
 existing `criticWithFallback` pattern in the workflow scripts, which is
 the proto-interface already in production.
 
-Status: the Hermes adapter is implemented as of Phase C (#315) and
-the Codex adapter as of Phase D (#316). The three operations
+Status: the Hermes adapter is implemented as of Phase C (#315), rebuilt
+on subprocess spawn in #351, and the Codex adapter as of Phase D (#316).
+The Codex adapter has never been live-tested. The three operations
 (spawn, detectFailure, retry) are defined here as prose; the existing
 `criticWithFallback` function in the workflow scripts is the
 proto-implementation. The Hermes adapter lives at
-`.claude/adapters/hermes-adapter.mjs` and uses `delegate_task` for
-spawn. The Codex adapter lives at `.claude/adapters/codex-adapter.mjs`
+`.claude/adapters/hermes-adapter.mjs` and spawns a `hermes` subprocess
+per seat. It previously used `delegate_task`, which takes no model
+override, no working directory, and no output schema, so none of the
+tier bindings actually reached the seat (#351). The Codex adapter lives at `.claude/adapters/codex-adapter.mjs`
 and uses `codex exec` for spawn.
 
 See `docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`
@@ -45,8 +48,10 @@ Host implementations:
 - Claude Code: the Agent tool (for pipeline dispatch) or the Workflow
   tool's `agent()` function (for workflow scripts). The `model` and
   `effort` opts map to the Agent tool's `model` and `effort` params.
-- Hermes: `delegate_task` with `output_schema` for structured reports.
-  Model and effort set via the Hermes model/provider config.
+- Hermes: a `hermes -z` subprocess per seat, with `-m`/`--provider` for
+  the model, `--reasoning` for the effort, `-t` for the tool surface, and
+  `--in` for the working directory. The report is parsed from stdout;
+  Hermes documents no structured-output parameter.
 - Codex: `codex exec` with a TOML persona selecting the model. Report
   collected from stdout or a written file.
 

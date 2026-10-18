@@ -12,6 +12,13 @@ analysis remain the factual basis this design builds on.
 
 Resolves issue #311.
 
+Amended 2026-09-16 by
+`docs/superpowers/specs/2026-09-16-hermes-subprocess-adapter-design.md`
+(issue #351) in two places: Phase C's Hermes adapter spawns a `hermes`
+subprocess rather than calling `delegate_task`, and section 3.3's
+fallback ladder is within-tier wherever a tier declares a fallback
+model. The layer architecture and the adapter interface are unchanged.
+
 ## 1. What changed since the deferral
 
 The codex-readiness design (2026-07-08) deferred the port and locked

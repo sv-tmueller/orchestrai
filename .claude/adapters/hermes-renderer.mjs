@@ -146,10 +146,26 @@ export async function renderWorkflow(workflowName, args = {}) {
   return ctx[`${lastName}_result`]
 }
 
+/**
+ * The per-stage spawn bindings. A workflow stage reads and reviews the
+ * repo itself rather than a package worktree, so its working directory is
+ * the repo root. Without a cwd the seat cannot spawn at all: buildArgv
+ * rejects it, because a seat inheriting the driver's directory defeats
+ * isolation.
+ */
+export function stageOpts(stage, name, root) {
+  return {
+    tier: stage.tier,
+    schema: stage.schema,
+    role: inferRole(name),
+    cwd: root,
+  }
+}
+
 // Execute a single-agent stage, with fallback if the stage declares one.
 async function executeStage(stage, name, ctx, args, log, prompts, root, base) {
   const task = buildTaskPrompt(stage, name, ctx, args, prompts, root, base)
-  const opts = { tier: stage.tier, schema: stage.schema, role: inferRole(name) }
+  const opts = stageOpts(stage, name, root)
 
   const report = await spawn(inferRole(name), task, opts)
 
@@ -168,12 +184,13 @@ async function executeParallel(stage, name, items, ctx, args, log, prompts, root
     return { task, label: `${stage.item_label_prefix || ''}${item.key || item.name || item}` }
   })
 
-  // In dry-run mode, execute sequentially (no real concurrency needed).
-  // In live mode, delegate_task supports parallel batches.
+  // Sequential for now on both paths. Each seat is its own subprocess, so
+  // real concurrency is a Promise.all away, but the concurrency cap and
+  // its interaction with per-package worktrees belong to the driver rather
+  // than here.
   const reports = []
   for (const { task, label } of tasks) {
-    const opts = { tier: stage.tier, schema: stage.schema, role: inferRole(name) }
-    const report = await spawn(inferRole(name), task, opts)
+    const report = await spawn(inferRole(name), task, stageOpts(stage, name, root))
     reports.push(report)
   }
 
@@ -218,13 +235,53 @@ function collectSlotVals(name, args, root, base) {
 }
 
 // Build the task prompt for a single stage.
+// The stdout contract each seat must satisfy for detectFailure/parseReport.
+// The role contracts already demand it, but a stage task's own instructions
+// can dominate the seat's attention and crowd the contract out (observed in
+// the batch #437 live pipeline run: the scout wrote good prose and no
+// STATUS line, so its report was discarded). A short footer per role makes
+// the machine-facing requirement unmissable without changing the prompts.
+const STDOUT_CONTRACT = {
+  developer: 'Finally, your ENTIRE reply must end with this exact report block, and start with the STATUS line:\n\nSTATUS: DONE\n\nAny structured lists (areas, findings) must ALSO appear as a fenced ```json block.',
+  architect: 'Finally, your ENTIRE reply must START with one of: SUB_PLAN:, SPLIT_PROPOSAL:, ARBITRATION:, NEEDS_DECISION: (the architect report contract). Plain prose without that opener is unparsable and will be discarded.',
+  reviewer: 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: APPROVE or VERDICT: CHANGES_REQUESTED.',
+  tester: 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: PASS or VERDICT: FAIL.',
+  'fact-checker': 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: CONFIRMED or VERDICT: REFUTED.',
+  'docs-writer': 'Finally, your ENTIRE reply must end with a FILES: line listing the files you wrote.',
+  'perf-investigator': 'Finally, your ENTIRE reply must end with a BASELINE: line.',
+}
+
+function contractFooter(role) {
+  return STDOUT_CONTRACT[role] || ''
+}
+
+// Leading one-liner for worker-tier roles: the batch #437 live runs showed
+// deepseek-v41-flash honors instructions at the TOP of the prompt but
+// buries trailing ones under the task's own output shape (the scout wrote
+// prose and no STATUS line even with the footer appended). The sandwich -
+// short prefix + detailed footer - keeps the contract salient at both
+// ends. Judgment-tier roles (architect) complied with the footer alone.
+function contractPrefix(role) {
+  if (role === 'developer' || role === 'tester' || role === 'fact-checker') {
+    return 'OUTPUT CONTRACT (machine-parsed): your reply must BEGIN with a "STATUS:"-style report line per your role contract, and every structured list (areas, findings) must ALSO appear as a fenced ```json block. Replies without them are discarded.'
+  }
+  return ''
+}
+
 function buildTaskPrompt(stage, name, ctx, args, prompts, root, base) {
   const template = prompts[name]
   if (!template) {
     throw new Error(`No prompt template for stage "${name}". Missing from prompts JSON?`)
   }
   const vals = collectSlotVals(name, args, root, base)
-  return renderTemplate(template, vals)
+  const rendered = renderTemplate(template, vals)
+  const role = inferRole(name)
+  const prefix = contractPrefix(role)
+  const footer = contractFooter(role)
+  let out = rendered
+  if (prefix) out = `${prefix}\n\n${out}`
+  if (footer) out = `${out}\n\n${footer}`
+  return out
 }
 
 // Build the task prompt for a parallel stage item.
@@ -243,7 +300,14 @@ function buildItemTaskPrompt(stage, name, item, ctx, args, prompts, root, base) 
     // verify items are findings; the template takes the whole item as JSON.
     vals.finding = JSON.stringify(item, null, 2)
   }
-  return renderTemplate(template, vals)
+  const rendered = renderTemplate(template, vals)
+  const role = inferRole(name)
+  const prefix = contractPrefix(role)
+  const footer = contractFooter(role)
+  let out = rendered
+  if (prefix) out = `${prefix}\n\n${out}`
+  if (footer) out = `${out}\n\n${footer}`
+  return out
 }
 
 // Resolve the item list for a fixed-list stage.

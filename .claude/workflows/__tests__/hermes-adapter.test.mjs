@@ -214,40 +214,70 @@ describe('hermes workflow renderer', () => {
     assert.equal(stubLines.length, 1, 'expected exactly one distinct stub-fallback log line')
   })
 
-  test('tm-map-codebase: area_map stage receives the real scout areas, not the stub', async () => {
-    const calls = []
-    const origDryRun = process.env.DRY_RUN
-    const origDelegate = globalThis.delegate_task
-    process.env.DRY_RUN = 'false'
-    globalThis.delegate_task = async ({ goal, output_schema }) => {
-      calls.push({ goal, output_schema })
-      if (output_schema === 'MAP_SCHEMA') {
-        return {
-          areas: [
-            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
-            { name: 'beta-area', paths: ['beta/'], why: 'support' },
-          ],
-          dropped: [],
-        }
-      }
-      return { findings: [], summary: 'ok' }
-    }
+  // Live-mode tests use the subprocess seam (batch #437): HERMES_BIN points
+  // at a stub seat that records its -z prompt to a sidecar and answers by
+  // role contract. The scout emits a fenced json block; parseReport copies
+  // its keys onto the report, so items_source resolves against real data.
+  async function runLiveWithStubSeats(workflow, wfArgs) {
+    const { writeFileSync, chmodSync, mkdtempSync, readFileSync: rf } =
+      await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join: pj } = await import('node:path')
+    const dir = mkdtempSync(pj(tmpdir(), 'hermes-seat-stub-'))
+    const sidecar = pj(dir, 'calls.jsonl')
+    const bin = pj(dir, 'hermes-stub.mjs')
+    const f = '```'.repeat(1)
+    const SCOUT_PAYLOAD = JSON.stringify({
+      areas: [
+        { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
+        { name: 'beta-area', paths: ['beta/'], why: 'support' },
+      ],
+      dropped: [],
+    })
+    writeFileSync(bin, [
+      '#!/usr/bin/env node',
+      "import { appendFileSync } from 'node:fs'",
+      'const args = process.argv.slice(2)',
+      "const zi = args.indexOf('-z')",
+      "const prompt = zi >= 0 ? args[zi + 1] : ''",
+      `appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({ prompt }) + '\\n')`,
+      `const f = '${f}'`,
+      "let out = 'STATUS: DONE\\n\\n' + f + 'json\\n{}\\n' + f + '\\n'",
+      "if (prompt.includes('coherent areas')) {",
+      // STATUS satisfies the developer report contract (detectFailure);
+      // the json block carries the structured payload downstream.
+      `  out = 'STATUS: DONE\\n\\n' + f + 'json\\n' + ${JSON.stringify(SCOUT_PAYLOAD)} + '\\n' + f + '\\n'`,
+      '}',
+      'process.stdout.write(out)',
+    ].join('\n'))
+    chmodSync(bin, 0o755)
 
+    const origBin = process.env.HERMES_BIN
+    const origDryRun = process.env.DRY_RUN
     const warnings = []
     const origWarn = console.warn
-    console.warn = (msg) => warnings.push(msg)
-
+    process.env.HERMES_BIN = bin
+    process.env.DRY_RUN = 'false'
+    console.warn = (msg) => warnings.push(String(msg))
     try {
-      await renderWorkflow('tm-map-codebase', {})
+      await renderWorkflow(workflow, wfArgs)
     } finally {
       console.warn = origWarn
-      globalThis.delegate_task = origDelegate
+      process.env.HERMES_BIN = origBin
       process.env.DRY_RUN = origDryRun
     }
+    const calls = []
+    for (const line of rf(sidecar, 'utf8').trim().split('\n').filter(Boolean)) {
+      calls.push(JSON.parse(line))
+    }
+    return { calls, warnings }
+  }
 
-    const areaMapGoals = calls
-      .filter((c) => c.output_schema === 'AREA_MAP_SCHEMA')
-      .map((c) => c.goal)
+  test('tm-map-codebase: area_map stage receives the real scout areas, not the stub', async () => {
+    const { calls, warnings } = await runLiveWithStubSeats('tm-map-codebase', {})
+
+    const areaMapGoals = calls.map((c) => c.prompt)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
 
     assert.equal(areaMapGoals.length, 2, 'expected one dispatch per real scout area')
     assert.ok(areaMapGoals.some((g) => g.includes('alpha-area')), 'missing alpha-area dispatch')
@@ -263,68 +293,20 @@ describe('hermes workflow renderer', () => {
   })
 
   test('tm-map-codebase: items_cap "args.areas" resolves to the passed args.areas value', async () => {
-    const calls = []
-    const origDryRun = process.env.DRY_RUN
-    const origDelegate = globalThis.delegate_task
-    process.env.DRY_RUN = 'false'
-    globalThis.delegate_task = async ({ goal, output_schema }) => {
-      calls.push({ goal, output_schema })
-      if (output_schema === 'MAP_SCHEMA') {
-        return {
-          areas: [
-            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
-            { name: 'beta-area', paths: ['beta/'], why: 'support' },
-          ],
-          dropped: [],
-        }
-      }
-      return { findings: [], summary: 'ok' }
-    }
+    const { calls } = await runLiveWithStubSeats('tm-map-codebase', { areas: 1 })
 
-    try {
-      await renderWorkflow('tm-map-codebase', { areas: 1 })
-    } finally {
-      globalThis.delegate_task = origDelegate
-      process.env.DRY_RUN = origDryRun
-    }
-
-    const areaMapGoals = calls
-      .filter((c) => c.output_schema === 'AREA_MAP_SCHEMA')
-      .map((c) => c.goal)
+    const areaMapGoals = calls.map((c) => c.prompt)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
     assert.equal(areaMapGoals.length, 1, 'args.areas = 1 must cap the dispatch at one area')
     assert.ok(areaMapGoals[0].includes('alpha-area'), 'the cap keeps the first area')
   })
 
   test('tm-review-codebase: area_review stage receives the real scout areas, not the stub', async () => {
-    const calls = []
-    const origDryRun = process.env.DRY_RUN
-    const origDelegate = globalThis.delegate_task
-    process.env.DRY_RUN = 'false'
-    globalThis.delegate_task = async ({ goal, output_schema }) => {
-      calls.push({ goal, output_schema })
-      if (output_schema === 'MAP_SCHEMA') {
-        return {
-          areas: [
-            { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
-            { name: 'beta-area', paths: ['beta/'], why: 'support' },
-          ],
-          dropped: [],
-        }
-      }
-      return { findings: [], summary: 'ok' }
-    }
+    const { calls } = await runLiveWithStubSeats('tm-review-codebase', {})
 
-    try {
-      await renderWorkflow('tm-review-codebase', {})
-    } finally {
-      globalThis.delegate_task = origDelegate
-      process.env.DRY_RUN = origDryRun
-    }
-
-    // architecture_review shares the same FINDINGS_SCHEMA but never carries
-    // an area name in its goal, so filter by area name rather than schema.
-    const areaGoals = calls
-      .map((c) => c.goal)
+    // architecture_review shares the same schema but never carries an area
+    // name in its prompt, so filter by area name.
+    const areaGoals = calls.map((c) => c.prompt)
       .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
 
     assert.equal(areaGoals.length, 2, 'expected one dispatch per real scout area')

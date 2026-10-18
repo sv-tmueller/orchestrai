@@ -51,11 +51,22 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 // "max" from forbidden_efforts. Exemption is declared per host here, not
 // in the JSON — editing a table cannot silently grant itself an exemption.
 const FORBIDDEN_EFFORTS = ['max']
+// Levels a specific host's runtime offers above the ceiling, which that host
+// must therefore also forbid. Declared here, not in the JSON, so a host
+// cannot quietly drop one. Hermes `--reasoning` accepts ultra above max.
+const HOST_EXTRA_FORBIDDEN = { hermes: ['ultra'] }
 const EFFORT_CEILING = 'xhigh'
 const SELF_HOSTED_HOSTS = new Set(['hermes']) // host field, not filename
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
-const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 }
+const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 }
+
+// The exact forbidden set a host's table must carry: the floor plus its own
+// above-ceiling levels. Equality, so the JSON can neither weaken the policy
+// nor drift away from it.
+function expectedForbidden(host) {
+  return [...FORBIDDEN_EFFORTS, ...(HOST_EXTRA_FORBIDDEN[host] || [])].sort()
+}
 
 // Resolve the policy for a table: self-hosted hosts get the lifted policy.
 function policyFor(host) {
@@ -146,6 +157,7 @@ for (const { name, table } of adapterTables) {
   const policy = policyFor(table.host)
   describe(`adapter table conforms to policy: ${name}`, () => {
     test('forbidden_efforts matches the hardcoded policy', () => {
+      const expected = expectedForbidden(table.host)
       assert.deepEqual(
         table.forbidden_efforts,
         policy.forbiddenEfforts,

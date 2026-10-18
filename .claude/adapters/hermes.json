@@ -1,12 +1,28 @@
 {
-  "_comment": "Adapter table for the Hermes host. Maps model tiers to concrete models and efforts. The process layer and tests reference tiers, never model names. Adding a new model means editing this table, not the process layer or agent role contracts. See docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md section 3.3.",
+  "_comment": "Adapter table for the Hermes host. Maps model tiers to concrete models, providers, and efforts, and binds each role to a seat (its tool surface). The process layer and tests reference tiers, never model names. Adding a model means editing this table, not the process layer or the role contracts. Seats spawn as `hermes` subprocesses; see docs/superpowers/specs/2026-09-16-hermes-subprocess-adapter-design.md.",
   "host": "hermes",
-  "description": "Hermes adapter. Wraps delegate_task for spawn, terminal for git/gh, read_file/write_file for handoff, and output_schema for structured reports.",
+  "description": "Hermes adapter. Spawns each seat as a `hermes -z` subprocess, pinning model, provider, effort, and tool surface per seat. Uses terminal for git/gh, the repo filesystem for handoff, and stdout for the report.",
   "tiers": {
-    "judgment": { "model": "vllm/qsu/glm-5-3", "effort": "max" },
-    "worker": { "model": "vllm/qsu/deepseek-v41-flash", "effort": "max" },
-    "lead": { "model": "vllm/qsu/glm-5-3", "effort": "max" }
+    "judgment": {
+      "model": "vllm/qsu/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "max"
+    },
+    "worker": {
+      "model": "vllm/qsu/deepseek-v41-flash",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "max"
+    },
+    "lead": {
+      "model": "vllm/qsu/glm-5-3",
+      "fallback_model": "vllm/release/glm-5-2",
+      "provider": "custom",
+      "effort": "max"
+    }
   },
+  "_fallback_comment": "Within-tier fallback (batch #437 arbitration, package #438): a per-seat `-m` pin plausibly bypasses Hermes' native fallback_model config for the spawned subprocess, so adapter-level fallback is the only 504 protection for seats. Composition is #431's two-tier route; fallback is #354's mechanism. Fallback IDs are catalog-verified (vllm/release/glm-5-2 is listed in the provider's models and was live-tested 2026-10-18). Worker fallback glm-5-2 is a generality upgrade from deepseek-v41-flash - a degraded live seat beats a dead one. Fallback inherits the tier effort.",
   "roles": {
     "architect": "judgment",
     "developer": "worker",
@@ -15,6 +31,16 @@
     "perf-investigator": "worker",
     "reviewer": "judgment",
     "tester": "worker"
+  },
+  "_seats_comment": "The tool surface per seat, passed to `hermes -t`. No seat gets the `delegation` toolset: a seat that can re-delegate breaks the flat-star invariant, so omitting it enforces that rule at the runtime level rather than by prompt instruction. Seats also omit memory and session_search so a seat's judgment is a function of its task and the repo, not of unrelated history. `-t` cannot express read-only: every seat needs `terminal` for git, gh, and the check suite, and terminal implies write capability, so read-only stays a prompt-level contract on this host.",
+  "seats": {
+    "architect": { "toolsets": ["file", "terminal"] },
+    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"] },
+    "docs-writer": { "toolsets": ["file", "terminal"] },
+    "fact-checker": { "toolsets": ["file", "terminal"] },
+    "perf-investigator": { "toolsets": ["file", "terminal"] },
+    "reviewer": { "toolsets": ["file", "terminal"] },
+    "tester": { "toolsets": ["file", "terminal"] }
   },
   "effort_ceiling": "max",
   "forbidden_efforts": []
