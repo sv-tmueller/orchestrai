@@ -214,9 +214,16 @@ describe('buildArgv', () => {
     )
   })
 
-  test('runs in the working directory the driver supplies', () => {
+  test('takes its working directory via execFile cwd, not a flag', () => {
+    // Hermes v0.20.0 has no --in flag (batch #437 e2e): the driver passes
+    // the seat's working directory as execFile's cwd option (runHermes).
+    // buildArgv must not emit it, and must still REQUIRE opts.cwd so the
+    // driver cannot forget isolation.
     const argv = buildArgv('tester', 'p', { cwd: '/repo/.worktrees/pkg-42' })
-    assert.equal(valueOf(argv, '--in'), '/repo/.worktrees/pkg-42')
+    assert.ok(
+      !argv.includes('--in'),
+      'no --in flag exists on Hermes v0.20.0; cwd travels via execFile'
+    )
   })
 
   test('never passes -w: the driver owns the worktree', () => {

@@ -144,13 +144,18 @@ export function buildArgv(role, prompt, opts = {}) {
   const model = opts.model || resolved.model
   const { toolsets } = resolveSeat(role)
 
+  // Flag surface verified against the installed Hermes v0.20.0 (batch #437
+  // e2e): top-level -z runs headless; there is no --in flag — the working
+  // directory is supplied by the parent process via execFile's cwd option
+  // (runHermes), not argv. The seat still requires opts.cwd to be set, so
+  // isolation is enforced by the driver even though it is not expressed
+  // as a flag.
   return [
     '-z', prompt,
     '-m', model,
     '--provider', resolved.provider,
     '--reasoning', effort,
     '-t', toolsets.join(','),
-    '--in', opts.cwd,
     // Headless: no TTY is attached, so neither prompt can be answered.
     '--yolo',
     '--accept-hooks',
@@ -389,7 +394,11 @@ async function runHermes(role, prompt, opts) {
 
   let raw
   try {
+    // cwd is the seat's working directory: the driver isolates each seat
+    // by launching it inside its package worktree (no --in flag exists on
+    // Hermes v0.20.0; see buildArgv).
     const { stdout, stderr } = await execFileAsync(hermesBin(), argv, {
+      cwd: opts.cwd,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
