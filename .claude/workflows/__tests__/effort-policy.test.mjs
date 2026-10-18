@@ -44,11 +44,26 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 // ---------------------------------------------------------------------------
 // Policy constants: THESE ARE THE AUTHORITY, not the adapter table.
 // ---------------------------------------------------------------------------
+// The effort policy protects PAID-API hosts from runaway token bills
+// (original motivation, issue #140: max effort burned 2.5x tokens for
+// negligible gain). Hosts serving SELF-HOSTED models (no marginal token
+// cost) are exempt: their tables may set effort_ceiling to "max" and drop
+// "max" from forbidden_efforts. Exemption is declared per host here, not
+// in the JSON — editing a table cannot silently grant itself an exemption.
 const FORBIDDEN_EFFORTS = ['max']
 const EFFORT_CEILING = 'xhigh'
+const SELF_HOSTED_HOSTS = new Set(['hermes']) // host field, not filename
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
 const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 }
+
+// Resolve the policy for a table: self-hosted hosts get the lifted policy.
+function policyFor(host) {
+  if (SELF_HOSTED_HOSTS.has(host)) {
+    return { forbiddenEfforts: [], effortCeiling: 'max' }
+  }
+  return { forbiddenEfforts: FORBIDDEN_EFFORTS, effortCeiling: EFFORT_CEILING }
+}
 
 // ---------------------------------------------------------------------------
 // Load the adapter table and derive tier mappings.
@@ -128,13 +143,15 @@ function parseTierMaps(src) {
 //    The table is the data; this test is the authority.
 // ===========================================================================
 for (const { name, table } of adapterTables) {
+  const policy = policyFor(table.host)
   describe(`adapter table conforms to policy: ${name}`, () => {
     test('forbidden_efforts matches the hardcoded policy', () => {
       assert.deepEqual(
         table.forbidden_efforts,
-        FORBIDDEN_EFFORTS,
+        policy.forbiddenEfforts,
         `${name}: forbidden_efforts is ${JSON.stringify(table.forbidden_efforts)}, ` +
-          `but the policy hardcodes ${JSON.stringify(FORBIDDEN_EFFORTS)}; ` +
+          `but the policy hardcodes ${JSON.stringify(policy.forbiddenEfforts)} for host ` +
+          `"${table.host}" (${SELF_HOSTED_HOSTS.has(table.host) ? 'self-hosted, exempt' : 'paid-API'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
@@ -142,9 +159,10 @@ for (const { name, table } of adapterTables) {
     test('effort_ceiling matches the hardcoded policy', () => {
       assert.equal(
         table.effort_ceiling,
-        EFFORT_CEILING,
+        policy.effortCeiling,
         `${name}: effort_ceiling is "${table.effort_ceiling}", ` +
-          `but the policy hardcodes "${EFFORT_CEILING}"; ` +
+          `but the policy hardcodes "${policy.effortCeiling}" for host ` +
+          `"${table.host}" (${SELF_HOSTED_HOSTS.has(table.host) ? 'self-hosted, exempt' : 'paid-API'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
@@ -156,14 +174,14 @@ for (const { name, table } of adapterTables) {
           `${name}: tier "${tier}" effort "${cfg.effort}" is not a recognized effort level`
         )
         assert.ok(
-          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[EFFORT_CEILING],
-          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${EFFORT_CEILING}"`
+          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[policy.effortCeiling],
+          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${policy.effortCeiling}"`
         )
       }
     })
 
     test('no tier uses a hardcoded forbidden effort', () => {
-      for (const forbidden of FORBIDDEN_EFFORTS) {
+      for (const forbidden of policy.forbiddenEfforts) {
         for (const [tier, cfg] of Object.entries(table.tiers)) {
           assert.notEqual(
             cfg.effort,

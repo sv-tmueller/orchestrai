@@ -19,11 +19,13 @@ deepseek-v41-flash), the tier split is realized mechanically: worker roles
 delegate_task and thus run DeepSeek; judgment roles (architect, reviewer) are
 dispatched as one-shot Hermes subprocess seats instead —
 
-`hermes chat -q -m vllm/qsu/glm-5-3 --reasoning xhigh "<role prompt + task>"`
+`hermes chat -q -m vllm/qsu/glm-5-3 --reasoning max "<role prompt + task>"`
 
 — prepend the role prompt from .claude/adapters/prompts/<role>.md to the task
 text, and parse stdout as the seat's report. Equivalent to Fable/Opus judging
-Sonnet development in the Claude pipeline.
+Sonnet development in the Claude pipeline. All tiers run at max effort: the
+self-hosted vLLM models have no token-cost ceiling, so the paid-API effort
+policy (xhigh ceiling, max forbidden) does not apply to this host.
 
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
 label). With no arguments, ask which issues to run.
