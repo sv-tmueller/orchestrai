@@ -396,9 +396,15 @@ async function runHermes(role, prompt, opts) {
   try {
     // cwd is the seat's working directory: the driver isolates each seat
     // by launching it inside its package worktree (no --in flag exists on
-    // Hermes v0.20.0; see buildArgv).
+    // Hermes v0.20.0; see buildArgv). The process cwd alone is NOT enough:
+    // the seat's terminal tool seeds its own cwd from the TERMINAL_CWD
+    // env var (usually bridged from the lead's config.yaml), which would
+    // point every seat at the lead's repo. Override it per seat so the
+    // terminal lands in the same worktree as the process (verified in the
+    // batch #437 concurrent-isolation e2e).
     const { stdout, stderr } = await execFileAsync(hermesBin(), argv, {
       cwd: opts.cwd,
+      env: { ...process.env, TERMINAL_CWD: opts.cwd },
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
