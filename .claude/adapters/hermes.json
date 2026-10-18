@@ -3,9 +3,9 @@
   "host": "hermes",
   "description": "Hermes adapter. Wraps delegate_task for spawn, terminal for git/gh, read_file/write_file for handoff, and output_schema for structured reports.",
   "tiers": {
-    "judgment": { "model": "vllm/release/glm-5-2", "effort": "xhigh" },
-    "worker": { "model": "vllm/release/glm-5-2", "effort": "high" },
-    "lead": { "model": "vllm/release/glm-5-2", "effort": "xhigh" }
+    "judgment": { "model": "vllm/qsu/glm-5-3", "effort": "xhigh" },
+    "worker": { "model": "vllm/qsu/deepseek-v41-flash", "effort": "high" },
+    "lead": { "model": "vllm/qsu/glm-5-3", "effort": "xhigh" }
   },
   "roles": {
     "architect": "judgment",

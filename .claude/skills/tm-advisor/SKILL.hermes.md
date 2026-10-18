@@ -210,8 +210,13 @@ package. The advisor differs from a plain orchestrai run in three ways:
   batch issue checklist as it happens, so a dropped session can resume from
   the issue.
 
-Dispatch each role agent via `delegate_task(goal="...", role="leaf")` per
-the orchestrai skill's pipeline stages. Use `terminal` for all `git` and
+Dispatch each role agent per the orchestrai skill's pipeline stages, honoring
+the two-tier model route: worker roles (developer, tester, docs-writer,
+fact-checker, perf-investigator) via `delegate_task(goal="...", role="leaf")`,
+which the global `delegation.model` pin routes to deepseek-v41-flash; judgment
+roles (architect, reviewer) as one-shot Hermes subprocess seats
+(`hermes chat -q -m vllm/qsu/glm-5-3 --reasoning xhigh "<role prompt +
+task>"`, parsing stdout as the report). Use `terminal` for all `git` and
 `gh` operations (creating branches, pushing, commenting on issues, labeling,
 managing PRs).
 
