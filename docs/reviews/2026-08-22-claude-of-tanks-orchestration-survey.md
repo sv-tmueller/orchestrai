@@ -103,8 +103,10 @@ judgment with no such floor. We have repo rules that are objectively checkable
 and belong in that class: a deleted or weakened test, `--no-verify`, a new
 dependency with no PR-body justification, a CI job without `timeout-minutes`
 or a workflow without a `cancel-in-progress` concurrency group, a direct push
-to `main`. Each is already law in `.claude/process-core.md`; none of them
-currently forces a `must-fix`.
+to `main`. Each is already law in `.claude/process-core.md` — except the
+deleted/weakened-test rule, which lives in `.claude/agents/reviewer.md` and
+there already forces a blocking finding. None of the others currently forces a
+`must-fix`.
 
 Concretely: a short auto-must-fix table appended to the review prompts in both
 workflows and in `reviewer.md`. Prompt text only, no new agents, no schema

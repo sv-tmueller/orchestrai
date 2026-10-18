@@ -1,12 +1,20 @@
 # Plan: adopt what transfers from Claude-of-Tanks - #344
 
 Survey this plan derives from:
-`docs/reviews/2026-08-22-claude-of-tanks-orchestration-survey.md` (PR #345).
+`docs/reviews/2026-08-22-claude-of-tanks-orchestration-survey.md` (PR #436).
 Read the survey first for the source analysis; this file is the execution plan
 and the reasoning behind its shape.
 
-**Status:** not filed. No issues exist yet. Section 7 holds ready-to-file
-bodies so filing is mechanical once approved.
+> **Historical status (recorded 2026-10-18):** drafted 2026-08-22, filed and
+> executed before this plan landed in the tree. Issues #406/#407 were filed
+> from section 7 and closed. Of the packages below, P0 landed in e8ec882
+> (PR #396, resolver ctx-keying fix), P1 in 43cee0b (PR #419), P3 in 9c5eb5c
+> (PR #428, auto-must-fix severity floor), and P4 (SendMessage-resume rule in
+> the tm-kickoff skill) and P5 (LESSONS lines in the tester/reviewer
+> contracts) are in the tree as well. Only P2 (porting the Verify stage to
+> tm-review-codebase) remains open; the issue thread on #344 tracks it.
+> Sections 3-7 describe the tree as of the August revisions and are kept as
+> the design record; do not re-file them.
 
 ## 1. What this plan is for
 
@@ -60,14 +68,16 @@ existing one and it does not.
 `.claude/workflows/specs/tm-review-codebase.spec.json:35` declares
 `"items_source": "scout_result.areas"`. The Hermes renderer resolves that path
 against `ctx` (`hermes-renderer.mjs:248-263`), and `ctx` is keyed by **stage
-name** (`hermes-renderer.mjs:122,126,130` all assign `ctx[name]`). The stage is
+name** (the `ctx[\`${name}_result\`]` assignments, at lines 122, 126, and 130
+of the August revision; 128/132/136 in the current tree). The stage is
 named `scout`, so `ctx.scout_result` is always `undefined`, the resolver falls
 through to its dry-run stub, and every dynamic-list stage in the Hermes path
 fans out over one fake area.
 
 It is invisible today because the Hermes test suite runs dry-run only
-(`docs/architecture/hermes-adapter.md:89`), and a stub is exactly what dry-run
-expects to see. `tm-map-codebase.spec.json:35` has the same line.
+(`docs/architecture/hermes-adapter.md:89` in the August revision), and a stub
+is exactly what dry-run expects to see. `tm-map-codebase.spec.json:35` has the
+same line.
 
 This goes first (P0). Adding a second dynamic-list stage on top of a resolver
 that never resolves would double the load on a broken path and make it harder
@@ -186,7 +196,8 @@ testable in a way (b) is not.
    appendix, so the human can see what the verify stage removed and judge
    whether it is removing too much.
 8. Overflow past the cap is reported, not dropped silently, matching how
-   `scoutDropped` and `ceilingReached` already work in `tm-review-codebase.js`.
+   `coverage.areasDropped` and `coverage.ceilingReached` already work in
+   `tm-review-codebase.js`.
 
 **Acceptance:** `npm test` green including `specs.test.mjs`,
 `prompts-sync.test.mjs`, `render-path.test.mjs`, `effort-policy.test.mjs`; a
