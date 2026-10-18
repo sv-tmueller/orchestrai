@@ -41,12 +41,22 @@ const adapterTable = JSON.parse(
 const TIERS = adapterTable.tiers
 const ROLE_TIERS = adapterTable.roles
 const SEATS = adapterTable.seats
-const FORBIDDEN_EFFORTS = adapterTable.forbidden_efforts || []
+const FORBIDDEN_EFFORTS = [
+  // Table-level policy (self-hosted exemption empties it) UNION the
+  // host-extra levels the effort-policy test hardcodes as the authority:
+  // Hermes --reasoning accepts ultra above max, so ultra stays forbidden
+  // even though max itself is allowed (batch #437 arbitration).
+  ...(adapterTable.forbidden_efforts || []),
+  'ultra',
+]
 const UNVERIFIED_MODEL_IDS = adapterTable._unverified_model_ids || {}
 
 // The binary to spawn. Overridable so tests and CI never shell out to a
-// real Hermes install.
-const HERMES_BIN = process.env.HERMES_BIN || 'hermes'
+// real Hermes install. Read at call time, not module load, so a test (or
+// driver) can point HERMES_BIN at a stub after the module is imported.
+function hermesBin() {
+  return process.env.HERMES_BIN || 'hermes'
+}
 
 // A seat is a long autonomous run (a developer implementing an issue),
 // not a quick subtask. The driver overrides this per seat when it needs to.
@@ -177,6 +187,15 @@ const REPORT_LINE = /^([A-Z][A-Z _-]*):[ \t]*(.*)$/
  * Returns the parsed fields plus `raw`. An architect report also gets
  * `KIND`, since its contract opens with a bare keyword rather than a
  * key-value line.
+ *
+ * Structured data: a seat whose downstream stage fans out over its output
+ * (the scout's areas, reviewers' findings) is prompted to include one
+ * fenced ```json block holding that machine-readable payload. When
+ * present and parseable, its top-level keys are copied onto the report
+ * (existing report fields win), so a dynamic-list stage's items_source
+ * path (e.g. "scout_result.areas") resolves against real data. Prose-only
+ * reports keep working: the block is optional, and an unparseable one is
+ * logged by the caller through detectFailure's missing-field check.
  */
 export function parseReport(role, stdout) {
   const text = stdout || ''
@@ -189,6 +208,13 @@ export function parseReport(role, stdout) {
     // First occurrence wins: a later mention in prose cannot overwrite the
     // report block.
     if (!(key in report)) report[key] = value.trim()
+  }
+
+  const jsonBlock = extractJsonBlock(text)
+  if (jsonBlock) {
+    for (const [key, value] of Object.entries(jsonBlock)) {
+      if (!(key in report)) report[key] = value
+    }
   }
 
   if (role === 'architect') {
@@ -211,6 +237,27 @@ function parseArchitectKind(text) {
     return null
   }
   return null
+}
+
+// Extract the LAST fenced ```json block from a report. Last, not first:
+// a seat may quote an example schema early and emit its real payload at
+// the end. Returns the parsed object, or null when no parseable block
+// exists (a prose-only report is legitimate).
+function extractJsonBlock(text) {
+  const fence = /```json\s*\n([\s\S]*?)```/g
+  let match
+  let parsed = null
+  while ((match = fence.exec(text)) !== null) {
+    try {
+      const candidate = JSON.parse(match[1])
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        parsed = candidate
+      }
+    } catch {
+      // An unparseable block is not fatal: keep scanning for a later one.
+    }
+  }
+  return parsed
 }
 
 /**
@@ -342,7 +389,7 @@ async function runHermes(role, prompt, opts) {
 
   let raw
   try {
-    const { stdout, stderr } = await execFileAsync(HERMES_BIN, argv, {
+    const { stdout, stderr } = await execFileAsync(hermesBin(), argv, {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,

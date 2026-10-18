@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"synthetic prompt"},"timestamp":"2026-10-01T10:00:12.000Z","sessionId":"workflow-session"}
+{"type":"assistant","message":{"model":"claude-sonnet-5","id":"msg_rev1","type":"message","content":[{"type":"thinking","thinking":"private reasoning only"}],"usage":{"input_tokens":300,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":5}},"timestamp":"2026-10-01T10:00:30.000Z","sessionId":"workflow-session"}
+{"type":"user","message":{"role":"user","content":"synthetic follow-up"},"timestamp":"2026-10-01T10:00:57.000Z","sessionId":"workflow-session"}

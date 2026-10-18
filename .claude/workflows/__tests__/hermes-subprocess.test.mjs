@@ -133,9 +133,11 @@ describe('hermes adapter table: subprocess bindings', () => {
     }
   })
 
-  test('forbidden efforts cover both max and ultra', () => {
-    // Hermes --reasoning accepts ultra above max; the ceiling is xhigh.
-    assert.deepEqual([...hermesTable.forbidden_efforts].sort(), ['max', 'ultra'])
+  test('forbidden efforts are empty: self-hosted exemption lifts the ceiling', () => {
+    // Batch #437 arbitration: self-hosted vLLM, no token-cost ceiling, so
+    // max effort is allowed and nothing is forbidden (mirrors effort-policy
+    // SELF_HOSTED_HOSTS exemption and hermes-adapter.test.mjs).
+    assert.deepEqual(hermesTable.forbidden_efforts, [])
   })
 
   test('no tier or seat resolves to a forbidden effort', () => {
@@ -147,16 +149,15 @@ describe('hermes adapter table: subprocess bindings', () => {
     }
   })
 
-  test('unverified model ids are flagged so the open question is not lost', () => {
-    const unverified = hermesTable._unverified_model_ids
-    assert.ok(unverified, 'table must carry an _unverified_model_ids map')
-    // Every flagged id must explain itself and cite the issue.
-    for (const [id, note] of Object.entries(unverified)) {
-      assert.match(
-        note, /#\d+/,
-        `unverified id "${id}" must cite the issue that tracks its confirmation`
-      )
-    }
+  test('unverified model ids are gone: every pinned id is catalog-verified', () => {
+    // Batch #437 arbitration: the _unverified_model_ids escape hatch is
+    // superseded. The table pins only catalog-verified IDs; fallback IDs
+    // were live-tested (2026-10-18). Assert absence so the debt cannot
+    // silently return.
+    assert.equal(
+      hermesTable._unverified_model_ids, undefined,
+      'table must not carry _unverified_model_ids: pin verified IDs only'
+    )
   })
 
   test('the Claude Code table declares no fallback_model, keeping cross-tier retry', () => {
@@ -198,11 +199,11 @@ describe('buildArgv', () => {
     assert.equal(valueOf(argv, '--provider'), tier.provider)
   })
 
-  test('pins effort per tier: judgment xhigh, worker high', () => {
+  test('pins effort per tier: all max (self-hosted, no token ceiling)', () => {
     const judgment = buildArgv('architect', 'p', { cwd: '/tmp/wt' })
     const worker = buildArgv('developer', 'p', { cwd: '/tmp/wt' })
-    assert.equal(valueOf(judgment, '--reasoning'), 'xhigh')
-    assert.equal(valueOf(worker, '--reasoning'), 'high')
+    assert.equal(valueOf(judgment, '--reasoning'), 'max')
+    assert.equal(valueOf(worker, '--reasoning'), 'max')
   })
 
   test('passes the seat toolsets as a comma-separated list', () => {
@@ -243,11 +244,13 @@ describe('buildArgv', () => {
     )
   })
 
-  test('rejects a forbidden effort override', () => {
+  test('still rejects ultra: above-max levels stay forbidden per host policy', () => {
+    // Batch #437 arbitration: max is allowed (self-hosted exemption) but
+    // ultra remains above the ceiling (effort-policy HOST_EXTRA_FORBIDDEN).
     assert.throws(
       () => buildArgv('developer', 'p', { cwd: '/tmp/wt', effort: 'ultra' }),
       /ultra/,
-      'the effort ceiling is xhigh; ultra and max are forbidden'
+      'ultra is above the max ceiling and must be rejected'
     )
   })
 })
@@ -413,11 +416,12 @@ describe('modelIdHint', () => {
     modelIdHint = mod.modelIdHint
   })
 
-  test('explains a failure on a model id that was never confirmed', () => {
-    const [unverifiedId] = Object.keys(hermesTable._unverified_model_ids)
-    const hint = modelIdHint(unverifiedId)
-    assert.ok(hint, `expected a hint for the unverified id "${unverifiedId}"`)
-    assert.match(hint, /#\d+/, 'the hint must cite the tracking issue')
+  test('says nothing when the table carries no unverified ids', () => {
+    // Batch #437 arbitration: _unverified_model_ids is gone; every pinned
+    // id is catalog-verified. The hint mechanism tolerates the empty case.
+    assert.equal(hermesTable._unverified_model_ids, undefined)
+    assert.equal(modelIdHint('vllm/qsu/glm-5-3'), null)
+    assert.equal(modelIdHint('vllm/release/glm-5-2'), null)
   })
 
   test('says nothing about a model id that is confirmed', () => {

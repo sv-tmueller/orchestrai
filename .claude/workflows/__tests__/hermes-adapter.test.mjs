@@ -68,10 +68,12 @@ describe('hermes adapter table structure', () => {
     }
   })
 
-  test('effort ceiling and forbidden efforts match the universal policy', () => {
-    assert.equal(hermesTable.effort_ceiling, 'xhigh')
-    // Hermes --reasoning offers ultra above max, so this host forbids both.
-    assert.deepEqual([...hermesTable.forbidden_efforts].sort(), ['max', 'ultra'])
+  test('effort ceiling and forbidden efforts match the Hermes local-model policy', () => {
+    // Self-hosted vLLM models: no token-cost ceiling, so max effort is
+    // allowed. Paid-API hosts (claude-code.json, codex.json) keep the
+    // xhigh ceiling and forbid max; this table intentionally diverges.
+    assert.equal(hermesTable.effort_ceiling, 'max')
+    assert.deepEqual(hermesTable.forbidden_efforts, [])
   })
 
   test('shares the same role-to-tier mapping as the Claude Code table', () => {
@@ -193,5 +195,121 @@ describe('hermes workflow renderer', () => {
     const report = await renderWorkflow('tm-map-codebase', {})
     assert.ok(report)
     assert.equal(report._dryRun, true)
+  })
+
+  test('tm-map-codebase (dry-run): logs when items_source falls back to the stub', async () => {
+    const warnings = []
+    const origWarn = console.warn
+    console.warn = (msg) => warnings.push(msg)
+    try {
+      await renderWorkflow('tm-map-codebase', {})
+    } finally {
+      console.warn = origWarn
+    }
+    const stageStartLine = warnings.find((w) => w.includes('stage: area_map (tier:'))
+    assert.ok(stageStartLine, 'expected the stage-start log line')
+    const stubLines = warnings.filter(
+      (w) => w !== stageStartLine && w.includes('area_map') && w.includes('stub')
+    )
+    assert.equal(stubLines.length, 1, 'expected exactly one distinct stub-fallback log line')
+  })
+
+  // Live-mode tests use the subprocess seam (batch #437): HERMES_BIN points
+  // at a stub seat that records its -z prompt to a sidecar and answers by
+  // role contract. The scout emits a fenced json block; parseReport copies
+  // its keys onto the report, so items_source resolves against real data.
+  async function runLiveWithStubSeats(workflow, wfArgs) {
+    const { writeFileSync, chmodSync, mkdtempSync, readFileSync: rf } =
+      await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join: pj } = await import('node:path')
+    const dir = mkdtempSync(pj(tmpdir(), 'hermes-seat-stub-'))
+    const sidecar = pj(dir, 'calls.jsonl')
+    const bin = pj(dir, 'hermes-stub.mjs')
+    const f = '```'.repeat(1)
+    const SCOUT_PAYLOAD = JSON.stringify({
+      areas: [
+        { name: 'alpha-area', paths: ['alpha/'], why: 'core' },
+        { name: 'beta-area', paths: ['beta/'], why: 'support' },
+      ],
+      dropped: [],
+    })
+    writeFileSync(bin, [
+      '#!/usr/bin/env node',
+      "import { appendFileSync } from 'node:fs'",
+      'const args = process.argv.slice(2)',
+      "const zi = args.indexOf('-z')",
+      "const prompt = zi >= 0 ? args[zi + 1] : ''",
+      `appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({ prompt }) + '\\n')`,
+      `const f = '${f}'`,
+      "let out = 'STATUS: DONE\\n\\n' + f + 'json\\n{}\\n' + f + '\\n'",
+      "if (prompt.includes('coherent areas')) {",
+      // STATUS satisfies the developer report contract (detectFailure);
+      // the json block carries the structured payload downstream.
+      `  out = 'STATUS: DONE\\n\\n' + f + 'json\\n' + ${JSON.stringify(SCOUT_PAYLOAD)} + '\\n' + f + '\\n'`,
+      '}',
+      'process.stdout.write(out)',
+    ].join('\n'))
+    chmodSync(bin, 0o755)
+
+    const origBin = process.env.HERMES_BIN
+    const origDryRun = process.env.DRY_RUN
+    const warnings = []
+    const origWarn = console.warn
+    process.env.HERMES_BIN = bin
+    process.env.DRY_RUN = 'false'
+    console.warn = (msg) => warnings.push(String(msg))
+    try {
+      await renderWorkflow(workflow, wfArgs)
+    } finally {
+      console.warn = origWarn
+      process.env.HERMES_BIN = origBin
+      process.env.DRY_RUN = origDryRun
+    }
+    const calls = []
+    for (const line of rf(sidecar, 'utf8').trim().split('\n').filter(Boolean)) {
+      calls.push(JSON.parse(line))
+    }
+    return { calls, warnings }
+  }
+
+  test('tm-map-codebase: area_map stage receives the real scout areas, not the stub', async () => {
+    const { calls, warnings } = await runLiveWithStubSeats('tm-map-codebase', {})
+
+    const areaMapGoals = calls.map((c) => c.prompt)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
+
+    assert.equal(areaMapGoals.length, 2, 'expected one dispatch per real scout area')
+    assert.ok(areaMapGoals.some((g) => g.includes('alpha-area')), 'missing alpha-area dispatch')
+    assert.ok(areaMapGoals.some((g) => g.includes('beta-area')), 'missing beta-area dispatch')
+    assert.ok(
+      !areaMapGoals.some((g) => g.includes('stub-area')),
+      'must not fall back to the stub area when a real scout result is available'
+    )
+    assert.ok(
+      !warnings.some((w) => w.includes('falling back to 1 stub item')),
+      'stub fallback log must not fire when the real scout result resolves'
+    )
+  })
+
+  test('tm-map-codebase: items_cap "args.areas" resolves to the passed args.areas value', async () => {
+    const { calls } = await runLiveWithStubSeats('tm-map-codebase', { areas: 1 })
+
+    const areaMapGoals = calls.map((c) => c.prompt)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
+    assert.equal(areaMapGoals.length, 1, 'args.areas = 1 must cap the dispatch at one area')
+    assert.ok(areaMapGoals[0].includes('alpha-area'), 'the cap keeps the first area')
+  })
+
+  test('tm-review-codebase: area_review stage receives the real scout areas, not the stub', async () => {
+    const { calls } = await runLiveWithStubSeats('tm-review-codebase', {})
+
+    // architecture_review shares the same schema but never carries an area
+    // name in its prompt, so filter by area name.
+    const areaGoals = calls.map((c) => c.prompt)
+      .filter((g) => g.includes('alpha-area') || g.includes('beta-area'))
+
+    assert.equal(areaGoals.length, 2, 'expected one dispatch per real scout area')
+    assert.ok(!areaGoals.some((g) => g.includes('stub-area')))
   })
 })

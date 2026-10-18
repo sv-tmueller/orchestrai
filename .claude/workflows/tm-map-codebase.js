@@ -1,3 +1,19 @@
+export const meta = {
+  name: 'tm-map-codebase',
+  description:
+    'Token-bounded full-repo map: a Sonnet scout splits the repo into N coherent areas (N sized to the repo, capped at a ceiling), one Sonnet worker maps each area (purpose, entry points, key modules, data and control flow, external dependencies, conventions), and one Opus critic synthesizes a dated architecture map. Models are pinned per stage in-script, so it never inherits the session model, and the agent count scales with repo size only up to a hard ceiling. This is a map, not a review: no findings, no severities, no recommendations.',
+  phases: [
+    { title: 'Scout', detail: 'one Sonnet agent splits the repo into N areas (N <= ceiling)', model: 'sonnet' },
+    { title: 'Map', detail: 'one Sonnet worker per area describes it', model: 'sonnet' },
+    { title: 'Synthesize', detail: 'one Opus critic writes the consolidated map', model: 'opus' },
+  ],
+}
+// meta is a plain literal and the first statement because the workflow runtime
+// reads it before running the script. It repeats the name, description and
+// phases of SPEC below, with each phase's tier resolved through TIER_MODELS.
+// workflow-meta.test.mjs fails if the two drift.
+// The model is carried here for display purposes only.
+
 // Workflow spec (embedded; mirrors specs/tm-map-codebase.spec.json)
 // The spec encodes the fan-out as data: stages, tiers, parallelism, schemas,
 // and fallbacks. The JS renderer reads SPEC to drive agent()/parallel()/phase()
@@ -48,18 +64,8 @@ const SPEC = {
 // (.claude/adapters/claude-code.json) is the single source of truth; the SPEC
 // references tiers, never model names. On Claude Code the resolution is
 // inlined here because the workflow runtime has no imports.
-const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'fable' }
+const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
 const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
-
-export const meta = {
-  name: SPEC.name,
-  description: SPEC.description,
-  phases: SPEC.phases.map((p) => ({
-    title: p.title,
-    detail: p.detail,
-    model: TIER_MODELS[p.tier],
-  })),
-}
 
 // Bounded by construction. The scout sizes the number of areas N to the repo, and
 // the script hard-clamps N to MAX_AREAS, so a run is 1 scout + N area workers +
@@ -67,7 +73,7 @@ export const meta = {
 // but never exceeds MAX_AREAS + 2, no matter how large the repo is or how many
 // areas the scout proposes. There is no per-file fan-out and no loop. Models and
 // effort are pinned per stage, so the session model and effort never leak into
-// the scout or the workers; the single critic runs Opus 5 at xhigh effort and
+// the scout or the workers; the single critic runs Opus at xhigh effort and
 // auto-retries once on sonnet at the same effort if Opus returns nothing
 // (criticWithFallback below; see team-guide for the lead-level fallback,
 // which is still manual).
@@ -116,7 +122,7 @@ const MAX_AREAS = Number.isInteger(opts.areas) && opts.areas > 0 ? opts.areas : 
 async function criticWithFallback(prompt, opts) {
   const first = await agent(prompt, opts)
   // agent() returns null both when the model errors out after retries (for
-  // example Opus 5 quota exhaustion) and when the user skips the dispatch
+  // example Opus quota exhaustion) and when the user skips the dispatch
   // mid-run. Nothing in this script can tell those two cases apart, so there
   // is no heuristic to invent here. The ruling is on which failure mode is
   // worse: retrying a deliberate skip costs one extra skip prompt (the retry
@@ -256,7 +262,7 @@ const scope = `Work from the repo root scoped to "${root}". List source files wi
 // in there.
 const PROMPTS = {
   scout:
-    'You map a repository into coherent areas for a codebase map (not a review). You do not describe or evaluate code content in this step, only structure.\n\n{{scope}}\n\nFirst gauge the repo\'s size (for example `git ls-files -- {{root}} | wc -l`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach {{maxAreas}} areas. Return at most {{maxAreas}} areas, ranked by importance (size and how central they are to the system). If the repo is larger than {{maxAreas}} areas can cover at a readable size, return the {{maxAreas}} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped.',
+    'You map a repository into coherent areas for a codebase map (not a review). You do not describe or evaluate code content in this step, only structure.\n\n{{scope}}\n\nFirst gauge the repo\'s size (for example `git ls-files -- {{root}} | wc -l`). Then split the files into N coherent areas, where an area is a set of files that belong together (a module, package, or directory subtree) and is small enough to read in one pass. Size N to the repo: make one area per top-level module or per a few thousand lines of related code, using as few areas as cover it well. Do NOT split finer just to use the budget; only a genuinely large codebase should approach {{maxAreas}} areas. Return at most {{maxAreas}} areas, ranked by importance (size and how central they are to the system). If the repo is larger than {{maxAreas}} areas can cover at a readable size, return the {{maxAreas}} most important and put every path you cannot fit in "dropped" so it is reported, not lost. Return areas (name, paths, why) and dropped. Finally, output one fenced json code block as the last thing in your reply, holding the machine-readable payload: {\"areas\": [{\"name\": \"...\", \"paths\": [\"...\"], \"why\": \"...\"}], \"dropped\": [\"...\"]}. Downstream stages fan out over this block.',
   area_map:
     'You map one area of a codebase. You describe, you do not evaluate: no findings, no severities, no recommendations, no quality or security judgments. You never edit.\n\nArea: {{areaName}}\nPaths: {{areaPaths}}\n\nOther areas in this repo, for context on dependencies:\n{{repoMap}}\n\nRead these files in full, with surrounding context where needed. Describe:\n- purpose: what this area is for, in plain terms.\n- entryPoints: files or exports where execution or usage of this area starts.\n- keyModules: the modules that matter, each with a one-line role.\n- dataFlow: how data moves through this area.\n- controlFlow: how control moves through this area (call order, triggers, lifecycle).\n- externalDependencies: packages, services, or other areas this area depends on.\n- conventions: naming, structure, or style conventions specific to this area.\n\nSet area to "{{areaName}}". Stay within your area. Do not report findings, severities, or fixes; this is a map, not a review.',
   synthesize:

@@ -31,7 +31,7 @@ resumability. Parallelism comes from worktree isolation, not nesting.
 ```mermaid
 graph TD
     H["Human<br/>files and sizes issues, merges PRs"] --> L
-    L["LEAD - main session (fable, xhigh effort)<br/>message bus and router<br/>owns no code; durable state lives in GitHub"]
+    L["LEAD - main session (opus, xhigh effort)<br/>message bus and router<br/>owns no code; durable state lives in GitHub"]
 
     L -->|"JOB: SUB_PLAN / SPLIT / ARBITRATION"| A["architect (opus)<br/>read-only - approach, splits, arbitration"]
     L -->|"issue + sub-plan"| D["developer (sonnet)<br/>one issue end to end - worktree - TDD - draft PR"]
@@ -68,8 +68,11 @@ re-measure commands to the tester afterward.
 
 For one issue, the lead runs the agents in sequence and loops on failure. This is
 the happy path with the two fix loops. It omits parking (`needs-human`),
-`NEEDS_CONTEXT`, architect arbitration on developer pushback, and the 3-round fix
-caps, all of which live in `.claude/skills/tm-kickoff/SKILL.md`.
+`NEEDS_CONTEXT`, architect arbitration on developer pushback, the 3-round fix
+caps, the lead-verified fix round, and the lean track (an eligible `size:S`
+package skips the architect and has the reviewer substitute for the tester),
+all of which live in
+`.claude/skills/tm-kickoff/SKILL.md`.
 
 ```mermaid
 sequenceDiagram

@@ -13,13 +13,20 @@
  * the adapter table must conform to them, not the reverse. Otherwise
  * editing the JSON disables the lock (review #320 finding 2).
  *
- * Lead tier is rejected on agent seats and workflow stages: fable is
- * lead-session-only (team-guide Model policy); letting it onto a worker
- * seat is a live 2x-cost regression path (review #320 finding 1).
+ * Lead tier is rejected on agent seats and workflow stages: lead is
+ * reserved for the orchestrator session, structurally, regardless of
+ * which model tiers.lead maps to (team-guide Model policy).
  *
  * The workflow stage pins check the embedded SPEC and TIER_MODELS/
  * TIER_EFFORTS maps in each JS file, asserting they match the adapter
  * table.
+ *
+ * Since #380, Opus is the default lead and fable is a main-window user
+ * choice only, never pinned anywhere in this file's policy. The guard
+ * describe below (FORBIDDEN_MODEL) fails loudly if fable reappears in
+ * any adapter table, agent or skill frontmatter, workflow TIER_MODELS
+ * map, or a workflow/adapter file's raw source: a live 2.5x-cost
+ * regression path (review #320 finding 1).
  */
 
 import { test, describe } from 'node:test'
@@ -37,13 +44,19 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 // ---------------------------------------------------------------------------
 // Policy constants: THESE ARE THE AUTHORITY, not the adapter table.
 // ---------------------------------------------------------------------------
-// The universal floor: every host forbids these, whatever its runtime offers.
+// The effort policy protects PAID-API hosts from runaway token bills
+// (original motivation, issue #140: max effort burned 2.5x tokens for
+// negligible gain). Hosts serving SELF-HOSTED models (no marginal token
+// cost) are exempt: their tables may set effort_ceiling to "max" and drop
+// "max" from forbidden_efforts. Exemption is declared per host here, not
+// in the JSON — editing a table cannot silently grant itself an exemption.
 const FORBIDDEN_EFFORTS = ['max']
 // Levels a specific host's runtime offers above the ceiling, which that host
 // must therefore also forbid. Declared here, not in the JSON, so a host
 // cannot quietly drop one. Hermes `--reasoning` accepts ultra above max.
 const HOST_EXTRA_FORBIDDEN = { hermes: ['ultra'] }
 const EFFORT_CEILING = 'xhigh'
+const SELF_HOSTED_HOSTS = new Set(['hermes']) // host field, not filename
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
 const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 }
@@ -53,6 +66,14 @@ const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 }
 // nor drift away from it.
 function expectedForbidden(host) {
   return [...FORBIDDEN_EFFORTS, ...(HOST_EXTRA_FORBIDDEN[host] || [])].sort()
+}
+
+// Resolve the policy for a table: self-hosted hosts get the lifted policy.
+function policyFor(host) {
+  if (SELF_HOSTED_HOSTS.has(host)) {
+    return { forbiddenEfforts: [], effortCeiling: 'max' }
+  }
+  return { forbiddenEfforts: FORBIDDEN_EFFORTS, effortCeiling: EFFORT_CEILING }
 }
 
 // ---------------------------------------------------------------------------
@@ -85,34 +106,64 @@ const adapterTables = adapterFiles.map((f) => ({
 }))
 
 // Hardcoded seat-level expectations for the REFERENCE adapter only.
-// These pin the Claude Code model assignments (opus/sonnet/fable) so a
-// coordinated edit to the JSON cannot weaken the reference policy (review
-// #320 finding 14). Non-reference adapters (Hermes, Codex) map tiers to
-// their own models; the universal checks above (forbidden efforts, ceiling,
-// tier completeness) apply to every table, but the model identities are
-// host-specific and not asserted here (issue #317).
+// These pin the Claude Code model assignments (opus for judgment and lead,
+// sonnet for worker) so a coordinated edit to the JSON cannot weaken the
+// reference policy (review #320 finding 14). Non-reference adapters
+// (Hermes, Codex) map tiers to their own models; the universal checks
+// above (forbidden efforts, ceiling, tier completeness) apply to every
+// table, but the model identities are host-specific and not asserted here
+// (issue #317).
 const REFERENCE_ADAPTER = 'claude-code.json'
 const SEAT_EXPECTATIONS = {
   judgment: { model: 'opus', effort: 'xhigh' },
   worker: { model: 'sonnet', effort: 'high' },
-  lead: { model: 'fable', effort: 'xhigh' },
+  lead: { model: 'opus', effort: 'xhigh' },
 }
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
+
+// Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
+// Module scope so the fable guard below can reuse it.
+function parseTierMaps(src) {
+  function extractConst(name) {
+    const re = new RegExp(`const ${name} = \\{`)
+    const match = re.exec(src)
+    if (!match) return null
+    let pos = src.indexOf('{', match.index)
+    let depth = 0
+    let started = false
+    while (pos < src.length) {
+      if (src[pos] === '{') { depth++; started = true }
+      if (src[pos] === '}') depth--
+      pos++
+      if (started && depth === 0) break
+    }
+    const constSrc = src.slice(match.index, pos)
+    const ctx = createContext({})
+    runInContext(constSrc, ctx)
+    return runInContext(name, ctx)
+  }
+  return {
+    models: extractConst('TIER_MODELS'),
+    efforts: extractConst('TIER_EFFORTS'),
+  }
+}
 
 // ===========================================================================
 // 0. Every adapter table conforms to the hardcoded policy.
 //    The table is the data; this test is the authority.
 // ===========================================================================
 for (const { name, table } of adapterTables) {
+  const policy = policyFor(table.host)
   describe(`adapter table conforms to policy: ${name}`, () => {
     test('forbidden_efforts matches the hardcoded policy', () => {
       const expected = expectedForbidden(table.host)
       assert.deepEqual(
-        [...table.forbidden_efforts].sort(),
-        expected,
+        table.forbidden_efforts,
+        policy.forbiddenEfforts,
         `${name}: forbidden_efforts is ${JSON.stringify(table.forbidden_efforts)}, ` +
-          `but the policy requires exactly ${JSON.stringify(expected)}; ` +
+          `but the policy hardcodes ${JSON.stringify(policy.forbiddenEfforts)} for host ` +
+          `"${table.host}" (${SELF_HOSTED_HOSTS.has(table.host) ? 'self-hosted, exempt' : 'paid-API'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
@@ -120,9 +171,10 @@ for (const { name, table } of adapterTables) {
     test('effort_ceiling matches the hardcoded policy', () => {
       assert.equal(
         table.effort_ceiling,
-        EFFORT_CEILING,
+        policy.effortCeiling,
         `${name}: effort_ceiling is "${table.effort_ceiling}", ` +
-          `but the policy hardcodes "${EFFORT_CEILING}"; ` +
+          `but the policy hardcodes "${policy.effortCeiling}" for host ` +
+          `"${table.host}" (${SELF_HOSTED_HOSTS.has(table.host) ? 'self-hosted, exempt' : 'paid-API'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
@@ -134,14 +186,14 @@ for (const { name, table } of adapterTables) {
           `${name}: tier "${tier}" effort "${cfg.effort}" is not a recognized effort level`
         )
         assert.ok(
-          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[EFFORT_CEILING],
-          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${EFFORT_CEILING}"`
+          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[policy.effortCeiling],
+          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${policy.effortCeiling}"`
         )
       }
     })
 
     test('no tier uses a hardcoded forbidden effort', () => {
-      for (const forbidden of FORBIDDEN_EFFORTS) {
+      for (const forbidden of policy.forbiddenEfforts) {
         for (const [tier, cfg] of Object.entries(table.tiers)) {
           assert.notEqual(
             cfg.effort,
@@ -203,7 +255,8 @@ describe('agent frontmatter tier pins', () => {
           `add it to .claude/adapters/claude-code.json`
       )
 
-      // Reject lead tier on agent seats: fable is lead-session-only.
+      // Reject lead tier on agent seats: lead is reserved for the
+      // orchestrator session, regardless of which model it maps to.
       assert.ok(
         ALLOWED_AGENT_TIERS.includes(tier),
         `${file} pins tier "${tier}", but agent seats may only use ` +
@@ -284,32 +337,6 @@ describe('workflow stage tier pins', () => {
     return runInContext('SPEC', ctx)
   }
 
-  // Parse the TIER_MODELS and TIER_EFFORTS maps from a JS source file.
-  function parseTierMaps(src) {
-    function extractConst(name) {
-      const re = new RegExp(`const ${name} = \\{`)
-      const match = re.exec(src)
-      if (!match) return null
-      let pos = src.indexOf('{', match.index)
-      let depth = 0
-      let started = false
-      while (pos < src.length) {
-        if (src[pos] === '{') { depth++; started = true }
-        if (src[pos] === '}') depth--
-        pos++
-        if (started && depth === 0) break
-      }
-      const constSrc = src.slice(match.index, pos)
-      const ctx = createContext({})
-      runInContext(constSrc, ctx)
-      return runInContext(name, ctx)
-    }
-    return {
-      models: extractConst('TIER_MODELS'),
-      efforts: extractConst('TIER_EFFORTS'),
-    }
-  }
-
   for (const file of WORKFLOW_FILES) {
     const src = readFileSync(join(workflowsDir, file), 'utf8')
 
@@ -325,7 +352,8 @@ describe('workflow stage tier pins', () => {
           TIERS[stage.tier],
           `${file}: stage "${name}" declares tier "${stage.tier}", which is not in the adapter table`
         )
-        // Reject lead tier on workflow stages: fable is lead-session-only.
+        // Reject lead tier on workflow stages: lead is reserved for the
+        // orchestrator session, regardless of which model it maps to.
         assert.ok(
           ALLOWED_AGENT_TIERS.includes(stage.tier),
           `${file}: stage "${name}" declares tier "${stage.tier}", but workflow ` +
@@ -366,6 +394,94 @@ describe('workflow stage tier pins', () => {
           `${file} contains effort: '${forbidden}'`
         )
       }
+    })
+  }
+})
+
+// ===========================================================================
+// 3. Guard: fable is never pinned anywhere in the reference policy (#380).
+//    Opus is the default lead now, and fable is a main-window user choice
+//    only, never pinned on any seat, workflow stage, or skill. This is
+//    defense in depth on top of the SEAT_EXPECTATIONS assertion above: it
+//    also covers non-reference adapters, agent and skill frontmatter, and
+//    it scans raw file source too, so a fable pin sneaking in outside a
+//    field this file already parses still fails loudly (review #320
+//    finding 1: letting fable onto a worker or judgment seat is a live
+//    2.5x-cost regression path). Only structured fields and raw code/config
+//    source are scanned here, never prose docs.
+// ===========================================================================
+describe('fable is never pinned in the reference policy', () => {
+  const FORBIDDEN_MODEL = /fable/i
+  const skillsDir = join(__dir, '..', '..', 'skills')
+  const workflowJsFiles = readdirSync(workflowsDir).filter((f) => f.endsWith('.js'))
+
+  function frontmatterModel(src) {
+    const fm = src.match(/^---\n([\s\S]*?)\n---/)
+    return fm?.[1].match(/^model:\s*(\S+)/m)?.[1] ?? ''
+  }
+
+  // (a) any tiers.*.model in any .claude/adapters/*.json
+  for (const { name, table } of adapterTables) {
+    test(`${name}: no tiers.*.model names fable`, () => {
+      for (const [tier, cfg] of Object.entries(table.tiers)) {
+        assert.ok(
+          !FORBIDDEN_MODEL.test(cfg.model),
+          `${name}: tiers.${tier}.model is "${cfg.model}"; fable is never pinned`
+        )
+      }
+    })
+  }
+
+  // (b) any agent frontmatter model:
+  const agentFiles = readdirSync(agentsDir).filter((f) => f.endsWith('.md'))
+  for (const file of agentFiles) {
+    test(`${file}: frontmatter model: does not name fable`, () => {
+      const model = frontmatterModel(readFileSync(join(agentsDir, file), 'utf8'))
+      assert.ok(
+        !FORBIDDEN_MODEL.test(model),
+        `${file}: frontmatter model: "${model}" names fable; fable is never pinned`
+      )
+    })
+  }
+
+  // (c) any TIER_MODELS value
+  for (const file of workflowJsFiles) {
+    test(`${file}: TIER_MODELS values do not name fable`, () => {
+      const { models } = parseTierMaps(readFileSync(join(workflowsDir, file), 'utf8'))
+      for (const [tier, model] of Object.entries(models)) {
+        assert.ok(
+          !FORBIDDEN_MODEL.test(model),
+          `${file}: TIER_MODELS.${tier} is "${model}"; fable is never pinned`
+        )
+      }
+    })
+  }
+
+  // (d) the raw source of any workflow .js or adapter .json
+  const rawScanTargets = [
+    ...workflowJsFiles.map((f) => ({ label: `workflows/${f}`, path: join(workflowsDir, f) })),
+    ...adapterFiles.map((f) => ({ label: `adapters/${f}`, path: join(adaptersDir, f) })),
+  ]
+  for (const { label, path } of rawScanTargets) {
+    test(`${label}: raw source does not name fable`, () => {
+      assert.ok(
+        !FORBIDDEN_MODEL.test(readFileSync(path, 'utf8')),
+        `${label}: raw source names fable; fable is never pinned anywhere in this file`
+      )
+    })
+  }
+
+  // (e) any skill frontmatter model:
+  const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+  for (const dir of skillDirs) {
+    test(`${dir}/SKILL.md: frontmatter model: does not name fable`, () => {
+      const model = frontmatterModel(readFileSync(join(skillsDir, dir, 'SKILL.md'), 'utf8'))
+      assert.ok(
+        !FORBIDDEN_MODEL.test(model),
+        `${dir}/SKILL.md: frontmatter model: "${model}" names fable; fable is never pinned`
+      )
     })
   }
 })

@@ -65,6 +65,9 @@ export function renderTemplate(template, vals) {
 const STUB_SLOTS = {
   coverageNote: '',
   rawFindings: '[]',
+  confirmedFindings: '[]',
+  refutedFindings: '[]',
+  unverifiedFindings: '[]',
   reviewedAreas: '[]',
   mappedAreas: '[]',
   workersFailed: '[]',
@@ -109,7 +112,10 @@ export async function renderWorkflow(workflowName, args = {}) {
   const root = safeArg(args.path, '.')
   const base = safeArg(args.base, 'origin/main')
 
-  // Execution context: accumulates results from each stage.
+  // Execution context: accumulates results from each stage, keyed by
+  // "<stage>_result" (not the bare stage name). This is the vocabulary the
+  // spec files use for items_source (e.g. "scout_result.areas"), so a
+  // dynamic-list stage's dotted path resolves against a real prior result.
   const ctx = {}
 
   // Execute stages in declaration order. Dynamic-list stages read their
@@ -119,15 +125,15 @@ export async function renderWorkflow(workflowName, args = {}) {
 
     if (stage.parallelism === 'single') {
       const report = await executeStage(stage, name, ctx, args, log, prompts, root, base)
-      ctx[name] = report
+      ctx[`${name}_result`] = report
     } else if (stage.parallelism === 'fixed-list') {
       const items = getFixedListItems(stage, ctx, args)
       const reports = await executeParallel(stage, name, items, ctx, args, log, prompts, root, base)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else if (stage.parallelism === 'dynamic-list') {
-      const items = getDynamicListItems(stage, ctx, args)
+      const items = getDynamicListItems(stage, ctx, args, name, log)
       const reports = await executeParallel(stage, name, items, ctx, args, log, prompts, root, base)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else {
       throw new Error(`Unknown parallelism "${stage.parallelism}" in stage "${name}"`)
     }
@@ -137,7 +143,7 @@ export async function renderWorkflow(workflowName, args = {}) {
   // final stage is the consolidate/synthesize stage (single, judgment tier).
   const stageNames = Object.keys(stages)
   const lastName = stageNames[stageNames.length - 1]
-  return ctx[lastName]
+  return ctx[`${lastName}_result`]
 }
 
 /**
@@ -219,6 +225,9 @@ function collectSlotVals(name, args, root, base) {
   } else if (name === 'review') {
     // brief and diffHint are per-item; supplied by buildItemTaskPrompt.
     vals.diffHint = buildDiffHint(base)
+  } else if (name === 'verify') {
+    // finding is per-item; supplied by buildItemTaskPrompt.
+    vals.diffHint = buildDiffHint(base)
   } else if (name === 'consolidate' || name === 'synthesize') {
     if (name === 'consolidate') vals.diffHint = buildDiffHint(base)
   }
@@ -248,6 +257,8 @@ function buildItemTaskPrompt(stage, name, item, ctx, args, prompts, root, base) 
     vals.areaPaths = Array.isArray(item.paths) ? item.paths.join(', ') : ''
     vals.repoMap = '' // stub: derived from the scout result in the JS
     vals.brief = item.brief || ''
+    // verify items are findings; the template takes the whole item as JSON.
+    vals.finding = JSON.stringify(item, null, 2)
   }
   return renderTemplate(template, vals)
 }
@@ -261,8 +272,37 @@ function getFixedListItems(stage, ctx, args) {
   return args[stage.items_key] || [{ key: 'stub', name: 'stub-item' }]
 }
 
-// Resolve the item list for a dynamic-list stage.
-function getDynamicListItems(stage, ctx, args) {
+// Closed set of item reducers a dynamic-list stage can name with
+// items_transform. A reducer only flattens, filters and dedups; the cap stays
+// the one generic step in getDynamicListItems. Keep in sync with
+// codex-renderer.mjs and the "Spec format" section of adapter-interface.md.
+const ITEM_TRANSFORMS = {
+  // Worker reports ({ findings: [...] }) -> unique must-fix findings.
+  must_fix_deduped(reports) {
+    const seen = new Set()
+    const out = []
+    for (const report of reports) {
+      if (!report || !Array.isArray(report.findings)) continue
+      for (const f of report.findings) {
+        if (!f || f.severity !== 'must-fix') continue
+        const key = JSON.stringify([f.file, f.line, f.problem])
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(f)
+      }
+    }
+    return out
+  },
+}
+
+// Resolve the item list for a dynamic-list stage. Exported for testing.
+export function getDynamicListItems(stage, ctx, args, name, log) {
+  // An unknown transform must fail loudly: a host without the reducer would
+  // otherwise fan out over unreduced items.
+  const transform = stage.items_transform
+  if (transform !== undefined && !Object.hasOwn(ITEM_TRANSFORMS, transform)) {
+    throw new Error(`stage ${name}: unknown items_transform "${transform}"`)
+  }
   // Dynamic-list stages read items from a previous stage's output.
   // items_source is a dotted path like "scout_result.areas".
   const parts = stage.items_source.split('.')
@@ -271,12 +311,24 @@ function getDynamicListItems(stage, ctx, args) {
     val = val?.[part]
   }
   if (!Array.isArray(val)) {
-    // Dry-run fallback: stub a single area.
+    // Fallback (also exercised by dry-run, which never populates ctx with
+    // real stage output): stub a single area, but log it so a silent
+    // resolution failure on a live host is visible.
+    log(
+      `stage ${name}: items_source "${stage.items_source}" did not resolve to an array; falling back to 1 stub item`
+    )
     return [{ name: 'stub-area', paths: ['.'], why: 'stub' }]
   }
-  // Cap the item count.
-  const cap = args[stage.items_cap] || stage.items_default_cap || Infinity
-  return val.slice(0, cap)
+  const items = transform ? ITEM_TRANSFORMS[transform](val) : val
+  // items_cap names an args field as "args.<field>"; same coercion as the JS
+  // workflows' MAX_AREAS (positive integer, else the default).
+  const capField = typeof stage.items_cap === 'string' ? stage.items_cap.replace(/^args\./, '') : undefined
+  const passed = capField ? args?.[capField] : undefined
+  const cap = Number.isInteger(passed) && passed > 0 ? passed : stage.items_default_cap || Infinity
+  if (items.length > cap) {
+    log(`stage ${name}: ${items.length - cap} item(s) past the cap of ${cap} were not dispatched`)
+  }
+  return items.slice(0, cap)
 }
 
 // Infer the role agent for a stage from the stage name.
@@ -291,6 +343,8 @@ function inferRole(stageName) {
     area_review: 'developer',
     area_map: 'developer',
     architecture_review: 'developer',
+    // A read-only claim audit on the worker tier; the default would be developer.
+    verify: 'fact-checker',
     consolidate: 'reviewer',
     synthesize: 'architect',
   }

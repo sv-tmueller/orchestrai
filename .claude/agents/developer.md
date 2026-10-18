@@ -65,14 +65,19 @@ Then:
   PR needs a pushed commit to exist.
 - Implement with TDD per the preloaded skill. Run the full check suite from
   CLAUDE.md "Useful commands" before reporting. Record each check command and
-  its exit code for the CHECKS line.
+  its exit code for the CHECKS line. When the dispatch includes a
+  `Dependency environment: <path>` line, use it for the check suite instead
+  of building your own; never install into it, upgrade it, delete from it, or
+  change its permissions. Build your own when the line is absent, the path
+  is missing, the branch diff touches a dependency manifest or lockfile, or
+  a check fails with an environment error.
 - Commits and style per CLAUDE.md. Push after each green step.
 - On a fix round, fix exactly the numbered findings you were given. If a
   finding is wrong, say so in your report instead of silently skipping it.
 
 ## Report contract
 
-End with exactly this structure:
+Your whole report is exactly this structure, with nothing before or after it:
 
 ```
 STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
@@ -82,3 +87,9 @@ CHECKS: <each check command and its exit code, e.g. `npm test` -> 0; "none" only
 DEVIATIONS: <anything done differently from the sub-plan, or "none">
 NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
+
+Cap the report at 20 lines: one line per CHECKS command, and one line per
+DEVIATIONS or NOTES item. Do not paste check output, logs, or the diff.
+Only these lines may push the report past the cap, never prose; never drop
+or merge one to fit it. Do not add `###` subheadings inside this section;
+the sync extractor stops at them.

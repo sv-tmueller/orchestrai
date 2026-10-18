@@ -54,6 +54,8 @@ Present the batch in chat, per package:
 - scope (one paragraph)
 - acceptance criteria
 - size label
+- track (lean or full, and why; see "Pipeline tracks" in
+  `.claude/skills/tm-kickoff/SKILL.md` for the eligibility rule)
 - explicit non-goals
 
 End every proposal with this sign-off block:
@@ -167,9 +169,13 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
   an interpretation call), decide it and post the decision with its reasoning
   as a comment on the batch issue before acting on it.
-  An Opus-quota death on a judgment-seat dispatch is such a decision:
-  apply kickoff's per-call Sonnet override routing rule and log the switch
-  on the batch issue. It is not grounds to park.
+  A run-long Sonnet fallback (kickoff's "Limit deaths" subsection) is such a
+  decision: log the switch once on the batch issue when it first fires, and
+  never as a park. Later Sonnet dispatches in the same run add no new
+  entries. Separately, each limit event (one usage or session limit, which
+  can stall several agents at once, whether or not it triggers the switch)
+  gets one batch-issue entry listing every agent it stalled and each one's
+  outcome (resumed or respawned).
 - **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
   for: a change to scope or acceptance criteria, a new dependency or cost,
   anything irreversible or outward-facing, or a conflict with
@@ -182,9 +188,25 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
 
 ## 5. Report
 
-When every package is ready or parked, post the report to the batch issue:
+When every package is ready or parked, run the token report and post it as
+its own comment on the batch issue, before the report comment below (which
+links to it):
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
+  --session "${CLAUDE_CODE_SESSION_ID}" \
+  --since "$(gh issue view <batch#> --json createdAt --jq .createdAt)"
+```
+
+A failed run (missing transcript, script error) is noted in the report
+below and never blocks it. If the batch ran across more than one session
+(a resume, section 6), the report covers only this session's transcript;
+say so in the comment.
+
+Then post the report to the batch issue:
 PRs ready for review, every decision made during the run, parked packages
-with their open questions, and anything deferred. End both the batch-issue
+with their open questions, anything deferred, and any lessons (collected as
+in kickoff section 4; promotion stays human). End both the batch-issue
 report and the chat digest with:
 
 ```
@@ -192,12 +214,15 @@ report and the chat digest with:
 - PR #NN ready  - <package title>
 - PR #NN ready  - <package title>
 - #NN parked (needs-human): <the open question>
+- Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
+- Token report: <link to the batch-issue comment>
 
 ## Next steps
-1. Review & merge: #NN, #NN (merging closes each package issue via its
+1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
+2. Review & merge: #NN, #NN (merging closes each package issue via its
    Closes #N)
-2. Decide on #NN (retry or close)
-3. Close this batch issue by hand once everything is merged (it is the
+3. Decide on #NN (retry or close)
+4. Close this batch issue by hand once everything is merged (it is the
    run record), or run /tm-advisor to confirm the merges, close it, and
    propose the next batch
 ```

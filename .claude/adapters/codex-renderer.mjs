@@ -35,6 +35,9 @@ export async function renderWorkflow(workflowName, args = {}) {
   const stages = spec.stages
   const log = (msg) => console.warn(`[codex-renderer:${workflowName}] ${msg}`)
 
+  // Execution context: accumulates results from each stage, keyed by
+  // "<stage>_result" (not the bare stage name), matching the spec files'
+  // items_source vocabulary (e.g. "scout_result.areas").
   const ctx = {}
 
   for (const [name, stage] of Object.entries(stages)) {
@@ -42,15 +45,15 @@ export async function renderWorkflow(workflowName, args = {}) {
 
     if (stage.parallelism === 'single') {
       const report = await executeStage(stage, name, ctx, args, log)
-      ctx[name] = report
+      ctx[`${name}_result`] = report
     } else if (stage.parallelism === 'fixed-list') {
       const items = getFixedListItems(stage, ctx, args)
       const reports = await executeParallel(stage, name, items, ctx, args, log)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else if (stage.parallelism === 'dynamic-list') {
-      const items = getDynamicListItems(stage, ctx, args)
+      const items = getDynamicListItems(stage, ctx, args, name, log)
       const reports = await executeParallel(stage, name, items, ctx, args, log)
-      ctx[name] = reports
+      ctx[`${name}_result`] = reports
     } else {
       throw new Error(`Unknown parallelism "${stage.parallelism}" in stage "${name}"`)
     }
@@ -58,7 +61,7 @@ export async function renderWorkflow(workflowName, args = {}) {
 
   const stageNames = Object.keys(stages)
   const lastName = stageNames[stageNames.length - 1]
-  return ctx[lastName]
+  return ctx[`${lastName}_result`]
 }
 
 async function executeStage(stage, name, ctx, args, log) {
@@ -98,17 +101,63 @@ function getFixedListItems(stage, ctx, args) {
   return args[stage.items_key] || [{ key: 'stub', name: 'stub-item' }]
 }
 
-function getDynamicListItems(stage, ctx, args) {
+// Closed set of item reducers a dynamic-list stage can name with
+// items_transform. A reducer only flattens, filters and dedups; the cap stays
+// the one generic step in getDynamicListItems. Keep in sync with
+// hermes-renderer.mjs and the "Spec format" section of adapter-interface.md.
+const ITEM_TRANSFORMS = {
+  // Worker reports ({ findings: [...] }) -> unique must-fix findings.
+  must_fix_deduped(reports) {
+    const seen = new Set()
+    const out = []
+    for (const report of reports) {
+      if (!report || !Array.isArray(report.findings)) continue
+      for (const f of report.findings) {
+        if (!f || f.severity !== 'must-fix') continue
+        const key = JSON.stringify([f.file, f.line, f.problem])
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(f)
+      }
+    }
+    return out
+  },
+}
+
+// Exported for testing: Codex's spawn shells out, so the resolver is the
+// testable seam.
+export function getDynamicListItems(stage, ctx, args, name, log) {
+  // An unknown transform must fail loudly: a host without the reducer would
+  // otherwise fan out over unreduced items.
+  const transform = stage.items_transform
+  if (transform !== undefined && !Object.hasOwn(ITEM_TRANSFORMS, transform)) {
+    throw new Error(`stage ${name}: unknown items_transform "${transform}"`)
+  }
+  // items_source is a dotted path like "scout_result.areas".
   const parts = stage.items_source.split('.')
   let val = ctx
   for (const part of parts) {
     val = val?.[part]
   }
   if (!Array.isArray(val)) {
+    // Fallback (also exercised by dry-run, which never populates ctx with
+    // real stage output): stub a single area, but log it so a silent
+    // resolution failure on a live host is visible.
+    log(
+      `stage ${name}: items_source "${stage.items_source}" did not resolve to an array; falling back to 1 stub item`
+    )
     return [{ name: 'stub-area', paths: ['.'], why: 'stub' }]
   }
-  const cap = args[stage.items_cap] || stage.items_default_cap || Infinity
-  return val.slice(0, cap)
+  const items = transform ? ITEM_TRANSFORMS[transform](val) : val
+  // items_cap names an args field as "args.<field>"; same coercion as the JS
+  // workflows' MAX_AREAS (positive integer, else the default).
+  const capField = typeof stage.items_cap === 'string' ? stage.items_cap.replace(/^args\./, '') : undefined
+  const passed = capField ? args?.[capField] : undefined
+  const cap = Number.isInteger(passed) && passed > 0 ? passed : stage.items_default_cap || Infinity
+  if (items.length > cap) {
+    log(`stage ${name}: ${items.length - cap} item(s) past the cap of ${cap} were not dispatched`)
+  }
+  return items.slice(0, cap)
 }
 
 function inferRole(stageName) {
@@ -118,6 +167,7 @@ function inferRole(stageName) {
     area_review: 'developer',
     area_map: 'developer',
     architecture_review: 'developer',
+    verify: 'fact-checker',
     consolidate: 'reviewer',
     synthesize: 'architect',
   }

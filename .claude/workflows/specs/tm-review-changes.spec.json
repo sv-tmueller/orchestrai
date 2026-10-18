@@ -9,6 +9,11 @@
       "tier": "worker"
     },
     {
+      "title": "Verify",
+      "detail": "one adversarial Sonnet worker per must-fix finding, capped",
+      "tier": "worker"
+    },
+    {
       "title": "Consolidate",
       "detail": "one Opus critic verifies and merges findings",
       "tier": "judgment"
@@ -22,6 +27,18 @@
       "items_key": "dimensions",
       "item_label_prefix": "review:",
       "schema": "FINDINGS_SCHEMA",
+      "fallback": null
+    },
+    "verify": {
+      "phase": "Verify",
+      "tier": "worker",
+      "parallelism": "dynamic-list",
+      "items_source": "review_result",
+      "items_transform": "must_fix_deduped",
+      "items_cap": "args.maxVerify",
+      "items_default_cap": 12,
+      "item_label_prefix": "verify:",
+      "schema": "VERIFY_SCHEMA",
       "fallback": null
     },
     "consolidate": {

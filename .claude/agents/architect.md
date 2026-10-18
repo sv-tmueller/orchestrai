@@ -24,10 +24,26 @@ as the first line of their message: `JOB: SUB_PLAN`, `JOB: SPLIT_PROPOSAL`, or
 ## SUB_PLAN
 
 Input: an issue number. Read the issue, its comments, and the relevant code.
-Produce checkpoint bullets: the approach, the files you expect to be touched,
-the order, the verification step. Check the plan against the issue's size
-label; if the work is clearly bigger than the label, say so and recommend
-re-labeling.
+
+A plan already exists when the issue body carries signed-off batch
+decisions or the batch decision log, links a `docs/plans/` file, or links
+an approved spec. Batch membership alone (a `Part of batch #N` line) is
+not a plan; you decide from what you read, not from a caller-named
+source. When a plan exists, do not restate it: return only the delta, the
+file order, contracts or tests that constrain the change, conflicts with
+`docs/architecture/`, and the size check against the label. If reading
+the code turns up nothing the plan misses, return the one-line
+`plan holds, no additions` form, naming the plan source and stating the
+size check's result, e.g.
+`plan holds, no additions (<plan source>; fits size:S)`; it still serves
+as the checkpoint and resume marker.
+
+When the issue carries only scope and acceptance criteria (no plan),
+produce the full checkpoint bullets instead: the approach, the files you
+expect to be touched, the order, the verification step.
+
+Check the plan against the issue's size label in every form; if the work
+is clearly bigger than the label, say so and recommend re-labeling.
 
 ## SPLIT_PROPOSAL
 
