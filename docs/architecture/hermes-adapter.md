@@ -32,18 +32,33 @@ section 4 Phase C for the design.
 ### Adapter table
 
 The adapter table at `.claude/adapters/hermes.json` maps the three tiers
-(judgment, worker, lead) to concrete models and efforts. The default
-configuration targets GLM-5-2 for all tiers:
+(judgment, worker, lead) to concrete models and efforts. The current
+configuration targets GLM-5-3 for judgment and lead, and
+deepseek-v41-flash for the worker tier:
 
 ```json
 {
   "tiers": {
-    "judgment": { "model": "vllm/release/glm-5-2", "effort": "xhigh" },
-    "worker": { "model": "vllm/release/glm-5-2", "effort": "high" },
-    "lead": { "model": "vllm/release/glm-5-2", "effort": "xhigh" }
+    "judgment": { "model": "vllm/qsu/glm-5-3", "effort": "max" },
+    "worker": { "model": "vllm/qsu/deepseek-v41-flash", "effort": "max" },
+    "lead": { "model": "vllm/qsu/glm-5-3", "effort": "max" }
   }
 }
 ```
+
+All tiers run at `max` effort. The self-hosted vLLM models carry no
+token-cost ceiling, so this table lifts the paid-API effort policy
+(`effort_ceiling: xhigh`, `forbidden_efforts: ["max"]`) that the
+Claude Code and Codex adapter tables keep.
+
+Because Hermes `delegate_task` has a single global model pin
+(`delegation.model` in `~/.hermes/config.yaml`), the tier split is realized
+mechanically at dispatch time, not by the adapter module: `delegation.model`
+pins all delegate_task children to the worker model, and judgment roles
+(architect, reviewer) are dispatched as one-shot Hermes subprocess seats
+(`hermes chat -q -m <judgment-model> --reasoning max "<prompt>"`)
+instead of delegate_task children. The adapter table records the intended
+mapping; the pipeline driver (tm-kickoff / tm-advisor) realizes it.
 
 To use a cheaper model for the worker tier, edit the `worker` entry:
 
