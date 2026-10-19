@@ -39,9 +39,9 @@ deepseek-v41-flash for the worker tier:
 ```json
 {
   "tiers": {
-    "judgment": { "model": "vllm/qsu/glm-5-3", "effort": "max" },
-    "worker": { "model": "vllm/qsu/deepseek-v41-flash", "effort": "max" },
-    "lead": { "model": "vllm/qsu/glm-5-3", "effort": "max" }
+    "judgment": { "model": "vllm/release/glm-5-3", "effort": "max" },
+    "worker": { "model": "vllm/release/deepseek-v41-flash", "effort": "max" },
+    "lead": { "model": "vllm/release/glm-5-3", "effort": "max" }
   }
 }
 ```

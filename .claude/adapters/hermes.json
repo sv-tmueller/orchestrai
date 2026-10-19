@@ -4,19 +4,19 @@
   "description": "Hermes adapter. Spawns each seat as a `hermes -z` subprocess, pinning model, provider, effort, and tool surface per seat. Uses terminal for git/gh, the repo filesystem for handoff, and stdout for the report.",
   "tiers": {
     "judgment": {
-      "model": "vllm/qsu/glm-5-3",
+      "model": "vllm/release/glm-5-3",
       "fallback_model": "vllm/release/glm-5-2",
       "provider": "custom",
       "effort": "max"
     },
     "worker": {
-      "model": "vllm/qsu/deepseek-v41-flash",
+      "model": "vllm/release/deepseek-v41-flash",
       "fallback_model": "vllm/release/glm-5-2",
       "provider": "custom",
       "effort": "max"
     },
     "lead": {
-      "model": "vllm/qsu/glm-5-3",
+      "model": "vllm/release/glm-5-3",
       "fallback_model": "vllm/release/glm-5-2",
       "provider": "custom",
       "effort": "max"

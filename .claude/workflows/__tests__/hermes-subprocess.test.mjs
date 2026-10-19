@@ -427,7 +427,7 @@ describe('modelIdHint', () => {
     // Batch #437 arbitration: _unverified_model_ids is gone; every pinned
     // id is catalog-verified. The hint mechanism tolerates the empty case.
     assert.equal(hermesTable._unverified_model_ids, undefined)
-    assert.equal(modelIdHint('vllm/qsu/glm-5-3'), null)
+    assert.equal(modelIdHint('vllm/release/glm-5-3'), null)
     assert.equal(modelIdHint('vllm/release/glm-5-2'), null)
   })
 

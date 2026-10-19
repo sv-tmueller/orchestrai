@@ -19,7 +19,7 @@ deepseek-v41-flash), the tier split is realized mechanically: worker roles
 delegate_task and thus run DeepSeek; judgment roles (architect, reviewer) are
 dispatched as one-shot Hermes subprocess seats instead —
 
-`hermes chat -q -m vllm/qsu/glm-5-3 --reasoning max "<role prompt + task>"`
+`hermes chat -q -m vllm/release/glm-5-3 --reasoning max "<role prompt + task>"`
 
 — prepend the role prompt from .claude/adapters/prompts/<role>.md to the task
 text, and parse stdout as the seat's report. Equivalent to Fable/Opus judging
