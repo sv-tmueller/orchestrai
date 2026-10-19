@@ -215,7 +215,7 @@ the two-tier model route: worker roles (developer, tester, docs-writer,
 fact-checker, perf-investigator) via `delegate_task(goal="...", role="leaf")`,
 which the global `delegation.model` pin routes to deepseek-v41-flash; judgment
 roles (architect, reviewer) as one-shot Hermes subprocess seats
-(`hermes chat -q -m vllm/qsu/glm-5-3 --reasoning max "<role prompt +
+(`hermes chat -q -m vllm/release/glm-5-3 --reasoning max "<role prompt +
 task>"`, parsing stdout as the report). Use `terminal` for all `git` and
 `gh` operations (creating branches, pushing, commenting on issues, labeling,
 managing PRs).
