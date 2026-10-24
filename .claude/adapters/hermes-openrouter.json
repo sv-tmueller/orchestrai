@@ -1,0 +1,47 @@
+{
+  "_comment": "Variant adapter table for the Hermes host: all three tiers on one paid OpenRouter model. Selected per run with the HERMES_ADAPTER_TABLE environment variable (a bare file name in this directory); hermes.json stays the default. Because the provider is paid, the effort policy applies in full: xhigh ceiling, max and ultra forbidden (see effort-policy.test.mjs). The roles and seats repeat hermes.json on purpose, since each table must stand alone; a test guards against drift.",
+  "host": "hermes",
+  "description": "Hermes adapter, paid-API variant. Spawns each seat as a `hermes -z` subprocess on Kimi K3.1 Pro via OpenRouter, pinning model, provider, effort, and tool surface per seat.",
+  "tiers": {
+    "judgment": {
+      "model": "moonshotai/kimi-k3.1-pro",
+      "fallback_model": "moonshotai/kimi-k3",
+      "provider": "openrouter",
+      "effort": "xhigh"
+    },
+    "worker": {
+      "model": "moonshotai/kimi-k3.1-pro",
+      "fallback_model": "moonshotai/kimi-k3",
+      "provider": "openrouter",
+      "effort": "xhigh"
+    },
+    "lead": {
+      "model": "moonshotai/kimi-k3.1-pro",
+      "fallback_model": "moonshotai/kimi-k3",
+      "provider": "openrouter",
+      "effort": "xhigh"
+    }
+  },
+  "_fallback_comment": "Within-tier fallback, same mechanism as hermes.json. The fallback inherits the tier effort.",
+  "roles": {
+    "architect": "judgment",
+    "developer": "worker",
+    "docs-writer": "worker",
+    "fact-checker": "worker",
+    "perf-investigator": "worker",
+    "reviewer": "judgment",
+    "tester": "worker"
+  },
+  "_seats_comment": "The tool surface per seat, passed to `hermes -t`. Same as hermes.json: no seat gets the `delegation` toolset (flat-star invariant), and seats omit memory and session_search.",
+  "seats": {
+    "architect": { "toolsets": ["file", "terminal"] },
+    "developer": { "toolsets": ["file", "terminal", "todo", "code_execution"] },
+    "docs-writer": { "toolsets": ["file", "terminal"] },
+    "fact-checker": { "toolsets": ["file", "terminal"] },
+    "perf-investigator": { "toolsets": ["file", "terminal"] },
+    "reviewer": { "toolsets": ["file", "terminal"] },
+    "tester": { "toolsets": ["file", "terminal"] }
+  },
+  "effort_ceiling": "xhigh",
+  "forbidden_efforts": ["max", "ultra"]
+}
