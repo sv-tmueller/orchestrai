@@ -40,10 +40,12 @@ changes instead:
   `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<role prompt + task>"`
   in place of the GLM-5-3 command above.
 - Worker children (delegate_task): in `~/.hermes/config.yaml`, set
-  `delegation.model` to `moonshotai/kimi-k3.1-pro` and the delegation
-  provider to `openrouter`.
+  `delegation.model` to `moonshotai/kimi-k3.1-pro`, the delegation
+  provider to `openrouter`, and `delegation.reasoning_effort` to `xhigh`
+  (children otherwise inherit the parent's level, which can be `max`).
 - Lead session: start it on
-  `-m moonshotai/kimi-k3.1-pro --provider openrouter`.
+  `-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`
+  (without the flag it uses `agent.reasoning_effort`, which can be `max`).
 
 It is a paid provider, so the xhigh ceiling applies and max is forbidden:
 every seat on the variant runs at `--reasoning xhigh`. Never use it on a

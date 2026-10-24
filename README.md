@@ -179,7 +179,7 @@ profile, change nothing in the adapter table. The profile resolves the
 `opus` and `sonnet` aliases to Kimi at the gateway, so the table keeps
 saying `opus` and `sonnet`. The effort pins and the `xhigh` ceiling still
 apply. The token report prices by the model string in the transcript, and
-the price entries for both Kimi IDs come with #445. The customer-repo
+the price table has entries for both Kimi IDs. The customer-repo
 exclusion holds: the model is not available through OpenRouter EU in-region
 routing. Models, prices, and the Hermes side of this: "OpenRouter variant"
 in `docs/architecture/hermes-adapter.md`.
@@ -356,9 +356,10 @@ these changes by hand:
 - Judgment seats (architect, reviewer): dispatch
   `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
 - Worker children: in `~/.hermes/config.yaml`, set `delegation.model` to
-  `moonshotai/kimi-k3.1-pro` and the delegation provider to `openrouter`.
+  `moonshotai/kimi-k3.1-pro`, the delegation provider to `openrouter`, and
+  `delegation.reasoning_effort` to `xhigh`.
 - Lead session: start it with
-  `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider openrouter`.
+  `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
 
 Prices, selection details, and the customer-repo exclusion:
 `docs/architecture/hermes-adapter.md`.

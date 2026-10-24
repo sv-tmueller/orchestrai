@@ -93,7 +93,9 @@ export HERMES_ADAPTER_TABLE=hermes-openrouter.json
 ```
 
 The lead session is not spawned by the adapter, so select its model yourself:
-`hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter`. Seats spawned
+`hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+Without `--reasoning` the lead uses `agent.reasoning_effort`, which can be
+`max`. Seats spawned
 by the adapter take model, provider, and effort from the table.
 
 `HERMES_ADAPTER_TABLE` is read only by the adapter module. It selects the
@@ -102,14 +104,15 @@ that spawns seats through `hermes-adapter.mjs`. The skill-driven
 `delegate_task` path ignores it: there, workers follow `delegation.model` and
 the provider in `~/.hermes/config.yaml`, and judgment seats use the command
 hardcoded in `SKILL.hermes.md`. To run that path on Kimi, set
-`delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`,
-and dispatch judgment seats with
+`delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`
+and `delegation.reasoning_effort` to `xhigh` (children otherwise inherit the
+parent's level, which can be `max`), and dispatch judgment seats with
 `-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
 
 Effort policy. OpenRouter is a paid provider, so the paid-API policy applies,
 unlike the self-hosted default table: `effort_ceiling` is `xhigh` and
 `forbidden_efforts` is `["max", "ultra"]`. A seat on this table never runs at
-`max`.
+`max`, provided the lead and the skill-path workers are set to `xhigh` as above.
 
 Cost profile (OpenRouter listing, 2026-10-24, USD per 1M tokens, 1M context
 for both models):
