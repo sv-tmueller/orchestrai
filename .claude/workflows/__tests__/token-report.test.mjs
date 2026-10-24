@@ -320,6 +320,20 @@ describe('price', () => {
     assert.equal(priced.rows[0].cost, 5)
     assert.ok(priced.notes.some((n) => n.includes('no 5m/1h split')))
   })
+
+  test('adds a notes line naming the model when its table entry has a note', () => {
+    const aggregated = { byModel: { 'vendor/some-model': bucket({ input: 1_000_000 }) }, totals: bucket({}) }
+    const priceTable = {
+      models: {
+        'vendor/some-model': { input: 1, cache_write_5m: 1, cache_read: 0.1, output: 5, note: 'listed rate may differ by upstream provider' },
+        'claude-opus-5-5': { input: 4, cache_write_5m: 5, cache_read: 0.2, output: 20 },
+      },
+    }
+    const priced = price(aggregated, priceTable)
+    assert.ok(priced.notes.includes('vendor/some-model: listed rate may differ by upstream provider'), priced.notes.join('|'))
+    const without = price({ byModel: { 'claude-opus-5-5': bucket({ input: 1_000_000 }) }, totals: bucket({}) }, priceTable)
+    assert.deepEqual(without.notes, [])
+  })
 })
 
 describe('token-prices.json shape', () => {
@@ -376,9 +390,46 @@ describe('token-prices.json shape', () => {
     }
   })
 
-  test('model keys are exact API ids seen in real transcripts, not human labels', () => {
+  test('model keys are exact API ids (claude- or vendor/model), not human labels', () => {
+    const apiId = /^(claude-[a-z0-9-]+|[a-z0-9-]+\/[a-z0-9.-]+)$/
     for (const model of Object.keys(priceTable.models)) {
-      assert.ok(/^claude-[a-z0-9-]+$/.test(model), `${model} looks like an API id`)
+      assert.ok(apiId.test(model), `${model} looks like an API id`)
+    }
+    for (const label of ['Claude Opus 5.5', 'Kimi K3.1 Pro', 'moonshotai/Kimi K3.1 Pro']) {
+      assert.ok(!apiId.test(label), `${label} is a label, not an id`)
+    }
+  })
+
+  test('an entry with a source carries a non-empty source and a YYYY-MM-DD retrieved date, and every vendor/model key has both', () => {
+    for (const [model, rates] of Object.entries(priceTable.models)) {
+      if (model.includes('/') || 'source' in rates) {
+        assert.equal(typeof rates.source, 'string', `${model}.source is a string`)
+        assert.ok(rates.source.length > 0, `${model}.source is non-empty`)
+        assert.match(rates.retrieved, /^\d{4}-\d{2}-\d{2}$/, `${model}.retrieved is a date`)
+      }
+    }
+  })
+
+  test('prices the Kimi models at the OpenRouter list rates', () => {
+    const usage = {
+      input_tokens: 1_000_000,
+      cache_read_input_tokens: 1_000_000,
+      cache_creation_input_tokens: 1_000_000,
+      cache_creation: { ephemeral_5m_input_tokens: 1_000_000, ephemeral_1h_input_tokens: 0 },
+      output_tokens: 1_000_000,
+    }
+    const expected = { 'moonshotai/kimi-k3.1-pro': 14.2, 'moonshotai/kimi-k3': 11.488 }
+    for (const [model, total] of Object.entries(expected)) {
+      const line = JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-10-24T10:00:00.000Z',
+        message: { type: 'message', id: `msg_${model}`, model, content: [], usage },
+      })
+      const priced = price(aggregate(parse({ lead: line }), {}), priceTable)
+      assert.deepEqual(priced.unpriced, [], model)
+      const row = priced.rows.find((r) => r.model === model)
+      assert.ok(Math.abs(row.cost - total) < 1e-9, `${model} cost ${row.cost}`)
+      assert.equal(priceTable.models[model].retrieved, '2026-10-24')
     }
   })
 })
@@ -398,6 +449,8 @@ describe('render: limitations', () => {
     const markdown = render(baseArgs())
     assert.match(markdown, /## Limitations/)
     assert.match(markdown, /subagent transcripts carry no reliable count/i)
+    assert.match(markdown, /Anthropic public list prices/)
+    assert.match(markdown, /OpenRouter list prices/)
     assert.match(markdown, /not your actual billing/i)
     assert.ok(!markdown.includes('Output token counts are not in the transcripts'))
   })
