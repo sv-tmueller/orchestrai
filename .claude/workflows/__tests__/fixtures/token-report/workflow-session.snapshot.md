@@ -40,7 +40,7 @@
 
 - Output: lead figures are measured from the lead transcript's `usage.output_tokens`. Subagent transcripts carry no reliable count, so subagent figures are visible text plus tool-call input divided by 4, marked "(est.)". A by-model or total figure that includes any estimate is marked too.
 - The estimate leaves out thinking tokens, so it undercounts real output token usage.
-- Prices are Anthropic public list prices, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).
+- Prices are Anthropic public list prices for claude- models and OpenRouter list prices for vendor/model IDs, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).
 - Wall-clock: "task notification duration_ms" is the time the harness measured for a dispatched seat. "transcript span" is the first-to-last timestamp span of each run in a transcript, used for workflow subagents and for a seat with no positive measured duration. "est." marks a span. The lead row spans its first to last line in the window, so it includes idle and waiting time. "n/a" means no source gave a positive value.
 - Tool uses are counted from tool_use blocks in each transcript.
 - Found but not read (left out of every total): subagents/unknown-layout.

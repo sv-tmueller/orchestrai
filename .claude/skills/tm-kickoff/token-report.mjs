@@ -394,7 +394,8 @@ const TOKENS_PER_PRICE_UNIT = 1_000_000
  * Prices per-model totals against a price table (see token-prices.json for
  * the shape). Unknown models are returned unpriced and are never included in
  * the priced total. A model missing its 1h cache-write price falls back to
- * the 5m rate for those tokens, and the fallback is noted.
+ * the 5m rate for those tokens, and the fallback is noted. A table entry with
+ * a `note` adds it to the notes whenever that model is priced.
  *
  * @param {ReturnType<typeof aggregate>} aggregated
  * @param {{models: Record<string, object>}} priceTable
@@ -417,6 +418,8 @@ export function price(aggregated, priceTable) {
       rows.push({ model, ...bucket, outputTokens, cost: null })
       continue
     }
+
+    if (rates.note) notes.push(`${model}: ${rates.note}`)
 
     let cache1hRate = rates.cache_write_1h
     if (cache1hRate == null) {
@@ -540,7 +543,7 @@ function limitations(priced, agents, unread) {
   const lines = [
     '- Output: lead figures are measured from the lead transcript\'s `usage.output_tokens`. Subagent transcripts carry no reliable count, so subagent figures are visible text plus tool-call input divided by 4, marked "(est.)". A by-model or total figure that includes any estimate is marked too.',
     '- The estimate leaves out thinking tokens, so it undercounts real output token usage.',
-    '- Prices are Anthropic public list prices, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).',
+    '- Prices are Anthropic public list prices for claude- models and OpenRouter list prices for vendor/model IDs, not your actual billing (discounts, batch pricing and negotiated rates are not reflected).',
   ]
   if (agents.length > 0) {
     lines.push(
