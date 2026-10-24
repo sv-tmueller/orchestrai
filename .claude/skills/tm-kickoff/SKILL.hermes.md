@@ -25,7 +25,32 @@ dispatched as one-shot Hermes subprocess seats instead —
 text, and parse stdout as the seat's report. Equivalent to Fable/Opus judging
 Sonnet development in the Claude pipeline. All tiers run at max effort: the
 self-hosted vLLM models have no token-cost ceiling, so the paid-API effort
-policy (xhigh ceiling, max forbidden) does not apply to this host.
+policy (xhigh ceiling, max forbidden) does not apply to the default table.
+
+To run on the OpenRouter variant instead (all three tiers on
+`moonshotai/kimi-k3.1-pro`, provider `openrouter`, effort `xhigh`, fallback
+`moonshotai/kimi-k3`), note that this skill does not read
+`HERMES_ADAPTER_TABLE`. That env var is read only by `hermes-adapter.mjs`,
+which this path never runs, so it selects the variant only for the
+programmatic driver (`hermes-pipeline.mjs`) and anything else that spawns
+seats through the adapter. On this skill-driven path, make these manual
+changes instead:
+
+- Judgment seats (architect, reviewer): dispatch
+  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<role prompt + task>"`
+  in place of the GLM-5-3 command above.
+- Worker children (delegate_task): in `~/.hermes/config.yaml`, set
+  `delegation.model` to `moonshotai/kimi-k3.1-pro`, the delegation
+  provider to `openrouter`, and `delegation.reasoning_effort` to `xhigh`
+  (children otherwise inherit the parent's level, which can be `max`).
+- Lead session: start it on
+  `-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`
+  (without the flag it uses `agent.reasoning_effort`, which can be `max`).
+
+It is a paid provider, so the xhigh ceiling applies and max is forbidden:
+every seat on the variant runs at `--reasoning xhigh`. Never use it on a
+customer repo: the model has no OpenRouter EU in-region routing. Details:
+docs/architecture/hermes-adapter.md, "OpenRouter variant (Kimi K3.1 Pro)".
 
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
 label). With no arguments, ask which issues to run.

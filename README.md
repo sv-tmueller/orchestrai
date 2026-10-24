@@ -6,7 +6,8 @@ GitHub issues from sub-plan to ready PR through a flat-star pipeline
 
 - **Claude Code** via the plugin marketplace (Opus/Sonnet; Fable is a
   main-window user choice only, never pinned)
-- **Hermes Agent** via a Hermes skill (GLM-5-2 or any configured model)
+- **Hermes Agent** via a Hermes skill (GLM-5-3 and DeepSeek by default, or
+  any configured model)
 
 A Codex adapter (subscription auth, o3/gpt-5.6) is built but not yet
 live-tested.
@@ -171,7 +172,19 @@ Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
 fallback and resume)". Nothing runs at max effort. Fable is never pinned in
 this table; it is available only as the user's own choice for the main window.
 
-## Zone 2: Hermes Agent (GLM-5-2)
+#### Other providers via a profile
+
+To run the Claude Code host against Kimi through an OpenRouter-compatible
+profile, change nothing in the adapter table. The profile resolves the
+`opus` and `sonnet` aliases to Kimi at the gateway, so the table keeps
+saying `opus` and `sonnet`. The effort pins and the `xhigh` ceiling still
+apply. The token report prices by the model string in the transcript, and
+the price table has entries for both Kimi IDs. The customer-repo
+exclusion holds: the model is not available through OpenRouter EU in-region
+routing. Models, prices, and the Hermes side of this: "OpenRouter variant"
+in `docs/architecture/hermes-adapter.md`.
+
+## Zone 2: Hermes Agent
 
 ### Install
 
@@ -223,7 +236,7 @@ token:
 hermes -s orchestrai chat -q "Run the orchestrator team on issue #42"
 ```
 
-The lead session (GLM-5-2 or whatever you configured) reads the skill,
+The lead session (GLM-5-3 or whatever you configured) reads the skill,
 follows the flat-star pipeline, and dispatches each role agent via
 `delegate_task` as a leaf worker. Role prompts are loaded from the
 skill's `references/roles/` directory.
@@ -306,16 +319,53 @@ sync bundle files.
 
 ### Model config
 
-The adapter table at `.claude/adapters/hermes.json`:
+Two adapter tables ship for Hermes. The default is
+`.claude/adapters/hermes.json` (self-hosted vLLM, provider `custom`):
 
 | Tier | Model | Effort | Roles |
 |------|-------|--------|-------|
-| judgment | vllm/release/glm-5-2 | xhigh | architect, reviewer |
-| worker | vllm/release/glm-5-2 | high | developer, tester, fact-checker, docs-writer, perf-investigator |
-| lead | vllm/release/glm-5-2 | xhigh | the lead session |
+| judgment | vllm/release/glm-5-3 | max | architect, reviewer |
+| worker | vllm/release/deepseek-v41-flash | max | developer, tester, fact-checker, docs-writer, perf-investigator |
+| lead | vllm/release/glm-5-3 | max | the lead session |
+
+Each tier falls back to `vllm/release/glm-5-2` at the same effort. Max is
+allowed here because the self-hosted models carry no token-cost ceiling.
+
+The variant is `.claude/adapters/hermes-openrouter.json`: all three tiers
+run `moonshotai/kimi-k3.1-pro` through provider `openrouter` at `xhigh`,
+with `moonshotai/kimi-k3` as the within-tier fallback. It is a paid
+provider, so the paid-API effort policy applies (`xhigh` ceiling, `max`
+forbidden). It is not for customer repos.
+
+`HERMES_ADAPTER_TABLE` is read only by the adapter module, so it selects the
+variant for the programmatic driver and for anything else that spawns seats
+through `hermes-adapter.mjs`. `hermes-pipeline.mjs` has no CLI entry point;
+call `runPipeline` from a Node one-liner:
+
+```bash
+HERMES_ADAPTER_TABLE=hermes-openrouter.json \
+  node --input-type=module -e \
+  "import { runPipeline } from './.claude/adapters/hermes-pipeline.mjs'; await runPipeline(42)"
+```
+
+The skill-driven path (`hermes -s orchestrai chat`) does not read the env
+var: its workers go through `delegate_task`, pinned by `delegation.model`,
+and its judgment seats use a fixed command. To put that path on Kimi, make
+these changes by hand:
+
+- Judgment seats (architect, reviewer): dispatch
+  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
+- Worker children: in `~/.hermes/config.yaml`, set `delegation.model` to
+  `moonshotai/kimi-k3.1-pro`, the delegation provider to `openrouter`, and
+  `delegation.reasoning_effort` to `xhigh`.
+- Lead session: start it with
+  `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+
+Prices, selection details, and the customer-repo exclusion:
+`docs/architecture/hermes-adapter.md`.
 
 To use a cheaper model for worker-tier agents, edit the `worker` entry in
-`hermes.json`. The Hermes config (`~/.hermes/config.yaml`) pins the
+the table you run. The Hermes config (`~/.hermes/config.yaml`) pins the
 provider and base URL; the adapter table only declares which model ID
 each tier uses.
 

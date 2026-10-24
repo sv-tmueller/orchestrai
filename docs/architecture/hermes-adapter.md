@@ -2,7 +2,8 @@
 
 The Hermes adapter implements the adapter interface (spawn, detectFailure,
 retry) for the Hermes Agent host. It lets the orchestrator team run on
-Hermes with GLM-5-2 (or any configured model) instead of Claude Code.
+Hermes with GLM-5-3 and deepseek-v41-flash (or any configured model)
+instead of Claude Code.
 
 See `docs/architecture/adapter-interface.md` for the interface contract
 and `docs/superpowers/specs/2026-08-14-portable-orchestrator-design.md`
@@ -10,8 +11,10 @@ section 4 Phase C for the design.
 
 ## Components
 
-- `.claude/adapters/hermes.json` -- the adapter table mapping tiers to
-  models and efforts for the Hermes host.
+- `.claude/adapters/hermes.json` -- the default adapter table mapping tiers
+  to models and efforts for the Hermes host.
+- `.claude/adapters/hermes-openrouter.json` -- the OpenRouter variant table
+  (see "OpenRouter variant (Kimi K3.1 Pro)").
 - `.claude/adapters/hermes-adapter.mjs` -- the adapter module exporting
   `spawn`, `detectFailure`, `retry`, `resolveTier`, and `resolveRole`.
 - `.claude/adapters/hermes-renderer.mjs` -- the workflow renderer that
@@ -69,6 +72,62 @@ To use a cheaper model for the worker tier, edit the `worker` entry:
 The role-to-tier mapping is identical to the Claude Code adapter table.
 Changing which tier a role uses (e.g. moving reviewer from judgment to
 worker) means editing the `roles` map in both adapter tables.
+
+### OpenRouter variant (Kimi K3.1 Pro)
+
+A second table, `.claude/adapters/hermes-openrouter.json`, routes all three
+tiers to Kimi K3.1 Pro through OpenRouter. It sits next to the self-hosted
+table and does not replace it. `hermes.json` stays the default.
+
+| Tier | Model | Provider | Effort | Fallback |
+|------|-------|----------|--------|----------|
+| judgment | moonshotai/kimi-k3.1-pro | openrouter | xhigh | moonshotai/kimi-k3 |
+| worker | moonshotai/kimi-k3.1-pro | openrouter | xhigh | moonshotai/kimi-k3 |
+| lead | moonshotai/kimi-k3.1-pro | openrouter | xhigh | moonshotai/kimi-k3 |
+
+Selection. Set `HERMES_ADAPTER_TABLE` to a file name under the adapters
+directory before the run. It defaults to `hermes.json`.
+
+```bash
+export HERMES_ADAPTER_TABLE=hermes-openrouter.json
+```
+
+The lead session is not spawned by the adapter, so select its model yourself:
+`hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+Without `--reasoning` the lead uses `agent.reasoning_effort`, which can be
+`max`. Seats spawned
+by the adapter take model, provider, and effort from the table.
+
+`HERMES_ADAPTER_TABLE` is read only by the adapter module. It selects the
+variant for the programmatic driver (`hermes-pipeline.mjs`) and anything else
+that spawns seats through `hermes-adapter.mjs`. The skill-driven
+`delegate_task` path ignores it: there, workers follow `delegation.model` and
+the provider in `~/.hermes/config.yaml`, and judgment seats use the command
+hardcoded in `SKILL.hermes.md`. To run that path on Kimi, set
+`delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`
+and `delegation.reasoning_effort` to `xhigh` (children otherwise inherit the
+parent's level, which can be `max`), and dispatch judgment seats with
+`-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+
+Effort policy. OpenRouter is a paid provider, so the paid-API policy applies,
+unlike the self-hosted default table: `effort_ceiling` is `xhigh` and
+`forbidden_efforts` is `["max", "ultra"]`. A seat on this table never runs at
+`max`, provided the lead and the skill-path workers are set to `xhigh` as above.
+
+Cost profile (OpenRouter listing, 2026-10-24, USD per 1M tokens, 1M context
+for both models):
+
+| Model | Input | Output | Cache read |
+|-------|-------|--------|------------|
+| moonshotai/kimi-k3.1-pro | 2 | 10 | 0.20 |
+| moonshotai/kimi-k3 | 0.239 | 10.8 | 0.21 |
+
+Not for customer repos. The model is not available through OpenRouter EU
+in-region routing, so customer code must not go through this table.
+
+The Claude Code host can also run against Kimi, with no table change. That
+path is described once, in the README: "Other providers via a profile" under
+Zone 1 "Model config".
 
 ### Model and provider config
 
