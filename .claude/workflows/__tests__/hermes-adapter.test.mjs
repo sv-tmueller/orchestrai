@@ -22,6 +22,8 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 
 // Enable dry-run before importing the adapter.
 process.env.DRY_RUN = 'true'
+// Pin the default table so a shell that exports the variant cannot change it.
+delete process.env.HERMES_ADAPTER_TABLE
 
 const hermesTable = JSON.parse(readFileSync(join(adaptersDir, 'hermes.json'), 'utf8'))
 const claudeTable = JSON.parse(readFileSync(join(adaptersDir, 'claude-code.json'), 'utf8'))

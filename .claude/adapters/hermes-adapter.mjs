@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { join, dirname } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
@@ -33,10 +33,34 @@ const __dir = dirname(fileURLToPath(import.meta.url))
 const adaptersDir = __dir
 const promptsDir = join(__dir, 'prompts')
 
-// Load the Hermes adapter table.
-const adapterTable = JSON.parse(
-  readFileSync(join(adaptersDir, 'hermes.json'), 'utf8')
-)
+/**
+ * Load a Hermes adapter table by bare file name from the adapters directory.
+ *
+ * Two guards, each naming the file: the name must be a bare `*.json` file
+ * name (no path, so the env var cannot point outside this directory), and
+ * the table's host must be `hermes` (this adapter builds Hermes argv, so
+ * another host's table would silently mis-route seats).
+ */
+export function loadAdapterTable(name) {
+  if (typeof name !== 'string' || basename(name) !== name || !name.endsWith('.json')) {
+    throw new Error(
+      `Adapter table "${name}" must be a bare .json file name in ${adaptersDir}.`
+    )
+  }
+  const table = JSON.parse(readFileSync(join(adaptersDir, name), 'utf8'))
+  if (table.host !== 'hermes') {
+    throw new Error(
+      `Adapter table "${name}" has host "${table.host}", but the Hermes adapter needs host "hermes".`
+    )
+  }
+  return table
+}
+
+// The table is chosen once, at module load: one run is one process, so
+// HERMES_ADAPTER_TABLE selects the table for the whole run. The default is
+// the self-hosted table.
+const TABLE_NAME = process.env.HERMES_ADAPTER_TABLE || 'hermes.json'
+const adapterTable = loadAdapterTable(TABLE_NAME)
 
 const TIERS = adapterTable.tiers
 const ROLE_TIERS = adapterTable.roles
@@ -45,9 +69,10 @@ const FORBIDDEN_EFFORTS = [
   // Table-level policy (self-hosted exemption empties it) UNION the
   // host-extra levels the effort-policy test hardcodes as the authority:
   // Hermes --reasoning accepts ultra above max, so ultra stays forbidden
-  // even though max itself is allowed (batch #437 arbitration).
-  ...(adapterTable.forbidden_efforts || []),
-  'ultra',
+  // even though max itself is allowed (batch #437 arbitration). A Set,
+  // because a paid table already lists ultra and the error message would
+  // otherwise repeat it.
+  ...new Set([...(adapterTable.forbidden_efforts || []), 'ultra']),
 ]
 const UNVERIFIED_MODEL_IDS = adapterTable._unverified_model_ids || {}
 
@@ -82,7 +107,7 @@ export function loadPrompt(role) {
 /** Resolve a tier to its model, provider, effort, and in-tier fallback. */
 export function resolveTier(tier) {
   const cfg = TIERS[tier]
-  if (!cfg) throw new Error(`Unknown tier "${tier}". Add it to hermes.json.`)
+  if (!cfg) throw new Error(`Unknown tier "${tier}". Add it to ${TABLE_NAME}.`)
   return {
     model: cfg.model,
     effort: cfg.effort,
@@ -94,14 +119,14 @@ export function resolveTier(tier) {
 /** Resolve a role to its tier. */
 export function resolveRole(role) {
   const tier = ROLE_TIERS[role]
-  if (!tier) throw new Error(`Unknown role "${role}". Add it to hermes.json.`)
+  if (!tier) throw new Error(`Unknown role "${role}". Add it to ${TABLE_NAME}.`)
   return tier
 }
 
 /** Resolve a role to its seat binding (the tool surface). */
 export function resolveSeat(role) {
   const seat = SEATS?.[role]
-  if (!seat) throw new Error(`Unknown seat "${role}". Add it to hermes.json.`)
+  if (!seat) throw new Error(`Unknown seat "${role}". Add it to ${TABLE_NAME}.`)
   return { toolsets: seat.toolsets }
 }
 
