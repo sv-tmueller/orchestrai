@@ -25,7 +25,17 @@ dispatched as one-shot Hermes subprocess seats instead —
 text, and parse stdout as the seat's report. Equivalent to Fable/Opus judging
 Sonnet development in the Claude pipeline. All tiers run at max effort: the
 self-hosted vLLM models have no token-cost ceiling, so the paid-API effort
-policy (xhigh ceiling, max forbidden) does not apply to this host.
+policy (xhigh ceiling, max forbidden) does not apply to the default table.
+
+To run on the OpenRouter variant instead (all three tiers on
+`moonshotai/kimi-k3.1-pro`, provider `openrouter`, effort `xhigh`, fallback
+`moonshotai/kimi-k3`), start the run with
+`HERMES_ADAPTER_TABLE=hermes-openrouter.json` in the environment and the lead
+session on `hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter`. It
+is a paid provider, so the xhigh ceiling applies and max is forbidden: seats on
+that table run at `--reasoning xhigh`. Never use it on a customer repo: the
+model has no OpenRouter EU in-region routing. Details:
+docs/architecture/hermes-adapter.md, "OpenRouter variant (Kimi K3.1 Pro)".
 
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
 label). With no arguments, ask which issues to run.
