@@ -432,6 +432,18 @@ describe('token-prices.json shape', () => {
       assert.equal(priceTable.models[model].retrieved, '2026-10-24')
     }
   })
+
+  test('Kimi notes say the table prices cache writes at the input rate because OpenRouter lists no cache-write rate', () => {
+    const expected = {
+      'moonshotai/kimi-k3.1-pro':
+        'OpenRouter list price for Kimi K3.1 Pro, may differ from your gateway; OpenRouter lists no cache-write rate, so this table prices cache writes at the input rate',
+      'moonshotai/kimi-k3':
+        'OpenRouter list price for Kimi K3, may differ from your gateway; OpenRouter lists no cache-write rate, so this table prices cache writes at the input rate',
+    }
+    for (const [model, note] of Object.entries(expected)) {
+      assert.equal(priceTable.models[model].note, note, model)
+    }
+  })
 })
 
 describe('render: limitations', () => {

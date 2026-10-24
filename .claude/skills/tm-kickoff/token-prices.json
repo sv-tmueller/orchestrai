@@ -31,7 +31,7 @@
       "output": 10,
       "source": "https://openrouter.ai/moonshotai/kimi-k3.1-pro",
       "retrieved": "2026-10-24",
-      "note": "OpenRouter list price for the Kimi K3.1 Pro endpoint, may differ from your gateway; cache writes billed at the input rate, no 1h tier"
+      "note": "OpenRouter list price for Kimi K3.1 Pro, may differ from your gateway; OpenRouter lists no cache-write rate, so this table prices cache writes at the input rate"
     },
     "moonshotai/kimi-k3": {
       "input": 0.239,
@@ -40,7 +40,7 @@
       "output": 10.8,
       "source": "https://openrouter.ai/moonshotai/kimi-k3",
       "retrieved": "2026-10-24",
-      "note": "OpenRouter list price for the Kimi K3 endpoint, may differ from your gateway; cache writes billed at the input rate, no 1h tier"
+      "note": "OpenRouter list price for Kimi K3, may differ from your gateway; OpenRouter lists no cache-write rate, so this table prices cache writes at the input rate"
     }
   }
 }
