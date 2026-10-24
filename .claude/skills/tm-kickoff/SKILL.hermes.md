@@ -29,12 +29,25 @@ policy (xhigh ceiling, max forbidden) does not apply to the default table.
 
 To run on the OpenRouter variant instead (all three tiers on
 `moonshotai/kimi-k3.1-pro`, provider `openrouter`, effort `xhigh`, fallback
-`moonshotai/kimi-k3`), start the run with
-`HERMES_ADAPTER_TABLE=hermes-openrouter.json` in the environment and the lead
-session on `hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter`. It
-is a paid provider, so the xhigh ceiling applies and max is forbidden: seats on
-that table run at `--reasoning xhigh`. Never use it on a customer repo: the
-model has no OpenRouter EU in-region routing. Details:
+`moonshotai/kimi-k3`), note that this skill does not read
+`HERMES_ADAPTER_TABLE`. That env var is read only by `hermes-adapter.mjs`,
+which this path never runs, so it selects the variant only for the
+programmatic driver (`hermes-pipeline.mjs`) and anything else that spawns
+seats through the adapter. On this skill-driven path, make these manual
+changes instead:
+
+- Judgment seats (architect, reviewer): dispatch
+  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<role prompt + task>"`
+  in place of the GLM-5-3 command above.
+- Worker children (delegate_task): in `~/.hermes/config.yaml`, set
+  `delegation.model` to `moonshotai/kimi-k3.1-pro` and the delegation
+  provider to `openrouter`.
+- Lead session: start it on
+  `-m moonshotai/kimi-k3.1-pro --provider openrouter`.
+
+It is a paid provider, so the xhigh ceiling applies and max is forbidden:
+every seat on the variant runs at `--reasoning xhigh`. Never use it on a
+customer repo: the model has no OpenRouter EU in-region routing. Details:
 docs/architecture/hermes-adapter.md, "OpenRouter variant (Kimi K3.1 Pro)".
 
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by

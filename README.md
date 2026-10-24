@@ -6,7 +6,8 @@ GitHub issues from sub-plan to ready PR through a flat-star pipeline
 
 - **Claude Code** via the plugin marketplace (Opus/Sonnet; Fable is a
   main-window user choice only, never pinned)
-- **Hermes Agent** via a Hermes skill (GLM-5-3 and DeepSeek by default, or any configured model)
+- **Hermes Agent** via a Hermes skill (GLM-5-3 and DeepSeek by default, or
+  any configured model)
 
 A Codex adapter (subscription auth, o3/gpt-5.6) is built but not yet
 live-tested.
@@ -334,13 +335,30 @@ The variant is `.claude/adapters/hermes-openrouter.json`: all three tiers
 run `moonshotai/kimi-k3.1-pro` through provider `openrouter` at `xhigh`,
 with `moonshotai/kimi-k3` as the within-tier fallback. It is a paid
 provider, so the paid-API effort policy applies (`xhigh` ceiling, `max`
-forbidden). It is not for customer repos. Select it per run:
+forbidden). It is not for customer repos.
+
+`HERMES_ADAPTER_TABLE` is read only by the adapter module, so it selects the
+variant for the programmatic driver and for anything else that spawns seats
+through `hermes-adapter.mjs`. `hermes-pipeline.mjs` has no CLI entry point;
+call `runPipeline` from a Node one-liner:
 
 ```bash
-export HERMES_ADAPTER_TABLE=hermes-openrouter.json   # file name under .claude/adapters/
-hermes -s orchestrai chat -q "Run the orchestrator team on issue #42" \
-  -m moonshotai/kimi-k3.1-pro --provider openrouter
+HERMES_ADAPTER_TABLE=hermes-openrouter.json \
+  node --input-type=module -e \
+  "import { runPipeline } from './.claude/adapters/hermes-pipeline.mjs'; await runPipeline(42)"
 ```
+
+The skill-driven path (`hermes -s orchestrai chat`) does not read the env
+var: its workers go through `delegate_task`, pinned by `delegation.model`,
+and its judgment seats use a fixed command. To put that path on Kimi, make
+these changes by hand:
+
+- Judgment seats (architect, reviewer): dispatch
+  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
+- Worker children: in `~/.hermes/config.yaml`, set `delegation.model` to
+  `moonshotai/kimi-k3.1-pro` and the delegation provider to `openrouter`.
+- Lead session: start it with
+  `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider openrouter`.
 
 Prices, selection details, and the customer-repo exclusion:
 `docs/architecture/hermes-adapter.md`.

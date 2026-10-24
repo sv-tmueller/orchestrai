@@ -96,6 +96,16 @@ The lead session is not spawned by the adapter, so select its model yourself:
 `hermes ... -m moonshotai/kimi-k3.1-pro --provider openrouter`. Seats spawned
 by the adapter take model, provider, and effort from the table.
 
+`HERMES_ADAPTER_TABLE` is read only by the adapter module. It selects the
+variant for the programmatic driver (`hermes-pipeline.mjs`) and anything else
+that spawns seats through `hermes-adapter.mjs`. The skill-driven
+`delegate_task` path ignores it: there, workers follow `delegation.model` and
+the provider in `~/.hermes/config.yaml`, and judgment seats use the command
+hardcoded in `SKILL.hermes.md`. To run that path on Kimi, set
+`delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`,
+and dispatch judgment seats with
+`-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+
 Effort policy. OpenRouter is a paid provider, so the paid-API policy applies,
 unlike the self-hosted default table: `effort_ceiling` is `xhigh` and
 `forbidden_efforts` is `["max", "ultra"]`. A seat on this table never runs at
