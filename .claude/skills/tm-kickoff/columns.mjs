@@ -66,13 +66,19 @@ function validateColumn(stage, column, runners, providers) {
   if (column.on_runner_away !== undefined && !ON_RUNNER_AWAY.includes(column.on_runner_away)) {
     fail(`on_runner_away "${column.on_runner_away}" is not "wait"`)
   }
+  const execute = executeFor(column.runner, providers[column.provider].kind)
+  // A remote runner has no adapter table to fall back on: the JOB comment
+  // and the WP4 render both need the model the lead hands over.
+  if (execute.startsWith('runner:') && (typeof column.model !== 'string' || column.model === '')) {
+    fail(`column "${stage}" (execute ${execute}) needs a model`)
+  }
   return {
     runner: column.runner,
     provider: column.provider,
     kind: providers[column.provider].kind,
     model: column.model,
     effort: column.effort,
-    execute: executeFor(column.runner, providers[column.provider].kind),
+    execute,
   }
 }
 
