@@ -27,6 +27,14 @@
  * any adapter table, agent or skill frontmatter, workflow TIER_MODELS
  * map, or a workflow/adapter file's raw source: a live 2.5x-cost
  * regression path (review #320 finding 1).
+ *
+ * Batch #453 widened the exemption to per-tier resolution. A table with
+ * mixed providers (claude-code-split.json) cannot be classified as a
+ * whole, so the policy is resolved per tier: a self-hosted tier lifts
+ * the ceiling, a paid tier keeps it. Table-level effort_ceiling and
+ * forbidden_efforts must still equal the union the per-tier policy
+ * implies, so a JSON edit can never grant itself more than the
+ * hardcoded sets allow.
  */
 
 import { test, describe } from 'node:test'
@@ -46,26 +54,40 @@ const adaptersDir = join(__dir, '..', '..', 'adapters')
 // ---------------------------------------------------------------------------
 // The effort policy protects PAID-API hosts from runaway token bills
 // (original motivation, issue #140: max effort burned 2.5x tokens for
-// negligible gain). Tables serving SELF-HOSTED models (no marginal token
-// cost) are exempt: they may set effort_ceiling to "max" and drop "max"
-// from forbidden_efforts. A table is exempt only when its host is
-// self-hosted AND every tier's provider is a self-hosted provider
-// (issue #444). Host alone is not enough: a Hermes table pointed at a
-// paid provider such as openrouter gets the paid policy. Both sets are
-// declared here, not in the JSON, so editing a table cannot grant itself
-// an exemption. Keying by provider too only narrows the exemption: a JSON
-// edit can lose it, never gain it.
+// negligible gain). A TIER serving a SELF-HOSTED model (no marginal token
+// cost) is exempt: it may run at effort_ceiling "max" with "max" dropped
+// from its forbidden set. A tier is exempt only when its host is
+// self-hosted AND its provider is a self-hosted provider (issue #444).
+// Host alone is not enough: a Hermes table pointed at a paid provider
+// such as openrouter gets the paid policy. Both sets are declared here,
+// not in the JSON, so editing a table cannot grant itself an exemption.
+// Keying by provider too only narrows the exemption: a JSON edit can
+// lose it, never gain it.
+//
+// Resolution is per tier (issue #453). One table can mix a paid judgment
+// tier with self-hosted worker tiers (claude-code-split.json), so a tier's
+// ceiling and forbidden set are decided from that tier's own provider. The
+// table-level effort_ceiling and forbidden_efforts describe the baseline
+// that applies to every tier WITHOUT an exemption: a table is exempt as a
+// whole only when every tier is self-hosted, so a mixed table keeps the
+// paid baseline and each self-hosted tier is lifted by its own provider.
 const FORBIDDEN_EFFORTS = ['max']
 // Levels a specific host's runtime offers above the ceiling, which that host
 // must therefore also forbid. Declared here, not in the JSON, so a host
 // cannot quietly drop one. Hermes `--reasoning` accepts ultra above max.
+// claude-code's --effort accepts max as an explicit level, so a paid
+// claude-code tier forbids max and nothing more.
 const HOST_EXTRA_FORBIDDEN = { hermes: ['ultra'] }
 const EFFORT_CEILING = 'xhigh'
-const SELF_HOSTED_HOSTS = new Set(['hermes']) // host field, not filename
+const SELF_HOSTED_HOSTS = new Set(['hermes', 'claude-code']) // host field, not filename
 // Exact match. Hermes' own config also uses `custom:<host>` provider
-// strings; those are not in this set and get the paid policy. Widening the
-// set needs a decision (batch #443, D3).
-const SELF_HOSTED_PROVIDERS = new Set(['custom'])
+// strings; those are not in this set and get the paid policy. Widened in
+// #453 (batch #443, D3): `claude-code` joined `hermes` as a self-hosted
+// host, and `vllm` joined `custom` as a self-hosted provider, because the
+// vllm tables route claude-code seats to the same local endpoint. The
+// exemption is still keyed by host+provider and declared here, so a table
+// only gains it by naming both, and a JSON edit can lose it, never gain it.
+const SELF_HOSTED_PROVIDERS = new Set(['custom', 'vllm'])
 const ALLOWED_AGENT_TIERS = ['judgment', 'worker']
 
 const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 }
@@ -77,15 +99,33 @@ function expectedForbidden(host) {
   return [...FORBIDDEN_EFFORTS, ...(HOST_EXTRA_FORBIDDEN[host] || [])].sort()
 }
 
-// Exempt only when the host is self-hosted and every tier names a
+// Exempt only when the host is self-hosted and the tier names a
 // self-hosted provider. A tier with no provider counts as paid.
-function isSelfHosted(table) {
-  if (!SELF_HOSTED_HOSTS.has(table.host)) return false
-  const tiers = Object.values(table.tiers || {})
-  return tiers.every((cfg) => SELF_HOSTED_PROVIDERS.has(cfg.provider))
+function isSelfHostedTier(host, tier) {
+  if (!SELF_HOSTED_HOSTS.has(host)) return false
+  return SELF_HOSTED_PROVIDERS.has(tier.provider)
 }
 
-// Resolve the policy for a table: self-hosted tables get the lifted policy.
+// Resolve the policy for one tier: a self-hosted tier gets the lifted
+// policy, a paid tier the host's paid policy.
+function policyForTier(host, tier) {
+  if (isSelfHostedTier(host, tier)) {
+    return { forbiddenEfforts: [], effortCeiling: 'max' }
+  }
+  return {
+    forbiddenEfforts: expectedForbidden(host),
+    effortCeiling: EFFORT_CEILING,
+  }
+}
+
+// The table-level baseline: an exemption only when every tier is
+// self-hosted. A mixed table keeps the paid baseline, and each self-hosted
+// tier is lifted by policyForTier at the tier check.
+function isSelfHosted(table) {
+  const tiers = Object.values(table.tiers || {})
+  return tiers.length > 0 && tiers.every((tier) => isSelfHostedTier(table.host, tier))
+}
+
 function policyFor(table) {
   if (isSelfHosted(table)) {
     return { forbiddenEfforts: [], effortCeiling: 'max' }
@@ -171,53 +211,59 @@ function parseTierMaps(src) {
 
 // ===========================================================================
 // 0. Every adapter table conforms to the hardcoded policy.
-//    The table is the data; this test is the authority.
+//    The table is the data; this test is the authority. The table-level
+//    fields carry the baseline for tiers without an exemption; the tier
+//    checks below resolve each tier from its own provider.
 // ===========================================================================
 for (const { name, table } of adapterTables) {
   const policy = policyFor(table)
   describe(`adapter table conforms to policy: ${name}`, () => {
-    test('forbidden_efforts matches the hardcoded policy', () => {
+    test('forbidden_efforts matches the hardcoded baseline for this host', () => {
       assert.deepEqual(
         [...table.forbidden_efforts].sort(),
         [...policy.forbiddenEfforts].sort(),
         `${name}: forbidden_efforts is ${JSON.stringify(table.forbidden_efforts)}, ` +
           `but the policy hardcodes ${JSON.stringify(policy.forbiddenEfforts)} for host ` +
-          `"${table.host}" (${isSelfHosted(table) ? 'self-hosted, exempt' : 'paid-API'}); ` +
+          `"${table.host}" (${isSelfHosted(table) ? 'every tier self-hosted, exempt' : 'paid baseline'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
 
-    test('effort_ceiling matches the hardcoded policy', () => {
+    test('effort_ceiling matches the hardcoded baseline for this host', () => {
       assert.equal(
         table.effort_ceiling,
         policy.effortCeiling,
         `${name}: effort_ceiling is "${table.effort_ceiling}", ` +
           `but the policy hardcodes "${policy.effortCeiling}" for host ` +
-          `"${table.host}" (${isSelfHosted(table) ? 'self-hosted, exempt' : 'paid-API'}); ` +
+          `"${table.host}" (${isSelfHosted(table) ? 'every tier self-hosted, exempt' : 'paid baseline'}); ` +
           `do not weaken the policy by editing the JSON`
       )
     })
 
-    test('no tier effort exceeds the hardcoded ceiling', () => {
+    test('no tier effort exceeds its own tier policy ceiling', () => {
       for (const [tier, cfg] of Object.entries(table.tiers)) {
+        const tierPolicy = policyForTier(table.host, cfg)
         assert.ok(
           EFFORT_RANK[cfg.effort] !== undefined,
           `${name}: tier "${tier}" effort "${cfg.effort}" is not a recognized effort level`
         )
         assert.ok(
-          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[policy.effortCeiling],
-          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds the ceiling "${policy.effortCeiling}"`
+          EFFORT_RANK[cfg.effort] <= EFFORT_RANK[tierPolicy.effortCeiling],
+          `${name}: tier "${tier}" effort "${cfg.effort}" exceeds its tier ceiling ` +
+            `"${tierPolicy.effortCeiling}" (host "${table.host}", provider "${cfg.provider}")`
         )
       }
     })
 
-    test('no tier uses a hardcoded forbidden effort', () => {
-      for (const forbidden of policy.forbiddenEfforts) {
-        for (const [tier, cfg] of Object.entries(table.tiers)) {
+    test('no tier uses an effort forbidden for its own tier', () => {
+      for (const [tier, cfg] of Object.entries(table.tiers)) {
+        const tierPolicy = policyForTier(table.host, cfg)
+        for (const forbidden of tierPolicy.forbiddenEfforts) {
           assert.notEqual(
             cfg.effort,
             forbidden,
-            `${name}: tier "${tier}" uses forbidden effort "${forbidden}"`
+            `${name}: tier "${tier}" uses forbidden effort "${forbidden}" ` +
+              `(host "${table.host}", provider "${cfg.provider}")`
           )
         }
       }
@@ -250,7 +296,7 @@ for (const { name, table } of adapterTables) {
 // 0b. The host-plus-provider exemption, on inline fixtures. Not files under
 //     .claude/adapters/: every JSON there is checked as a real table above.
 // ===========================================================================
-describe('self-hosted exemption is keyed by host and provider (#444)', () => {
+describe('self-hosted exemption is keyed by host and provider (#444, #453)', () => {
   function fixture(host, providers) {
     const tiers = {}
     for (const [tier, provider] of Object.entries(providers)) {
@@ -262,40 +308,63 @@ describe('self-hosted exemption is keyed by host and provider (#444)', () => {
 
   test('hermes with every tier on custom is exempt', () => {
     const table = fixture('hermes', allProviders('custom'))
-    assert.equal(isSelfHosted(table), true)
     assert.deepEqual(policyFor(table), { forbiddenEfforts: [], effortCeiling: 'max' })
   })
 
   test('hermes with every tier on openrouter gets the paid policy', () => {
     const table = fixture('hermes', allProviders('openrouter'))
-    assert.equal(isSelfHosted(table), false)
     assert.deepEqual(policyFor(table), {
       forbiddenEfforts: ['max', 'ultra'],
       effortCeiling: 'xhigh',
     })
   })
 
-  test('hermes with mixed providers gets the paid policy', () => {
-    const table = fixture('hermes', { judgment: 'custom', worker: 'openrouter', lead: 'custom' })
-    assert.equal(isSelfHosted(table), false)
-    assert.equal(policyFor(table).effortCeiling, 'xhigh')
-  })
-
-  test('hermes with a tier lacking a provider gets the paid policy', () => {
+  test('a tier with no provider counts as paid', () => {
     const table = fixture('hermes', { judgment: 'custom', worker: undefined, lead: 'custom' })
-    assert.equal(isSelfHosted(table), false)
-    assert.equal(policyFor(table).effortCeiling, 'xhigh')
+    assert.deepEqual(policyForTier('hermes', table.tiers.worker), {
+      forbiddenEfforts: ['max', 'ultra'],
+      effortCeiling: 'xhigh',
+    })
   })
 
   test('hermes with a custom:<host> provider string gets the paid policy', () => {
     const table = fixture('hermes', allProviders('custom:example.invalid'))
-    assert.equal(isSelfHosted(table), false)
+    assert.equal(policyFor(table).effortCeiling, 'xhigh')
   })
 
-  test('a non-hermes host on custom still gets the paid policy', () => {
-    const table = fixture('claude-code', allProviders('custom'))
-    assert.equal(isSelfHosted(table), false)
+  test('a non-self-hosted host on custom still gets the paid policy', () => {
+    const table = fixture('codex', allProviders('custom'))
     assert.deepEqual(policyFor(table), { forbiddenEfforts: ['max'], effortCeiling: 'xhigh' })
+  })
+
+  test('claude-code with every tier on the vllm provider is exempt', () => {
+    // #453 widened the sets: the vllm tables route claude-code seats to
+    // the same local self-hosted endpoint as hermes' custom provider.
+    const table = fixture('claude-code', allProviders('vllm'))
+    assert.deepEqual(policyFor(table), { forbiddenEfforts: [], effortCeiling: 'max' })
+  })
+
+  test('claude-code with no provider on any tier stays on the paid policy', () => {
+    // claude-code.json has no provider field; it must keep xhigh/max.
+    const table = fixture('claude-code', allProviders(undefined))
+    assert.deepEqual(policyFor(table), { forbiddenEfforts: ['max'], effortCeiling: 'xhigh' })
+  })
+
+  test('a mixed table keeps the paid baseline, with the self-hosted tier lifted', () => {
+    // claude-code-split.json: opus judgment on a paid provider at xhigh,
+    // vllm workers lifting the ceiling. Because not every tier is
+    // self-hosted, the table-level baseline stays paid; each tier is
+    // checked against its own provider's policy.
+    const table = fixture('claude-code', { judgment: 'anthropic', worker: 'vllm', lead: 'anthropic' })
+    assert.deepEqual(policyFor(table), { forbiddenEfforts: ['max'], effortCeiling: 'xhigh' })
+    assert.deepEqual(policyForTier('claude-code', table.tiers.judgment), {
+      forbiddenEfforts: ['max'],
+      effortCeiling: 'xhigh',
+    })
+    assert.deepEqual(policyForTier('claude-code', table.tiers.worker), {
+      forbiddenEfforts: [],
+      effortCeiling: 'max',
+    })
   })
 })
 
