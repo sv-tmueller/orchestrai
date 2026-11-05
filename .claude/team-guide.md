@@ -215,10 +215,16 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
   docs/superpowers/specs/2026-06-13-review-codebase-design.md). A
   cheaper-led session still gets Opus-quality judgment; a Fable-led session
   never pays Fable rates for worker stages.
-- Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every subagent to one
-  model, defeating the split above. Use only as a temporary seatbelt (e.g.
-  `claude-sonnet-5` before one heavy ad-hoc run); it downgrades the
-  architect and reviewer too.
+- Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. Since Claude Code v2.1.251 it is
+  a default, not an override: the per-invocation model parameter and the
+  agent definition's `model` frontmatter (including `inherit`) both take
+  precedence over it. Flattening every subagent onto one model now takes both
+  variables, since `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (v2.1.257+) is what
+  makes Claude Code ignore the frontmatter and the per-call parameter. The
+  guidance stands for two reasons: every agent file here pins `model:` in
+  frontmatter, so the variable alone is a no-op for those seats, and a forced
+  seatbelt (e.g. `claude-sonnet-5` before one heavy ad-hoc run) downgrades
+  the architect and reviewer too.
 
 ## How to pick up a task
 

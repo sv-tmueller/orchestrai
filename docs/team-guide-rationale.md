@@ -164,10 +164,44 @@ points, data and control flow, no findings): it drops the architecture
 worker, so the agent count is N + 2, bounded and scaling with repo size the
 same way.
 
-### CLAUDE_CODE_SUBAGENT_MODEL: what it overrides
+### CLAUDE_CODE_SUBAGENT_MODEL: default, not override
 
-Supports: "Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. It flattens every
-subagent to one model, defeating the split above."
+Supports: "Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. Since Claude Code
+v2.1.251 it is a default, not an override... `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`
+(v2.1.257+) is what makes Claude Code ignore the frontmatter and the per-call
+parameter."
 
-It overrides both the per-call model and the frontmatter `model:`,
-flattening every subagent to one model and defeating the split above.
+Claude Code resolves a subagent's model in this order: the per-invocation
+`model` parameter, then the subagent definition's `model` frontmatter (where
+`inherit` selects the main conversation's model), then
+`CLAUDE_CODE_SUBAGENT_MODEL`, then the main conversation's model. Before
+v2.1.251 the environment variable came first and overrode both other sources,
+including `model: inherit`. The flattening behavior now sits behind
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (v2.1.257+): with it on, Claude Code
+ignores the frontmatter `model` field and refuses a per-invocation model
+parameter. In this repo every agent file pins `model:` in frontmatter, so
+setting only `CLAUDE_CODE_SUBAGENT_MODEL` is a no-op for those seats, and the
+guidance stands. (Sources: code.claude.com/docs/en/sub-agents.md, "Choose a
+model" and "Run every subagent on one model"; env-vars.md. Verified
+2026-11-05.)
+
+### Provider and endpoint are per session, not per seat
+
+A session's provider and endpoint are fixed when it launches, not chosen per
+seat. The settings profile, base URL, or provider the session was started
+with applies to every seat dispatched inside it, judgment seats included, so
+running the pipeline from a custom endpoint alias (for example a vllm-only
+profile) routes the documenters, the workers, and the reviewers through that
+same endpoint. Per-seat endpoint control has to come from outside the
+session, which is what the subprocess seat mechanism in #453/#454 provides.
+
+### Family aliases on a non-Anthropic endpoint
+
+On a non-Anthropic provider a family alias such as `opus` can resolve to the
+main conversation's model, unless `ANTHROPIC_DEFAULT_OPUS_MODEL` pins what
+the alias means. A judgment seat whose frontmatter says `model: opus`
+therefore does not guarantee real Opus when the session runs on a
+non-Anthropic endpoint, and the judgment/worker split the policy above
+assumes quietly collapses onto whatever model that endpoint maps the alias
+to. A true judgment/worker split on this host is what the subprocess seats in
+#453/#454 are for.
