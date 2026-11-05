@@ -81,8 +81,9 @@ to find an existing PR.
   together with `run:<r>` re-enters the waiting list for that stage; it
   never re-dispatches the seat, and sweep it through the poll below on the
   first cycle. `claimed:<r>` means a runner is executing the stage: wait for
-  the VERDICT comment, do not resume anything else. Neither case ever runs
-  the stage on the VPS by itself.
+  that stage's report comment (the header named in "Remote stage dispatch"
+  below), do not resume anything else. Neither case ever runs the stage on
+  the VPS by itself.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -396,9 +397,11 @@ it locally on its own. A missing file means every column is `lead`.
 
 1. Set `phase:<stage>` and `run:<r>` (create `run:<r>` with the same
    `--force` upsert if this repo has never used it).
-2. Post a JOB comment on the issue: `JOB: <stage>`, then the branch,
-   provider, model and effort. No `Dependency environment:` line: the VPS
-   path is useless to a remote runner.
+2. Post a JOB comment on the issue: `JOB: <job>`, then the branch, provider,
+   model and effort. `<job>` is the seat's own job token: `SUB_PLAN`,
+   `SPLIT_PROPOSAL` or `ARBITRATION` for an architect handoff, otherwise the
+   stage name (`developer`, `tester`, `reviewer`). No `Dependency
+   environment:` line: the VPS path is useless to a remote runner.
 3. Add the package to the waiting list. It leaves the concurrency cap
    immediately, so the next queued package starts and this one holds no
    slot. Print its plan-status item as
@@ -409,9 +412,12 @@ timeout; the package waits indefinitely (design principle 5, no automatic
 fallback). Each cycle, for every waiting issue run
 `gh issue view <n> --comments --json labels,comments` and continue it when:
 
-- a VERDICT comment is newer than the JOB comment (a `claimed:<r>` gone with
-  no VERDICT yet still means waiting; step 4 of the design's handoff posts
-  the VERDICT before clearing the labels);
+- a report comment for that stage is newer than the JOB comment. Match the
+  stage's own header exactly: `SUB_PLAN`, `SPLIT_PROPOSAL`, `ARBITRATION` or
+  `NEEDS_DECISION:` for the architect, `STATUS:` for the developer,
+  `VERDICT:` for the tester and the reviewer. A `claimed:<r>` gone with no
+  report yet still means waiting; step 4 of the design's handoff posts the
+  report before clearing the labels;
 - the owner swapped it to `run:vps` (see below).
 
 Otherwise leave it waiting. The lead keeps polling across waves: a wave
@@ -419,22 +425,26 @@ where every package waits on a runner is not over, and no wave-end report is
 posted while any package is waiting.
 
 **Swap to `run:vps`.** The owner replaces `run:<r>` with `run:vps` on the
-issue. On the next cycle the lead removes `run:vps` and then:
+issue. The lead acts on the column's provider kind:
 
-- if the column's provider kind is `anthropic`, dispatch the seat locally
-  with the column's model and effort, as in the `lead` case above;
-- otherwise keep waiting. The swap only reroutes to the VPS poller, which
-  claims the stage like any other runner (design section 7, WP3).
+- if it is `anthropic`, remove `run:vps` and dispatch the seat locally with
+  the column's model and effort, as in the `lead` case above;
+- otherwise leave `run:vps` in place and keep waiting. The swap only reroutes
+  to the VPS poller, which lists issues carrying `run:vps` and claims the
+  stage like any other runner (design section 7, WP3); clearing the label
+  would make the job unclaimable.
 
 **Resume.** The two label pairs of the gate's "Remote resume" case: an issue
 with `phase:<stage>` and `run:<r>` re-enters the waiting list; `claimed:<r>`
-waits for its VERDICT. Neither re-dispatches a seat.
+waits for that stage's report comment. Neither re-dispatches a seat.
 
-**VERDICT routing.** When the poll sees the VERDICT, post it verbatim as a
-PR comment before routing it, exactly as steps 4, 5 and 6 do for tester and
-reviewer reports, so the evidence record stays in the PR. Then route as
-normal for that stage (fix loop, reviewer), and annotate the plan-status
-item like any other resume.
+**Report routing.** When the poll sees the stage's report comment, treat it
+exactly as the local dispatch's return: an architect `SUB_PLAN` is posted as
+an issue comment (step 1), a tester or reviewer `VERDICT:` as a PR comment
+verbatim (steps 4, 5 and 6), a developer `STATUS:` is the routing input only.
+Then route as normal for that stage: architect like step 1, developer like
+step 3, tester like steps 4 and 5, reviewer like steps 6 and 7. Annotate the
+plan-status item like any other resume.
 
 ### Dependency environment (once per run)
 
