@@ -521,7 +521,10 @@ function dryRunSpawn(role, task, opts) {
   }
 
   const roleSpecific = VERDICTS[role] || {}
-  const seat = resolveSeat(opts.tier || role)
+  // opts.tier names a tier, not a role, so resolve it through the tiers map.
+  const seat = opts.tier
+    ? { tier: opts.tier, ...resolveTier(opts.tier) }
+    : resolveSeat(role)
 
   return {
     _dryRun: true,

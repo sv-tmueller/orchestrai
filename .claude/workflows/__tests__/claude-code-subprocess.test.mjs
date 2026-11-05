@@ -511,6 +511,19 @@ describe('spawn and retry', () => {
     assert.equal(result.parked, null)
     assert.equal(readCalls().length, 1, 'no respawn on a clean first attempt')
   })
+
+  test('a dry run derives the seat from the tier when opts.tier names one', async () => {
+    const mod = await import('../../adapters/claude-code-subprocess.mjs')
+    const saved = process.env.DRY_RUN
+    process.env.DRY_RUN = 'true'
+    try {
+      const report = await mod.spawn('developer', 'p', { tier: 'judgment' })
+      assert.equal(report._tier, 'judgment')
+      assert.equal(report._model, splitTable.tiers.judgment.model)
+    } finally {
+      process.env.DRY_RUN = saved
+    }
+  })
 })
 
 // ===========================================================================
