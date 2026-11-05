@@ -32,9 +32,24 @@ gh label create "size:L"       --color "F9D0C4" --description "4 to 6 hours. Spl
 gh label create "size:XL"      --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
 gh label create "in-progress"  --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
 gh label create "needs-human"  --color "B60205" --description "Agent loop exhausted or blocked; human decision needed." --force
+gh label create "phase:architect" --color "C5DEF5" --description "The architect stage currently holds this issue." --force
+gh label create "phase:developer" --color "C5DEF5" --description "The developer stage currently holds this issue." --force
+gh label create "phase:tester"    --color "C5DEF5" --description "The tester stage currently holds this issue." --force
+gh label create "phase:reviewer"  --color "C5DEF5" --description "The reviewer stage currently holds this issue." --force
+gh label create "track:lean"   --color "D4C5F9" --description "The package runs the lean track (no sub-plan, no tester)." --force
+gh label create "runner"       --color "BFDADC" --description "Marks a runner presence issue." --force
+gh label create "runner:on"    --color "0E8A16" --description "The runner is switched on and claims work." --force
+gh label create "runner:off"   --color "E99695" --description "The runner is switched off and claims nothing." --force
 ```
 
 `--force` upserts: it creates each label when absent and sets identical values when present, so a second run (including the advisor→kickoff double-run in a batch) is a true no-op and exits 0.
+
+The runner-derived labels (`run:<runner>` and `claimed:<runner>`) are not
+listed above: runner ids come from each repo's `columns.json`, so the lead
+creates them on demand at first use, with the same `--force` upsert. The
+poller keeps `runner:on`/`runner:off`; the others are the lead's or the
+poller's per the design's label table (relai
+`2026-11-04-agent-board-design.md` section 6).
 
 For each issue, `gh issue view <n> --comments`, and
 `gh pr list --state open --limit 100 --json number,isDraft,closingIssuesReferences --jq '.[] | select(.closingIssuesReferences[]?.number == <n>)'`
@@ -62,6 +77,12 @@ to find an existing PR.
   `Track: lean` comment and no later `Track: full` comment) re-enters at the
   developer or the reviewer, never the tester; when its stage cannot be
   determined from the PR comments, re-enter at the reviewer.
+- Remote resume: two label pairs name a waiting package. `phase:<stage>`
+  together with `run:<r>` re-enters the waiting list for that stage; it
+  never re-dispatches the seat, and sweep it through the poll below on the
+  first cycle. `claimed:<r>` means a runner is executing the stage: wait for
+  the VERDICT comment, do not resume anything else. Neither case ever runs
+  the stage on the VPS by itself.
 - Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
   issue whose blocker is not merged waits for a later wave.
 
@@ -90,13 +111,24 @@ re-dispatches and arbitration dispatches, print the
 plan-status block described in team-guide.md. The items are fixed to the
 five pipeline stages below (sub-plan, develop, test, review, PR ready);
 annotate fix rounds on the current item, and mark a stage skipped by the lean
-track (see "Pipeline tracks" below) as `[-]`. When dispatching agents for
-several packages in one message, print one block per package.
+track (see "Pipeline tracks" below) as `[-]`. When a stage goes to a runner
+instead of a local agent dispatch (see "Remote stage dispatch (columns.json)"
+below), annotate the current item `<- handed to runner <r> (waiting)` in
+place of `<- dispatching <agent>`; on resume-from-wait, annotate it like the
+other resumes. When dispatching agents for several packages in one message,
+print one block per package.
 
 Run up to 3 packages concurrently; dispatch their agents in parallel. When
 the queue is larger (up to 6 in an /tm-advisor batch), start the next queued
-package as one finishes. Worktree isolation keeps packages apart. Within a
-package the stages are serial:
+package as one finishes. Worktree isolation keeps packages apart. A package
+waiting on a runner (see "Remote stage dispatch (columns.json)" below) does
+not hold one of the 3 slots: park it in the waiting list the moment it hands
+off, take the next queued package, and keep polling it alongside the others.
+Within a package the stages are serial.
+
+Set the stage's `phase:<stage>` label at every handoff below, including the
+all-VPS run, and keep the current stage's label through a fix round. Remove
+it when the package ships (step 7) or parks.
 
 1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
    When the issue body already carries signed-off batch decisions, the batch
@@ -124,10 +156,10 @@ package the stages are serial:
    tester's UNTESTED CLAIMS from the new re-test (not the previous round's
    claims).
 7. On APPROVE, with the last tester verdict PASS: mark the PR ready (`gh pr
-   ready`), remove `in-progress`, and post a summary comment on the issue,
-   including should-fix findings and untested claims for the human review. If
-   the last tester verdict is not PASS (fix round not yet re-tested), complete
-   the test loop first before shipping.
+   ready`), remove `in-progress` and any `phase:*` label, and post a summary
+   comment on the issue, including should-fix findings and untested claims
+   for the human review. If the last tester verdict is not PASS (fix round
+   not yet re-tested), complete the test loop first before shipping.
 
 Routing rules:
 
@@ -163,7 +195,8 @@ Routing rules:
   increments the tester counter. On exhaustion of either counter, park the
   package.
 - Parking: post the reason on the issue, apply `needs-human` (remove
-  `in-progress` if present), and move on to the other packages.
+  `in-progress` and any `phase:*` label if present), and move on to the
+  other packages.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (PR ready, parked) to the batch tracking issue as they happen.
 
@@ -304,10 +337,12 @@ When in doubt, full.
   and why in the wave plan or advisor proposal.
 - **Track comment.** For a lean package, post `Track: lean - <reason;
   expected paths; verification: reviewer runs the check suite>` on the
-  issue. It is both the sub-plan checkpoint and the resume marker: skip
-  the architect stage.
+  issue, and set the `track:lean` label at the same time. It is both the
+  sub-plan checkpoint and the resume marker: skip the architect stage.
 - **Stages.** Skip step 1 (architect). The developer dispatch (step 2)
-  says "lean track: no sub-plan, the issue body is the spec".
+  says "lean track: no sub-plan, the issue body is the spec". A lean card
+  never carries `phase:architect` or `phase:tester`: only `phase:developer`
+  and `phase:reviewer`.
 - **Diff check.** Before every lean reviewer dispatch (after DONE or
   DONE_WITH_CONCERNS, after each fix round, and on resume), check
   `gh pr diff <n> --name-only`. If eligibility is broken, post
@@ -325,6 +360,81 @@ When in doubt, full.
   track change to full, the architect item stays
   `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
   (`[>] 3. test   <- dispatching tester`).
+
+### Remote stage dispatch (columns.json)
+
+A repo configures which runner executes each stage in
+`.orchestrai/columns.json` on its default branch (design sections 5 and 6).
+The lead reads it from its checkout before each seat dispatch.
+
+**Read it.** Run
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/columns.mjs" \
+  --file <checkout>/.orchestrai/columns.json
+```
+
+- Exit 0 with `{"absent":true}`: no file, so use the adapter table as today
+  and treat every runner as `vps`. relai shows stage names only.
+- Exit 0 with the summary: `{ stage: { runner, provider, kind, model,
+  effort, execute } }`. `execute` is `lead` when `runner` is `vps` and
+  `kind` is `anthropic`, otherwise `runner:<id>`.
+- Nonzero exit: the file is invalid. Post the one-line report on the issue,
+  park the package (see Parking), and move on. This is the same stop as a
+  sizing mismatch; relai shows an "invalid columns.json" note.
+
+Read it before every seat dispatch in this pipeline, fix rounds and
+arbitration included, so a mid-run edit to the file takes effect at the next
+handoff. A package whose column is `lead` needs no extra step.
+
+**A column whose `execute` is `lead`.** Dispatch the seat as today, with
+that column's `model` and `effort` in place of the adapter table's tier
+values.
+
+**A column whose `execute` is `runner:<r>`.** Hand the stage off; never run
+it locally on its own. A missing file means every column is `lead`.
+
+1. Set `phase:<stage>` and `run:<r>` (create `run:<r>` with the same
+   `--force` upsert if this repo has never used it).
+2. Post a JOB comment on the issue: `JOB: <stage>`, then the branch,
+   provider, model and effort. No `Dependency environment:` line: the VPS
+   path is useless to a remote runner.
+3. Add the package to the waiting list. It leaves the concurrency cap
+   immediately, so the next queued package starts and this one holds no
+   slot. Print its plan-status item as
+   `[>] <n>. <stage>   <- handed to runner <r> (waiting)`.
+
+**The waiting list.** One 60 s cycle covers every waiting issue, with no
+timeout; the package waits indefinitely (design principle 5, no automatic
+fallback). Each cycle, for every waiting issue run
+`gh issue view <n> --comments --json labels,comments` and continue it when:
+
+- a VERDICT comment is newer than the JOB comment (a `claimed:<r>` gone with
+  no VERDICT yet still means waiting; step 4 of the design's handoff posts
+  the VERDICT before clearing the labels);
+- the owner swapped it to `run:vps` (see below).
+
+Otherwise leave it waiting. The lead keeps polling across waves: a wave
+where every package waits on a runner is not over, and no wave-end report is
+posted while any package is waiting.
+
+**Swap to `run:vps`.** The owner replaces `run:<r>` with `run:vps` on the
+issue. On the next cycle the lead removes `run:vps` and then:
+
+- if the column's provider kind is `anthropic`, dispatch the seat locally
+  with the column's model and effort, as in the `lead` case above;
+- otherwise keep waiting. The swap only reroutes to the VPS poller, which
+  claims the stage like any other runner (design section 7, WP3).
+
+**Resume.** The two label pairs of the gate's "Remote resume" case: an issue
+with `phase:<stage>` and `run:<r>` re-enters the waiting list; `claimed:<r>`
+waits for its VERDICT. Neither re-dispatches a seat.
+
+**VERDICT routing.** When the poll sees the VERDICT, post it verbatim as a
+PR comment before routing it, exactly as steps 4, 5 and 6 do for tester and
+reviewer reports, so the evidence record stays in the PR. Then route as
+normal for that stage (fix loop, reviewer), and annotate the plan-status
+item like any other resume.
 
 ### Dependency environment (once per run)
 
@@ -452,10 +562,12 @@ node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
 
 and post its output as a comment on each package issue in the wave. Skip
 this step entirely inside an advisor batch (`/tm-advisor` posts its own
-report; see section 5 of its skill). On a resumed session, omit `--since`
-(there is no reliable run-start timestamp to anchor it to) and say so in
-the posted comment. A failed run (missing transcript, script error) is
-noted in the wave-end report below and never blocks it.
+report; see section 5 of its skill). A wave whose packages are still in the
+waiting list has not ended (see "Remote stage dispatch (columns.json)"): run
+this and the release below only once none is waiting. On a resumed session,
+omit `--since` (there is no reliable run-start timestamp to anchor it to) and
+say so in the posted comment. A failed run (missing transcript, script error)
+is noted in the wave-end report below and never blocks it.
 
 ## 4. Wave end
 
@@ -463,6 +575,10 @@ Definition of done per package: last tester verdict is PASS, reviewer
 APPROVE, PR ready with `Closes #N`, summary comment posted. On the lean
 track, substitute the reviewer's `CHECKS` line (all exit codes 0) for the
 tester verdict; see "Pipeline tracks" above.
+
+The wave ends when every package has shipped or parked and none is waiting
+on a runner: a package in the waiting list keeps the run open, and the lead
+keeps polling (see "Remote stage dispatch (columns.json)" above).
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
 lead's checkout is left on the default branch with a clean tree, then post the
