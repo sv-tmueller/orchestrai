@@ -141,6 +141,13 @@ describe('normalize: summary', () => {
     assert.equal(summary.tester.runner, 'mac')
     assert.equal('on_runner_away' in summary.tester, false)
   })
+
+  test('accepts a lead column with no model, which falls back to the adapter table', () => {
+    const summary = normalize(clone((c) => delete c.columns.architect.model))
+
+    assert.equal(summary.architect.execute, 'lead')
+    assert.equal(summary.architect.model, undefined)
+  })
 })
 
 describe('normalize: invalid files', () => {
@@ -201,6 +208,33 @@ describe('normalize: invalid files', () => {
       /on_runner_away "run" is not "wait"/
     )
   })
+
+  test('rejects a remote column with no model', () => {
+    expectThrow(
+      clone((c) => {
+        delete c.columns.tester.model
+      }),
+      /column "tester" \(execute runner:mac\) needs a model/
+    )
+  })
+
+  test('rejects a remote column with an empty model', () => {
+    expectThrow(
+      clone((c) => {
+        c.columns.tester.model = ''
+      }),
+      /column "tester" \(execute runner:mac\) needs a model/
+    )
+  })
+
+  test('rejects a vps column on a non-anthropic provider with no model', () => {
+    expectThrow(
+      clone((c) => {
+        delete c.columns.reviewer.model
+      }),
+      /column "reviewer" \(execute runner:vps\) needs a model/
+    )
+  })
 })
 
 describe('CLI', () => {
@@ -249,6 +283,20 @@ describe('CLI', () => {
     const lines = result.stderr.replace(/\n$/, '').split('\n')
     assert.equal(lines.length, 1, `expected one line, got: ${result.stderr}`)
     assert.match(lines[0], /^invalid columns config: effort "max"/)
+  })
+
+  test('a remote column with no model exits nonzero with a one-line report', () => {
+    const result = run(
+      '--file',
+      configFile(clone((c) => {
+        delete c.columns.tester.model
+      }))
+    )
+
+    assert.notEqual(result.status, 0)
+    const lines = result.stderr.replace(/\n$/, '').split('\n')
+    assert.equal(lines.length, 1, `expected one line, got: ${result.stderr}`)
+    assert.match(lines[0], /^invalid columns config: column "tester" \(execute runner:mac\) needs a model/)
   })
 
   test('a missing --file argument exits nonzero with usage', () => {
