@@ -487,6 +487,7 @@ idempotent: an existing worktree is reused, never re-added. After
 `git fetch origin`, run this from the lead's main checkout:
 
 ```
+git worktree prune                     # drop entries whose directory is gone
 if git worktree list --porcelain | grep -q "worktrees/pkg-<n>$"; then
   :                                    # already registered: reuse, no add
 elif git show-ref --verify --quiet refs/heads/<type>/<n>-<slug> \
@@ -496,6 +497,17 @@ else
   git worktree add .worktrees/pkg-<n> -b <type>/<n>-<slug> origin/main
 fi
 ```
+
+The leading `prune` is what makes the guard trustworthy. A registration
+whose directory was deleted by hand (a `rm -rf .worktrees/pkg-<n>` outside
+the pipeline) still appears in the porcelain list, so the guard would take
+the reuse arm, exit 0, and leave the package with no worktree; the seats
+then spawn with a missing cwd and the package parks. `prune` drops those
+stale entries first, so the guard sees only worktrees that are really
+there, and the hand-deleted case falls through to an `add` that recreates
+the directory. Prune is safe at any time: it removes only registrations
+whose directory is already gone, and the cleanup section below runs the
+same command.
 
 `<type>` is `feat` or `fix` and `<slug>` is the issue's short slug. The
 branch-existence branch is the resume case: a worktree removed without a
