@@ -481,18 +481,33 @@ A `runner:<r>` column is untouched by this mode: it still hands the stage off
 
 **Package worktree.** Before the developer seat, the lead creates and owns
 the package worktree, keyed by issue number so the path is stable across
-every seat and every fix round:
+every seat and every fix round. The pipeline is resume-first (an
+`in-progress` package re-enters at its stopped stage), so creation is
+idempotent: an existing worktree is reused, never re-added. After
+`git fetch origin`, run this from the lead's main checkout:
 
 ```
-git worktree add .worktrees/pkg-<n> -b <type>/<n>-<slug> origin/main
+if git worktree list --porcelain | grep -q "worktrees/pkg-<n>$"; then
+  :                                    # already registered: reuse, no add
+elif git show-ref --verify --quiet refs/heads/<type>/<n>-<slug> \
+  || git show-ref --verify --quiet refs/remotes/origin/<type>/<n>-<slug>; then
+  git worktree add .worktrees/pkg-<n> <type>/<n>-<slug>   # branch exists, check it out
+else
+  git worktree add .worktrees/pkg-<n> -b <type>/<n>-<slug> origin/main
+fi
 ```
 
-`<type>` is `feat` or `fix` and `<slug>` is the issue's short slug, from the
-lead's main checkout. Every seat of the package runs with `cwd` there: the
-developer, the tester, the reviewer, arbitration, and every fix round. The
-one seat outside it is step 1's architect: its SUB_PLAN or SPLIT_PROPOSAL
-dispatch runs from the lead's checkout, because the worktree does not exist
-yet and the seat is read-only.
+`<type>` is `feat` or `fix` and `<slug>` is the issue's short slug. The
+branch-existence branch is the resume case: a worktree removed without a
+`prune` leaves its branch behind, and a plain `-b` add then dies with
+"a branch named ... already exists". Adding the existing branch resolves it
+locally, or, when only `origin/<type>/<n>-<slug>` exists, creates a
+tracking branch at origin's head. The `$` anchor keeps `pkg-1` from matching
+its `pkg-10` sibling in the porcelain list. Every seat of the package runs
+with `cwd` there: the developer, the tester, the reviewer, arbitration, and
+every fix round. The one seat outside it is step 1's architect: its SUB_PLAN
+or SPLIT_PROPOSAL dispatch runs from the lead's checkout, because the
+worktree does not exist yet and the seat is read-only.
 
 **Invocation.** The module has no CLI, so the lead drives it with this
 one-liner. `TM_SEAT_TASK` carries the task text, its `JOB:` prefix included,
@@ -504,7 +519,8 @@ lead never composes the prompt itself.
 CLAUDE_CODE_ADAPTER_TABLE=<table> \
   TM_SEAT_ROLE=<role> TM_SEAT_TASK="$(cat <task file>)" \
   TM_SEAT_CWD=<worktree path> \
-  TM_SEAT_MODEL=<model> TM_SEAT_EFFORT=<effort> TM_SEAT_SETTINGS=<settings> \
+  TM_SEAT_MODEL=<model> TM_SEAT_EFFORT=<effort> \
+  TM_SEAT_SETTINGS='$CLAUDE_CODE_NORIS_SETTINGS' \
   [TM_SEAT_TIER=<tier>] [TM_SEAT_TIMEOUT_MS=<ms>] \
   node --input-type=module -e '
 import { pathToFileURL } from "node:url";
@@ -531,10 +547,13 @@ fails loudly and enters the respawn below.
 
 **Settings.** The table's `settings` value is a pointer the module expands
 from the run's own environment (for example
-`$CLAUDE_CODE_NORIS_SETTINGS`), never an absolute path. The variable must be
-exported before the seat dispatch; when it is unset the module throws rather
-than silently loading no profile, so the dispatch fails and the package
-parks.
+`$CLAUDE_CODE_NORIS_SETTINGS`), never an absolute path. Pin it in single
+quotes in the invocation, `TM_SEAT_SETTINGS='$CLAUDE_CODE_NORIS_SETTINGS'`:
+the module must receive the literal placeholder, and unquoted the shell
+expands the pointer first, so the module throws "neither a $VAR placeholder
+nor valid JSON" instead of dispatching. The variable must be exported before
+the seat dispatch; when it is unset the module throws rather than silently
+loading no profile, so the dispatch fails and the package parks.
 
 **Which seat binding reaches the seat.** The module's `loadAdapterTable`
 reads only the plugin's adapters directory, by bare file name, so a
@@ -663,8 +682,9 @@ package with several worktree dispatches runs the remove pair and the
 The same remove/delete pair covers the subprocess package worktree and its
 branch, recorded above. Both are origin-published before either runs: the
 package worktree's branch is the package branch itself, pushed to origin
-under the same `<type>/<n>-<slug>` ref. Removing the package worktree is
-never allowed to discard commits origin does not have, so the
+under the same `<type>/<n>-<slug>` ref, so the branch delete below is the
+one and only delete of that ref. Removing the package worktree is never
+allowed to discard commits origin does not have, so the
 `rev-list --not --remotes=origin` guard runs there too, unchanged.
 
 ```
@@ -680,8 +700,6 @@ git rev-list worktree-agent-<id> --not --remotes=origin      # empty: safe to de
 git branch -D worktree-agent-<id>
 git rev-list <package-branch> --not --remotes=origin         # empty: safe to delete
 git branch -D <package-branch>
-git rev-list <type>/<n>-<slug> --not --remotes=origin        # empty: safe to delete
-git branch -D <type>/<n>-<slug>
 
 git worktree prune
 ```
