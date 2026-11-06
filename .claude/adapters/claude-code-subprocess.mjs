@@ -164,6 +164,21 @@ export function resolveSeat(role) {
 }
 
 /**
+ * resolveEffectiveSeat(role, opts) -> seat
+ *
+ * The seat binding one dispatch actually uses. `opts.tier` names a tier
+ * explicitly (the interface's documented override), and the tier's own
+ * model, effort, and settings then win over the role's binding, exactly as
+ * resolveTier serves them. Without opts.tier the role's binding applies,
+ * per-role override included. Every dispatch path resolves its seat
+ * through here, so the live, dry-run, and argv paths cannot drift.
+ */
+function resolveEffectiveSeat(role, opts = {}) {
+  if (opts.tier) return { tier: opts.tier, ...resolveTier(opts.tier) }
+  return resolveSeat(role)
+}
+
+/**
  * The settings fragment every subprocess seat carries, merged with the
  * tier's own profile. Each entry is a trap from the headless `claude -p`
  * checklist (.claude/skills/tm-ab-test/SKILL.md), each one observed live:
@@ -252,7 +267,7 @@ export function buildArgv(role, prompt, opts = {}) {
     )
   }
 
-  const seat = resolveSeat(role)
+  const seat = resolveEffectiveSeat(role, opts)
   const effort = opts.effort || seat.effort
   const model = opts.model || seat.model
 
@@ -328,6 +343,22 @@ function parseEnvelope(stdout) {
 }
 
 /**
+ * Is this a raw subprocess result rather than a parsed report object? A raw
+ * result carries the process exit shape (a numeric exit code, the timeout
+ * flag, a captured stdout stream). A report object carries the contract
+ * fields and `raw`, and none of those. The two shapes need telling apart:
+ * classifyFailure's job is to name why a raw seat failed, while a report
+ * object is the success path's return value.
+ */
+function isRawResult(result) {
+  return (
+    typeof result.code === 'number' ||
+    result.timedOut === true ||
+    typeof result.stdout === 'string'
+  )
+}
+
+/**
  * classifyFailure(result, role) -> string | null
  *
  * Name why a seat failed, or null when it did not. The name feeds the
@@ -335,6 +366,9 @@ function parseEnvelope(stdout) {
  */
 export function classifyFailure(result, role) {
   if (result === null || result === undefined) return 'no result'
+  // A parsed report object has no failure class of its own; detectFailure
+  // checks its required contract field.
+  if (!isRawResult(result)) return null
   if (result.timedOut) return 'timeout'
   if (typeof result.code === 'number' && result.code !== 0) return `exit ${result.code}`
   if (result.error) return String(result.error)
@@ -360,8 +394,12 @@ export function classifyFailure(result, role) {
  * detectFailure(result, role) -> bool
  *
  * True when the seat could not complete. Accepts a raw subprocess result
- * (`{ code, stdout, stderr, timedOut }`) or a report object, string, or
- * null. See adapter-interface.md for the interface contract.
+ * (`{ code, stdout, stderr, timedOut }`) or a parsed report object, string,
+ * or null. The interface's documented call shape is spawn -> detectFailure
+ * (report), so a clean report object must read as no failure: it is the
+ * success path's return value, not a raw result with a missing stdout. A
+ * report still fails when it is missing its role's required contract field.
+ * See adapter-interface.md for the interface contract.
  */
 export function detectFailure(result, role) {
   if (result === null || result === undefined) return true
@@ -370,7 +408,17 @@ export function detectFailure(result, role) {
   }
   if (typeof result !== 'object') return true
   if (result.error) return true
-  return classifyFailure(result, role) !== null
+
+  const reason = classifyFailure(result, role)
+  if (reason) return true
+
+  // A parsed report object (not a raw result) carries no stdout, so the
+  // required-field check runs against its own fields.
+  if (!isRawResult(result)) {
+    const required = REQUIRED_FIELD[role]
+    if (required && !(required in result)) return true
+  }
+  return false
 }
 
 /**
@@ -407,7 +455,7 @@ export async function spawn(role, task, opts = {}) {
 }
 
 async function runClaude(role, task, opts) {
-  const seat = resolveSeat(role)
+  const seat = resolveEffectiveSeat(role, opts)
   const argv = buildArgv(role, task, opts)
   const model = opts.model || seat.model
 
@@ -521,10 +569,7 @@ function dryRunSpawn(role, task, opts) {
   }
 
   const roleSpecific = VERDICTS[role] || {}
-  // opts.tier names a tier, not a role, so resolve it through the tiers map.
-  const seat = opts.tier
-    ? { tier: opts.tier, ...resolveTier(opts.tier) }
-    : resolveSeat(role)
+  const seat = resolveEffectiveSeat(role, opts)
 
   return {
     _dryRun: true,

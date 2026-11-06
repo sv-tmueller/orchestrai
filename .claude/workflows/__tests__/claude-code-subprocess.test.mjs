@@ -339,6 +339,22 @@ describe('detectFailure', () => {
     assert.equal(detectFailure(clean, 'tester'), false)
   })
 
+  test('a clean parsed report object is not a failure', () => {
+    // The interface documents the call shape spawn -> detectFailure(report),
+    // and a report object carries `raw` plus the parsed contract fields, not
+    // a code/stdout pair. Treating it as a raw result reported "empty output".
+    const report = { raw: 'STATUS: DONE\nBRANCH: b', STATUS: 'DONE', BRANCH: 'b' }
+    assert.equal(detectFailure(report, 'developer'), false)
+  })
+
+  test('a report object missing its required contract field is a failure', () => {
+    assert.equal(
+      detectFailure({ raw: 'looks fine to me' }, 'tester'),
+      true,
+      'a tester report with no VERDICT must not travel downstream as a PASS'
+    )
+  })
+
   test('a nonzero exit code is a failure', () => {
     assert.equal(detectFailure({ ...clean, code: 1 }, 'tester'), true)
   })
@@ -409,6 +425,16 @@ describe('spawn and retry', () => {
     assert.equal(calls[0].cwd, stubDir, 'the seat must run in the lead-owned package worktree')
     assert.equal(calls[0].alwaysEffort, '1')
     assert.equal(calls[0].bgCeiling, '0')
+  })
+
+  test('the spawn -> detectFailure round trip sees a clean report as no failure', async () => {
+    resetSidecar()
+    setStubEnv('ok')
+    const mod = await import('../../adapters/claude-code-subprocess.mjs')
+    const report = await mod.spawn('developer', 'p', { cwd: stubDir })
+    // The pipeline's real call shape: spawn returns the report, and the
+    // caller feeds that report straight back into detectFailure.
+    assert.equal(mod.detectFailure(report, 'developer'), false)
   })
 
   test('spawn captures the token and cost line per dispatch', async () => {
@@ -510,6 +536,35 @@ describe('spawn and retry', () => {
     assert.equal(result.attempts, 1)
     assert.equal(result.parked, null)
     assert.equal(readCalls().length, 1, 'no respawn on a clean first attempt')
+  })
+
+  test('the live path honors opts.tier, matching the dry run', async () => {
+    resetSidecar()
+    setStubEnv('ok')
+    // The judgment tier names its own settings profile; the live argv path
+    // expands it, so the test must export it like a run would.
+    process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS = JSON.stringify({ permissions: {} })
+    const mod = await import('../../adapters/claude-code-subprocess.mjs')
+
+    const saved = process.env.DRY_RUN
+    process.env.DRY_RUN = 'true'
+    let dryModel
+    try {
+      const report = await mod.spawn('developer', 'p', { tier: 'judgment' })
+      dryModel = report._model
+    } finally {
+      process.env.DRY_RUN = saved
+    }
+
+    // The documented opts.tier override must reach the live argv too, or a
+    // caller passing a tier silently gets the role's default-tier model.
+    await mod.spawn('developer', 'p', { cwd: stubDir, tier: 'judgment' })
+    const argv = readCalls()[0].argv
+    assert.equal(
+      valueOf(argv, '--model'), dryModel,
+      'the live path must resolve the requested tier, not the role default'
+    )
+    assert.equal(valueOf(argv, '--model'), splitTable.tiers.judgment.model)
   })
 
   test('a dry run derives the seat from the tier when opts.tier names one', async () => {
