@@ -487,9 +487,15 @@ idempotent: an existing worktree is reused, never re-added. After
 `git fetch origin`, run this from the lead's main checkout:
 
 ```
-git worktree prune                     # drop entries whose directory is gone
-if git worktree list --porcelain | grep -q "worktrees/pkg-<n>$"; then
-  :                                    # already registered: reuse, no add
+git worktree prune                     # drop unlocked entries whose directory is gone
+if [ ! -d .worktrees/pkg-<n> ] \
+  && git worktree list --porcelain | grep -q "worktrees/pkg-<n>$"; then
+  git worktree unlock .worktrees/pkg-<n> 2>/dev/null || true  # prune skips locked entries
+  git worktree prune
+fi
+if git worktree list --porcelain | grep -q "worktrees/pkg-<n>$" \
+  && [ -d .worktrees/pkg-<n> ]; then
+  :                                    # registered and present: reuse, no add
 elif git show-ref --verify --quiet refs/heads/<type>/<n>-<slug> \
   || git show-ref --verify --quiet refs/remotes/origin/<type>/<n>-<slug>; then
   git worktree add .worktrees/pkg-<n> <type>/<n>-<slug>   # branch exists, check it out
@@ -498,16 +504,28 @@ else
 fi
 ```
 
-The leading `prune` is what makes the guard trustworthy. A registration
-whose directory was deleted by hand (a `rm -rf .worktrees/pkg-<n>` outside
-the pipeline) still appears in the porcelain list, so the guard would take
-the reuse arm, exit 0, and leave the package with no worktree; the seats
-then spawn with a missing cwd and the package parks. `prune` drops those
-stale entries first, so the guard sees only worktrees that are really
-there, and the hand-deleted case falls through to an `add` that recreates
-the directory. Prune is safe at any time: it removes only registrations
-whose directory is already gone, and the cleanup section below runs the
-same command.
+The guard is trustworthy only if it checks the directory itself, not just the
+porcelain entry. A registration whose directory was deleted by hand (a
+`rm -rf .worktrees/pkg-<n>` outside the pipeline) still appears in the
+porcelain list, so a porcelain-only guard takes the reuse arm, exits 0, and
+leaves the package with no worktree; the seats then spawn with a missing cwd
+and the package parks. Two steps handle it. The leading `prune` drops an
+unlocked registration whose directory is gone. A *locked* registration
+survives `prune` silently (prune skips locked entries), so the `unlock` step
+runs when the directory is missing but the entry is still listed, then prunes
+again; after that the guarded reuse arm checks both the porcelain entry and
+`-d .worktrees/pkg-<n>`, so a locked-gone case falls through to an `add` that
+recreates the directory. That `unlock` only runs on the residual listed but
+directory-missing entry, and its failure is swallowed (`2>/dev/null ||
+true`), so the ordinary hand-deleted case is unchanged.
+
+One narrow state stays loud rather than silent. A stale registration whose
+directory still holds content (for example the gitdir admin directory under
+`.git/worktrees/pkg-<n>` was removed, or only the worktree's `.git` file was
+deleted) is pruned, but the follow-up `add` then aborts with `fatal:
+'.worktrees/pkg-<n>' already exists`. This fails loudly with git's own
+error, and the operator resolves it by removing the leftover directory by
+hand. The pipeline does not try to remove a directory it did not create.
 
 `<type>` is `feat` or `fix` and `<slug>` is the issue's short slug. The
 branch-existence branch is the resume case: a worktree removed without a
