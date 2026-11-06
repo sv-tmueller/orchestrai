@@ -103,6 +103,11 @@ declared tier. A future phase (Phase B, issue #314) introduces
 inline TIER_MODELS/TIER_EFFORTS maps in the workflow scripts so the
 scripts reference tiers, not model names, at the callsite.
 
+A target repo's `.orchestrai/columns.json`, when present, overrides the
+per-stage model and effort at lead dispatch time (and names the runner that
+executes the stage); the adapter table stays the resolution source for every
+repo without that file, and for the workflow scripts.
+
 ## Spec format
 
 Each workflow's fan-out is encoded as a JSON spec file under

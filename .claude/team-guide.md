@@ -79,13 +79,14 @@ Plan status (issue #42):
 ```
 
 `[x]` marks a done step, `[>]` the current step (suffixed
-`<- dispatching <agent>`), `[ ]` a remaining step, `[-]` a step skipped by
-the lean track (suffixed `skipped (lean)`; see "Pipeline tracks" in
-`.claude/skills/tm-kickoff/SKILL.md`). A fix round annotates the current
-item, for example `[>] 3. test (fix round 2/3)`. In the tm- flows the
-items are the pipeline stages (the skills pin them); an ad-hoc plan-backed
-dispatch uses the active plan's own steps as items. A lean package looks
-like:
+`<- dispatching <agent>`, or `<- handed to runner <r> (waiting)` when the
+stage goes to a runner instead of a local dispatch), `[ ]` a remaining step,
+`[-]` a step skipped by the lean track (suffixed `skipped (lean)`; see
+"Pipeline tracks" in `.claude/skills/tm-kickoff/SKILL.md`). A fix round
+annotates the current item, for example `[>] 3. test (fix round 2/3)`. In the
+tm- flows the items are the pipeline stages (the skills pin them); an ad-hoc
+plan-backed dispatch uses the active plan's own steps as items. A lean
+package looks like:
 
 ```
 Plan status (issue #58):
@@ -105,7 +106,9 @@ package, consecutively, in the same shape. No combined-table variant.
 
 Labels: `in-progress` (package dispatched; resume, do not restart) and
 `needs-human` (parked: question, blocker, or exhausted fix loop), on top of
-the sizing set.
+the sizing set; plus the `phase:<stage>`, `track:lean`, `runner`, `runner:on`
+and `runner:off` families, and the `run:<runner>` / `claimed:<runner>` labels
+the lead and the pollers create per runner id.
 
 ## Operating model (advisor)
 
