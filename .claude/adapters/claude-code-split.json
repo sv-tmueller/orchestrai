@@ -1,0 +1,39 @@
+{
+  "_comment": "Variant adapter table for the Claude Code host: opus judgment seats at xhigh on the paid Anthropic endpoint, self-hosted vllm workers with the ceiling lifted. Every seat runs as its own headless `claude -p` subprocess. Selected per run with CLAUDE_CODE_ADAPTER_TABLE; claude-code.json stays the default. Because the table mixes providers, the table-level effort_ceiling and forbidden_efforts stay on the paid baseline and each tier is resolved from its own provider (effort-policy.test.mjs).",
+  "host": "claude-code",
+  "description": "Claude Code adapter, split variant: judgment on opus, grunt work on a local vllm model. Each seat is a `claude -p` subprocess launched in the package worktree; settings profiles are named by placeholders the run expands from its own environment.",
+  "dispatch": "subprocess",
+  "tiers": {
+    "judgment": {
+      "model": "opus",
+      "provider": "anthropic",
+      "effort": "xhigh",
+      "settings": "$CLAUDE_CODE_ANTHROPIC_SETTINGS"
+    },
+    "worker": {
+      "model": "vllm/release/deepseek-v41-flash",
+      "provider": "vllm",
+      "effort": "max",
+      "settings": "$CLAUDE_CODE_NORIS_SETTINGS"
+    },
+    "lead": {
+      "model": "opus",
+      "provider": "anthropic",
+      "effort": "xhigh",
+      "settings": "$CLAUDE_CODE_ANTHROPIC_SETTINGS"
+    }
+  },
+  "_effort_comment": "Mixed providers: the paid judgment and lead tiers keep xhigh and forbid max; the vllm worker tier lifts the ceiling above them. The table-level fields carry the paid baseline (xhigh, forbidden [max]) because not every tier is self-hosted.",
+  "roles": {
+    "architect": "judgment",
+    "developer": { "tier": "worker", "model": "vllm/release/glm-5-3", "effort": "high" },
+    "docs-writer": "worker",
+    "fact-checker": "worker",
+    "perf-investigator": "worker",
+    "reviewer": "judgment",
+    "tester": "worker"
+  },
+  "_override_comment": "developer is a per-role override: it resolves through the worker tier but pins glm-5-3 at high effort, so a project can put implementation on a stronger self-hosted model than the tier default without a new tier. A plain tier string (as in the other roles) and an override object are both valid; the override wins over the tier default.",
+  "effort_ceiling": "xhigh",
+  "forbidden_efforts": ["max"]
+}

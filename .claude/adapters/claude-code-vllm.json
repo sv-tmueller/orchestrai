@@ -1,0 +1,38 @@
+{
+  "_comment": "Variant adapter table for the Claude Code host: every seat runs as its own headless `claude -p` subprocess against a self-hosted vllm endpoint. Selected per run with CLAUDE_CODE_ADAPTER_TABLE (a bare file name in this directory); claude-code.json stays the default and keeps the in-process Agent tool path. See docs/architecture/adapter-interface.md for the subprocess spawn mode and .claude/adapters/claude-code-subprocess.mjs for the mechanism.",
+  "host": "claude-code",
+  "description": "Claude Code adapter, self-hosted variant. Spawns each seat as a `claude -p` subprocess on a local vllm model, one launch per package worktree. The settings profile is named by a placeholder the run expands from its own environment, never an absolute path.",
+  "dispatch": "subprocess",
+  "tiers": {
+    "judgment": {
+      "model": "vllm/release/glm-5-3",
+      "provider": "vllm",
+      "effort": "max",
+      "settings": "$CLAUDE_CODE_NORIS_SETTINGS"
+    },
+    "worker": {
+      "model": "vllm/release/deepseek-v41-flash",
+      "provider": "vllm",
+      "effort": "max",
+      "settings": "$CLAUDE_CODE_NORIS_SETTINGS"
+    },
+    "lead": {
+      "model": "vllm/release/glm-5-3",
+      "provider": "vllm",
+      "effort": "max",
+      "settings": "$CLAUDE_CODE_NORIS_SETTINGS"
+    }
+  },
+  "_effort_comment": "Self-hosted vllm carries no marginal token cost, so this table lifts the paid-API effort policy to the max ceiling with nothing forbidden (effort-policy.test.mjs keys the exemption by host+provider: claude-code + vllm). The default claude-code.json keeps xhigh and forbids max.",
+  "roles": {
+    "architect": "judgment",
+    "developer": "worker",
+    "docs-writer": "worker",
+    "fact-checker": "worker",
+    "perf-investigator": "worker",
+    "reviewer": "judgment",
+    "tester": "worker"
+  },
+  "effort_ceiling": "max",
+  "forbidden_efforts": []
+}
