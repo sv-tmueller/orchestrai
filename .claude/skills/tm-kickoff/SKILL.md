@@ -51,6 +51,26 @@ poller keeps `runner:on`/`runner:off`; the others are the lead's or the
 poller's per the design's label table (relai
 `2026-11-04-agent-board-design.md` section 6).
 
+**Adapter table (once per run).** Resolve the adapter table and its dispatch
+mode before any dispatch:
+
+- The file name is `CLAUDE_CODE_ADAPTER_TABLE`, default `claude-code.json`, a
+  bare `*.json` name with no path.
+- Project shadowing: a table under the project's `.claude/adapters/` with the
+  same bare file name beats the plugin's copy in
+  `${CLAUDE_PLUGIN_ROOT:-.claude}/adapters/`. Resolve the winning path once
+  and keep it for the run.
+- Read the winning table's `dispatch` field once. `agent` (the default, and
+  the value when the field is absent) runs today's pipeline byte-for-byte
+  unchanged. `subprocess` switches every lead-executed seat dispatch in the
+  run to the spawn module; see "Subprocess seat dispatch (adapter tables)"
+  in section 3.
+
+One table per run; all packages in the run use it. A table that cannot be
+read, or whose host is not `claude-code`, stops the run before any dispatch:
+post the one-line reason and report it, rather than parking each package for
+a problem none of them caused.
+
 For each issue, `gh issue view <n> --comments`, and
 `gh pr list --state open --limit 100 --json number,isDraft,closingIssuesReferences --jq '.[] | select(.closingIssuesReferences[]?.number == <n>)'`
 to find an existing PR.
@@ -446,6 +466,117 @@ Then route as normal for that stage: architect like step 1, developer like
 step 3, tester like steps 4 and 5, reviewer like steps 6 and 7. Annotate the
 plan-status item like any other resume.
 
+### Subprocess seat dispatch (adapter tables)
+
+This section applies only when the gate resolved the run's adapter table with
+`dispatch: subprocess`; an `agent` table runs the pipeline above unchanged.
+In this mode every lead-executed seat runs as its own headless `claude -p`
+process through `.claude/adapters/claude-code-subprocess.mjs`, so worker and
+judgment seats carry their own per-seat model, endpoint, effort, and working
+directory. Read "agent dispatch" above as "seat dispatch" here: the routing
+rules, fix-round caps, parking, plan-status blocks, and lean-track
+eligibility are unchanged. Only the execution and the failure ladder differ.
+A `runner:<r>` column is untouched by this mode: it still hands the stage off
+(see "Remote stage dispatch" above), and the seat never runs locally.
+
+**Package worktree.** Before the developer seat, the lead creates and owns
+the package worktree, keyed by issue number so the path is stable across
+every seat and every fix round:
+
+```
+git worktree add .worktrees/pkg-<n> -b <type>/<n>-<slug> origin/main
+```
+
+`<type>` is `feat` or `fix` and `<slug>` is the issue's short slug, from the
+lead's main checkout. Every seat of the package runs with `cwd` there: the
+developer, the tester, the reviewer, arbitration, and every fix round. The
+one seat outside it is step 1's architect: its SUB_PLAN or SPLIT_PROPOSAL
+dispatch runs from the lead's checkout, because the worktree does not exist
+yet and the seat is read-only.
+
+**Invocation.** The module has no CLI, so the lead drives it with this
+one-liner. `TM_SEAT_TASK` carries the task text, its `JOB:` prefix included,
+read from a temp file so a multi-line task needs no shell escaping; the role
+contract is prepended module-side from `.claude/adapters/prompts/`, so the
+lead never composes the prompt itself.
+
+```
+CLAUDE_CODE_ADAPTER_TABLE=<table> \
+  TM_SEAT_ROLE=<role> TM_SEAT_TASK="$(cat <task file>)" \
+  TM_SEAT_CWD=<worktree path> \
+  TM_SEAT_MODEL=<model> TM_SEAT_EFFORT=<effort> TM_SEAT_SETTINGS=<settings> \
+  [TM_SEAT_TIER=<tier>] [TM_SEAT_TIMEOUT_MS=<ms>] \
+  node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const p = (process.env.CLAUDE_PLUGIN_ROOT || ".claude") + "/adapters/claude-code-subprocess.mjs";
+const { dispatchSeat } = await import(pathToFileURL(p).href);
+const e = process.env;
+const opts = { cwd: e.TM_SEAT_CWD };
+for (const k of ["tier", "model", "effort", "settings"]) { const v = e["TM_SEAT_" + k.toUpperCase()]; if (v) opts[k] = v; }
+if (e.TM_SEAT_TIMEOUT_MS) opts.timeoutMs = Number(e.TM_SEAT_TIMEOUT_MS);
+console.log(JSON.stringify(await dispatchSeat(e.TM_SEAT_ROLE, e.TM_SEAT_TASK, opts)));
+'
+```
+
+Run it from the lead's checkout and print the returned JSON. The result is
+`{ report, attempts, failure, parked }`: route `report` exactly as the Agent
+tool's return (`STATUS:`, `VERDICT:`, the architect job header,
+`NEEDS_DECISION:`), and park the package when `parked` is set. With
+`DRY_RUN=true` the module returns a synthetic report and spawns nothing,
+which is how the invocation is checked offline.
+
+**Timeout.** 30 minutes per seat, the module default. Narrow it per dispatch
+with `TM_SEAT_TIMEOUT_MS` only when a stage is known short; a killed seat
+fails loudly and enters the respawn below.
+
+**Settings.** The table's `settings` value is a pointer the module expands
+from the run's own environment (for example
+`$CLAUDE_CODE_NORIS_SETTINGS`), never an absolute path. The variable must be
+exported before the seat dispatch; when it is unset the module throws rather
+than silently loading no profile, so the dispatch fails and the package
+parks.
+
+**Which seat binding reaches the seat.** The module's `loadAdapterTable`
+reads only the plugin's adapters directory, by bare file name, so a
+project-shadowed table never reaches a seat on its own. The gate's
+shadow-aware resolution reaches the seats through explicit dispatch opts
+instead: the lead reads the resolved (possibly shadowed) table's role or tier
+binding and passes `model`, `effort`, and `settings` into the dispatch. Pass
+`TM_SEAT_TIER` only when that tier also exists in the plugin table, since the
+module resolves an unknown tier by throwing. A shadowed table must keep the
+plugin table's provider: opts carries no provider, so the effort ceiling is
+always read from the module's own binding. Without this bridge a shadowed
+table would silently not reach the seats.
+
+**columns.json.** Subprocess mode changes only how the lead executes a
+`lead` column. When a column hands the stage to a `runner:<r>`, the handoff
+is unchanged and no local seat runs. For a `lead` column, the column's
+`model` and `effort` ride as explicit dispatch opts (`TM_SEAT_MODEL`,
+`TM_SEAT_EFFORT`) in place of the adapter table's tier binding, exactly as
+they replace the tier values in the `agent` path.
+
+**Respawn, then park.** The send-a-message resume ladder in "Limit deaths"
+is replaced for subprocess seats by the module's own one-respawn policy:
+`dispatchSeat` spawns once, and on any failure class respawns exactly once
+with a prompt line naming the failure and telling the seat to check what the
+dead attempt left on origin (branch, commits, PR) before redoing work. If
+the respawn also fails, the result carries `parked`: park the package with
+that reason. State the precedence in both directions:
+
+- The "Limit deaths" run-long Opus-to-Sonnet fallback covers Agent-tool
+  quota deaths. It does not fire for a subprocess seat, which has no Agent
+  tool call to die on and no per-call model override to switch. A subprocess
+  seat that hits a provider limit is a failure like any other: one respawn,
+  then park.
+- Agent dispatches keep the existing resume and limit-death rules unchanged.
+  A run whose gate resolved `agent` never enters this section.
+
+**Token usage.** `report.usage` carries the seat's raw counts
+(`inputTokens`, `outputTokens`, `cacheReadTokens`, `costUsd`, `priced`).
+Self-hosted `vllm/*` models are recorded unpriced (`costUsd` null, `priced`
+false); they are never priced. Collect each dispatch's usage for the wave-end
+report (see "Token report (wave end)" below).
+
 ### Dependency environment (once per run)
 
 The lead builds the dependency environment once per run (a run as defined
@@ -506,6 +637,12 @@ parked.
 pass touches only those plus the package's own local branch. Anything unmapped
 waits for wave end.
 
+In subprocess mode the lead also records the package worktree it created for
+the package (`.worktrees/pkg-<n>`, see "Subprocess seat dispatch (adapter
+tables)" above) and the `<type>/<n>-<slug>` branch that worktree carries. The
+records go in the same per-package mapping, alongside the agent-path fields.
+This pass covers both, under the same guards.
+
 **Guard, locks.** A single `--force`, never `--force --force`; a locked
 worktree is skipped.
 
@@ -523,16 +660,28 @@ path is skipped. Anything that fails a check is left for the backstop. A
 package with several worktree dispatches runs the remove pair and the
 `worktree-agent-<id>` pair once per recorded worktree.
 
+The same remove/delete pair covers the subprocess package worktree and its
+branch, recorded above. Both are origin-published before either runs: the
+package worktree's branch is the package branch itself, pushed to origin
+under the same `<type>/<n>-<slug>` ref. Removing the package worktree is
+never allowed to discard commits origin does not have, so the
+`rev-list --not --remotes=origin` guard runs there too, unchanged.
+
 ```
 git fetch --prune origin
 
 git -C <worktreePath> rev-list HEAD --not --remotes=origin   # empty: safe to remove
 git worktree remove --force <worktreePath>
 
+git -C .worktrees/pkg-<n> rev-list HEAD --not --remotes=origin  # empty: safe to remove
+git worktree remove --force .worktrees/pkg-<n>
+
 git rev-list worktree-agent-<id> --not --remotes=origin      # empty: safe to delete
 git branch -D worktree-agent-<id>
 git rev-list <package-branch> --not --remotes=origin         # empty: safe to delete
 git branch -D <package-branch>
+git rev-list <type>/<n>-<slug> --not --remotes=origin        # empty: safe to delete
+git branch -D <type>/<n>-<slug>
 
 git worktree prune
 ```
@@ -547,10 +696,16 @@ git worktree list                  # expect only the main repo
 git status --short --branch        # expect the default branch, clean tree
 ```
 
-Remove anything still registered under `.claude/worktrees/` only if
-`git -C <path> rev-list HEAD --not --remotes=origin` exits 0 and prints nothing
-(`git worktree remove --force <path>`). If the lead's HEAD was moved off the
-default branch, return to it with `git switch <default>` (the lead's own checkout, the one
+`git worktree list` lists this run's own live subprocess worktrees under
+`.worktrees/` too (`.gitignore` covers only `.claude/worktrees/`), so read
+"expect only the main repo" and "clean tree" as tolerating those entries while
+the run owns them. Remove anything still registered under `.claude/worktrees/`
+only if `git -C <path> rev-list HEAD --not --remotes=origin` exits 0 and prints
+nothing (`git worktree remove --force <path>`). The per-package pass above
+already removed this run's `.worktrees/pkg-<n>` entries under their guards; a
+survivor there is left alone for the human, like any other guarded path, and
+named in the wave-end report. If the lead's HEAD was moved off the default
+branch, return to it with `git switch <default>` (the lead's own checkout, the one
 place that command is right). Delete a stray local branch, including a
 leftover `worktree-agent-<id>` branch, only if `git rev-list <branch> --not
 --remotes=origin` exits 0 and prints nothing, then `git branch -D <branch>`;
@@ -570,8 +725,17 @@ node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
   --session "${CLAUDE_CODE_SESSION_ID}" --since <run start>
 ```
 
-and post its output as a comment on each package issue in the wave. Skip
-this step entirely inside an advisor batch (`/tm-advisor` posts its own
+and post its output as a comment on each package issue in the wave. This
+covers the lead session only; the seats of a subprocess run are not in its
+transcript.
+
+**Subprocess seats.** In subprocess mode also post each seat dispatch's raw
+usage in the wave-end report, from the `report.usage` each dispatch returned:
+`inputTokens`, `outputTokens`, `cacheReadTokens`, and `costUsd`. Self-hosted
+`vllm/*` seats are unpriced (`costUsd` null); report their raw counts and say
+"unpriced", never a cost. Group the lines per package, one line per seat.
+
+Skip this step entirely inside an advisor batch (`/tm-advisor` posts its own
 report; see section 5 of its skill). A wave whose packages are still in the
 waiting list has not ended (see "Remote stage dispatch (columns.json)"): run
 this and the release below only once none is waiting. On a resumed session,
