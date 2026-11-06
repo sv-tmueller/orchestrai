@@ -322,11 +322,12 @@ describe('parseReport', () => {
 // 4. Failure classification
 // ===========================================================================
 describe('detectFailure', () => {
-  let detectFailure
+  let detectFailure, parseReport
 
   before(async () => {
     const mod = await import('../../adapters/claude-code-subprocess.mjs')
     detectFailure = mod.detectFailure
+    parseReport = mod.parseReport
   })
 
   const clean = {
@@ -388,6 +389,24 @@ describe('detectFailure', () => {
       detectFailure({ code: 0, stdout: JSON.stringify({ result: 'HTTP 403: key expired' }), stderr: '' }, 'tester'),
       true
     )
+  })
+
+  test('a parsed report is never read as raw, whatever payload keys it carries', () => {
+    // A seat's fenced ```json payload is copied onto the report by
+    // parseReport, so a payload key named like a raw-subprocess field reaches
+    // the shape check. Reading those names as the process shape turns a clean
+    // STATUS: DONE report into "empty output", the round-1 bug shape.
+    for (const payload of [{ code: 0 }, { stdout: '' }, { timedOut: true }]) {
+      const report = parseReport(
+        'developer',
+        `STATUS: DONE\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``
+      )
+      assert.equal(
+        detectFailure(report, 'developer'),
+        false,
+        `a payload of ${JSON.stringify(payload)} must not make the report read as raw`
+      )
+    }
   })
 
   test('classifyFailure names the failure class', () => {
@@ -516,6 +535,28 @@ describe('spawn and retry', () => {
     assert.ok(
       calls[0].argv.join(' ').includes('RESPAWN'),
       'the respawn prompt names the retry, so it is never the unchanged prompt'
+    )
+  })
+
+  test('the retry notice names the model the respawn actually dispatched', async () => {
+    resetSidecar()
+    setStubEnv('exit1')
+    // opts.tier overrides the role binding, so the respawn runs the tier's
+    // model. The notice travels into the retried seat's prompt, so it must
+    // name that same model, or the seat reads a binding it is not running.
+    process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS = JSON.stringify({ permissions: {} })
+    await retry('p', { role: 'developer', cwd: stubDir, tier: 'judgment' })
+    const calls = readCalls()
+    assert.equal(calls.length, 1, 'exactly one respawn call')
+    const dispatched = valueOf(calls[0].argv, '--model')
+    assert.equal(dispatched, splitTable.tiers.judgment.model)
+    assert.ok(
+      calls[0].argv.join(' ').includes(`previous attempt (${dispatched})`),
+      `the notice must name "${dispatched}", the model the respawn dispatched`
+    )
+    assert.ok(
+      !calls[0].argv.join(' ').includes(`previous attempt (${splitTable.roles.developer.model})`),
+      'the notice must not name the role-default model the respawn did not run'
     )
   })
 

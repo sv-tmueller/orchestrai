@@ -351,6 +351,13 @@ function parseEnvelope(stdout) {
  * object is the success path's return value.
  */
 function isRawResult(result) {
+  // The `raw` marker decides the shape first: parseReport always sets it to
+  // the original text, before any fenced ```json payload key is copied on, so
+  // no payload field can forge it. The wrapper fields are consulted only
+  // after that, because a report's payload may legitimately carry a key named
+  // `code`, `stdout`, or `timedOut`, and those names must not decide the
+  // shape.
+  if (typeof result.raw === 'string') return false
   return (
     typeof result.code === 'number' ||
     result.timedOut === true ||
@@ -514,7 +521,7 @@ function diagnoseFailure(role, opts, raw, reason) {
  */
 export async function retry(task, opts = {}, failureReason = 'the first attempt failed') {
   const role = opts.role || 'unknown'
-  const fromModel = opts.model || resolveSeat(role).model
+  const fromModel = opts.model || resolveEffectiveSeat(role, opts).model
 
   const retryNotice =
     `\n\nRESPAWN: this is a retry. The previous attempt (${fromModel}) did not ` +
