@@ -172,6 +172,27 @@ Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
 fallback and resume)". Nothing runs at max effort. Fable is never pinned in
 this table; it is available only as the user's own choice for the main window.
 
+Two variant adapter tables ship with the same host, both on the subprocess
+seat adapter: every seat runs as its own headless `claude -p` subprocess, so
+each seat gets its own model, endpoint, and effort pin.
+
+| Table | Judgment + lead | Workers |
+|-------|-----------------|---------|
+| `claude-code-vllm.json` | self-hosted vllm, max effort | self-hosted vllm, max effort |
+| `claude-code-split.json` | opus, xhigh, paid endpoint | self-hosted vllm, max effort |
+
+`claude-code-vllm.json` puts every seat, judgment and worker alike, on a
+self-hosted vllm endpoint. `claude-code-split.json` keeps the opus judgment
+and lead seats on the paid Anthropic endpoint and moves the workers to vllm,
+mixing providers in one table. Select a variant for the run by setting
+`CLAUDE_CODE_ADAPTER_TABLE` to its bare file name in `.claude/adapters/`;
+unset means the default `claude-code.json` table and the in-process Agent
+tool dispatch shown above. The nothing-at-max rule above belongs to the paid
+table: the self-hosted tiers lift the effort ceiling to max because
+self-hosted tokens carry no marginal cost. The subprocess spawn mode and its
+mechanism (`.claude/adapters/claude-code-subprocess.mjs`):
+`docs/architecture/adapter-interface.md`.
+
 #### Other providers via a profile
 
 To run the Claude Code host against Kimi through an OpenRouter-compatible
