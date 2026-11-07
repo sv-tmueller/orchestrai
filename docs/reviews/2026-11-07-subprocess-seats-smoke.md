@@ -26,8 +26,9 @@ exactly, not re-derived.
   ran as subprocess seats.
 - One package at a time, per the memory note in the issue (7.7 GB box, no
   parallel fan-out).
-- All four seats ran as attempt 1. No respawn fired and no timeout killed
-  any seat.
+- All four scratch-package seats ran as attempt 1. No respawn fired and no
+  timeout killed any of them. The deliverable's own developer seat later
+  exercised the timeout and respawn paths; see section 4, item 1.
 
 ## 2. Per-seat models and outcomes
 
@@ -76,9 +77,10 @@ tests, Version bump guard both pass).
   `origin/main` at run time. No base drift.
 - The scratch package, PR #464, completed green: ready (not draft),
   MERGEABLE, both CI checks (Unit tests, Version bump guard) SUCCESS.
-- No respawn fired and no timeout killed any seat on a clean run, so the
-  respawn path itself was not exercised. The timeout's not firing at 30
-  minutes on the tester is recorded as a deviation (section 4).
+- On the scratch package (#463) no respawn fired and no timeout killed any
+  seat; every seat completed on attempt 1. The deliverable package (#461)
+  then exercised the timeout and respawn paths on its own developer seat:
+  see section 4, item 1.
 
 ## 4. Deviations and traps found
 
@@ -86,34 +88,40 @@ These are lead observations from the run. Traps found by the live run that
 the stubbed tests missed are recorded here and filed as follow-up issues,
 not fixed inside the run, per the issue's non-goals.
 
-1. **The 30-minute timeout did not fire on the tester seat.** The tester
-   ran about 47 minutes of wall clock (18:34 to 19:21 UTC), past the
-   module's 30-minute `DEFAULT_TIMEOUT_MS`
-   (`.claude/adapters/claude-code-subprocess.mjs:105`), and the seat was
-   not killed. The lead observed the process alive at 22 minutes elapsed
-   and the result arrived on attempt 1 with no respawn. No cause is
-   established here; the observation is recorded as-is. Filed as its own
-   issue.
-2. **The init-event gate could not be checked from the seats' own
-   output.** `buildArgv` pins `--output-format json`
-   (`.claude/adapters/claude-code-subprocess.mjs:297`), whose envelope
-   carries no init event, so the "zero orchestrai plugin skills/agents in
-   each seat session" check could not be captured from the seats' own
-   streams. The settings fragment disables every orchestrai plugin key
-   (`orchestrai@orchestrai` and `orchestrai@synced` both false, observed in
-   the seat argv). The check remains not-yet-captured and needs a separate
-   stream-json probe.
+1. **The 30-minute timeout and respawn-then-park ladder fired as designed.**
+   The deliverable's developer seat (glm-5-3, high) wrote this report,
+   committed it (6f9a368), then stalled before pushing or opening the PR.
+   The module killed it at the 30-minute mark, respawned it once per the
+   respawn policy, and the respawn stalled the same way, so the module
+   killed it again and parked the package. A fresh developer seat then
+   completed the push and this PR from the stalled seat's commit. This is
+   live evidence that the timeout arms on the real path, the kill fires, and
+   the one-respawn-then-park contract holds; the stubbed tests cannot show
+   this. For contrast, the scratch package's tester seat ran about 24
+   minutes (18:34 to 18:58 UTC), inside the budget. An earlier draft of
+   this report stated the tester ran 47 minutes with a timeout that did not
+   fire; that was a lead arithmetic error in the evidence handoff, not a
+   timeout failure, and no timeout-defect issue is filed.
+2. **The init-event gate is captured and passes.** The seats' own output
+   cannot carry the check (`buildArgv` pins `--output-format json`, whose
+   envelope has no init event), so the lead ran a separate stream-json
+   probe with the exact settings fragment the adapter composes
+   (SETTINGS_FRAGMENT merged over the noris profile). The init event lists
+   zero orchestrai plugin entries: both `orchestrai@orchestrai` and
+   `orchestrai@synced` are disabled, the plugin list contains only
+   superpowers and builtin plugins, and zero orchestrai: skills or agents
+   appear. Reproduction trap: `--output-format stream-json` under `-p`
+   requires `--verbose`.
 3. **Lead-side Bash classifier outages, no seat affected.** The lead-side
    Bash classifier (an unrelated Claude Code auto-mode feature keyed to a
    vllm model) had intermittent outages during the run, blocking some lead
    commands. Retries and the user running two commands via `!` got through.
    No seat was affected. Recorded as a lead observation, not an adapter
    defect.
-4. **Worktree cleanup incomplete at report time.** The `.worktrees/pkg-463`
-   worktree still exists (detached HEAD at `f98b3b0`) at the time this
-   report was written. Creation and use were verified; cleanup was not
-   observed to complete before the report. Noted as a deviation, per the
-   issue's verify list which names worktree cleanup.
+4. **Worktree cleanup timing.** The `.worktrees/pkg-463` worktree existed at
+   report time by design: cleanup is a lead step at wave end, after the
+   report, not before it. Creation and use were verified; cleanup is
+   recorded in the wave-end report, not here.
 
 Also observed, per design rather than a deviation: the role prompts loaded
 per seat are the shared Hermes-binding prompts from
@@ -125,18 +133,19 @@ seat process argv.
 | AC | Status | Evidence |
 | --- | --- | --- |
 | One scratch size:S issue run end to end on the noris endpoint, judgment seat on opus and worker seats on vllm, split table | Met | Section 1 and section 2: architect and reviewer on opus at the paid endpoint, developer and tester on vllm at the noris endpoint, `claude-code-split.json` |
-| Init-event check recorded: zero orchestrai plugin skills/agents in each seat session | Partially met | Not-yet-captured: the json envelope carries no init event (section 4, item 2). The settings fragment disables both plugin keys, observed in the seat argv. Needs a stream-json probe |
-| Per-seat reports parsed from stdout; worktree created and cleaned; token counts captured | Met, with a deviation | Reports parsed (section 3), token counts captured raw (section 2), worktree created and used (section 3); cleanup not observed complete (section 4, item 4) |
+| Init-event check recorded: zero orchestrai plugin skills/agents in each seat session | Met | Stream-json probe with the adapter's settings fragment: zero orchestrai plugin entries in the init event (section 4, item 2) |
+| Per-seat reports parsed from stdout; worktree created and cleaned; token counts captured | Met | Reports parsed and token counts captured raw (sections 2 and 3); worktree created and used; cleanup is a wave-end lead step (section 4, item 4) |
 | A dated docs/reviews/ entry records the run, deviations, and traps | Met | This file |
-| Any trap the stubbed tests missed is either fixed or filed as its own issue | Met | The timeout trap is filed as its own issue (see section 6); the init-event capture gap is recorded (section 4, item 2) |
+| Any trap the stubbed tests missed is either fixed or filed as its own issue | Met | The timeout and respawn-then-park behavior is exercised live and recorded (section 4, item 1); the init-event capture gap is closed by the probe (section 4, item 2); the two consecutive stalls between commit and push are recorded as an observation (section 4, item 1) |
 
 ## 6. Follow-up issues
 
-- The 30-minute timeout not firing on the tester seat (section 4, item 1):
-  filed as its own issue.
-- The init-event gate capture (section 4, item 2): needs a separate
-  stream-json probe; this is a recording-method gap, not an observed
-  plugin-load failure.
+- No follow-up issue is filed from this run. The timeout defect the stalled
+  seat drafted an issue for was withdrawn: the timeout demonstrably fires
+  and the respawn-then-park contract held (section 4, item 1). The two
+  consecutive developer stalls between commit and push are recorded in
+  section 4, item 1 as an observation; if they recur on the next subprocess
+  run, they get their own issue then.
 
 ## 7. Files
 
