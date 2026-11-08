@@ -414,7 +414,10 @@ export function detectFailure(result, role) {
     return result.trim() === '' || hasProviderError(result)
   }
   if (typeof result !== 'object') return true
-  if (result.error) return true
+  // Shape-checked, not bare: a report's payload may carry a key named
+  // `error` the same way it may carry `code` or `stdout`, and only a raw
+  // subprocess result's error field names a failure.
+  if (isRawResult(result) && result.error) return true
 
   const reason = classifyFailure(result, role)
   if (reason) return true
@@ -429,13 +432,16 @@ export function detectFailure(result, role) {
 }
 
 /**
- * Read the printed token and cost line out of a seat's envelope. Self-hosted
- * vllm models carry no marginal cost, so their usage is recorded unpriced
- * (raw counts only), which is what the run's token report needs.
+ * Read the printed token and cost line out of a seat's envelope. A
+ * self-hosted model (a seat whose provider is in SELF_HOSTED_PROVIDERS, the
+ * same set the effort ceiling keys on) carries no marginal cost, so its
+ * usage is recorded unpriced (raw counts only), which is what the run's
+ * token report needs. The provider decides, not the model string: a
+ * custom-provider self-hosted model's ID carries no recognizable prefix.
  */
-export function captureUsage(envelope, model) {
+export function captureUsage(envelope, provider) {
   const usage = envelope?.usage || {}
-  const isSelfHosted = model?.startsWith('vllm/')
+  const isSelfHosted = SELF_HOSTED_PROVIDERS.has(provider)
   return {
     inputTokens: usage.input_tokens ?? 0,
     outputTokens: usage.output_tokens ?? 0,
@@ -454,11 +460,19 @@ export function captureUsage(envelope, model) {
  *
  * opts: { cwd (required live), tier?, model?, effort?, settings?, timeoutMs? }
  */
-export async function spawn(role, task, opts = {}) {
+// The internal spawn: the public spawn's result plus the failure reason
+// classifyFailure computed, so dispatchSeat can name the actual class in
+// the respawn prompt. Dry-run seats carry no failure.
+async function spawnInternal(role, task, opts) {
   if (process.env.DRY_RUN === 'true') {
-    return dryRunSpawn(role, task, opts)
+    return { report: dryRunSpawn(role, task, opts), reason: null }
   }
   return runClaude(role, task, opts)
+}
+
+export async function spawn(role, task, opts = {}) {
+  // Unwrapped, so null (not an object) stays the public failure signal.
+  return spawnInternal(role, task, opts).then((r) => r.report)
 }
 
 async function runClaude(role, task, opts) {
@@ -490,13 +504,13 @@ async function runClaude(role, task, opts) {
   const reason = classifyFailure(raw, role)
   if (reason) {
     diagnoseFailure(role, { model, tier: seat.tier }, raw, reason)
-    return null
+    return { report: null, reason }
   }
 
   const envelope = parseEnvelope(raw.stdout)
   const report = parseReport(role, envelope?.result ?? raw.stdout)
-  report.usage = captureUsage(envelope, model)
-  return report
+  report.usage = captureUsage(envelope, seat.provider)
+  return { report, reason: null }
 }
 
 // Explain a failure on the way out, so the caller's null has a reason in
@@ -539,14 +553,15 @@ export async function retry(task, opts = {}, failureReason = 'the first attempt 
  * package; the reason travels in the result.
  */
 export async function dispatchSeat(role, task, opts = {}) {
-  const first = await spawn(role, task, opts)
-  if (first) {
-    return { report: first, attempts: 1, failure: null, parked: null }
+  const firstRun = await spawnInternal(role, task, opts)
+  if (firstRun.report) {
+    return { report: firstRun.report, attempts: 1, failure: null, parked: null }
   }
 
-  // Name the failure for the respawn prompt. spawn returned null, so the
-  // class is one of the generic shapes; the retry notice names them.
-  const reason = 'timeout, empty or stalled output, or a nonzero exit'
+  // The reason classifyFailure computed for the dead attempt, so the
+  // respawn prompt names the actual class instead of every class
+  // generically.
+  const reason = firstRun.reason || 'the first attempt failed'
   const second = await retry(task, { ...opts, role }, reason)
   if (second) {
     return { report: second, attempts: 2, failure: null, parked: null }
