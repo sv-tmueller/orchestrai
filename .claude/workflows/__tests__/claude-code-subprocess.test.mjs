@@ -54,6 +54,7 @@ function stubScript(sidecar) {
   return [
     '#!/usr/bin/env node',
     "import { appendFileSync } from 'node:fs'",
+    "import { spawn } from 'node:child_process'",
     'let stdinEof = false',
     "process.stdin.once('end', () => { stdinEof = true })",
     "process.stdin.resume()",
@@ -78,6 +79,23 @@ function stubScript(sidecar) {
     `  }, 200)`,
     '}',
     "if (mode === 'sleep') { setTimeout(() => process.exit(0), 30000); }",
+    // The #467 leftover shape: the seat detaches a grandchild that inherits
+    // the seat's stdout/stderr pipes and then stalls itself. The seat's
+    // exit leaves the pipes open (the grandchild holds them), so a spawn
+    // that settles only on the pipes closing never settles. The grandchild
+    // is this same script in 'sleep' mode, held by the test's timeout only
+    // through its inherited pipes: the test's own cleanup kills it by pid
+    // (sidecar record) so no real stray survives the suite.
+    "else if (mode === 'stall-with-holder') {",
+    '  const holder = spawn(process.execPath, [process.argv[1], ...process.argv.slice(2)], {',
+    "    stdio: ['ignore', 'inherit', 'inherit'],",
+    "    detached: true,",
+    "    env: { ...process.env, STUB_MODE: 'holder' },",
+    '  })',
+    "  appendFileSync(" + JSON.stringify(sidecar) + ", JSON.stringify({ holderPid: holder.pid }) + '\\n')",
+    "  setTimeout(() => { try { process.kill(holder.pid) } catch {} }, 60000)",
+    '}',
+    "else if (mode === 'holder') { setTimeout(() => {}, 60000) }",
     "else if (mode === 'empty') { finish(0, '') }",
     "else if (mode === 'exit1') { process.stderr.write('boom\\n'); finish(1, '') }",
     "else if (mode === 'fail-once' && !prompt.includes('RESPAWN')) {",
@@ -567,6 +585,45 @@ describe('spawn and retry', () => {
     assert.ok(
       Date.now() - started < 5000,
       'the timeout must kill the child, not wait for it to finish'
+    )
+  })
+
+  test('the timeout fires even when a leftover grandchild holds the seat pipes (#467)', async () => {
+    // The never-settle shape the tester reproduced: a developer seat leaves
+    // a detached grandchild (a dev server, a browser) that inherits the
+    // seat's stdout/stderr pipes, then the seat itself stalls. Settling the
+    // dispatch on 'close' makes the timeout backstop dead: node fires
+    // 'close' only once all stdio pipes close, and the leftover keeps them
+    // open forever. The dispatch must settle at its deadline regardless of
+    // pipe-holding descendants.
+    resetSidecar()
+    setStubEnv('stall-with-holder')
+    const bounded = (async () => {
+      const started = Date.now()
+      const report = await spawn('developer', 'p', { cwd: stubDir, timeoutMs: 300 })
+      return { report, elapsed: Date.now() - started }
+    })()
+    const outcome = await Promise.race([
+      bounded,
+      new Promise((resolve) => setTimeout(
+        () => resolve({ report: 'NEVER-SETTLED', elapsed: 5000 }), 5000
+      )),
+    ])
+    // Cleanup first: the stub records the holder's pid in the sidecar so
+    // this test kills the leftover even when the assertion after it fails.
+    for (const call of readCalls()) {
+      if (call.holderPid) {
+        try { process.kill(call.holderPid, 'SIGKILL') } catch { /* already gone */ }
+      }
+    }
+    assert.notEqual(
+      outcome.report, 'NEVER-SETTLED',
+      'the dispatch never settled: a pipe-holding leftover kept it pending past the deadline'
+    )
+    assert.equal(outcome.report, null, 'a timed-out seat has no report')
+    assert.ok(
+      outcome.elapsed < 2000,
+      `the timeout settled at its deadline (${outcome.elapsed}ms), not after the pipes closed or never`
     )
   })
 

@@ -200,8 +200,10 @@ function pollProcs() {
 // ---------------------------------------------------------------------------
 // 4. The seat dispatch: the adapter's own dispatchSeat, run in a child node
 //    process (same shape as the SKILL.md one-liner) so the pre arm's
-//    execFileAsync spawn is exactly what production runs. The post arm
-//    applies the candidate fix via SEAT_STALL_FIX in the wrapper.
+//    execFileAsync spawn is exactly what production runs. The arm argument
+//    only labels the run and gives the scratch instance its own branch; the
+//    fix itself is a module-side change, so the post arm needs no patching
+//    here (lines 20-23).
 // ---------------------------------------------------------------------------
 const dispatchWrapper = `
 // Same import and call shape as the tm-kickoff SKILL.md one-liner.

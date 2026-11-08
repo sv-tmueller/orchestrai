@@ -516,6 +516,7 @@ function runSeatProcess(bin, argv, { cwd, env, timeout }) {
     let stderr = ''
     let timedOut = false
     let capHit = false
+    let settled = false
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (d) => {
@@ -523,6 +524,7 @@ function runSeatProcess(bin, argv, { cwd, env, timeout }) {
         capHit = true
         stdout += d.slice(0, MAX_STDOUT_BYTES - stdout.length)
         killSeat()
+        settleTimeoutOrCap()
         return
       }
       stdout += d
@@ -537,9 +539,16 @@ function runSeatProcess(bin, argv, { cwd, env, timeout }) {
       stderr += d
     })
 
+    // The dispatch settles at the deadline, not when the pipes close: a
+    // descendant that inherited the seat's stdout/stderr (a dev server, a
+    // browser) keeps 'close' pending forever, which is exactly the stall
+    // shape #467 fixes. Settling here also matches the execFileAsync shape
+    // this replaced, which killed and settled at the deadline regardless
+    // of descendants (#467 fix round).
     const timer = timeout > 0 ? setTimeout(() => {
       timedOut = true
       killSeat()
+      settleTimeoutOrCap()
     }, timeout) : null
 
     function killSeat() {
@@ -551,21 +560,36 @@ function runSeatProcess(bin, argv, { cwd, env, timeout }) {
       }, 5000).unref()
     }
 
+    function timeoutOrCapError(signal) {
+      const e = new Error(
+        timedOut ? `seat exceeded its ${timeout}ms timeout` : 'seat stdout exceeded the capture cap'
+      )
+      e.code = 'ETIMEDOUT'
+      e.timedOut = true
+      e.killed = true
+      e.signal = signal
+      return e
+    }
+
+    function settleTimeoutOrCap(signal) {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      reject(Object.assign(timeoutOrCapError(signal), { stdout, stderr, timedOut }))
+    }
+
     child.on('error', (err) => {
+      if (settled) return
+      settled = true
       if (timer) clearTimeout(timer)
       reject(Object.assign(err, { stdout, stderr, timedOut }))
     })
     child.on('close', (code, signal) => {
+      if (settled) return
+      settled = true
       if (timer) clearTimeout(timer)
       if (timedOut || capHit) {
-        const e = new Error(
-          timedOut ? `seat exceeded its ${timeout}ms timeout` : 'seat stdout exceeded the capture cap'
-        )
-        e.code = 'ETIMEDOUT'
-        e.timedOut = true
-        e.killed = true
-        e.signal = signal
-        reject(Object.assign(e, { stdout, stderr, timedOut }))
+        reject(Object.assign(timeoutOrCapError(signal), { stdout, stderr, timedOut }))
         return
       }
       if (code !== 0) {
