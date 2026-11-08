@@ -83,6 +83,7 @@ let stubDir
 let sidecar
 let origBin
 let origSettings
+let origAnthropicSettings
 
 function setStubEnv(mode, extra = {}) {
   process.env.CLAUDE_BIN = join(stubDir, 'claude-stub.mjs')
@@ -107,11 +108,13 @@ before(() => {
   chmodSync(bin, 0o755)
   origBin = process.env.CLAUDE_BIN
   origSettings = process.env.CLAUDE_CODE_NORIS_SETTINGS
+  origAnthropicSettings = process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS
 })
 
 after(() => {
   process.env.CLAUDE_BIN = origBin
   process.env.CLAUDE_CODE_NORIS_SETTINGS = origSettings
+  process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS = origAnthropicSettings
   delete process.env.STUB_MODE
   rmSync(stubDir, { recursive: true, force: true })
 })
@@ -120,12 +123,24 @@ after(() => {
 // 1. Table resolution: per-role override beats the tier default
 // ===========================================================================
 describe('table resolution', () => {
-  let resolveSeat, resolveTier
+  let resolveSeat, resolveTier, dispatchMode
 
   before(async () => {
     const mod = await import('../../adapters/claude-code-subprocess.mjs')
     resolveSeat = mod.resolveSeat
     resolveTier = mod.resolveTier
+    dispatchMode = mod.dispatchMode
+  })
+
+  test('exposes the loaded table dispatch mode at runtime', () => {
+    // This file pins the split table, which declares dispatch: "subprocess".
+    // The runtime accessor is the module's counterpart to the table-level
+    // assertion in adapter-table.test.mjs, so a consumer reads the mode
+    // without parsing the JSON (finding 4, #460).
+    assert.equal(
+      dispatchMode(), 'subprocess',
+      'the split table selects the subprocess spawn mode'
+    )
   })
 
   test('resolves a plain tier string through the tiers map', () => {
@@ -396,7 +411,7 @@ describe('detectFailure', () => {
     // parseReport, so a payload key named like a raw-subprocess field reaches
     // the shape check. Reading those names as the process shape turns a clean
     // STATUS: DONE report into "empty output", the round-1 bug shape.
-    for (const payload of [{ code: 0 }, { stdout: '' }, { timedOut: true }]) {
+    for (const payload of [{ code: 0 }, { stdout: '' }, { timedOut: true }, { error: 'boom' }]) {
       const report = parseReport(
         'developer',
         `STATUS: DONE\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``
@@ -473,20 +488,27 @@ describe('spawn and retry', () => {
     )
   })
 
-  test('captureUsage prices a paid endpoint and leaves a self-hosted model unpriced', () => {
+  test('captureUsage keys self-hostedness on the resolved provider, not the model string', () => {
     return import('../../adapters/claude-code-subprocess.mjs').then((mod) => {
       const envelope = {
         total_cost_usd: 1.25,
         usage: { input_tokens: 1000, output_tokens: 250, cache_read_input_tokens: 10 },
       }
-      const paid = mod.captureUsage(envelope, 'opus')
+      const paid = mod.captureUsage(envelope, 'anthropic')
       assert.equal(paid.costUsd, 1.25, 'a paid endpoint reports its cost')
       assert.equal(paid.priced, true)
 
-      const local = mod.captureUsage(envelope, 'vllm/release/glm-5-3')
+      // The provider decides, the same SELF_HOSTED_PROVIDERS set the effort
+      // ceiling uses. Keying on the model string would price a custom-
+      // provider self-hosted model whose ID carries no "vllm/" prefix.
+      const local = mod.captureUsage(envelope, 'vllm')
       assert.equal(local.costUsd, null, 'self-hosted vllm carries no marginal cost')
       assert.equal(local.priced, false)
       assert.equal(local.inputTokens, 1000, 'the raw counts are still recorded unpriced')
+
+      const custom = mod.captureUsage(envelope, 'custom')
+      assert.equal(custom.priced, false, 'a custom-provider self-hosted model has no marginal cost either')
+      assert.equal(custom.costUsd, null)
     })
   })
 
@@ -557,6 +579,28 @@ describe('spawn and retry', () => {
     assert.ok(
       !calls[0].argv.join(' ').includes(`previous attempt (${splitTable.roles.developer.model})`),
       'the notice must not name the role-default model the respawn did not run'
+    )
+  })
+
+  test('the respawn prompt names the failure class of the dead attempt', async () => {
+    resetSidecar()
+    // exit1 is a nonzero-exit death, so the class is "exit 1", not the
+    // generic every-class list. The pinned design says the respawn prompt
+    // "adds one line naming the failure".
+    setStubEnv('exit1')
+    const result = await dispatchSeat('developer', 'p', { cwd: stubDir })
+    assert.equal(result.report, null)
+    assert.equal(result.attempts, 2)
+    const calls = readCalls()
+    assert.equal(calls.length, 2, 'one original dispatch plus one respawn, both stubbed')
+    const prompt = valueOf(calls[1].argv, '-p')
+    assert.ok(
+      prompt.includes('exit 1'),
+      `the respawn prompt must name the actual failure class, not every class generically (got: ${prompt.slice(-300)})`
+    )
+    assert.ok(
+      !prompt.includes('timeout, empty or stalled output, or a nonzero exit'),
+      'the generic every-class list must not stand in for the actual class'
     )
   })
 
