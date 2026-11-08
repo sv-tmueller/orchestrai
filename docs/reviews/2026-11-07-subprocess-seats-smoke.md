@@ -90,11 +90,13 @@ not fixed inside the run, per the issue's non-goals.
 
 1. **The 30-minute timeout and respawn-then-park ladder fired as designed.**
    The deliverable's developer seat (glm-5-3, high) wrote this report,
-   committed it (6f9a368), then stalled before pushing or opening the PR.
+   committed it (6f9a368), then pushed the branch to origin and stalled
+   before opening the PR.
    The module killed it at the 30-minute mark, respawned it once per the
    respawn policy, and the respawn stalled the same way, so the module
    killed it again and parked the package. A fresh developer seat then
-   completed the push and this PR from the stalled seat's commit. This is
+   applied corrections, pushed f829945 on top of the stalled seat's
+   commit, and opened this PR. This is
    live evidence that the timeout arms on the real path, the kill fires, and
    the one-respawn-then-park contract holds; the stubbed tests cannot show
    this. For contrast, the scratch package's tester seat ran about 24
@@ -119,9 +121,9 @@ not fixed inside the run, per the issue's non-goals.
    No seat was affected. Recorded as a lead observation, not an adapter
    defect.
 4. **Worktree cleanup timing.** The `.worktrees/pkg-463` worktree existed at
-   report time by design: cleanup is a lead step at wave end, after the
-   report, not before it. Creation and use were verified; cleanup is
-   recorded in the wave-end report, not here.
+   report time as a survivor of the per-package cleanup pass that fires
+   when a package ships; survivors are left for the wave-end backstop and
+   named in the wave-end report.
 
 Also observed, per design rather than a deviation: the role prompts loaded
 per seat are the shared Hermes-binding prompts from
@@ -134,16 +136,16 @@ seat process argv.
 | --- | --- | --- |
 | One scratch size:S issue run end to end on the noris endpoint, judgment seat on opus and worker seats on vllm, split table | Met | Section 1 and section 2: architect and reviewer on opus at the paid endpoint, developer and tester on vllm at the noris endpoint, `claude-code-split.json` |
 | Init-event check recorded: zero orchestrai plugin skills/agents in each seat session | Met | Stream-json probe with the adapter's settings fragment: zero orchestrai plugin entries in the init event (section 4, item 2) |
-| Per-seat reports parsed from stdout; worktree created and cleaned; token counts captured | Met | Reports parsed and token counts captured raw (sections 2 and 3); worktree created and used; cleanup is a wave-end lead step (section 4, item 4) |
+| Per-seat reports parsed from stdout; worktree created and cleaned; token counts captured | Met | Reports parsed and token counts captured raw (sections 2 and 3); worktree created and used; cleanup survivors are named in the wave-end report (section 4, item 4) |
 | A dated docs/reviews/ entry records the run, deviations, and traps | Met | This file |
-| Any trap the stubbed tests missed is either fixed or filed as its own issue | Met | The timeout and respawn-then-park behavior is exercised live and recorded (section 4, item 1); the init-event capture gap is closed by the probe (section 4, item 2); the two consecutive stalls between commit and push are recorded as an observation (section 4, item 1) |
+| Any trap the stubbed tests missed is either fixed or filed as its own issue | Met | The timeout and respawn-then-park behavior is exercised live and recorded (section 4, item 1); the init-event capture gap is closed by the probe (section 4, item 2); the two consecutive stalls after push, at PR creation are recorded as an observation (section 4, item 1) |
 
 ## 6. Follow-up issues
 
 - No follow-up issue is filed from this run. The timeout defect the stalled
   seat drafted an issue for was withdrawn: the timeout demonstrably fires
   and the respawn-then-park contract held (section 4, item 1). The two
-  consecutive developer stalls between commit and push are recorded in
+  consecutive developer stalls after push, at PR creation are recorded in
   section 4, item 1 as an observation; if they recur on the next subprocess
   run, they get their own issue then.
 
