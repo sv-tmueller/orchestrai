@@ -83,6 +83,7 @@ let stubDir
 let sidecar
 let origBin
 let origSettings
+let origAnthropicSettings
 
 function setStubEnv(mode, extra = {}) {
   process.env.CLAUDE_BIN = join(stubDir, 'claude-stub.mjs')
@@ -107,11 +108,13 @@ before(() => {
   chmodSync(bin, 0o755)
   origBin = process.env.CLAUDE_BIN
   origSettings = process.env.CLAUDE_CODE_NORIS_SETTINGS
+  origAnthropicSettings = process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS
 })
 
 after(() => {
   process.env.CLAUDE_BIN = origBin
   process.env.CLAUDE_CODE_NORIS_SETTINGS = origSettings
+  process.env.CLAUDE_CODE_ANTHROPIC_SETTINGS = origAnthropicSettings
   delete process.env.STUB_MODE
   rmSync(stubDir, { recursive: true, force: true })
 })
@@ -120,12 +123,24 @@ after(() => {
 // 1. Table resolution: per-role override beats the tier default
 // ===========================================================================
 describe('table resolution', () => {
-  let resolveSeat, resolveTier
+  let resolveSeat, resolveTier, dispatchMode
 
   before(async () => {
     const mod = await import('../../adapters/claude-code-subprocess.mjs')
     resolveSeat = mod.resolveSeat
     resolveTier = mod.resolveTier
+    dispatchMode = mod.dispatchMode
+  })
+
+  test('exposes the loaded table dispatch mode at runtime', () => {
+    // This file pins the split table, which declares dispatch: "subprocess".
+    // The runtime accessor is the module's counterpart to the table-level
+    // assertion in adapter-table.test.mjs, so a consumer reads the mode
+    // without parsing the JSON (finding 4, #460).
+    assert.equal(
+      dispatchMode(), 'subprocess',
+      'the split table selects the subprocess spawn mode'
+    )
   })
 
   test('resolves a plain tier string through the tiers map', () => {

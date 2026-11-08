@@ -78,6 +78,17 @@ const TIERS = adapterTable.tiers
 const ROLE_TIERS = adapterTable.roles
 const TABLE_FORBIDDEN_EFFORTS = adapterTable.forbidden_efforts || []
 
+/**
+ * The loaded table's dispatch mode: "agent" (the in-process default, when
+ * the table carries no dispatch field) or "subprocess". The runtime
+ * counterpart of the table-level assertion in adapter-table.test.mjs, so
+ * a consumer of this module can read the mode without reaching into the
+ * JSON. The tm-kickoff wiring that will consume it is a separate issue.
+ */
+export function dispatchMode() {
+  return adapterTable.dispatch ?? 'agent'
+}
+
 // Providers whose models run self-hosted, so the paid-API effort ceiling
 // does not apply. The effort-policy test holds the authority (its
 // SELF_HOSTED_HOSTS and SELF_HOSTED_PROVIDERS sets); this is the runtime
@@ -313,6 +324,8 @@ export function buildArgv(role, prompt, opts = {}) {
  *   wait without one"), so a killed seat fails loudly instead of hanging.
  */
 export function buildEnv(role, base = process.env) {
+  // role is unused: it stays so buildEnv mirrors buildArgv's (role, ...)
+  // shape for callers that compose the pair.
   return {
     ...base,
     CLAUDE_CODE_ALWAYS_ENABLE_EFFORT: '1',
