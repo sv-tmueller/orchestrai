@@ -7,7 +7,8 @@
  * cover the offline verification for that mechanism: table resolution
  * with per-role overrides, command and environment composition, report
  * parsing, failure classification, the respawn-once-then-park retry, the
- * per-seat timeout, and per-dispatch token capture.
+ * per-seat timeout, per-dispatch token capture, and the stdin-EOF spawn
+ * contract (#467).
  *
  * No live `claude` install and no endpoint: CLAUDE_BIN points at a stub
  * this file writes, the same seam the Hermes adapter uses with
@@ -41,26 +42,40 @@ const valueOf = (argv, flag) => argv[argv.indexOf(flag) + 1]
 // ---------------------------------------------------------------------------
 // The stub `claude` binary. It answers by STUB_MODE so a test can drive the
 // real failure classes without a network call. Every invocation appends
-// {argv, cwd, env} to the sidecar so composition is assertable.
+// {argv, cwd, env, stdinEof} to the sidecar so composition is assertable.
+// stdinEof records whether the stub's own stdin reached EOF within a short
+// drain window (the #467 spawn contract: the seat's stdin must be closed,
+// so a stdin-reading grandchild sees EOF instead of an eternal pipe). The
+// stub always exits on a timer, never by falling off the event loop: a
+// stub that waited for stdin EOF would hang forever under the pre-#467
+// open-pipe spawn, turning the red test into a suite hang.
 // ---------------------------------------------------------------------------
 function stubScript(sidecar) {
   return [
     '#!/usr/bin/env node',
     "import { appendFileSync } from 'node:fs'",
+    'let stdinEof = false',
+    "process.stdin.once('end', () => { stdinEof = true })",
+    "process.stdin.resume()",
     'const args = process.argv.slice(2)',
-    `appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({`,
-    '  argv: args,',
-    '  cwd: process.cwd(),',
-    '  alwaysEffort: process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,',
-    '  bgCeiling: process.env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS,',
-    '}) + "\\n")',
     "const mode = process.env.STUB_MODE || 'ok'",
     "const prompt = args[args.indexOf('-p') + 1] || ''",
+    "const finish = (code, out) => {",
+    `  appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({`,
+    '    argv: args,',
+    '    cwd: process.cwd(),',
+    '    alwaysEffort: process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,',
+    '    bgCeiling: process.env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS,',
+    '    stdinEof,',
+    '  }) + "\\n")',
+    '  if (out) process.stdout.write(out)',
+    `  setTimeout(() => process.exit(code), 200)`,
+    '}',
     "if (mode === 'sleep') { setTimeout(() => process.exit(0), 30000); }",
-    "else if (mode === 'empty') { process.exit(0) }",
-    "else if (mode === 'exit1') { process.stderr.write('boom\\n'); process.exit(1) }",
+    "else if (mode === 'empty') { finish(0, '') }",
+    "else if (mode === 'exit1') { process.stderr.write('boom\\n'); finish(1, '') }",
     "else if (mode === 'fail-once' && !prompt.includes('RESPAWN')) {",
-    "  process.stdout.write(JSON.stringify({ is_error: true, result: '' }) + '\\n'); process.exit(1)",
+    "  finish(1, JSON.stringify({ is_error: true, result: '' }) + '\\n')",
     "}",
     "else {",
     '  const text = [',
@@ -69,12 +84,13 @@ function stubScript(sidecar) {
     "    'PR: https://github.com/sv-tmueller/orchestrai/pull/1',",
     "    'CHECKS: `npm test` -> 0',",
     "  ].join('\\n')",
-    '  process.stdout.write(JSON.stringify({',
+    '  const out = JSON.stringify({',
     '    is_error: false,',
     '    result: text,',
     "    total_cost_usd: 1.25,",
     "    usage: { input_tokens: 1000, output_tokens: 250, cache_read_input_tokens: 10 },",
-    "  }) + '\\n')",
+    "  }) + '\\n'",
+    '  finish(0, out)',
     '}',
   ].join('\n')
 }
@@ -459,6 +475,23 @@ describe('spawn and retry', () => {
     assert.equal(calls[0].cwd, stubDir, 'the seat must run in the lead-owned package worktree')
     assert.equal(calls[0].alwaysEffort, '1')
     assert.equal(calls[0].bgCeiling, '0')
+  })
+
+  test('the seat stdin is closed at spawn, so a stdin-reading grandchild sees EOF not a hang (#467)', async () => {
+    // The stall pattern from #467: a developer seat finishes its file work,
+    // then hangs at its first GitHub-write call. execFileAsync leaves the
+    // child's stdin as a pipe whose write end the parent never closes, so
+    // any grandchild that reads stdin (gh prompting, a wrapper) blocks
+    // forever with no EOF. The spawn must close the seat's stdin instead.
+    resetSidecar()
+    setStubEnv('ok')
+    const report = await spawn('developer', 'p', { cwd: stubDir })
+    assert.equal(report.STATUS, 'DONE')
+    const calls = readCalls()
+    assert.equal(
+      calls[0].stdinEof, true,
+      'the seat process must see stdin EOF (or /dev/null), never an open pipe'
+    )
   })
 
   test('the spawn -> detectFailure round trip sees a clean report as no failure', async () => {
