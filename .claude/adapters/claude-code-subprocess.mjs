@@ -23,8 +23,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname, basename } from 'node:path'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn as spawnChildProcess } from 'node:child_process'
 
 import {
   parseReport,
@@ -35,8 +34,6 @@ import {
 // Re-exported so a caller of this adapter finds the parser without reaching
 // into the shared module, mirroring hermes-adapter.mjs.
 export { parseReport, hasProviderError }
-
-const execFileAsync = promisify(execFile)
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const adaptersDir = __dir
@@ -488,6 +485,102 @@ export async function spawn(role, task, opts = {}) {
   return spawnInternal(role, task, opts).then((r) => r.report)
 }
 
+/**
+ * Run one seat subprocess with its stdin closed (#467).
+ *
+ * The old spawn (execFileAsync, no input option) left the seat's stdin as
+ * a pipe whose write end this module never closed: node's async execFile
+ * ignores its `input` option entirely, so even `input: ''` would not have
+ * closed it. The `claude` CLI saw the pipe (its "no stdin data received
+ * in 3s" warning), and any grandchild that reads stdin instead of failing
+ * on a non-tty blocked forever with no EOF. Four developer seats stalled
+ * that way at their first GitHub-write call. `stdio: ['ignore', ...]`
+ * gives the seat /dev/null on fd/0: immediate EOF, no promptable stdin.
+ *
+ * The kill-on-timeout and the output-capture semantics match the
+ * execFileAsync shape it replaces, including the stdout cap (maxBuffer):
+ * a seat that floods stdout is killed rather than OOMing the lead.
+ */
+const MAX_STDOUT_BYTES = 64 * 1024 * 1024
+const MAX_STDERR_BYTES = 4 * 1024 * 1024
+
+function runSeatProcess(bin, argv, { cwd, env, timeout }) {
+  return new Promise((resolve, reject) => {
+    const child = spawnChildProcess(bin, argv, {
+      cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    let timedOut = false
+    let capHit = false
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (d) => {
+      if (stdout.length + d.length > MAX_STDOUT_BYTES) {
+        capHit = true
+        stdout += d.slice(0, MAX_STDOUT_BYTES - stdout.length)
+        killSeat()
+        return
+      }
+      stdout += d
+    })
+    child.stderr.on('data', (d) => {
+      if (stderr.length + d.length > MAX_STDERR_BYTES) {
+        // stderr is diagnostics, not the report: keep the tail, drop the
+        // head, and keep reading so the pipe never back-pressures.
+        stderr = (stderr + d).slice(-MAX_STDERR_BYTES)
+        return
+      }
+      stderr += d
+    })
+
+    const timer = timeout > 0 ? setTimeout(() => {
+      timedOut = true
+      killSeat()
+    }, timeout) : null
+
+    function killSeat() {
+      // SIGTERM first (the execFile kill shape), then SIGKILL once the
+      // grace period passes, so a SIGTERM-ignoring child still dies.
+      try { child.kill('SIGTERM') } catch { /* already gone */ }
+      setTimeout(() => {
+        try { child.kill('SIGKILL') } catch { /* already gone */ }
+      }, 5000).unref()
+    }
+
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer)
+      reject(Object.assign(err, { stdout, stderr, timedOut }))
+    })
+    child.on('close', (code, signal) => {
+      if (timer) clearTimeout(timer)
+      if (timedOut || capHit) {
+        const e = new Error(
+          timedOut ? `seat exceeded its ${timeout}ms timeout` : 'seat stdout exceeded the capture cap'
+        )
+        e.code = 'ETIMEDOUT'
+        e.timedOut = true
+        e.killed = true
+        e.signal = signal
+        reject(Object.assign(e, { stdout, stderr, timedOut }))
+        return
+      }
+      if (code !== 0) {
+        const e = new Error(`seat exited with code ${code}`)
+        e.code = code
+        e.signal = signal
+        e.timedOut = false
+        reject(Object.assign(e, { stdout, stderr, timedOut: false }))
+        return
+      }
+      resolve({ stdout, stderr, timedOut: false })
+    })
+  })
+}
+
 async function runClaude(role, task, opts) {
   const seat = resolveEffectiveSeat(role, opts)
   const argv = buildArgv(role, task, opts)
@@ -495,20 +588,18 @@ async function runClaude(role, task, opts) {
 
   let raw
   try {
-    const { stdout, stderr } = await execFileAsync(claudeBin(), argv, {
+    const { stdout, stderr, timedOut } = await runSeatProcess(claudeBin(), argv, {
       cwd: opts.cwd,
       env: buildEnv(role),
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     })
-    raw = { code: 0, stdout, stderr }
+    raw = { code: 0, stdout, stderr, timedOut }
   } catch (e) {
-    // execFile rejects on a nonzero exit or a timeout, but the output still
+    // A nonzero exit or a timeout rejects here too, but the output still
     // matters. e.code is the exit status when numeric, ETIMEDOUT on kill.
     raw = {
       code: typeof e.code === 'number' ? e.code : null,
-      timedOut: e.killed === true || e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM',
+      timedOut: e.timedOut === true,
       stdout: e.stdout || '',
       stderr: e.stderr || String(e.message || e),
     }
