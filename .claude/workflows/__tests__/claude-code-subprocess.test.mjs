@@ -7,7 +7,8 @@
  * cover the offline verification for that mechanism: table resolution
  * with per-role overrides, command and environment composition, report
  * parsing, failure classification, the respawn-once-then-park retry, the
- * per-seat timeout, and per-dispatch token capture.
+ * per-seat timeout, per-dispatch token capture, and the stdin-EOF spawn
+ * contract (#467).
  *
  * No live `claude` install and no endpoint: CLAUDE_BIN points at a stub
  * this file writes, the same seam the Hermes adapter uses with
@@ -41,26 +42,64 @@ const valueOf = (argv, flag) => argv[argv.indexOf(flag) + 1]
 // ---------------------------------------------------------------------------
 // The stub `claude` binary. It answers by STUB_MODE so a test can drive the
 // real failure classes without a network call. Every invocation appends
-// {argv, cwd, env} to the sidecar so composition is assertable.
+// {argv, cwd, env, stdinEof} to the sidecar so composition is assertable.
+// stdinEof records whether the stub's own stdin reached EOF within a short
+// drain window (the #467 spawn contract: the seat's stdin must be closed,
+// so a stdin-reading grandchild sees EOF instead of an eternal pipe). The
+// stub always exits on a timer, never by falling off the event loop: a
+// stub that waited for stdin EOF would hang forever under the pre-#467
+// open-pipe spawn, turning the red test into a suite hang.
 // ---------------------------------------------------------------------------
 function stubScript(sidecar) {
   return [
     '#!/usr/bin/env node',
     "import { appendFileSync } from 'node:fs'",
+    "import { spawn } from 'node:child_process'",
+    'let stdinEof = false',
+    "process.stdin.once('end', () => { stdinEof = true })",
+    "process.stdin.resume()",
     'const args = process.argv.slice(2)',
-    `appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({`,
-    '  argv: args,',
-    '  cwd: process.cwd(),',
-    '  alwaysEffort: process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,',
-    '  bgCeiling: process.env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS,',
-    '}) + "\\n")',
     "const mode = process.env.STUB_MODE || 'ok'",
     "const prompt = args[args.indexOf('-p') + 1] || ''",
+    "const finish = (code, out) => {",
+    '  if (out) process.stdout.write(out)',
+    // The sidecar is written on a timer, not synchronously: even with the
+    // fix, stdin EOF arrives on a later tick than the synchronous body, so
+    // the record must be taken after the event loop has had the chance to
+    // deliver the end event.
+    `  setTimeout(() => {`,
+    `    appendFileSync(${JSON.stringify(sidecar)}, JSON.stringify({`,
+    '      argv: args,',
+    '      cwd: process.cwd(),',
+    '      alwaysEffort: process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,',
+    '      bgCeiling: process.env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS,',
+    '      stdinEof,',
+    '    }) + "\\n")',
+    '    process.exit(code)',
+    `  }, 200)`,
+    '}',
     "if (mode === 'sleep') { setTimeout(() => process.exit(0), 30000); }",
-    "else if (mode === 'empty') { process.exit(0) }",
-    "else if (mode === 'exit1') { process.stderr.write('boom\\n'); process.exit(1) }",
+    // The #467 leftover shape: the seat detaches a grandchild that inherits
+    // the seat's stdout/stderr pipes and then stalls itself. The seat's
+    // exit leaves the pipes open (the grandchild holds them), so a spawn
+    // that settles only on the pipes closing never settles. The grandchild
+    // is this same script in 'sleep' mode, held by the test's timeout only
+    // through its inherited pipes: the test's own cleanup kills it by pid
+    // (sidecar record) so no real stray survives the suite.
+    "else if (mode === 'stall-with-holder') {",
+    '  const holder = spawn(process.execPath, [process.argv[1], ...process.argv.slice(2)], {',
+    "    stdio: ['ignore', 'inherit', 'inherit'],",
+    "    detached: true,",
+    "    env: { ...process.env, STUB_MODE: 'holder' },",
+    '  })',
+    "  appendFileSync(" + JSON.stringify(sidecar) + ", JSON.stringify({ holderPid: holder.pid }) + '\\n')",
+    "  setTimeout(() => { try { process.kill(holder.pid) } catch {} }, 60000)",
+    '}',
+    "else if (mode === 'holder') { setTimeout(() => {}, 60000) }",
+    "else if (mode === 'empty') { finish(0, '') }",
+    "else if (mode === 'exit1') { process.stderr.write('boom\\n'); finish(1, '') }",
     "else if (mode === 'fail-once' && !prompt.includes('RESPAWN')) {",
-    "  process.stdout.write(JSON.stringify({ is_error: true, result: '' }) + '\\n'); process.exit(1)",
+    "  finish(1, JSON.stringify({ is_error: true, result: '' }) + '\\n')",
     "}",
     "else {",
     '  const text = [',
@@ -69,12 +108,13 @@ function stubScript(sidecar) {
     "    'PR: https://github.com/sv-tmueller/orchestrai/pull/1',",
     "    'CHECKS: `npm test` -> 0',",
     "  ].join('\\n')",
-    '  process.stdout.write(JSON.stringify({',
+    '  const out = JSON.stringify({',
     '    is_error: false,',
     '    result: text,',
     "    total_cost_usd: 1.25,",
     "    usage: { input_tokens: 1000, output_tokens: 250, cache_read_input_tokens: 10 },",
-    "  }) + '\\n')",
+    "  }) + '\\n'",
+    '  finish(0, out)',
     '}',
   ].join('\n')
 }
@@ -461,6 +501,23 @@ describe('spawn and retry', () => {
     assert.equal(calls[0].bgCeiling, '0')
   })
 
+  test('the seat stdin is closed at spawn, so a stdin-reading grandchild sees EOF not a hang (#467)', async () => {
+    // The stall pattern from #467: a developer seat finishes its file work,
+    // then hangs at its first GitHub-write call. execFileAsync leaves the
+    // child's stdin as a pipe whose write end the parent never closes, so
+    // any grandchild that reads stdin (gh prompting, a wrapper) blocks
+    // forever with no EOF. The spawn must close the seat's stdin instead.
+    resetSidecar()
+    setStubEnv('ok')
+    const report = await spawn('developer', 'p', { cwd: stubDir })
+    assert.equal(report.STATUS, 'DONE')
+    const calls = readCalls()
+    assert.equal(
+      calls[0].stdinEof, true,
+      'the seat process must see stdin EOF (or /dev/null), never an open pipe'
+    )
+  })
+
   test('the spawn -> detectFailure round trip sees a clean report as no failure', async () => {
     resetSidecar()
     setStubEnv('ok')
@@ -528,6 +585,45 @@ describe('spawn and retry', () => {
     assert.ok(
       Date.now() - started < 5000,
       'the timeout must kill the child, not wait for it to finish'
+    )
+  })
+
+  test('the timeout fires even when a leftover grandchild holds the seat pipes (#467)', async () => {
+    // The never-settle shape the tester reproduced: a developer seat leaves
+    // a detached grandchild (a dev server, a browser) that inherits the
+    // seat's stdout/stderr pipes, then the seat itself stalls. Settling the
+    // dispatch on 'close' makes the timeout backstop dead: node fires
+    // 'close' only once all stdio pipes close, and the leftover keeps them
+    // open forever. The dispatch must settle at its deadline regardless of
+    // pipe-holding descendants.
+    resetSidecar()
+    setStubEnv('stall-with-holder')
+    const bounded = (async () => {
+      const started = Date.now()
+      const report = await spawn('developer', 'p', { cwd: stubDir, timeoutMs: 300 })
+      return { report, elapsed: Date.now() - started }
+    })()
+    const outcome = await Promise.race([
+      bounded,
+      new Promise((resolve) => setTimeout(
+        () => resolve({ report: 'NEVER-SETTLED', elapsed: 5000 }), 5000
+      )),
+    ])
+    // Cleanup first: the stub records the holder's pid in the sidecar so
+    // this test kills the leftover even when the assertion after it fails.
+    for (const call of readCalls()) {
+      if (call.holderPid) {
+        try { process.kill(call.holderPid, 'SIGKILL') } catch { /* already gone */ }
+      }
+    }
+    assert.notEqual(
+      outcome.report, 'NEVER-SETTLED',
+      'the dispatch never settled: a pipe-holding leftover kept it pending past the deadline'
+    )
+    assert.equal(outcome.report, null, 'a timed-out seat has no report')
+    assert.ok(
+      outcome.elapsed < 2000,
+      `the timeout settled at its deadline (${outcome.elapsed}ms), not after the pipes closed or never`
     )
   })
 
