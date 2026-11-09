@@ -36,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readlinkSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
@@ -121,10 +121,10 @@ log(`probe task ready (${probeTask.length} chars); dispatching seat in ${worktre
 // ---------------------------------------------------------------------------
 function fd0Target(pid) {
   try {
-    const link = readFileSync(`/proc/${pid}/fd/0`, 'utf8')
-    // A pipe reads back as "pipe:[12345]"; a character device as
-    // "/dev/null"; a tty as "/dev/pts/N".
-    return link.trim()
+    // readlinkSync resolves the fd symlink to its target: a pipe fd as
+    // "pipe:[12345]" (the pipe inode), a character device as "/dev/null",
+    // a tty as "/dev/pts/N".
+    return readlinkSync(`/proc/${pid}/fd/0`)
   } catch {
     return null
   }
