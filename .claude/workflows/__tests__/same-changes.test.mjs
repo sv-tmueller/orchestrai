@@ -291,6 +291,13 @@ describe('same-changes: usage errors exit 2 with one stderr line and no stdout',
     assertUsageError(repo.dir, '--from', repo.v, '--head', repo.v, '--default-ref', '--all')
   })
 
+  test('a default ref that already contains the head', (t) => {
+    const repo = makeRepo(t)
+    editLine(repo.dir, 'a.txt', 10, 'line 10 unreviewed')
+    const head = commitAll(repo.dir, 'unreviewed change')
+    assertUsageError(repo.dir, '--from', repo.v, '--head', head, '--default-ref', head)
+  })
+
   test('a directory that is not a git repo', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'same-changes-empty-'))
     t.after(() => rmSync(dir, { recursive: true, force: true }))
