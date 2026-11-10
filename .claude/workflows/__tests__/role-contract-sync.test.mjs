@@ -176,6 +176,27 @@ describe('role contract sync', () => {
     )
   })
 
+  // Issue #483: the rule for where should-fix findings and nits go is one
+  // paragraph, byte-identical in role-contracts.md, the reviewer agent
+  // file, and the reviewer prompt the adapters load.
+  test('reviewer: the findings-routing paragraph is identical in all three copies', () => {
+    const paragraphOf = (path) => {
+      const src = readFileSync(path, 'utf8')
+      const start = src.indexOf('Only must-fix findings block:')
+      assert.ok(start >= 0, `${path}: paragraph "Only must-fix findings block:" not found`)
+      const end = src.indexOf('\n\n', start)
+      return src.slice(start, end >= 0 ? end : src.length)
+    }
+    const doc = paragraphOf(rcPath)
+    const agent = paragraphOf(join(agentsDir, 'reviewer.md'))
+    const prompt = paragraphOf(join(promptsDir, 'reviewer.md'))
+
+    assert.equal(agent, doc, 'reviewer.md paragraph differs from role-contracts.md')
+    assert.equal(prompt, doc, 'adapters/prompts/reviewer.md paragraph differs from role-contracts.md')
+    assert.ok(doc.includes('set up for auto merge'), 'paragraph lacks "set up for auto merge"')
+    assert.ok(doc.includes('for the human review'), 'paragraph lacks "for the human review"')
+  })
+
   // Normative rule presence checks for roles with sentinel rules.
   for (const [role, phrases] of Object.entries(SENTINEL_RULES)) {
     for (const phrase of phrases) {

@@ -233,8 +233,14 @@ it when the package ships (step 7) or parks.
       status post failed, do not queue: the PR stays ready and is reported
       as waiting for a human merge.
    7. Remove `in-progress` and any `phase:*` label, and post a summary
-      comment on the issue, including should-fix findings and untested
-      claims for the human review. Add one outcome line. It opens with
+      comment on the issue. Whether the repo is set up is decided from the
+      reads of sub-step 2, by "Fix rounds" rule 8. On a repo that is not
+      set up, include should-fix findings and untested claims for the
+      human review. On a set-up repo nobody reads the PR before it merges:
+      file the open should-fix findings and untested claims as one
+      follow-up issue (below), then put `Follow-up: #<m>` in the summary,
+      or `Follow-up: none` when nothing is open. Nits stay in the summary
+      only. Add one outcome line. It opens with
       "statuses on `<sha7>`" (the first 7 characters of the script's
       `sha`), or with "no statuses" when nothing was posted (`head-moved`,
       or a ship-decision error). Then it says either queued, or waiting for
@@ -242,7 +248,50 @@ it when the package ships (step 7) or parks.
       except that "status post failed: <context>", "queue refused: <first
       stderr line>" or "ship-decision error" replaces it when one of them
       was recorded. The script's `queued` is never reported for a PR that
-      was not queued. Inside a batch, mirror it to the batch issue.
+      was not queued. Inside a batch, mirror it, and the `Follow-up:` line
+      where there is one, to the batch issue.
+
+      The follow-up issue (set-up repo only):
+      - **Open.** Should-fix findings come from every reviewer report on
+        the package, each finding once. Read each cited place on the head
+        that ships and leave out only a finding that is fixed there; when
+        unsure, keep it. Untested claims come from the last tester PASS
+        only, so the lean track has none. Nits never go in.
+      - **Nothing open.** File nothing.
+      - **One per package.** If an earlier summary comment on this issue
+        carries `Follow-up: #<m>`, file no second one: post the open items
+        #<m> does not list yet as a comment on #<m>, and carry the same
+        `Follow-up: #<m>` line in this summary.
+      - **Title and labels.** `Follow-ups from PR #<pr>: <issue title>`,
+        with the size label from CLAUDE.md "Sizing" (most are `size:S`)
+        and no other label. No `Part of batch` line.
+      - **Body.** Items verbatim from the seat reports; leave out a list
+        with no items. The `Blocked by` line holds the issue until the PR
+        merges and closes #<n>, since the items cite the PR's lines.
+        ```
+        Blocked by: #<n>
+
+        ## What to build
+
+        Open items from PR #<pr>. None of them blocks the merge, and the
+        repo merges PRs without a human review.
+
+        Should-fix findings:
+        1. <the finding, verbatim from the reviewer report>
+
+        Untested claims:
+        1. <the claim, verbatim from the tester report>
+
+        ## Acceptance criteria
+
+        - [ ] Each item above is fixed (a test covers each untested claim),
+          or closed here with the reason it is not needed.
+        - [ ] The check suite passes.
+
+        ## Non-goals
+
+        - Anything beyond the items above.
+        ```
 
 Routing rules:
 
@@ -302,7 +351,8 @@ Routing rules:
    - (c) the fix is not executable code or configuration (JSON, YAML,
      frontmatter);
    - (d) the diff contains only that text;
-   - (e) CI is green.
+   - (e) CI is green;
+   - (f) the repo is not set up for auto merge (rule 8).
 3. **What the lead checks.**
    - Before the fix dispatch, record `gh pr view <pr> --json headRefOid` as
      `<base>`. With a tester stage, `<base>` must equal the last tester PASS
@@ -323,8 +373,9 @@ Routing rules:
    Lead-verified round <r>/3 (reviewer findings <n, n>): verbatim reviewer text only, <base7>..<head7>, CI green on <head7>. No re-test, no re-review.
    ```
    The `Lead-verified` prefix is also the resume marker. On resume it
-   means the round passed only while `<head7>` still matches the PR head;
-   then continue at step 7. Otherwise re-test and re-review.
+   means the round passed only while `<head7>` still matches the PR head
+   and the repo is still not set up (rule 8); then continue at step 7.
+   Otherwise re-test and re-review.
 5. **Every other fix** takes re-test and re-review: all tester FAIL rounds,
    mixed or lead- or developer-worded rounds, any failed check, and CI that
    is red, pending or reports no checks.
@@ -342,6 +393,18 @@ Routing rules:
 7. **Lean track.** Where a package has no tester stage, the round skips only
    the re-review, the base is the head the reviewer reviewed, and CI green
    on the new head replaces the reviewer's check results.
+8. **Set-up repos.** On a repo set up for auto merge, no round is
+   lead-verified, on either track: every fix round takes re-test and
+   re-review (re-review only on the lean track). Step 7 posts the verdict
+   statuses only on the commit they were earned on, so a lead-verified
+   head could never merge by itself. The read is the three calls of step 7
+   sub-step 2, run fresh before each reviewer fix dispatch and on a resume
+   at a `Lead-verified` marker. Set up means auto merge `true`, and either
+   the branch read `true` or the rules read above 0. A read that fails or
+   prints `null` counts as set up, here and in step 7 sub-step 7. That is
+   the reverse of the queue decision on purpose: the cost is one extra
+   re-test and re-review, or one follow-up issue a human merge did not
+   need.
 
 ### Limit deaths (run-long fallback and resume)
 
