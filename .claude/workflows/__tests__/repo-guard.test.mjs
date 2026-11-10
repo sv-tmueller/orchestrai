@@ -1,12 +1,15 @@
 /**
- * Tests for tm-repo-guard's read-only check (issue #472, batch #470).
+ * Tests for tm-repo-guard: the read-only check (issue #472, batch #470) and
+ * apply (issue #481).
  *
  * `repo-guard.mjs` ships with the plugin at
  * `.claude/skills/tm-repo-guard/repo-guard.mjs`. It reads the GitHub state of
  * every repo the user owns and prints one state per repo: set up, not set up,
  * or blocked. These tests cover the pure rule functions, the read-only guard
  * on every gh call, and a full collect() run over a made-up fixture with a
- * fake runner. Nothing here touches GitHub; repo and owner names are invented.
+ * fake runner. Apply is tested the same way, against a stateful fake that
+ * answers every read and write; no test spawns gh or touches a real repo.
+ * Repo and owner names are invented.
  */
 
 import { test, describe } from 'node:test'
@@ -25,6 +28,12 @@ import {
   evaluate,
   collect,
   render,
+  buildWrites,
+  confirmToken,
+  isAllowedWrite,
+  writeGuarded,
+  writeArgs,
+  runApply,
 } from '../../skills/tm-repo-guard/repo-guard.mjs'
 
 // ---------------------------------------------------------------------------
@@ -1070,5 +1079,634 @@ describe('render', () => {
       entries: [entry('o/a', { state: 'set up', missing: [], flags: [], layers: ['base'] })],
     })
     assert.equal(text.includes('—'), false)
+  })
+})
+
+// ===========================================================================
+// Apply (issue #481). Nothing below spawns gh: every call goes to a fake.
+// ===========================================================================
+
+const TARGET = { repo: 'octo/widget', branch: 'main' }
+
+// The PUT body Apply sends for a repo with no protection and one current check.
+const noProtection = baseFacts({ protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
+
+// ---------------------------------------------------------------------------
+// buildWrites
+// ---------------------------------------------------------------------------
+describe('buildWrites', () => {
+  const putBody = (over = {}) => ({
+    required_status_checks: { strict: true, contexts: ['Unit tests'] },
+    enforce_admins: true,
+    required_pull_request_reviews: {
+      required_approving_review_count: 0,
+      require_code_owner_reviews: false,
+      require_last_push_approval: false,
+      dismiss_stale_reviews: false,
+    },
+    restrictions: null,
+    allow_force_pushes: false,
+    allow_deletions: false,
+    required_linear_history: false,
+    required_conversation_resolution: false,
+    block_creations: false,
+    lock_branch: false,
+    allow_fork_syncing: false,
+    ...over,
+  })
+
+  test('protection only: one PUT to the branch protection path', () => {
+    const facts = { ...noProtection, allowAutoMerge: true, allowSquashMerge: true }
+    assert.deepEqual(buildWrites(TARGET, facts), [
+      { method: 'PUT', path: 'repos/octo/widget/branches/main/protection', body: putBody() },
+    ])
+  })
+
+  test('repo only: one PATCH with just the settings that are off', () => {
+    assert.deepEqual(buildWrites(TARGET, baseFacts({ allowAutoMerge: false })), [
+      { method: 'PATCH', path: 'repos/octo/widget', body: { allow_auto_merge: true } },
+    ])
+    assert.deepEqual(buildWrites(TARGET, baseFacts({ allowSquashMerge: false })), [
+      { method: 'PATCH', path: 'repos/octo/widget', body: { allow_squash_merge: true } },
+    ])
+  })
+
+  test('both: protection first, then the repo settings', () => {
+    const ops = buildWrites(TARGET, noProtection)
+    assert.deepEqual(
+      ops.map((o) => o.method),
+      ['PUT', 'PATCH']
+    )
+    assert.deepEqual(ops[1].body, { allow_auto_merge: true, allow_squash_merge: true })
+  })
+
+  test('nothing to change gives no writes', () => {
+    assert.deepEqual(buildWrites(TARGET, baseFacts()), [])
+  })
+
+  test('copied values pass through into the PUT', () => {
+    const facts = baseFacts({
+      protection: {
+        ...PROTECTED,
+        prRequired: false,
+        carry: {
+          required_linear_history: true,
+          required_conversation_resolution: true,
+          block_creations: true,
+          lock_branch: true,
+          allow_fork_syncing: true,
+          dismiss_stale_reviews: true,
+        },
+      },
+    })
+    const [put] = buildWrites(TARGET, facts)
+    assert.equal(put.body.required_linear_history, true)
+    assert.equal(put.body.required_conversation_resolution, true)
+    assert.equal(put.body.block_creations, true)
+    assert.equal(put.body.lock_branch, true)
+    assert.equal(put.body.allow_fork_syncing, true)
+    assert.equal(put.body.required_pull_request_reviews.dismiss_stale_reviews, true)
+  })
+
+  test('required contexts are the desired set, sorted', () => {
+    const facts = baseFacts({
+      pipelineLabels: true,
+      ciChecks: ['zz', 'Unit tests'],
+      protection: { ...PROTECTED, requiredChecks: ['Gone'] },
+    })
+    const [put] = buildWrites(TARGET, facts)
+    assert.deepEqual(put.body.required_status_checks, {
+      strict: true,
+      contexts: ['Unit tests', 'orchestrai/review', 'orchestrai/test', 'zz'],
+    })
+  })
+
+  test('the branch name is encoded in the path', () => {
+    const [put] = buildWrites({ repo: 'octo/widget', branch: 'release/1' }, noProtection)
+    assert.equal(put.path, 'repos/octo/widget/branches/release%2F1/protection')
+  })
+
+  test('returns no writes exactly when there is nothing to change', () => {
+    for (const [name, facts] of Object.entries(FIXTURES)) {
+      assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(facts).changes.length === 0, name)
+    }
+  })
+
+  test('every write passes the write fence and fails the read guard', () => {
+    for (const [name, facts] of Object.entries(FIXTURES)) {
+      for (const op of buildWrites(TARGET, facts)) {
+        const args = writeArgs(op)
+        assert.equal(isAllowedWrite(args, op.body, TARGET), true, `${name}: ${args.join(' ')}`)
+        assert.equal(isReadOnly(args), false, `${name}: ${args.join(' ')}`)
+      }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// confirmToken
+// ---------------------------------------------------------------------------
+describe('confirmToken', () => {
+  const ops = buildWrites(TARGET, noProtection)
+
+  test('is 12 hex characters and stable', () => {
+    assert.match(confirmToken(TARGET, ops), /^[0-9a-f]{12}$/)
+    assert.equal(confirmToken(TARGET, ops), confirmToken(TARGET, buildWrites(TARGET, noProtection)))
+  })
+
+  test('does not depend on key order', () => {
+    const shuffled = ops.map((o) => ({ body: o.body, path: o.path, method: o.method }))
+    assert.equal(confirmToken({ branch: 'main', repo: 'octo/widget' }, shuffled), confirmToken(TARGET, ops))
+  })
+
+  test('changes with the repo, the branch and the exact bodies', () => {
+    const base = confirmToken(TARGET, ops)
+    assert.notEqual(confirmToken({ ...TARGET, repo: 'octo/other' }, ops), base)
+    assert.notEqual(confirmToken({ ...TARGET, branch: 'dev' }, ops), base)
+    const more = buildWrites(TARGET, { ...noProtection, ciChecks: ['Unit tests', 'lint'] })
+    assert.notEqual(confirmToken(TARGET, more), base)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Write fence
+// ---------------------------------------------------------------------------
+describe('isAllowedWrite', () => {
+  const [put, patch] = buildWrites(TARGET, noProtection)
+  const putArgs = writeArgs(put)
+  const patchArgs = writeArgs(patch)
+  const okPut = (over) => ({ ...put.body, ...over })
+
+  test('accepts the exact protection PUT and the exact repo PATCH', () => {
+    assert.equal(isAllowedWrite(putArgs, put.body, TARGET), true)
+    assert.equal(isAllowedWrite(patchArgs, patch.body, TARGET), true)
+    assert.equal(isAllowedWrite(patchArgs, { allow_auto_merge: true }, TARGET), true)
+    assert.equal(isAllowedWrite(patchArgs, { allow_squash_merge: true }, TARGET), true)
+  })
+
+  test('encodes the branch the same way the path builder does', () => {
+    const target = { repo: 'octo/widget', branch: 'release/1' }
+    const args = ['api', '-X', 'PUT', 'repos/octo/widget/branches/release%2F1/protection', '--input', '-']
+    assert.equal(isAllowedWrite(args, put.body, target), true)
+    assert.equal(isAllowedWrite(putArgs, put.body, target), false)
+  })
+
+  const refusedCalls = [
+    ['another repo', ['api', '-X', 'PUT', 'repos/octo/other/branches/main/protection', '--input', '-']],
+    ['another branch', ['api', '-X', 'PUT', 'repos/octo/widget/branches/dev/protection', '--input', '-']],
+    ['DELETE on the protection path', ['api', '-X', 'DELETE', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['POST on the protection path', ['api', '-X', 'POST', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['--method= form', ['api', '--method=PUT', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['-XPUT form', ['api', '-XPUT', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['-f field', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '-f', 'a=b']],
+    ['-F field', ['api', '-X', 'PATCH', 'repos/octo/widget', '-F', 'archived=true']],
+    ['no --input', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection']],
+    ['input from a file', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', 'body.json']],
+    ['an extra flag', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', '-', '--paginate']],
+    ['PATCH on another repo', ['api', '-X', 'PATCH', 'repos/octo/other', '--input', '-']],
+    ['DELETE on the repo', ['api', '-X', 'DELETE', 'repos/octo/widget', '--input', '-']],
+    ['PUT on the repo path', ['api', '-X', 'PUT', 'repos/octo/widget', '--input', '-']],
+    ['graphql', ['api', 'graphql', '--input', '-']],
+    ['a status post', ['api', '-X', 'POST', 'repos/octo/widget/statuses/abc123', '--input', '-']],
+    ['a labels post', ['api', '-X', 'POST', 'repos/octo/widget/labels', '--input', '-']],
+    ['pr merge', ['pr', 'merge', '12', '--auto', '--squash']],
+    ['repo edit', ['repo', 'edit', 'octo/widget', '--enable-auto-merge']],
+    ['a plain read', ['api', 'repos/octo/widget']],
+    ['no args', []],
+  ]
+  for (const [name, args] of refusedCalls) {
+    test(`refuses ${name}`, () => {
+      assert.equal(isAllowedWrite(args, put.body, TARGET), false)
+      assert.equal(isAllowedWrite(args, { allow_auto_merge: true }, TARGET), false)
+    })
+  }
+
+  const badPut = [
+    ['an extra key', okPut({ name: 'renamed' })],
+    ['a missing key', (({ lock_branch, ...rest }) => rest)(put.body)],
+    ['enforce_admins off', okPut({ enforce_admins: false })],
+    ['force pushes on', okPut({ allow_force_pushes: true })],
+    ['deletions on', okPut({ allow_deletions: true })],
+    ['restrictions set', okPut({ restrictions: { users: [], teams: [] } })],
+    ['one approval', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, required_approving_review_count: 1 } })],
+    ['code-owner review', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, require_code_owner_reviews: true } })],
+    ['last-push approval', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, require_last_push_approval: true } })],
+    ['an extra review key', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, bypass_pull_request_allowances: {} } })],
+    ['no review block', okPut({ required_pull_request_reviews: null })],
+    ['not strict', okPut({ required_status_checks: { strict: false, contexts: [] } })],
+    ['checks next to contexts', okPut({ required_status_checks: { strict: true, contexts: [], checks: [] } })],
+    ['an empty context name', okPut({ required_status_checks: { strict: true, contexts: [''] } })],
+    ['contexts not an array', okPut({ required_status_checks: { strict: true, contexts: 'Unit tests' } })],
+    ['a null status block', okPut({ required_status_checks: null })],
+    ['a copied value that is not a boolean', okPut({ lock_branch: 'false' })],
+    ['a null body', null],
+    ['an array body', []],
+    ['a string body', '{}'],
+  ]
+  for (const [name, body] of badPut) {
+    test(`refuses a PUT with ${name}`, () => {
+      assert.equal(isAllowedWrite(putArgs, body, TARGET), false)
+    })
+  }
+
+  const badPatch = [
+    ['an empty object', {}],
+    ['a rename', { name: 'renamed' }],
+    ['archive', { archived: true }],
+    ['visibility', { private: false }],
+    ['a new default branch', { default_branch: 'dev' }],
+    ['a field next to the allowed one', { allow_auto_merge: true, archived: true }],
+    ['auto merge turned off', { allow_auto_merge: false }],
+    ['squash turned off', { allow_squash_merge: false }],
+    ['a string true', { allow_auto_merge: 'true' }],
+    ['merge commits turned off', { allow_merge_commit: false }],
+    ['a null body', null],
+    ['an array body', [{ allow_auto_merge: true }]],
+  ]
+  for (const [name, body] of badPatch) {
+    test(`refuses a PATCH with ${name}`, () => {
+      assert.equal(isAllowedWrite(patchArgs, body, TARGET), false)
+    })
+  }
+})
+
+describe('writeGuarded', () => {
+  const [put, patch] = buildWrites(TARGET, noProtection)
+
+  test('sends an allowed write to the runner with the body as a JSON string', () => {
+    const seen = []
+    const w = writeGuarded((args, input) => {
+      seen.push([args, input])
+      return { code: 0, stdout: '{}', stderr: '' }
+    }, TARGET)
+    w(writeArgs(put), put.body)
+    assert.deepEqual(seen, [[writeArgs(put), JSON.stringify(put.body)]])
+  })
+
+  test('refuses anything else before the runner sees it', () => {
+    const seen = []
+    const w = writeGuarded((args) => seen.push(args), TARGET)
+    assert.throws(() => w(['api', 'repos/octo/widget'], undefined), /not an allowed write/)
+    assert.throws(() => w(writeArgs(patch), { archived: true }), /not an allowed write/)
+    assert.throws(() => w(['pr', 'merge', '1'], {}), /not an allowed write/)
+    assert.deepEqual(seen, [])
+  })
+})
+
+describe('the read guard and the write fence stay apart', () => {
+  test('isReadOnly refuses every write the plan can produce', () => {
+    for (const facts of Object.values(FIXTURES)) {
+      for (const op of buildWrites(TARGET, facts)) assert.equal(isReadOnly(writeArgs(op)), false)
+    }
+    assert.equal(isReadOnly(['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', '-']), false)
+    assert.equal(isReadOnly(['api', '-X', 'PATCH', 'repos/octo/widget', '--input', '-']), false)
+  })
+
+  test('guarded never forwards a second argument, so a read cannot carry a body', () => {
+    const seen = []
+    const call = guarded((...a) => {
+      seen.push(a)
+      return { code: 0, stdout: '{}', stderr: '' }
+    })
+    call(['api', 'user'], '{"x":1}')
+    assert.deepEqual(seen, [[['api', 'user']]])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// runApply: plan mode and confirm mode against a stateful fake
+// ---------------------------------------------------------------------------
+describe('runApply', () => {
+  const done = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS' })
+  const pr = (number, rollup, isDraft = false) => ({ number, isDraft, statusCheckRollup: rollup })
+  const ok = (value) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' })
+  const fail = (status, message) => ({
+    code: 1,
+    stdout: JSON.stringify({ message, status: String(status) }),
+    stderr: `gh: ${message} (HTTP ${status})`,
+  })
+
+  // A made-up account. `protection` is the GET shape, or null for a 404.
+  function makeFake(over = {}) {
+    const state = {
+      login: 'octo',
+      repo: {
+        full_name: 'octo/widget',
+        name: 'widget',
+        owner: { login: 'octo', type: 'User' },
+        archived: false,
+        private: false,
+        default_branch: 'main',
+        allow_auto_merge: false,
+        allow_squash_merge: false,
+        ...over.repo,
+      },
+      protection: over.protection ?? null,
+      protectionError: over.protectionError ?? null,
+      prs: over.prs ?? [pr(12, [done('Unit tests')])],
+      tree: over.tree ?? ['src/a.js', 'src/a.test.js'],
+      failPut: over.failPut ?? null,
+      failPatch: over.failPatch ?? null,
+      calls: [],
+      writes: [],
+    }
+    const repoPath = 'repos/octo/widget'
+    const protPath = `${repoPath}/branches/main/protection`
+
+    function run(args, input) {
+      state.calls.push({ args, input })
+      const key = args.join(' ')
+      if (key === 'api user') return ok({ login: state.login })
+      if (/^api repos\/[^/]+\/[^/]+$/i.test(key)) {
+        if (key.toLowerCase() === `api ${repoPath}`) return ok(state.repo)
+        return fail(404, 'Not Found')
+      }
+      if (key === `api ${protPath}`) {
+        if (state.protectionError) return state.protectionError
+        return state.protection ? ok(state.protection) : fail(404, 'Branch not protected')
+      }
+      if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,statusCheckRollup`) {
+        return ok(state.prs)
+      }
+      if (key === `api ${repoPath}/git/trees/main?recursive=1`) {
+        return ok({ tree: state.tree.map((path) => ({ path, type: 'blob' })) })
+      }
+      if (key === `api --paginate --slurp ${repoPath}/labels?per_page=100`) return ok([[{ name: 'bug' }]])
+      if (key === `api -X PUT ${protPath} --input -`) {
+        state.writes.push({ method: 'PUT', body: JSON.parse(input) })
+        if (state.failPut) return state.failPut
+        const b = JSON.parse(input)
+        const on = (v) => ({ enabled: v })
+        state.protection = {
+          required_status_checks: {
+            strict: b.required_status_checks.strict,
+            contexts: b.required_status_checks.contexts,
+            checks: b.required_status_checks.contexts.map((context) => ({ context, app_id: null })),
+          },
+          enforce_admins: on(b.enforce_admins),
+          required_pull_request_reviews: { ...b.required_pull_request_reviews },
+          allow_force_pushes: on(b.allow_force_pushes),
+          allow_deletions: on(b.allow_deletions),
+          required_linear_history: on(b.required_linear_history),
+          required_conversation_resolution: on(b.required_conversation_resolution),
+          block_creations: on(b.block_creations),
+          lock_branch: on(b.lock_branch),
+          allow_fork_syncing: on(b.allow_fork_syncing),
+        }
+        return ok(state.protection)
+      }
+      if (key === `api -X PATCH ${repoPath} --input -`) {
+        state.writes.push({ method: 'PATCH', body: JSON.parse(input) })
+        if (state.failPatch) return state.failPatch
+        Object.assign(state.repo, JSON.parse(input))
+        return ok(state.repo)
+      }
+      throw new Error(`unexpected gh call: ${key}`)
+    }
+    return { run, state }
+  }
+
+  const tokenOf = (text) => text.match(/^confirm token: ([0-9a-f]{12})$/m)?.[1]
+  const apply = (fake, ...argv) => runApply(fake.run, argv)
+
+  // A fully set up repo, as the fake reports it.
+  const SET_UP_PROTECTION = {
+    required_status_checks: { strict: true, contexts: ['Unit tests'], checks: [{ context: 'Unit tests', app_id: null }] },
+    enforce_admins: { enabled: true },
+    required_pull_request_reviews: { required_approving_review_count: 0 },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false },
+  }
+
+  describe('plan mode', () => {
+    test('prints the changes, the checks, the writes and a token, and only reads', () => {
+      const fake = makeFake()
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^octo\/widget: not set up/m)
+      assert.match(text, /^ {2}branch protection$/m)
+      assert.match(text, /^ {2}auto merge on$/m)
+      assert.match(text, /^ {2}squash merge allowed$/m)
+      assert.match(text, /^required checks after apply: Unit tests$/m)
+      assert.match(text, /^ {2}PUT repos\/octo\/widget\/branches\/main\/protection$/m)
+      assert.match(text, /^ {2}PATCH repos\/octo\/widget$/m)
+      assert.ok(tokenOf(text), 'no token line')
+      assert.ok(text.trimEnd().split('\n').pop().startsWith('confirm token: '), 'the token is the last line')
+      for (const c of fake.state.calls) {
+        assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+        assert.equal(c.input, undefined)
+      }
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('names a check that no longer runs', () => {
+      const fake = makeFake({ prs: [pr(12, [done('Unit tests')]), pr(11, [done('Unit tests'), done('Version bump guard')])] })
+      assert.match(apply(fake, 'widget').text, /^not required: no longer runs: Version bump guard$/m)
+    })
+
+    test('lists a required check that no longer runs as stop requiring', () => {
+      const prot = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts: ['Unit tests', 'Gone'] } }
+      const fake = makeFake({ protection: prot, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { text } = apply(fake, 'widget')
+      assert.match(text, /^ {2}stop requiring: Gone$/m)
+      assert.match(text, /^ {2}PUT /m)
+      assert.doesNotMatch(text, /^ {2}PATCH /m)
+    })
+
+    test('a short name and owner/name give the same plan and token', () => {
+      const a = apply(makeFake(), 'widget')
+      const b = apply(makeFake(), 'octo/widget')
+      assert.equal(a.text, b.text)
+    })
+
+    test('the owner is matched without regard to case, and later calls use the canonical name', () => {
+      const fake = makeFake()
+      const { code, text } = apply(fake, 'Octo/widget')
+      assert.equal(code, 0)
+      assert.ok(tokenOf(text))
+    })
+
+    test('nothing to change prints one line and no token', () => {
+      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.equal(text, 'octo/widget: set up, nothing to change\n')
+    })
+  })
+
+  describe('confirm mode', () => {
+    test('writes the PUT then the PATCH, re-reads, and reports set up', () => {
+      const fake = makeFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      fake.state.calls.length = 0
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+
+      assert.equal(code, 0)
+      assert.deepEqual(
+        fake.state.writes.map((w) => w.method),
+        ['PUT', 'PATCH']
+      )
+      const writes = fake.state.calls.filter((c) => !isReadOnly(c.args))
+      assert.equal(writes.length, 2)
+      for (const c of writes) {
+        assert.equal(isAllowedWrite(c.args, JSON.parse(c.input), TARGET), true, c.args.join(' '))
+        assert.equal(isReadOnly(c.args), false)
+      }
+      for (const c of fake.state.calls.filter((c) => isReadOnly(c.args))) assert.equal(c.input, undefined)
+      assert.match(text, /^octo\/widget: set up$/m)
+      assert.equal(fake.state.repo.allow_auto_merge, true)
+      assert.equal(fake.state.protection.enforce_admins.enabled, true)
+      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['Unit tests'])
+    })
+
+    test('a second run changes nothing and writes nothing', () => {
+      const fake = makeFake()
+      apply(fake, 'widget', '--confirm', tokenOf(apply(fake, 'widget').text))
+      const writesBefore = fake.state.writes.length
+      const again = apply(fake, 'widget')
+      assert.equal(again.code, 0)
+      assert.equal(again.text, 'octo/widget: set up, nothing to change\n')
+      assert.equal(fake.state.writes.length, writesBefore)
+    })
+
+    test('a token from a changed state writes nothing', () => {
+      const fake = makeFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      fake.state.prs = [pr(13, [done('Unit tests'), done('lint')]), ...fake.state.prs]
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 2)
+      assert.match(text, /plan changed since it was shown, nothing written/)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('a made-up token writes nothing', () => {
+      const fake = makeFake()
+      const { code } = apply(fake, 'widget', '--confirm', '000000000000')
+      assert.equal(code, 2)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('with nothing to change, any token writes nothing', () => {
+      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code, text } = apply(fake, 'widget', '--confirm', 'whatever')
+      assert.equal(code, 0)
+      assert.match(text, /set up, nothing to change/)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('a failed PUT stops before the PATCH, reports the state unchanged and exits 1', () => {
+      const fake = makeFake({ failPut: fail(422, 'Validation Failed') })
+      const token = tokenOf(apply(fake, 'widget').text)
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 1)
+      assert.deepEqual(
+        fake.state.writes.map((w) => w.method),
+        ['PUT']
+      )
+      assert.match(text, /Validation Failed/)
+      assert.match(text, /^octo\/widget: not set up$/m)
+      assert.equal(fake.state.repo.allow_auto_merge, false)
+    })
+
+    test('a failed PATCH leaves protection on and auto merge still missing, and exits 1', () => {
+      const fake = makeFake({ failPatch: fail(422, 'Validation Failed') })
+      const token = tokenOf(apply(fake, 'widget').text)
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 1)
+      assert.deepEqual(
+        fake.state.writes.map((w) => w.method),
+        ['PUT', 'PATCH']
+      )
+      assert.match(text, /^octo\/widget: not set up$/m)
+      assert.match(text, /missing: auto merge on, squash merge allowed/)
+      assert.notEqual(fake.state.protection, null)
+    })
+
+    test('exits 1 when the re-read still says not set up after the writes', () => {
+      // A host that drops the status block would leave "up to date required" missing.
+      const fake = makeFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      const run = (args, input) => {
+        const res = fake.run(args, input)
+        const afterWrites = fake.state.writes.length > 0
+        if (afterWrites && args.join(' ').endsWith('/protection') && args[1] !== '-X' && res.code === 0) {
+          const body = JSON.parse(res.stdout)
+          return ok({ ...body, required_status_checks: null })
+        }
+        return res
+      }
+      const { code } = runApply(run, ['widget', '--confirm', token])
+      assert.equal(code, 1)
+    })
+  })
+
+  describe('refusals', () => {
+    const refused = (name, make, argv, pattern) => {
+      test(`refuses ${name} and writes nothing`, () => {
+        const fake = make()
+        const { code, text } = runApply(fake.run, argv)
+        assert.equal(code, 2)
+        assert.match(text, pattern)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+    }
+
+    refused('no repo', makeFake, [], /usage/i)
+    refused('two repos', makeFake, ['widget', 'other'], /usage|one repo/i)
+    refused('a flag it does not know', makeFake, ['widget', '--force'], /usage|unknown/i)
+    refused('--confirm without a token', makeFake, ['widget', '--confirm'], /usage|token/i)
+    refused('a name starting with a dash', makeFake, ['--web'], /usage|unknown|repo/i)
+    refused('a name starting with a dot', makeFake, ['.hidden'], /repo name/i)
+    refused('a name with a space', makeFake, ['wid get'], /repo name/i)
+    refused('a name with a slash too many', makeFake, ['octo/widget/extra'], /repo name/i)
+    refused('an owner that is not the user', makeFake, ['some-org/x'], /not your own|owner/i)
+    refused('an archived repo', () => makeFake({ repo: { archived: true } }), ['widget'], /archived/)
+    refused('an organization owner', () => makeFake({ repo: { owner: { login: 'octo', type: 'Organization' } } }), ['widget'], /organization|not a user/i)
+    refused(
+      'a repo whose owner is another login',
+      () => makeFake({ repo: { owner: { login: 'someone', type: 'User' } } }),
+      ['widget'],
+      /owner/i
+    )
+    refused(
+      'a plan without branch protection',
+      () => makeFake({ protectionError: fail(403, 'Upgrade to GitHub Pro or make this repository public to enable this feature.') }),
+      ['widget'],
+      /blocked|not available on the current plan/i
+    )
+    refused('a repo that needs CI first', () => makeFake({ prs: [] }), ['widget'], /needs CI first/i)
+
+    test('an owner that is not the user reads only the user, not the repo', () => {
+      const fake = makeFake()
+      runApply(fake.run, ['some-org/x'])
+      assert.deepEqual(
+        fake.state.calls.map((c) => c.args.join(' ')),
+        ['api user']
+      )
+    })
+
+    test('a usage error makes no call at all', () => {
+      const fake = makeFake()
+      runApply(fake.run, [])
+      runApply(fake.run, ['a', 'b'])
+      runApply(fake.run, ['.x'])
+      assert.deepEqual(fake.state.calls, [])
+    })
+
+    test('a read error exits 1 and writes nothing', () => {
+      const fake = makeFake({ protectionError: fail(500, 'Server Error') })
+      const { code, text } = runApply(fake.run, ['widget'])
+      assert.equal(code, 1)
+      assert.match(text, /Server Error/)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('a refusal with --confirm still writes nothing', () => {
+      const fake = makeFake({ repo: { archived: true } })
+      const { code } = runApply(fake.run, ['widget', '--confirm', 'abcdefabcdef'])
+      assert.equal(code, 2)
+      assert.deepEqual(fake.state.writes, [])
+    })
   })
 })
