@@ -84,21 +84,26 @@ to find an existing PR.
   it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: classify it with `gh pr view <n> --json state,autoMergeRequest`
-  and skip it. `state` `MERGED` means merged. A set `autoMergeRequest` means
-  queued and waiting on checks. Anything else means waiting for a human
-  merge. The exception is a PR whose latest review comment carries the
+  complete: classify it with `gh pr view <n> --json state,autoMergeRequest` and
+  skip it. `state` `MERGED` means merged. A set `autoMergeRequest` means queued
+  and waiting on checks. Anything else means waiting for a human merge. The
+  exception is a PR whose latest review comment carries the
   `Model: sonnet (run-long fallback)` marker: it owes an Opus review and
-  re-enters at the reviewer stage (see "Limit deaths" below). If the issue carries `in-progress` but has no open
-  PR and no branch on origin, clear the label and restart from the developer
-  stage. Otherwise (a PR or branch exists) read the sub-plan comment and the
-  PR comments (verdicts and fix rounds live there) to find the stage it
-  stopped at, and re-enter there; re-enter at the tester only when the stage
-  cannot be determined from the PR comments. Skip the architect when a
-  sub-plan comment or a `Track: lean` comment exists. A lean package (a
-  `Track: lean` comment and no later `Track: full` comment) re-enters at the
-  developer or the reviewer, never the tester; when its stage cannot be
-  determined from the PR comments, re-enter at the reviewer.
+  re-enters at the reviewer stage (see "Limit deaths" below). A ready PR whose
+  issue still carries `in-progress` stopped inside step 7. Classify it the
+  same way, remove `in-progress` and any `phase:*` label, and post no
+  statuses and queue nothing. If it classifies as waiting for a human merge,
+  give the reason "step 7 interrupted". If the issue carries `in-progress` but
+  has no open PR and no branch on origin, clear the label and restart from the
+  developer stage.
+  Otherwise (a PR or branch exists) read the sub-plan comment and the PR
+  comments (verdicts and fix rounds live there) to find the stage it stopped at,
+  and re-enter there; re-enter at the tester only when the stage cannot be
+  determined from the PR comments. Skip the architect when a sub-plan comment or
+  a `Track: lean` comment exists. A lean package (a `Track: lean` comment and no
+  later `Track: full` comment) re-enters at the developer or the reviewer, never
+  the tester; when its stage cannot be determined from the PR comments, re-enter
+  at the reviewer.
 - Remote resume: two label pairs name a waiting package. `phase:<stage>`
   together with `run:<r>` re-enters the waiting list for that stage; it
   never re-dispatches the seat, and sweep it through the poll below on the
@@ -183,8 +188,8 @@ it when the package ships (step 7) or parks.
    complete the test loop first before shipping. The statuses post on every
    repo; only the queue depends on the repo being set up for auto merge.
    1. Read the head: `gh pr view <pr> --json headRefOid --jq .headRefOid`.
-   2. Read the setup now, never from an earlier run. A read that fails is
-      passed as `unknown` and never parks the package.
+   2. Read the setup now, never from an earlier run. A read that fails or
+      prints `null` is passed as `unknown` and never parks the package.
       - `gh api 'repos/{owner}/{repo}' --jq '.allow_auto_merge, .default_branch'`
         (`gh repo view --json` has no auto merge field, so use the REST call).
       - `gh api 'repos/{owner}/{repo}/branches/<default>' --jq .protected`
@@ -196,18 +201,19 @@ it when the package ships (step 7) or parks.
       --fallback-review true|false --auto-merge true|false|unknown
       --branch-protected true|false|unknown --branch-rules <n>|unknown`. It
       makes no gh calls and prints `{ sha, statuses, queue, reason }`. On a
-      nonzero exit, post no statuses, mark the PR ready, and report
-      "waiting for a human merge: ship-decision error".
+      nonzero exit, post no statuses, skip sub-steps 4 and 6, mark the
+      PR ready (sub-step 5), and continue at sub-step 7 with the reason
+      "ship-decision error".
       - Verdict commit, full track: the last tester PASS `COMMIT`. The
         reviewer runs right after that PASS with nothing pushed between.
       - Verdict commit, lean track: the SHA on the reviewer's `CHECKS` line.
       - A lead-verified ship has no APPROVE on the new head and the head
         differs from the tester's PASS commit, so pass `none`. The script
         reports `head-moved`: nothing is posted and nothing is queued.
-      - `--fallback-review true` only when the approving reviewer dispatch
-        ran under the run-long switch, the review whose PR comment carries
-        `Model: sonnet (run-long fallback)`. Subprocess seats, a `lead`
-        column and runner columns count as `false`.
+      - `--fallback-review`: pass `true` exactly when the approving
+        review's PR comment carries the `Model: sonnet (run-long fallback)`
+        marker, otherwise `false`. The marker is the only test. The kind of
+        seat or column that ran the review does not decide it.
    4. Post each entry of `statuses` (none when `reason` is `head-moved`)
       on the `sha` field of the script's output, not on the head you read
       and not on the verdict commit you passed in:
@@ -227,13 +233,15 @@ it when the package ships (step 7) or parks.
       as waiting for a human merge.
    7. Remove `in-progress` and any `phase:*` label, and post a summary
       comment on the issue, including should-fix findings and untested
-      claims for the human review. Add one outcome line: statuses on
-      `<sha7>` (the first 7 characters of the script's `sha`), then either
-      queued, or waiting for a human merge with its reason. The reason is
-      the script's `reason`, except that "status post failed: <context>" or
-      "queue refused: <first stderr line>" replaces it when one of them was
-      recorded. The script's `queued` is never reported for a PR that was
-      not queued. Inside a batch, mirror it to the batch issue.
+      claims for the human review. Add one outcome line. It opens with
+      "statuses on `<sha7>`" (the first 7 characters of the script's
+      `sha`), or with "no statuses" when nothing was posted (`head-moved`,
+      or a ship-decision error). Then it says either queued, or waiting for
+      a human merge with its reason. The reason is the script's `reason`,
+      except that "status post failed: <context>", "queue refused: <first
+      stderr line>" or "ship-decision error" replaces it when one of them
+      was recorded. The script's `queued` is never reported for a PR that
+      was not queued. Inside a batch, mirror it to the batch issue.
 
 Routing rules:
 
@@ -856,9 +864,11 @@ is noted in the wave-end report below and never blocks it.
 
 Definition of done per package: last tester verdict is PASS, reviewer
 APPROVE, PR ready with `Closes #N`, the ship decision run, the statuses
-posted as it says, the merge queued when it says, summary comment posted.
-On the lean track, substitute the reviewer's `CHECKS` line (all exit codes
-0) for the tester verdict; see "Pipeline tracks" above.
+posted as it says and the merge queued when it says (or the failed status
+post, the refused queue or the ship-decision error recorded as step 7
+says, with no retry), summary comment posted. On the lean track,
+substitute the reviewer's `CHECKS` line (all exit codes 0) for the tester
+verdict; see "Pipeline tracks" above.
 
 The wave ends when every package has shipped or parked and none is waiting
 on a runner: a package in the waiting list keeps the run open, and the lead

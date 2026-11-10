@@ -53,9 +53,9 @@ it does not auto-trigger) runs unblocked issues in parallel waves to ready PRs.
 Under `/tm-kickoff` the sub-plan comment substitutes for the full plan in `docs/plans/`.
 On a repo set up for it, the lead queues the merge once both verdicts are
 recorded; elsewhere merging stays human. Either way the merge gates the next
-wave. Caps, routing,
-and report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent
-files; they are not repeated here.
+wave. Caps, routing, and report contracts live in
+`.claude/skills/tm-kickoff/SKILL.md` and the agent files; they are not
+repeated here.
 
 The lead builds one read-only dependency environment per run and passes its
 path to the developer, tester, and lean-track reviewer dispatches, instead of

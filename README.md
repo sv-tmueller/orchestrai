@@ -88,8 +88,8 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   file.
 
 The lean track, the dependency environment, worktree cleanup, auto merge, and
-capped seat reports apply to Claude Code only for now; Hermes and Codex mirroring is
-pending. Hermes already caps fix rounds at 3 per stage.
+capped seat reports apply to Claude Code only for now; Hermes and Codex
+mirroring is pending. Hermes already caps fix rounds at 3 per stage.
 
 ## Components
 

@@ -183,8 +183,8 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   for the report. Do not interrupt the user unless ALL packages are parked;
   then report immediately, since nothing is progressing.
 - **Live checklist.** Mirror each package outcome (merged, queued, waiting
-  for a human merge, parked) to the batch issue checklist as it happens, so a dropped session can resume from
-  the issue.
+  for a human merge, parked) to the batch issue checklist as it happens, so a
+  dropped session can resume from the issue.
 
 ## 5. Report
 

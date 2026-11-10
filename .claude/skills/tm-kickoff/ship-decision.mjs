@@ -128,7 +128,7 @@ function parseArgs(argv) {
   const values = new Map()
   for (let i = 0; i < argv.length; i += 2) {
     const name = argv[i]
-    if (!FLAGS.includes(name)) fail(`unknown argument ${name}`)
+    if (!FLAGS.includes(name)) fail(`unknown argument ${JSON.stringify(name)}`)
     if (values.has(name)) fail(`duplicate ${name}`)
     if (i + 1 >= argv.length) fail(`missing value for ${name}`)
     values.set(name, argv[i + 1])

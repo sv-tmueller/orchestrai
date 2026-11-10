@@ -227,6 +227,10 @@ describe('ship-decision CLI', () => {
     usageError(run(...cliArgs(BASE), '--bogus', 'x'))
   })
 
+  test('an unknown argument containing a newline still gives one stderr line', () => {
+    usageError(run(...cliArgs(BASE), 'x\ny'))
+  })
+
   test('a bare positional argument exits 2 with no JSON', () => {
     usageError(run(...cliArgs(BASE), 'extra'))
   })
