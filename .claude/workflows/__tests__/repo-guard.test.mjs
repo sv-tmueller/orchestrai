@@ -237,11 +237,20 @@ describe('classifyProtection', () => {
       prRequired: true,
       forcePushesOff: true,
       enforceAdmins: true,
+      signaturesRequired: false,
       strict: true,
       deletionsOff: true,
       noApprovalNeeded: true,
       carry: CARRY_OFF,
     })
+  })
+
+  test('signaturesRequired is true only when required_signatures.enabled is true', () => {
+    const read = (body) => classifyProtection({ code: 0, stdout: JSON.stringify(body) }).signaturesRequired
+    assert.deepEqual(
+      [read({ required_signatures: { enabled: true } }), read({ required_signatures: { enabled: false } }), read({})],
+      [true, false, false]
+    )
   })
 
   test('enforce_admins counts only when enabled is true', () => {
@@ -906,6 +915,16 @@ describe('collect', () => {
 
     test('a name only on an older PR is listed', () => {
       const widget = widgetWith([pr(13, [check('Unit tests')]), pr(12, [check('Unit tests'), check('Old')])])
+      assert.deepEqual(widget.result.notRequired, ['Old'])
+    })
+
+    test('unsorted PRs: only names older than the deciding PR are listed, wherever they sit in the list', () => {
+      const widget = widgetWith([
+        pr(12, [check('Unit tests')]),
+        pr(14, [check('lint')], true),
+        pr(13, [check('Unit tests'), running('e2e')]),
+        pr(11, [check('Old')]),
+      ])
       assert.deepEqual(widget.result.notRequired, ['Old'])
     })
 
@@ -1812,6 +1831,7 @@ describe('runApply', () => {
     refused('a repeated --confirm', makeFake, ['widget', '--confirm', 'a', '--confirm', 'b'], /usage|token/i)
     refused('a name starting with a dash', makeFake, ['--web'], /usage|unknown|repo/i)
     refused('a name starting with a dot', makeFake, ['.hidden'], /repo name/i)
+    refused('an owner/name part starting with a dash', makeFake, ['octo/--web'], /repo name/i)
     refused('a name with a space', makeFake, ['wid get'], /repo name/i)
     refused('a name with a slash too many', makeFake, ['octo/widget/extra'], /repo name/i)
     refused('an owner that is not the user', makeFake, ['some-org/x'], /not your own|owner/i)
@@ -1830,6 +1850,70 @@ describe('runApply', () => {
       /blocked|not available on the current plan/i
     )
     refused('a repo that needs CI first', () => makeFake({ prs: [] }), ['widget'], /needs CI first/i)
+
+    describe('signed commits and the protection PUT', () => {
+      // The PUT replaces the whole rule and cannot carry required_signatures, so a
+      // repo that requires signed commits is refused whenever the plan has a PUT.
+      const signed = { ...SET_UP_PROTECTION, required_signatures: { enabled: true } }
+      const incomplete = { ...signed, enforce_admins: { enabled: false } }
+
+      test('a PUT in the plan is refused in plan mode: no token, nothing written', () => {
+        const fake = makeFake({ protection: incomplete, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+        const { code, text } = runApply(fake.run, ['widget'])
+        assert.equal(code, 2)
+        assert.match(text, /requires signed commits/)
+        assert.equal(tokenOf(text), undefined)
+        assert.doesNotMatch(text, /confirm token/)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+
+      test('a PUT in the plan is refused with any --confirm token, and nothing is written', () => {
+        const fake = makeFake({ protection: incomplete, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+        const { code, text } = runApply(fake.run, ['widget', '--confirm', 'abcdefabcdef'])
+        assert.equal(code, 2)
+        assert.match(text, /requires signed commits/)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+
+      test('a plan with a PUT and a PATCH is refused too, so the PATCH is not written alone', () => {
+        const fake = makeFake({ protection: incomplete })
+        const { code, text } = runApply(fake.run, ['widget', '--confirm', 'abcdefabcdef'])
+        assert.equal(code, 2)
+        assert.match(text, /requires signed commits/)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('a PATCH-only plan is not refused: the PATCH does not touch the rule', () => {
+        const fake = makeFake({ protection: signed })
+        const { code, text } = runApply(fake.run, ['widget'])
+        assert.equal(code, 0)
+        assert.doesNotMatch(text, /signed commits/)
+        assert.match(text, /^ {2}PATCH repos\/octo\/widget$/m)
+        assert.doesNotMatch(text, /^ {2}PUT /m)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('a PATCH-only plan is written on confirm', () => {
+        const fake = makeFake({ protection: signed })
+        const token = tokenOf(runApply(fake.run, ['widget']).text)
+        const { code } = runApply(fake.run, ['widget', '--confirm', token])
+        assert.equal(code, 0)
+        assert.deepEqual(
+          fake.state.writes.map((w) => w.method),
+          ['PATCH']
+        )
+      })
+
+      test('nothing to change still prints set up, nothing to change', () => {
+        const fake = makeFake({ protection: signed, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+        const { code, text } = runApply(fake.run, ['widget'])
+        assert.equal(code, 0)
+        assert.equal(text, 'octo/widget: set up, nothing to change\n')
+      })
+    })
 
     test('an owner that is not the user reads only the user, not the repo', () => {
       const fake = makeFake()

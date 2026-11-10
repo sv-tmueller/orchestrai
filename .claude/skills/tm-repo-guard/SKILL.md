@@ -23,8 +23,8 @@ itself failed. Report that, and do not retry or work around it.
 ## `apply <repo>`: change one repo
 
 1. Run plan mode, with the repo exactly as the user typed it (`name` or
-   `owner/name`). It only reads. If the command already carries `--confirm`,
-   drop it and start at step 1.
+   `owner/name`). It only reads. If the command already carries `--confirm` and a token,
+   leave both out: plan mode always runs first.
 
    ```
    node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs" apply <repo>
@@ -48,4 +48,6 @@ itself failed. Report that, and do not retry or work around it.
 
 Never build, edit or guess a token, and never run `--confirm` from any other
 flow. If the confirm run says "plan changed since it was shown", print that
-and stop; do not run plan mode again to get a new token unless the owner asks.
+and stop. Run plan mode again only when the owner asks, and treat its output
+as a new plan: show it, ask again (step 2), and confirm only on a new yes
+(step 3).

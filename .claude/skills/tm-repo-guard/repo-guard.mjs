@@ -256,6 +256,8 @@ export function classifyProtection({ code, stdout, stderr }) {
       prRequired: rpr != null,
       forcePushesOff: body.allow_force_pushes?.enabled !== true,
       enforceAdmins: body.enforce_admins?.enabled === true,
+      // Comes back in the GET but cannot go in the PUT body.
+      signaturesRequired: body.required_signatures?.enabled === true,
       strict: body.required_status_checks?.strict === true,
       deletionsOff: body.allow_deletions?.enabled !== true,
       noApprovalNeeded:
@@ -466,9 +468,6 @@ function gatherFacts(call, info, requested) {
   return {
     fullName,
     defaultBranch: info.default_branch,
-    ownerLogin: info.owner?.login,
-    ownerType: info.owner?.type,
-    archived: info.archived === true,
     visibility: info.private ? 'private' : 'public',
     allowAutoMerge: info.allow_auto_merge === true,
     allowSquashMerge: info.allow_squash_merge === true,
@@ -629,10 +628,13 @@ export function runApply(run, argv) {
   const target = { repo: facts.fullName, branch: facts.defaultBranch }
   const plan = planChanges(facts)
   if (plan.blocked) return refusal(`${target.repo} is blocked: ${plan.blocked}`)
-  if (plan.needsCi) return refusal(`${target.repo} needs CI first: it has test files but no PR has run a check yet`)
+  if (plan.needsCi) return refusal(`${target.repo} needs CI first: it has test files but no finished, non-draft PR has run a check`)
   if (plan.changes.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
 
   const ops = buildWrites(target, facts)
+  if (facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')) {
+    return refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
+  }
   const token = confirmToken(target, ops)
   if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
