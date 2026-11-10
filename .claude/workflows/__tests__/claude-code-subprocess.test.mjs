@@ -17,7 +17,7 @@
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdtempSync, chmodSync, rmSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdtempSync, chmodSync, rmSync, existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
@@ -496,7 +496,8 @@ describe('spawn and retry', () => {
     assert.equal(report.STATUS, 'DONE')
     const calls = readCalls()
     assert.equal(calls.length, 1)
-    assert.equal(calls[0].cwd, stubDir, 'the seat must run in the lead-owned package worktree')
+    // macOS reports the tmpdir /var/folders/... as /private/var/folders/..., so compare resolved paths.
+    assert.equal(realpathSync(calls[0].cwd), realpathSync(stubDir), 'the seat must run in the lead-owned package worktree')
     assert.equal(calls[0].alwaysEffort, '1')
     assert.equal(calls[0].bgCeiling, '0')
   })
