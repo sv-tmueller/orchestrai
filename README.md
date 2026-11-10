@@ -79,7 +79,13 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   repo that is set up for auto merge (the setting on, plus branch protection
   or a ruleset) it also queues the merge. Elsewhere, and whenever the review
   was a run-long fallback or the head moved after the verdicts, the PR waits
-  for a human merge. Mechanics: step 7 in the same file.
+  for a human merge. A queued PR that falls behind the default branch is
+  brought up to date by the lead: a clean update carries the verdicts when the
+  PR's own changes are unchanged and CI is green on the new commit, and
+  anything else gets one repair round (developer, tester, reviewer, then step
+  7 again). A PR that needs a second repair parks. A repair that is
+  interrupted parks too, and a parked repair stays with the owner. Mechanics:
+  step 7 and "Repair (queued PRs behind the default branch)" in the same file.
 - **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
   seat contracts, so the lead routes on the short report instead of expanding
   it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
