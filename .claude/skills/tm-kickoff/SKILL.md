@@ -95,18 +95,19 @@ to find an existing PR.
   carries the `Model: sonnet (run-long fallback)` marker: it owes an Opus review
   and re-enters at the reviewer stage (see "Limit deaths" below). Apart from
   that exception, a ready PR whose issue still carries `in-progress` stopped
-  inside step 7. Classify it the same way, remove `in-progress` and any
-  `phase:*` label, and post no statuses and queue nothing. If it classifies as
-  waiting for a human merge, give the reason "step 7 interrupted". If the issue
-  carries `in-progress` but has no open PR and no branch on origin, clear the
-  label and restart from the developer stage. Otherwise (a PR or branch exists)
-  read the sub-plan comment and the PR comments (verdicts and fix rounds live
-  there) to find the stage it stopped at, and re-enter there; re-enter at the
-  tester only when the stage cannot be determined from the PR comments. Skip the
-  architect when a sub-plan comment or a `Track: lean` comment exists. A lean
-  package (a `Track: lean` comment and no later `Track: full` comment) re-enters
-  at the developer or the reviewer, never the tester; when its stage cannot be
-  determined from the PR comments, re-enter at the reviewer.
+  inside step 7. Classify it the same way, remove `in-progress`, any `phase:*`
+  label and `track:lean`, and post no statuses and queue nothing. If it
+  classifies as waiting for a human merge, give the reason "step 7
+  interrupted". If the issue carries `in-progress` but has no open PR and no
+  branch on origin, clear the label and restart from the developer stage.
+  Otherwise (a PR or branch exists) read the sub-plan comment and the PR
+  comments (verdicts and fix rounds live there) to find the stage it stopped
+  at, and re-enter there; re-enter at the tester only when the stage cannot be
+  determined from the PR comments. Skip the architect when a sub-plan comment
+  or a `Track: lean` comment exists. A lean package (a `Track: lean` comment
+  and no later `Track: full` comment) re-enters at the developer or the
+  reviewer, never the tester; when its stage cannot be determined from the PR
+  comments, re-enter at the reviewer.
 - Remote resume: two label pairs name a waiting package. `phase:<stage>`
   together with `run:<r>` re-enters the waiting list for that stage; it
   never re-dispatches the seat, and sweep it through the poll below on the
@@ -159,7 +160,7 @@ Within a package the stages are serial.
 
 Set the stage's `phase:<stage>` label at every handoff below, including the
 all-VPS run, and keep the current stage's label through a fix round. Remove
-it when the package ships (step 7) or parks.
+it, together with `track:lean`, when the package ships (step 7) or parks.
 
 1. Architect: SUB_PLAN for the issue (prefix the message with `JOB: SUB_PLAN`).
    When the issue body already carries signed-off batch decisions, the batch
@@ -238,9 +239,9 @@ it when the package ships (step 7) or parks.
       reported as waiting for a human merge. This is not a park. If a
       status post failed, do not queue: the PR stays ready and is reported
       as waiting for a human merge.
-   7. Remove `in-progress` and any `phase:*` label, and post a summary
-      comment on the issue. Whether the repo is set up is decided from the
-      reads of sub-step 2, by "Fix rounds" rule 8. On a repo that is not
+   7. Remove `in-progress`, any `phase:*` label and `track:lean`, and post a
+      summary comment on the issue. Whether the repo is set up is decided from
+      the reads of sub-step 2, by "Fix rounds" rule 8. On a repo that is not
       set up, include should-fix findings and untested claims for the
       human review. On a set-up repo nobody reads the PR before it merges:
       file the open should-fix findings and untested claims as one
@@ -334,9 +335,9 @@ Routing rules:
   increments the tester counter. On exhaustion of either counter, park the
   package.
 - Parking: post the reason on the issue, apply `needs-human` (remove
-  `in-progress` and any `phase:*` label if present), and move on to the
-  other packages. If the package's PR has an open repair (see "Repair
-  (queued PRs behind the default branch)" below), use that subsection's
+  `in-progress`, any `phase:*` label and `track:lean` if present), and move
+  on to the other packages. If the package's PR has an open repair (see
+  "Repair (queued PRs behind the default branch)" below), use that subsection's
   Parking steps instead: they post the repair's closing line and include
   this step.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
@@ -721,8 +722,8 @@ order:
    `orchestrai/review` as `success` on the new head, and nothing posts them
    for you. To have the package rebuilt, close the PR, delete its branch,
    remove `needs-human` and run /tm-kickoff on this issue."
-4. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`
-   and `phase:*` off.
+4. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`,
+   `phase:*` and `track:lean` off.
 5. Mirror it to the batch issue and free the slot. The run carries on with the
    next pass and the other packages.
 
