@@ -35,13 +35,11 @@
  * committed to the repo.
  */
 
-import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, readlinkSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { spawn, execFileSync } from 'node:child_process'
+import { appendFileSync, existsSync, readFileSync, readlinkSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dir, '..')
@@ -158,8 +156,6 @@ function procState(pid) {
 // Enumerate all pids once per poll, record interesting ones (the seat's
 // tree and any gh/git process), and keep a ppid map so the tree is
 // derivable from the log.
-import { readdirSync } from 'node:fs'
-
 function pollProcs() {
   let pids
   try {
