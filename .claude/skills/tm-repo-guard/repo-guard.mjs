@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tm-repo-guard (issues #472 and #481, batch #470).
+ * tm-repo-guard (issues #472 and #481, batches #470 and #480).
  *
  * Check reads the GitHub state of every repo the user owns and prints one
  * state per repo: set up, not set up, or blocked. It only reads. Every read
@@ -317,7 +317,9 @@ export function planChanges(facts) {
   const verdicts = facts.pipelineLabels === true
   const layers = ['base', ...(ci ? ['ci'] : []), ...(verdicts ? ['verdicts'] : [])]
   const requiredChecks = [...new Set([...facts.ciChecks, ...(verdicts ? VERDICT_CHECKS : [])])].sort()
-  const notRequired = facts.prCheckNames.filter((n) => !facts.ciChecks.includes(n)).sort()
+  // Only names from PRs older than the deciding one: a name on a newer PR that is
+  // still running or a draft has not stopped running, it has not finished yet.
+  const notRequired = facts.olderCheckNames.filter((n) => !facts.ciChecks.includes(n)).sort()
 
   const blocked = protection.kind === 'unavailable' ? BLOCKED_REASON : null
   const needsCi = facts.testFileCount > 0 && !ci
@@ -458,6 +460,9 @@ function gatherFacts(call, info, requested) {
     'labels'
   )
 
+  const deciding = newestChecks(prs)
+  const older = deciding.pr === null ? [] : prs.filter((p) => p.number < deciding.pr)
+
   return {
     fullName,
     defaultBranch: info.default_branch,
@@ -470,7 +475,8 @@ function gatherFacts(call, info, requested) {
     protection,
     prCount: prs.length,
     prCheckNames: prCheckNames(prs),
-    ciChecks: newestChecks(prs).names,
+    olderCheckNames: prCheckNames(older),
+    ciChecks: deciding.names,
     testFileCount,
     testFilesTruncated,
     pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),

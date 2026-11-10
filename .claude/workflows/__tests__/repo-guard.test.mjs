@@ -411,12 +411,13 @@ const baseFacts = (over = {}) => ({
   allowSquashMerge: true,
   protection: PROTECTED,
   prCheckNames: ['Unit tests'],
+  olderCheckNames: [],
   ciChecks: ['Unit tests'],
   testFileCount: 5,
   pipelineLabels: false,
   ...over,
 })
-const NO_CI = { ciChecks: [], prCheckNames: [], protection: { ...PROTECTED, requiredChecks: [] } }
+const NO_CI = { ciChecks: [], prCheckNames: [], olderCheckNames: [], protection: { ...PROTECTED, requiredChecks: [] } }
 
 // One entry per case that the plan must tell apart.
 const FIXTURES = {
@@ -554,6 +555,7 @@ describe('planChanges', () => {
     const facts = baseFacts({
       ciChecks: ['Unit tests'],
       prCheckNames: ['Unit tests', 'Version bump guard'],
+      olderCheckNames: ['Unit tests', 'Version bump guard'],
       protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'Version bump guard'] },
     })
     const got = planChanges(facts)
@@ -563,9 +565,14 @@ describe('planChanges', () => {
   })
 
   test('a name seen only on older PRs that is not required is no change, but is named', () => {
-    const got = planChanges(baseFacts({ prCheckNames: ['Unit tests', 'Zeta', 'Alpha'] }))
+    const got = planChanges(baseFacts({ olderCheckNames: ['Unit tests', 'Zeta', 'Alpha'] }))
     assert.deepEqual(got.changes, [])
     assert.deepEqual(got.notRequired, ['Alpha', 'Zeta'])
+  })
+
+  test('notRequired comes from the older PRs only, not from the display list of every PR', () => {
+    const got = planChanges(baseFacts({ prCheckNames: ['Unit tests', 'Newer only'], olderCheckNames: [] }))
+    assert.deepEqual(got.notRequired, [])
   })
 
   test('test files with no current checks need CI first', () => {
@@ -696,7 +703,7 @@ describe('evaluate', () => {
   })
 
   test('carries notRequired through for the renderer', () => {
-    assert.deepEqual(evaluate(baseFacts({ prCheckNames: ['Unit tests', 'Old'] })).notRequired, ['Old'])
+    assert.deepEqual(evaluate(baseFacts({ olderCheckNames: ['Unit tests', 'Old'] })).notRequired, ['Old'])
   })
 })
 
@@ -865,6 +872,38 @@ describe('collect', () => {
     assert.deepEqual(widget.result.notRequired, ['Version bump guard'])
     assert.equal(widget.result.state, 'set up')
     assert.equal(widget.facts.allowSquashMerge, true)
+  })
+
+  describe('not required: only names from PRs older than the deciding PR', () => {
+    const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: null })
+    const widgetWith = (prs) => {
+      const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,statusCheckRollup'
+      const table = { ...responses, [key]: json(prs) }
+      return collect(recordingRunner(table).run).entries.find((e) => e.repo === 'octo/widget-api')
+    }
+
+    test('a name only on a newer PR that is still running is not listed', () => {
+      const widget = widgetWith([pr(13, [check('Unit tests'), running('lint')]), pr(12, [check('Unit tests')])])
+      assert.deepEqual(widget.facts.ciChecks, ['Unit tests'])
+      assert.deepEqual(widget.facts.prCheckNames, ['Unit tests', 'lint'])
+      assert.deepEqual(widget.result.notRequired, [])
+    })
+
+    test('a name only on a newer draft PR is not listed', () => {
+      const widget = widgetWith([pr(13, [check('Unit tests'), check('lint')], true), pr(12, [check('Unit tests')])])
+      assert.deepEqual(widget.result.notRequired, [])
+    })
+
+    test('a name only on an older PR is listed', () => {
+      const widget = widgetWith([pr(13, [check('Unit tests')]), pr(12, [check('Unit tests'), check('Old')])])
+      assert.deepEqual(widget.result.notRequired, ['Old'])
+    })
+
+    test('with no deciding PR nothing is listed', () => {
+      const widget = widgetWith([pr(13, [running('lint')]), pr(12, [check('Old')], true)])
+      assert.deepEqual(widget.facts.ciChecks, [])
+      assert.deepEqual(widget.result.notRequired, [])
+    })
   })
 
   test('a workflow file with empty PR rollups means no CI layer', () => {
