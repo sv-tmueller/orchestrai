@@ -20,8 +20,9 @@
 //   identical          the PR's own changes are the same; verdicts may carry
 //   changed            something else changed (or the head was rewritten)
 //   conflict-resolved  the update needed a conflict resolution
-// A usage or git error prints one line on stderr and exits 2. The lead treats
-// every result except `identical` with exit 0 as a reason for a new review.
+// A usage error, a git error, or a default-ref that already contains the head
+// prints one line on stderr and exits 2. The lead treats every result except
+// `identical` with exit 0 as a reason for a new review.
 
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -104,6 +105,12 @@ export function sameChanges({ from, head, defaultRef, cwd = process.cwd() }) {
   const fromSha = resolveCommit(cwd, '--from', from)
   const headSha = resolveCommit(cwd, '--head', head)
   const refSha = resolveCommit(cwd, '--default-ref', defaultRef)
+
+  // The merge base would be the head, both own diffs would be empty, and any
+  // head that contains `from` would come back as a false `identical`.
+  if (isAncestor(cwd, headSha, refSha)) {
+    fail(`--default-ref already contains the head ${headSha.slice(0, 7)}`)
+  }
 
   if (headSha === fromSha) return { result: 'identical', reason: 'the head did not move' }
 
