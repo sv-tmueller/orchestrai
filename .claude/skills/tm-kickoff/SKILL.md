@@ -208,22 +208,32 @@ it when the package ships (step 7) or parks.
         ran under the run-long switch, the review whose PR comment carries
         `Model: sonnet (run-long fallback)`. Subprocess seats, a `lead`
         column and runner columns count as `false`.
-   4. Post each entry of `statuses` (none when `reason` is `head-moved`):
-      `gh api -X POST 'repos/{owner}/{repo}/statuses/<sha>' -f state=<state> -f context=<context> -f description='<description>'`
+   4. Post each entry of `statuses` (none when `reason` is `head-moved`)
+      on the `sha` field of the script's output, not on the head you read
+      and not on the verdict commit you passed in:
+      `gh api -X POST 'repos/{owner}/{repo}/statuses/<script sha>' -f state=<state> -f context=<context> -f description='<description>'`
       A later post with the same context replaces the earlier one on that
-      commit, so a review owed from an earlier run clears in place.
+      commit, so a review owed from an earlier run clears in place. If a
+      status post exits nonzero, do not retry it, post the remaining
+      entries, and record "status post failed: <context>".
    5. Mark the PR ready: `gh pr ready <pr>`.
    6. Queue the merge only if `queue` is true and every status post exited 0:
-      `gh pr merge <pr> --squash --auto --match-head-commit <sha>`. If it
-      exits nonzero, do not retry, never `--admin`, and never merge without
-      `--auto`. Record "queue refused: <first stderr line>". The PR stays
-      ready and is reported as waiting for a human merge. This is not a
-      park.
+      `gh pr merge <pr> --squash --auto --match-head-commit <script sha>`,
+      with the same `sha` field as in sub-step 4. If it exits nonzero, do
+      not retry, never `--admin`, and never merge without `--auto`. Record
+      "queue refused: <first stderr line>". The PR stays ready and is
+      reported as waiting for a human merge. This is not a park. If a
+      status post failed, do not queue: the PR stays ready and is reported
+      as waiting for a human merge.
    7. Remove `in-progress` and any `phase:*` label, and post a summary
       comment on the issue, including should-fix findings and untested
       claims for the human review. Add one outcome line: statuses on
-      `<sha7>`, then either queued, or waiting for a human merge with the
-      `reason`. Inside a batch, mirror it to the batch issue.
+      `<sha7>` (the first 7 characters of the script's `sha`), then either
+      queued, or waiting for a human merge with its reason. The reason is
+      the script's `reason`, except that "status post failed: <context>" or
+      "queue refused: <first stderr line>" replaces it when one of them was
+      recorded. The script's `queued` is never reported for a PR that was
+      not queued. Inside a batch, mirror it to the batch issue.
 
 Routing rules:
 

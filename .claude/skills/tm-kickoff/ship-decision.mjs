@@ -111,10 +111,30 @@ const USAGE =
   '--fallback-review true|false --auto-merge true|false|unknown ' +
   '--branch-protected true|false|unknown --branch-rules <n>|unknown'
 
-function flag(argv, name) {
-  const idx = argv.indexOf(name)
-  if (idx === -1 || idx + 1 >= argv.length) fail(`missing ${name}`)
-  return argv[idx + 1]
+const FLAGS = [
+  '--track',
+  '--verdict-commit',
+  '--head',
+  '--fallback-review',
+  '--auto-merge',
+  '--branch-protected',
+  '--branch-rules',
+]
+
+// Reads argv as flag/value pairs. An unknown flag, a stray argument, a
+// repeated flag or a flag with no value is a usage error, so a corrected
+// value appended by a caller is never silently ignored.
+function parseArgs(argv) {
+  const values = new Map()
+  for (let i = 0; i < argv.length; i += 2) {
+    const name = argv[i]
+    if (!FLAGS.includes(name)) fail(`unknown argument ${name}`)
+    if (values.has(name)) fail(`duplicate ${name}`)
+    if (i + 1 >= argv.length) fail(`missing value for ${name}`)
+    values.set(name, argv[i + 1])
+  }
+  for (const name of FLAGS) if (!values.has(name)) fail(`missing ${name}`)
+  return values
 }
 
 function parseBool(name, value) {
@@ -133,14 +153,15 @@ function parseRules(value) {
 export function main(argv) {
   let result
   try {
+    const v = parseArgs(argv)
     result = decide({
-      track: flag(argv, '--track'),
-      verdictCommit: flag(argv, '--verdict-commit'),
-      head: flag(argv, '--head'),
-      fallbackReview: parseBool('--fallback-review', flag(argv, '--fallback-review')),
-      autoMerge: parseBool('--auto-merge', flag(argv, '--auto-merge')),
-      branchProtected: parseBool('--branch-protected', flag(argv, '--branch-protected')),
-      branchRules: parseRules(flag(argv, '--branch-rules')),
+      track: v.get('--track'),
+      verdictCommit: v.get('--verdict-commit'),
+      head: v.get('--head'),
+      fallbackReview: parseBool('--fallback-review', v.get('--fallback-review')),
+      autoMerge: parseBool('--auto-merge', v.get('--auto-merge')),
+      branchProtected: parseBool('--branch-protected', v.get('--branch-protected')),
+      branchRules: parseRules(v.get('--branch-rules')),
     })
   } catch (err) {
     process.stderr.write(`${err.message} (${USAGE})\n`)

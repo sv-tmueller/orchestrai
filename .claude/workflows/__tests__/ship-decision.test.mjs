@@ -216,4 +216,29 @@ describe('ship-decision CLI', () => {
     assert.equal(r.status, 2)
     assert.equal(r.stderr.trim().split('\n').length, 1)
   })
+
+  const usageError = (r) => {
+    assert.equal(r.status, 2)
+    assert.equal(r.stdout, '')
+    assert.equal(r.stderr.trim().split('\n').length, 1)
+  }
+
+  test('an unknown flag exits 2 with no JSON', () => {
+    usageError(run(...cliArgs(BASE), '--bogus', 'x'))
+  })
+
+  test('a bare positional argument exits 2 with no JSON', () => {
+    usageError(run(...cliArgs(BASE), 'extra'))
+  })
+
+  for (const name of [
+    '--track', '--verdict-commit', '--head', '--fallback-review',
+    '--auto-merge', '--branch-protected', '--branch-rules',
+  ]) {
+    test(`a duplicated ${name} exits 2 with no JSON`, () => {
+      const args = cliArgs(BASE)
+      const value = args[args.indexOf(name) + 1]
+      usageError(run(...args, name, value))
+    })
+  }
 })
