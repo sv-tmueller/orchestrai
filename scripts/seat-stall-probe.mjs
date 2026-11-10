@@ -6,7 +6,7 @@
  * dispatchSeat, exactly as the tm-kickoff SKILL.md one-liner does, with a
  * /proc watcher logging pid/ppid, fd/0 target, wchan, and timestamps for
  * every claude/gh/node process in the seat's tree. The probe task is the
- * stall shape from the four recorded occurrences, compressed: branch off
+ * stall shape from the five recorded occurrences, compressed: branch off
  * origin/main in a scratch worktree under /tmp, empty commit, push, then
  * `gh pr create --dry-run` (dry-run only; a real PR is not authorized on
  * this repo). stdin state at gh-write time is observable even without a

@@ -493,7 +493,7 @@ export async function spawn(role, task, opts = {}) {
  * ignores its `input` option entirely, so even `input: ''` would not have
  * closed it. The `claude` CLI saw the pipe (its "no stdin data received
  * in 3s" warning), and any grandchild that reads stdin instead of failing
- * on a non-tty blocked forever with no EOF. Four developer seats stalled
+ * on a non-tty blocked forever with no EOF. Five developer seats stalled
  * that way at their first GitHub-write call. `stdio: ['ignore', ...]`
  * gives the seat /dev/null on fd/0: immediate EOF, no promptable stdin.
  *
@@ -588,6 +588,11 @@ function runSeatProcess(bin, argv, { cwd, env, timeout }) {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      // Unreachable today: timedOut and capHit are only set right before a
+      // synchronous settleTimeoutOrCap(), which sets settled, so the guard
+      // above returns first. Kept so that if a refactor defers that settle, a
+      // killed seat still rejects with the timeout-or-cap error, not a generic
+      // exit error.
       if (timedOut || capHit) {
         reject(Object.assign(timeoutOrCapError(signal), { stdout, stderr, timedOut }))
         return
