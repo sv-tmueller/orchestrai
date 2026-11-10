@@ -83,11 +83,13 @@ to find an existing PR.
   post it on the issue, unless a proposal comment already exists, then report
   it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
-  resumed, not restarted. A PR with an open repair is handled first, by the
-  Resume rule of "Repair (queued PRs behind the default branch)" in section 3:
-  the package parks, and nothing below applies to it. A ready (non-draft) open
-  PR means the package is complete: classify it with `gh pr view <n> --json
-  state,autoMergeRequest` and skip it. `state` `MERGED` means merged. A set
+  resumed, not restarted. An open PR whose latest comment starting with
+  `Repair ` is a `from` marker or a `Repair parked` line is handled first, by
+  the Resume rule of "Repair (queued PRs behind the default branch)" in
+  section 3. Nothing below in this bullet, and nothing in "Remote resume",
+  applies to it. A ready (non-draft) open PR means the package is complete:
+  classify it with `gh pr view <n> --json state,autoMergeRequest` and skip
+  it. `state` `MERGED` means merged. A set
   `autoMergeRequest` means queued and waiting on checks. Anything else means
   waiting for a human merge. The exception is a PR whose latest review comment
   carries the `Model: sonnet (run-long fallback)` marker: it owes an Opus review
@@ -470,16 +472,18 @@ the head the verdict statuses sit on, and `<H>` is the head after the update.
 
 **Repair set.** The open PRs of this run's packages that are queued
 (`autoMergeRequest` set), plus the PR currently in repair. A queued PR that an
-earlier, dropped session queued belongs to the set too. Step 7 queues a merge
-only on a set-up repo, so on any other repo the set is empty and nothing here
-runs.
+earlier, dropped session queued belongs to the set too. A PR whose latest
+comment starting with `Repair ` is a `Repair parked` line is never in the set,
+even while its `autoMergeRequest` is still set. Step 7 queues a merge only on
+a set-up repo, so on any other repo the set is empty and nothing here runs.
 
 **Pass.** Read `<default>` once per pass with
 `gh api 'repos/{owner}/{repo}' --jq .default_branch`. Then for each PR in the
 set run
 `gh pr view <pr> --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName`.
 
-- `MERGED`: drop it from the set.
+- `MERGED` or `CLOSED`: drop it from the set. A repair that was open on it
+  needs no closing line.
 - `baseRefName` is not `<default>`: drop it from the set. The repair only
   handles PRs into the default branch. Such a PR stays queued and is reported
   as queued.
@@ -494,14 +498,14 @@ When several packages ship in the same turn, finish step 7 for all of them,
 then run one pass.
 
 **The slot.** There is one per run, so only one PR is updated at a time. It is
-held from the start marker until the PR has merged, parked, or is waiting for a
-human merge. After a re-queue it is held until `gh pr checks <pr>` stops
-exiting 8 (pending) and one more 60 s cycle passes with no merge, so the next
-update cannot land just before this PR merges, but for 30 minutes at most:
-after that the slot is freed and the PR is reported as queued. While it is
-held, no other update or conflict path starts, and the lead keeps routing the
-other packages. A conflict path also takes the next free one of the 3 package
-slots, ahead of packages not yet started.
+held from the start marker until the PR has merged, been closed, parked, or is
+waiting for a human merge. After a re-queue it is held until `gh pr checks <pr>`
+stops exiting 8 (pending) and one more 60 s cycle passes with no merge, so the
+next update cannot land just before this PR merges, but for 30 minutes at most:
+after that the slot is freed and the PR is reported as queued. While it is held,
+no other update or conflict path starts, and the lead keeps routing the other
+packages. A conflict path also takes the next free one of the 3 package slots,
+ahead of packages not yet started.
 
 **Clean attempt.** In this order:
 
@@ -512,9 +516,10 @@ slots, ahead of packages not yet started.
    with the reason `statuses missing on <V7>`, before any write.
 2. Post on the PR: `Repair (clean update) from <V40>: behind <default>.`
 3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. The
-   repair never relies on the old request. If it exits nonzero, park the
-   package (Parking, below) with the reason `could not switch auto merge off:
-   <first stderr line>`, before any update.
+   repair never relies on the old request. If it exits nonzero, read the PR's
+   `state` again. If it is `MERGED` or `CLOSED`, drop the PR from the set and
+   stop. Otherwise park the package (Parking, below) with the reason `could
+   not switch auto merge off: <first stderr line>`, before any update.
 4. Update: `gh api -X PUT 'repos/{owner}/{repo}/pulls/<pr>/update-branch' -f
    expected_head_sha=<V>`. This is always a merge update and is pinned to
    `<V>`. A conflict or a moved head returns 422 and a nonzero exit. Do not
@@ -538,15 +543,17 @@ slots, ahead of packages not yet started.
    with `<H>` as the verdict commit (sub-step 3 names it). Sub-step 1 must
    read `<H>`. Work out `--track` and `--fallback-review` as step 7 does. Skip
    sub-step 5 (the PR is already ready) and sub-step 7 (the outcome line
-   below replaces it). `ship-decision.mjs` is unchanged.
+   below replaces it). If the script exits nonzero, post no statuses and
+   queue nothing; the outcome line's reason is then "ship-decision error".
+   `ship-decision.mjs` is unchanged.
 9. Post the outcome on the PR and on the issue, and mirror it to the batch
-   issue: `Repair (clean update) <V7>..<H7>: same changes, CI green on <H7>,
-   statuses carried; <merged|queued|waiting for a human merge (<reason>)>.`
-   Classify it with `gh pr view <pr> --json state,autoMergeRequest` read
-   after sub-step 6: `MERGED` is merged, a set `autoMergeRequest` is queued,
-   anything else is waiting for a human merge, with the script's `reason`, or
-   "queue refused: <first stderr line>" or "status post failed: <context>" as
-   sub-step 6 records. None of these parks the PR, none is retried, and none
+   issue: `Repair (clean update) <V7>..<H7>: same changes, CI green on <H7>;
+   <merged|queued|waiting for a human merge (<reason>)>.` Classify it with
+   `gh pr view <pr> --json state,autoMergeRequest` read after sub-step 6:
+   `MERGED` is merged, a set `autoMergeRequest` is queued, anything else is
+   waiting for a human merge, with the script's `reason`, or "queue refused:
+   <first stderr line>", "status post failed: <context>" or "ship-decision
+   error" as recorded. None of these parks the PR, none is retried, and none
    counts as a repair.
 
 **Conflict path.** It starts on `DIRTY`, on any update refusal, and on any
@@ -566,14 +573,18 @@ failed condition above. The reason is exactly one of:
 In order:
 
 1. Count (below). A `Repair (conflict) from` marker already on the PR means
-   park.
+   park, with the reason `second repair needed: <reason>`. A
+   `.orchestrai/columns.json` that hands the developer, tester or reviewer
+   stage to a runner also means park, with the reason `repair needs a runner
+   stage`: a repair holds the one slot, and a runner stage has no timeout.
 2. Post on the PR: `Repair (conflict) from <head40>: <reason>.` (`<head40>` is
    the PR head when the path starts.) Mirror it to the batch issue.
 3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
-   exits nonzero, park the package (Parking, below) with the reason `could
-   not switch auto merge off: <first stderr line>`. Otherwise run
-   `gh pr ready --undo <pr>` and label the issue `in-progress` and
-   `phase:developer`.
+   exits nonzero, read the PR's `state` again. If it is `MERGED` or `CLOSED`,
+   drop the PR from the set and stop. Otherwise park the package (Parking,
+   below) with the reason `could not switch auto merge off: <first stderr
+   line>`. If it exits 0, or no request was set, run `gh pr ready --undo
+   <pr>` and label the issue `in-progress` and `phase:developer`.
 4. Dispatch the developer in the fix-round format: "issue #<n>, branch
    <branch>: fetch it, work detached on it. Repair: <reason>. Merge
    `origin/<default>` into it with a merge commit (no rebase, no force push),
@@ -596,40 +607,49 @@ In order:
 update does not count, because it dispatches no agent and changes no reviewed
 line. A resumed run reads the same markers.
 
-**Closing lines.** Every repair ends with one closing line on the PR: the
-outcome line of a clean attempt (step 9), `Repair (conflict) done` (step 7 of
-the conflict path), or `Repair parked` (Parking, below). A repair is open
-while the latest PR comment that starts with `Repair ` is a `from` marker. A
-`Repair (conflict) from` marker posted after a clean start marker belongs
-to that same repair, which has moved to the conflict path.
+**Closing lines.** Every repair ends with one closing line on the PR, unless
+the PR merges or is closed first: the outcome line of a clean attempt (step
+9), `Repair (conflict) done` (step 7 of the conflict path), or `Repair
+parked` (Parking, below). A repair is open while the latest PR comment that
+starts with `Repair ` is a `from` marker. A `Repair (conflict) from` marker
+posted after a clean start marker belongs to that same repair, which has
+moved to the conflict path.
 
-**Resume.** A later session never continues a repair that an earlier session
-left open. Before the gate's resume rules run for an issue, and before the
-first pass, read the comments of the issue's PR. If the PR is still open and
-its repair is open, park the package (Parking, below) with the reason `repair
-interrupted`. This comes before the gate's rule for a ready PR and its rule
-for a draft PR with `in-progress`: neither applies to a PR with an open
-repair. An issue labeled `needs-human` is skipped by the gate and is not read
-here either.
+**Resume.** A later session never continues a repair, and never picks up a PR
+whose repair parked. Before the gate's "Resume detection" and "Remote resume"
+rules run for an issue, and before the first pass, read the comments of the
+issue's open PR and find the latest one that starts with `Repair `.
 
-**Parking.** A package parks here in four cases: a second conflict-path
-repair would be needed (it is not started), an open repair is found on
-resume, auto merge cannot be switched off, or the package parks for another
-reason while its repair is open (a fix-round cap, BLOCKED, an unanswered
-NEEDS_CONTEXT). In order:
+- It is a `from` marker: the repair is open. Park the package (Parking,
+  below) with the reason `repair interrupted`.
+- It is a `Repair parked` line: the package stays with the owner. Report it
+  as parked with the reason from that line, apply `needs-human` if the issue
+  does not carry it, and do nothing else. No stage is re-entered, no status
+  is posted, nothing is queued, and the PR is not in the repair set.
+- Anything else, or no such comment: the gate's rules apply as usual.
+
+An issue with no open PR is not read here. An issue labeled `needs-human` is
+skipped by the gate before this rule.
+
+**Parking.** A package parks here in five cases: a second conflict-path
+repair would be needed (it is not started), the conflict path would need a
+runner stage, an open repair is found on resume, auto merge cannot be
+switched off, or the package parks for another reason while its repair is
+open (a fix-round cap, BLOCKED, an unanswered NEEDS_CONTEXT). A park here is
+final for the pipeline: it never picks the PR up again (Resume, above). In
+order:
 
 1. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
    exits nonzero, carry on, and add "auto merge may still be on" to both
    comments below.
 2. Post on the PR: `Repair parked: <reason>.` This is the repair's closing
    line.
-3. Post on the issue: `Parked: PR #<pr>: <reason>. One repair per PR.` For a
-   second repair, `<reason>` is `second repair needed: <the conflict-path
-   reason>`, followed by a link to the first `Repair (conflict) from` marker.
-   For an interrupted repair it is `repair interrupted`, followed by a link
-   to the open `from` marker and this sentence: "To continue, convert the PR
-   to a draft, remove `needs-human` and run /tm-kickoff on this issue. The
-   package is then re-tested, re-reviewed and shipped again."
+3. Post on the issue: `Parked: PR #<pr>: <reason>.`, then a link to the first
+   `Repair (conflict) from` marker for a second repair, or to the open `from`
+   marker for an interrupted repair, and then this text: "The pipeline does
+   not pick this PR up again. To finish it, bring the branch up to date and
+   merge it yourself. To have the package rebuilt, close the PR, delete its
+   branch, remove `needs-human` and run /tm-kickoff on this issue."
 4. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`
    and `phase:*` off.
 5. Mirror it to the batch issue and free the slot. The run carries on with the
@@ -1063,11 +1083,11 @@ The wave ends when every package has shipped or parked and none is waiting
 on a runner: a package in the waiting list keeps the run open, and the lead
 keeps polling (see "Remote stage dispatch (columns.json)" above).
 
-The wave also ends only when the repair pass has settled (see "Repair
-(queued PRs behind the default branch)" above): the slot is free, and every
-PR in the repair set has merged, parked, is waiting for a human merge, or is
-queued with checks that stopped pending a full cycle ago or that have been
-pending for 30 minutes (reported as queued). Settle it before the worktree
+The wave also ends only when the repair pass has settled (see "Repair (queued
+PRs behind the default branch)" above): the slot is free, and every PR in the
+repair set has merged, parked, is waiting for a human merge, or is queued with
+checks that stopped pending a full cycle ago or that have been pending for 30
+minutes since the re-queue (reported as queued). Settle it before the worktree
 cleanup, because the conflict path dispatches agents.
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
@@ -1090,8 +1110,8 @@ that landed during the wave shows as merged. A repaired PR's line gets the
 suffix `(repaired: clean update)` or `(repaired: conflict resolved)`, as in
 the merged example below, on whichever outcome it ended in. A repair park's
 open question is its Parking reason: `second repair needed: <reason>`, `repair
-interrupted`, or `could not switch auto merge off: <first stderr line>`. End
-with:
+needs a runner stage`, `repair interrupted`, or `could not switch auto merge
+off: <first stderr line>`. End with:
 
 ```
 ## What happened

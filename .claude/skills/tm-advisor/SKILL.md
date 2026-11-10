@@ -180,11 +180,11 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   for: a change to scope or acceptance criteria, a new dependency or cost,
   anything irreversible or outward-facing, or a conflict with
   `docs/architecture/`. A park from kickoff's "Repair" subsection (a second
-  repair, an interrupted repair, or auto merge that cannot be switched off)
-  also parks inside a batch: it is the pipeline's own limit, like the
-  fix-round cap. Parked packages are logged on the batch issue and held
-  for the report. Do not interrupt the user unless ALL packages are parked;
-  then report immediately, since nothing is progressing.
+  repair, a repair that needs a runner stage, an interrupted repair, or auto
+  merge that cannot be switched off) also parks inside a batch: it is the
+  pipeline's own limit, like the fix-round cap. Parked packages are logged on
+  the batch issue and held for the report. Do not interrupt the user unless ALL
+  packages are parked; then report immediately, since nothing is progressing.
 - **Live checklist.** Mirror each package outcome (merged, queued, waiting
   for a human merge, parked) to the batch issue checklist as it happens, so a
   dropped session can resume from the issue. Mirror the repair start and
