@@ -84,10 +84,12 @@ to find an existing PR.
   it to the user.
 - Resume detection: an issue with an open PR or the `in-progress` label is
   resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: report it as awaiting merge and skip it, unless its latest
-  review comment carries the `Model: sonnet (run-long fallback)` marker, in
-  which case it owes an Opus review and re-enters at the reviewer stage (see
-  "Limit deaths" below). If the issue carries `in-progress` but has no open
+  complete: classify it with `gh pr view <n> --json state,autoMergeRequest`
+  and skip it. `state` `MERGED` means merged. A set `autoMergeRequest` means
+  queued and waiting on checks. Anything else means waiting for a human
+  merge. The exception is a PR whose latest review comment carries the
+  `Model: sonnet (run-long fallback)` marker: it owes an Opus review and
+  re-enters at the reviewer stage (see "Limit deaths" below). If the issue carries `in-progress` but has no open
   PR and no branch on origin, clear the label and restart from the developer
   stage. Otherwise (a PR or branch exists) read the sub-plan comment and the
   PR comments (verdicts and fix rounds live there) to find the stage it
@@ -176,11 +178,52 @@ it when the package ships (step 7) or parks.
    the same format as step 4, then re-test, then re-review forwarding the
    tester's UNTESTED CLAIMS from the new re-test (not the previous round's
    claims).
-7. On APPROVE, with the last tester verdict PASS: mark the PR ready (`gh pr
-   ready`), remove `in-progress` and any `phase:*` label, and post a summary
-   comment on the issue, including should-fix findings and untested claims
-   for the human review. If the last tester verdict is not PASS (fix round
-   not yet re-tested), complete the test loop first before shipping.
+7. On APPROVE, with the last tester verdict PASS: ship, in this order. If
+   the last tester verdict is not PASS (fix round not yet re-tested),
+   complete the test loop first before shipping. The statuses post on every
+   repo; only the queue depends on the repo being set up for auto merge.
+   1. Read the head: `gh pr view <pr> --json headRefOid --jq .headRefOid`.
+   2. Read the setup now, never from an earlier run. A read that fails is
+      passed as `unknown` and never parks the package.
+      - `gh api 'repos/{owner}/{repo}' --jq '.allow_auto_merge, .default_branch'`
+        (`gh repo view --json` has no auto merge field, so use the REST call).
+      - `gh api 'repos/{owner}/{repo}/branches/<default>' --jq .protected`
+      - `gh api 'repos/{owner}/{repo}/rules/branches/<default>' --jq length`
+        Read both: protection can come from classic branch protection or
+        from rulesets.
+   3. Run `node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/ship-decision.mjs"
+      --track full|lean --verdict-commit <sha|none> --head <sha>
+      --fallback-review true|false --auto-merge true|false|unknown
+      --branch-protected true|false|unknown --branch-rules <n>|unknown`. It
+      makes no gh calls and prints `{ sha, statuses, queue, reason }`. On a
+      nonzero exit, post no statuses, mark the PR ready, and report
+      "waiting for a human merge: ship-decision error".
+      - Verdict commit, full track: the last tester PASS `COMMIT`. The
+        reviewer runs right after that PASS with nothing pushed between.
+      - Verdict commit, lean track: the SHA on the reviewer's `CHECKS` line.
+      - A lead-verified ship has no APPROVE on the new head and the head
+        differs from the tester's PASS commit, so pass `none`. The script
+        reports `head-moved`: nothing is posted and nothing is queued.
+      - `--fallback-review true` only when the approving reviewer dispatch
+        ran under the run-long switch, the review whose PR comment carries
+        `Model: sonnet (run-long fallback)`. Subprocess seats, a `lead`
+        column and runner columns count as `false`.
+   4. Post each entry of `statuses` (none when `reason` is `head-moved`):
+      `gh api -X POST 'repos/{owner}/{repo}/statuses/<sha>' -f state=<state> -f context=<context> -f description='<description>'`
+      A later post with the same context replaces the earlier one on that
+      commit, so a review owed from an earlier run clears in place.
+   5. Mark the PR ready: `gh pr ready <pr>`.
+   6. Queue the merge only if `queue` is true and every status post exited 0:
+      `gh pr merge <pr> --squash --auto --match-head-commit <sha>`. If it
+      exits nonzero, do not retry, never `--admin`, and never merge without
+      `--auto`. Record "queue refused: <first stderr line>". The PR stays
+      ready and is reported as waiting for a human merge. This is not a
+      park.
+   7. Remove `in-progress` and any `phase:*` label, and post a summary
+      comment on the issue, including should-fix findings and untested
+      claims for the human review. Add one outcome line: statuses on
+      `<sha7>`, then either queued, or waiting for a human merge with the
+      `reason`. Inside a batch, mirror it to the batch issue.
 
 Routing rules:
 
@@ -219,7 +262,8 @@ Routing rules:
   `in-progress` and any `phase:*` label if present), and move on to the
   other packages.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
-  (PR ready, parked) to the batch tracking issue as they happen.
+  (merged, queued, waiting for a human merge, parked) to the batch tracking
+  issue as they happen.
 
 ### Fix rounds (exact text and lead-verified rounds)
 
@@ -273,6 +317,9 @@ Routing rules:
    - A round 3/3 that passes ships.
    - A passed round satisfies step 7 and section 4 without a re-test or a
      new APPROVE.
+   - A lead-verified ship has no APPROVE on the new head, so step 7's commit
+     check fails: it posts nothing and queues nothing, and the PR waits for a
+     human merge.
 7. **Lean track.** Where a package has no tester stage, the round skips only
    the re-review, the base is the head the reviewer reviewed, and CI green
    on the new head replaces the reviewer's check results.
@@ -321,6 +368,9 @@ that review and is not re-run by itself.
   PR comment, APPROVE included; an unmarked latest review comment clears the
   debt.
 - On CHANGES_REQUESTED, run `gh pr ready --undo`, then the normal fix loop.
+- A fallback APPROVE posts a pending "review owed" status and is not queued
+  (step 7). The next run's APPROVE posts the success status and queues the
+  merge on a repo that is set up for it.
 
 **Resume before respawn.** After a limit death (once the lead can dispatch
 again) or an empty or stalled return (at once), it makes one `SendMessage`
@@ -374,8 +424,9 @@ When in doubt, full.
   NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
   a developer fix round (step 6), then re-review. There is no re-test.
 - **Done.** Step 7's "last tester verdict PASS" becomes: APPROVE and
-  every `CHECKS` exit code is 0. Only the reviewer's fix-round counter
-  applies; the cap of 3 is unchanged.
+  every `CHECKS` exit code is 0. The verdict commit is the SHA on the
+  `CHECKS` line, and the test status is a success marked "skipped (lean)".
+  Only the reviewer's fix-round counter applies; the cap of 3 is unchanged.
 - **Plan-status.** Keep the five items. A skipped stage (the architect,
   and the tester) shows as `[-] <n>. <stage> skipped (lean)`. After a
   track change to full, the architect item stays
@@ -794,9 +845,10 @@ is noted in the wave-end report below and never blocks it.
 ## 4. Wave end
 
 Definition of done per package: last tester verdict is PASS, reviewer
-APPROVE, PR ready with `Closes #N`, summary comment posted. On the lean
-track, substitute the reviewer's `CHECKS` line (all exit codes 0) for the
-tester verdict; see "Pipeline tracks" above.
+APPROVE, PR ready with `Closes #N`, the ship decision run, the statuses
+posted as it says, the merge queued when it says, summary comment posted.
+On the lean track, substitute the reviewer's `CHECKS` line (all exit codes
+0) for the tester verdict; see "Pipeline tracks" above.
 
 The wave ends when every package has shipped or parked and none is waiting
 on a runner: a package in the waiting list keeps the run open, and the lead
@@ -812,21 +864,25 @@ lesson into `.claude/process-core.md` or `docs/architecture/` is a human
 decision. Inside an `/tm-advisor` batch, lessons go in the batch report
 instead (its skill section 5).
 
-Report to the user: PRs ready for review, packages parked (`needs-human`,
-with their open questions), issues deferred to later waves or stopped at the
-gate, and any lessons. End with:
+Report to the user: PRs merged, queued, and waiting for a human merge (with
+the reason), packages parked (`needs-human`, with their open questions),
+issues deferred to later waves or stopped at the gate, and any lessons.
+Classify each ready PR with the gate's read (`gh pr view <n> --json
+state,autoMergeRequest`, see "Resume detection") at report time, so a merge
+that landed during the wave shows as merged. End with:
 
 ```
 ## What happened
-- PR #NN ready  - <package title>
-- PR #NN ready  - <package title>
+- PR #NN merged  - <package title>
+- PR #NN queued (waiting on checks)  - <package title>
+- PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
 - Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
 ## Next steps
 1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
-2. Review & merge: #NN, #NN
+2. Review & merge: #NN, #NN (only the PRs waiting for a human merge)
 3. Decide on #NN (retry or close)
 4. Run /tm-kickoff to start the next wave
 ```
