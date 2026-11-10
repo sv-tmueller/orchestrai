@@ -93,6 +93,32 @@ export function prCheckNames(prs) {
   return [...names].sort()
 }
 
+const isStatusContext = (item) => item.__typename === 'StatusContext' || (item.context && !item.name)
+const isVerdict = (item) => typeof item.context === 'string' && item.context.startsWith('orchestrai/')
+
+// A check that has finished, pass or fail. A run still going, or a status that
+// is pending, says nothing yet about whether the check really runs.
+function isCompleted(item) {
+  if (isStatusContext(item)) return ['SUCCESS', 'FAILURE', 'ERROR'].includes(item.state)
+  return item.status === 'COMPLETED'
+}
+
+// The checks the newest finished PR ran. That PR, not the last ten together,
+// says what runs today, so a retired check does not stay required for good.
+export function newestChecks(prs) {
+  const byNumber = [...prs].sort((a, b) => b.number - a.number)
+  for (const pr of byNumber) {
+    if (pr.isDraft === true) continue
+    const ci = (pr.statusCheckRollup ?? []).filter((item) => !isVerdict(item))
+    if (ci.length === 0 || !ci.every(isCompleted)) continue
+    const names = [
+      ...new Set(ci.filter((i) => i.conclusion !== 'SKIPPED').map((i) => (isStatusContext(i) ? i.context : i.name))),
+    ].sort()
+    if (names.length > 0) return { pr: pr.number, names }
+  }
+  return { pr: null, names: [] }
+}
+
 // gh exits 1 on an HTTP error but still writes the JSON body to stdout.
 function parseError({ stdout, stderr }) {
   let body = null
@@ -117,11 +143,29 @@ export function classifyProtection({ code, stdout, stderr }) {
     const requiredChecks = [
       ...new Set([...(rsc.contexts ?? []), ...(rsc.checks ?? []).map((c) => c.context)]),
     ].sort()
+    const rpr = body.required_pull_request_reviews
+    const on = (key) => body[key]?.enabled === true
     return {
       kind: 'present',
       requiredChecks,
-      prRequired: body.required_pull_request_reviews != null,
+      prRequired: rpr != null,
       forcePushesOff: body.allow_force_pushes?.enabled !== true,
+      enforceAdmins: body.enforce_admins?.enabled === true,
+      strict: body.required_status_checks?.strict === true,
+      deletionsOff: body.allow_deletions?.enabled !== true,
+      noApprovalNeeded:
+        (rpr?.required_approving_review_count ?? 0) === 0 &&
+        rpr?.require_code_owner_reviews !== true &&
+        rpr?.require_last_push_approval !== true,
+      // The PUT replaces the whole rule, so Apply copies what it does not manage.
+      carry: {
+        required_linear_history: on('required_linear_history'),
+        required_conversation_resolution: on('required_conversation_resolution'),
+        block_creations: on('block_creations'),
+        lock_branch: on('lock_branch'),
+        allow_fork_syncing: on('allow_fork_syncing'),
+        dismiss_stale_reviews: rpr?.dismiss_stale_reviews === true,
+      },
     }
   }
   const { status, message } = parseError({ stdout, stderr })
@@ -158,49 +202,53 @@ export function hasPipelineLabels(names) {
 
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
-export function evaluate(facts) {
-  const { protection, prCheckNames: prChecks } = facts
-  const ci = prChecks.length > 0
+const BLOCKED_REASON = 'branch protection is not available on the current plan'
+
+// Decides for both Check and Apply: one rule, so Check can never call a repo
+// set up while Apply would still change it.
+export function planChanges(facts) {
+  const { protection } = facts
+  const ci = facts.ciChecks.length > 0
   const verdicts = facts.pipelineLabels === true
   const layers = ['base', ...(ci ? ['ci'] : []), ...(verdicts ? ['verdicts'] : [])]
+  const requiredChecks = [...new Set([...facts.ciChecks, ...(verdicts ? VERDICT_CHECKS : [])])].sort()
+  const notRequired = facts.prCheckNames.filter((n) => !facts.ciChecks.includes(n)).sort()
 
-  const missing = []
-  const readable = protection.kind === 'present' || protection.kind === 'none'
-  const requiredChecks = protection.kind === 'present' ? protection.requiredChecks : []
+  const blocked = protection.kind === 'unavailable' ? BLOCKED_REASON : null
+  const needsCi = facts.testFileCount > 0 && !ci
 
-  if (protection.kind === 'none') missing.push('branch protection')
-  if (readable) {
-    if (protection.kind === 'none' || !protection.prRequired) missing.push('PR required')
-    if (protection.kind === 'none' || !protection.forcePushesOff) missing.push('force pushes off')
+  const changes = []
+  if (protection.kind === 'none' || protection.kind === 'present') {
+    // No protection reads as every item off.
+    const p = protection.kind === 'present' ? protection : null
+    const have = p?.requiredChecks ?? []
+    if (!p) changes.push('branch protection')
+    if (!p || !p.prRequired) changes.push('PR required')
+    if (p?.prRequired && !p.noApprovalNeeded) changes.push('no approving review required')
+    if (!p || !p.forcePushesOff) changes.push('force pushes off')
+    if (!p || !p.deletionsOff) changes.push('deletion off')
+    if (!p || !p.enforceAdmins) changes.push('applies to admins')
+    if (!p || !p.strict) changes.push('up to date required')
+    for (const name of requiredChecks) if (!have.includes(name)) changes.push(`required check: ${name}`)
+    for (const name of have) if (!requiredChecks.includes(name)) changes.push(`stop requiring: ${name}`)
   }
-  if (!facts.allowAutoMerge) missing.push('auto merge on')
-  if (facts.testFileCount > 0 && !ci) missing.push('needs CI first')
-  if (readable) {
-    for (const name of prChecks) {
-      if (!requiredChecks.includes(name)) missing.push(`required check: ${name}`)
-    }
-    if (verdicts) {
-      for (const name of VERDICT_CHECKS) {
-        if (!requiredChecks.includes(name)) missing.push(`required check: ${name}`)
-      }
-    }
-  }
+  if (!facts.allowAutoMerge) changes.push('auto merge on')
+  if (!facts.allowSquashMerge) changes.push('squash merge allowed')
 
   const flags = []
   if (facts.testFileCount === 0 && !facts.testFilesTruncated) {
     flags.push(ci ? 'no tests, short track off' : 'agent verdicts only, short track off')
   }
 
-  if (protection.kind === 'unavailable') {
-    return {
-      state: 'blocked',
-      reason: 'branch protection is not available on the current plan',
-      missing,
-      flags,
-      layers,
-    }
-  }
-  return { state: missing.length > 0 ? 'not set up' : 'set up', missing, flags, layers }
+  return { blocked, needsCi, changes, requiredChecks, notRequired, layers, flags }
+}
+
+export function evaluate(facts) {
+  const plan = planChanges(facts)
+  const missing = plan.needsCi ? [...plan.changes, 'needs CI first'] : plan.changes
+  const base = { missing, flags: plan.flags, layers: plan.layers, notRequired: plan.notRequired }
+  if (plan.blocked) return { state: 'blocked', reason: plan.blocked, ...base }
+  return { state: missing.length > 0 ? 'not set up' : 'set up', ...base }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +268,7 @@ function gatherFacts(call, fullName) {
   if (protection.kind === 'error') throw new Error(`branch protection: ${protection.message}`)
 
   const prs = parseOk(
-    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'statusCheckRollup']),
+    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup']),
     'pull requests'
   )
 
@@ -244,9 +292,11 @@ function gatherFacts(call, fullName) {
   return {
     visibility: info.private ? 'private' : 'public',
     allowAutoMerge: info.allow_auto_merge === true,
+    allowSquashMerge: info.allow_squash_merge === true,
     protection,
     prCount: prs.length,
     prCheckNames: prCheckNames(prs),
+    ciChecks: newestChecks(prs).names,
     testFileCount,
     testFilesTruncated,
     pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),
@@ -302,12 +352,19 @@ export function render({ login, entries }) {
     lines.push(`  visibility: ${facts.visibility}`)
     lines.push(`  protection: ${PROTECTION_LABELS[facts.protection.kind]}`)
     lines.push(`  auto merge: ${facts.allowAutoMerge ? 'on' : 'off'}`)
+    lines.push(`  squash merge: ${facts.allowSquashMerge ? 'allowed' : 'not allowed'}`)
+    if (facts.protection.kind !== 'unavailable') {
+      const p = facts.protection.kind === 'present' ? facts.protection : {}
+      lines.push(`  applies to admins: ${p.enforceAdmins ? 'yes' : 'no'}`)
+      lines.push(`  up to date required: ${p.strict ? 'yes' : 'no'}`)
+    }
     const required = facts.protection.kind === 'present' ? facts.protection.requiredChecks : []
     lines.push(`  required checks: ${required.length > 0 ? required.join(', ') : 'none'}`)
     lines.push(`  pipeline labels: ${facts.pipelineLabels ? 'yes' : 'no'}`)
     lines.push(`  layers: ${result.layers.join(', ')}`)
     if (result.reason) lines.push(`  blocked: ${result.reason}`)
     if (result.missing.length > 0) lines.push(`  missing: ${result.missing.join(', ')}`)
+    if (result.notRequired?.length > 0) lines.push(`  not required: no longer runs: ${result.notRequired.join(', ')}`)
     const names = facts.prCheckNames.length > 0 ? facts.prCheckNames.join(', ') : 'none'
     lines.push(`  PR checks (${facts.prCount} PR${facts.prCount === 1 ? '' : 's'} read): ${names}`)
     lines.push(`  test files: ${facts.testFilesTruncated ? 'at least ' : ''}${facts.testFileCount}`)
