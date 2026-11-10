@@ -307,7 +307,9 @@ pollProcs()
 //    watcher capture at gh-write time?
 // ---------------------------------------------------------------------------
 const finished = exitInfo.code === 0
-const stalled = !finished && exitInfo.signal === 'SIGKILL'
+// Both signals count: the hard kill sends SIGTERM first and the wrapper has
+// no SIGTERM handler, so a stalled seat usually dies in that phase.
+const stalled = !finished && (exitInfo.signal === 'SIGTERM' || exitInfo.signal === 'SIGKILL')
 log(`VERDICT arm=${arm} finished=${finished} stalled=${stalled} code=${exitInfo.code} signal=${exitInfo.signal}`)
 log(`log file: ${logPath}`)
 
