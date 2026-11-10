@@ -64,7 +64,10 @@ Host implementations:
   `CLAUDE_CODE_ADAPTER_TABLE` picks the table for the run. The seat runs
   with `--model`, `--effort`, `--permission-mode auto`, and
   `--output-format json`; its working directory is the lead-owned package
-  worktree, passed as execFile's `cwd` (there is no flag for it). Every
+  worktree, passed as the `cwd` option of node's `spawn` (there is no flag
+  for it). The adapter starts the seat with `spawn`, not `execFile`
+  (#467), so it can close the seat's stdin: stdin is `/dev/null` and
+  stdout and stderr are pipes. Every
   orchestrai plugin key is disabled in `--settings`, because a second
   account-synced copy otherwise loads silently. Two environment escapes
   are set per seat: `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1` (a custom model
