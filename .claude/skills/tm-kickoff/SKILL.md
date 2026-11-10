@@ -239,8 +239,9 @@ it when the package ships (step 7) or parks.
       human review. On a set-up repo nobody reads the PR before it merges:
       file the open should-fix findings and untested claims as one
       follow-up issue (below), then put `Follow-up: #<m>` in the summary,
-      or `Follow-up: none` when nothing is open. Nits stay in the summary
-      only. Add one outcome line. It opens with
+      or `Follow-up: none` when nothing is open. On a set-up repo, also list
+      the approving review's nits in the summary; nits are never filed.
+      Add one outcome line. It opens with
       "statuses on `<sha7>`" (the first 7 characters of the script's
       `sha`), or with "no statuses" when nothing was posted (`head-moved`,
       or a ship-decision error). Then it says either queued, or waiting for
@@ -260,8 +261,8 @@ it when the package ships (step 7) or parks.
       - **Nothing open.** File nothing.
       - **One per package.** If an earlier summary comment on this issue
         carries `Follow-up: #<m>`, file no second one: post the open items
-        #<m> does not list yet as a comment on #<m>, and carry the same
-        `Follow-up: #<m>` line in this summary.
+        #<m> does not list yet as a comment on #<m>, and put
+        `Follow-up: #<m>` in this summary, even when nothing is open now.
       - **Title and labels.** `Follow-ups from PR #<pr>: <issue title>`,
         with the size label from CLAUDE.md "Sizing" (most are `size:S`)
         and no other label. No `Part of batch` line.
@@ -274,7 +275,7 @@ it when the package ships (step 7) or parks.
         ## What to build
 
         Open items from PR #<pr>. None of them blocks the merge, and the
-        repo merges PRs without a human review.
+        PR may merge without a human review.
 
         Should-fix findings:
         1. <the finding, verbatim from the reviewer report>
@@ -398,13 +399,14 @@ Routing rules:
    re-review (re-review only on the lean track). Step 7 posts the verdict
    statuses only on the commit they were earned on, so a lead-verified
    head could never merge by itself. The read is the three calls of step 7
-   sub-step 2, run fresh before each reviewer fix dispatch and on a resume
+   sub-step 2, run fresh before each reviewer fix dispatch, again after
+   the CI check in rule 3 (set up there means fall back), and on a resume
    at a `Lead-verified` marker. Set up means auto merge `true`, and either
-   the branch read `true` or the rules read above 0. A read that fails or
-   prints `null` counts as set up, here and in step 7 sub-step 7. That is
-   the reverse of the queue decision on purpose: the cost is one extra
-   re-test and re-review, or one follow-up issue a human merge did not
-   need.
+   the branch read `true` or the rules read above 0. If any of the three
+   reads fails or prints `null`, the repo counts as set up, here and in
+   step 7 sub-step 7. That is the reverse of the queue decision on
+   purpose: the cost is one extra re-test and re-review, or one follow-up
+   issue a human merge did not need.
 
 ### Limit deaths (run-long fallback and resume)
 

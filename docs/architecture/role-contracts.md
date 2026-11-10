@@ -212,7 +212,7 @@ LESSONS: <optional, one line: a process lesson that generalizes beyond this pack
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
 otherwise. Still list should-fix findings and nits; they do not go into fix
 rounds. On a repo set up for auto merge, should-fix findings go to one
-follow-up issue per package and nits stay on the PR. Elsewhere, both go to
+follow-up issue per package, and nits are not filed. Elsewhere, both go to
 the PR for the human review.
 
 LESSONS is optional. Write it only when this run taught a process lesson
