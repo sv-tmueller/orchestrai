@@ -44,8 +44,8 @@ Slice the need into independent `size:S` or `size:M` packages. If the user
 hands over a ready-made package labelled `size:L` or `size:XL`, reject it
 before sign-off and ask to split it first (a single oversized package risks
 hitting the session limit mid-task). No `Blocked by:` between packages in the
-same batch; dependent work waits for a later batch, after the user has merged
-this one. Up to 6 packages per batch; propose fewer when the need is small.
+same batch; dependent work waits for a later batch, after this one has
+merged. Up to 6 packages per batch; propose fewer when the need is small.
 If the need exceeds one batch, say what is deferred to the next batch and why.
 
 Present the batch in chat, per package:
@@ -182,9 +182,9 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
   `docs/architecture/`. Parked packages are logged on the batch issue and held
   for the report. Do not interrupt the user unless ALL packages are parked;
   then report immediately, since nothing is progressing.
-- **Live checklist.** Mirror each package outcome (PR ready, parked) to the
-  batch issue checklist as it happens, so a dropped session can resume from
-  the issue.
+- **Live checklist.** Mirror each package outcome (merged, queued, waiting
+  for a human merge, parked) to the batch issue checklist as it happens, so a
+  dropped session can resume from the issue.
 
 ## 5. Report
 
@@ -204,23 +204,25 @@ below and never blocks it. If the batch ran across more than one session
 say so in the comment.
 
 Then post the report to the batch issue:
-PRs ready for review, every decision made during the run, parked packages
+PRs merged, queued, and waiting for a human merge (with the reason, as in
+kickoff section 4), every decision made during the run, parked packages
 with their open questions, anything deferred, and any lessons (collected as
 in kickoff section 4; promotion stays human). End both the batch-issue
 report and the chat digest with:
 
 ```
 ## What happened
-- PR #NN ready  - <package title>
-- PR #NN ready  - <package title>
+- PR #NN merged  - <package title>
+- PR #NN queued (waiting on checks)  - <package title>
+- PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
 - Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Token report: <link to the batch-issue comment>
 
 ## Next steps
 1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
-2. Review & merge: #NN, #NN (merging closes each package issue via its
-   Closes #N)
+2. Review & merge: #NN, #NN (only the PRs waiting for a human merge;
+   merging closes each package issue via its Closes #N)
 3. Decide on #NN (retry or close)
 4. Close this batch issue by hand once everything is merged (it is the
    run record), or run /tm-advisor to confirm the merges, close it, and
@@ -249,7 +251,8 @@ With no arguments, `/tm-advisor` enters the resume path:
 
    ```
    ## What happened
-   - PR #NN ready  - <package title>
+   - PR #NN queued (waiting on checks)  - <package title>
+   - PR #NN waiting for a human merge (<reason>)  - <package title>
    - #NN parked (needs-human): <the open question>
 
    ## Next steps
@@ -264,17 +267,19 @@ With no arguments, `/tm-advisor` enters the resume path:
    no longer carries `needs-human` (the user removed the label or closed the
    issue). Once every package has a merged PR or has cleared that label,
    confirm merges: for each PR number recorded in the batch checklist, run
-   `gh pr view <n> --json state` and verify the state is `MERGED`. If any PR
-   is not yet merged, report which ones are outstanding and stop:
+   `gh pr view <n> --json state,autoMergeRequest` and verify the state is
+   `MERGED`. If any PR is not yet merged, report which ones are outstanding
+   and stop. A PR with `autoMergeRequest` set is queued: no action, it is
+   waiting on checks. Any other unmerged PR is waiting for a human merge:
 
    ```
    ## What happened
-   - PR #NN ready  - <package title>
-   - PR #NN ready  - <package title>
+   - PR #NN queued (waiting on checks)  - <package title>
+   - PR #NN waiting for a human merge (<reason>)  - <package title>
 
    ## Next steps
-   1. Merge the outstanding PRs: #NN, #NN (merging closes the package
-      issues via Closes #N)
+   1. Merge the PRs waiting for a human merge: #NN, #NN (merging closes
+      the package issues via Closes #N). Queued PRs need no action.
    2. Close this batch issue by hand, or run /tm-advisor to confirm the
       merges, close it, and propose the next batch
    ```

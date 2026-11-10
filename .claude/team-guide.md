@@ -51,9 +51,11 @@ plan, `/tm-advisor` file only turns it into sized issues); mark dependencies
 with a literal `Blocked by: #N` line in the issue body. Then `/tm-kickoff <issues>` (user-typed only;
 it does not auto-trigger) runs unblocked issues in parallel waves to ready PRs.
 Under `/tm-kickoff` the sub-plan comment substitutes for the full plan in `docs/plans/`.
-Merging stays human and gates the next wave. Caps, routing,
-and report contracts live in `.claude/skills/tm-kickoff/SKILL.md` and the agent
-files; they are not repeated here.
+On a repo set up for it, the lead queues the merge once both verdicts are
+recorded; elsewhere merging stays human. Either way the merge gates the next
+wave. Caps, routing, and report contracts live in
+`.claude/skills/tm-kickoff/SKILL.md` and the agent files; they are not
+repeated here.
 
 The lead builds one read-only dependency environment per run and passes its
 path to the developer, tester, and lean-track reviewer dispatches, instead of
@@ -118,8 +120,9 @@ runs the team uninterrupted and reports (mechanics:
 `.claude/skills/tm-advisor/SKILL.md`). The rules that matter session-wide:
 
 - A batch is up to 6 independent `size:S`/`size:M` issues, run through the
-  kickoff pipeline 3 at a time. Merging stays human; dependent work waits
-  for the next batch.
+  kickoff pipeline 3 at a time. A merge is queued by the lead on a repo set up
+  for auto merge, and otherwise stays human; dependent work waits for the
+  next batch.
 - One sign-off per batch, with two approval outcomes: dispatch (file the
   batch and package issues, then run) or file only (package issues to
   the backlog, no batch issue, no run). Nothing lands on GitHub before it.
@@ -172,7 +175,8 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
   fallback this policy prescribes.
 - Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
   effort is the primary model, backstopped by the lead and, for architect
-  and reviewer, by the human merge gate. The per-call fallback is Sonnet at
+  and reviewer, by the verdict statuses and, where the lead does not queue
+  the merge, the human merge gate. The per-call fallback is Sonnet at
   the same xhigh effort. The critic stage of every `tm-` workflow
   (`.claude/workflows/`) already retries on sonnet automatically when Opus
   returns nothing, though each run still burns one doomed Opus dispatch

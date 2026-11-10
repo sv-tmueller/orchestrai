@@ -25,7 +25,7 @@ other.
 
 ```mermaid
 graph TD
-    H["Human<br/>files and sizes issues, merges PRs"] --> L
+    H["Human<br/>files and sizes issues, merges PRs the lead did not queue"] --> L
     L["Lead - main session<br/>lead tier (xhigh)<br/>routes every handoff"]
 
     L -->|"1 sub-plan"| A["architect<br/>judgment tier (xhigh)<br/>read-only - approach"]
@@ -45,7 +45,7 @@ graph TD
     P -.->|"baseline / bottleneck / target"| L
 
     L -->|"5 ready PR"| G[("GitHub<br/>sub-plans, verdicts, labels")]
-    G -->|"6 human merges"| H
+    G -->|"6 merge: queued by the lead, or human"| H
 
     subgraph WF["Review workflows"]
         RC["tm-review-changes<br/>worker reviewers + worker verifiers + 1 judgment critic"]
@@ -74,6 +74,12 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   only once their commits are on origin; a wave-end backstop catches the rest,
   including a lead checkout whose HEAD a dispatched agent moved. Mechanics:
   "Worktree cleanup (deterministic)" in the same file.
+- **Auto merge.** At the end of a package the lead records both verdicts as
+  commit statuses (`orchestrai/review`, `orchestrai/test`) on every repo. On a
+  repo that is set up for auto merge (the setting on, plus branch protection
+  or a ruleset) it also queues the merge. Elsewhere, and whenever the review
+  was a run-long fallback or the head moved after the verdicts, the PR waits
+  for a human merge. Mechanics: step 7 in the same file.
 - **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
   seat contracts, so the lead routes on the short report instead of expanding
   it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
@@ -81,9 +87,9 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   (exact text and lead-verified rounds)" and the routing rules in the same
   file.
 
-The lean track, the dependency environment, worktree cleanup, and capped seat
-reports apply to Claude Code only for now; Hermes and Codex mirroring is
-pending. Hermes already caps fix rounds at 3 per stage.
+The lean track, the dependency environment, worktree cleanup, auto merge, and
+capped seat reports apply to Claude Code only for now; Hermes and Codex
+mirroring is pending. Hermes already caps fix rounds at 3 per stage.
 
 ## Components
 

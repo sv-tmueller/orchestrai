@@ -25,12 +25,12 @@ a dropped connection loses the in-flight sub-tree. Our handoffs go through the
 lead and land as GitHub artifacts (sub-plan comments, PR verdict comments,
 labels), so a dropped session resumes from GitHub instead of restarting. We keep
 the separation a nested model gives (one concern per agent, evidence flows up,
-independent review, draft PR with the human merging) without trading away
+independent review, draft PR with a queued or human merge) without trading away
 resumability. Parallelism comes from worktree isolation, not nesting.
 
 ```mermaid
 graph TD
-    H["Human<br/>files and sizes issues, merges PRs"] --> L
+    H["Human<br/>files and sizes issues, merges PRs the lead did not queue"] --> L
     L["LEAD - main session (opus, xhigh effort)<br/>message bus and router<br/>owns no code; durable state lives in GitHub"]
 
     L -->|"JOB: SUB_PLAN / SPLIT / ARBITRATION"| A["architect (opus)<br/>read-only - approach, splits, arbitration"]
@@ -101,7 +101,7 @@ sequenceDiagram
         Note over L,T: re-test, then re-review
     end
     R-->>L: VERDICT: APPROVE
-    Note over L: gh pr ready, summary comment. Human merges.
+    Note over L: ship decision, verdict statuses, gh pr ready, summary comment. Queues the merge on a set-up repo, else a human merges.
 ```
 
 Up to three packages run this pipeline at once, in isolated worktrees. The lead
