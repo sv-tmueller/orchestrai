@@ -179,16 +179,20 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
 - **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
   for: a change to scope or acceptance criteria, a new dependency or cost,
   anything irreversible or outward-facing, or a conflict with
-  `docs/architecture/`. Parked packages are logged on the batch issue and held
+  `docs/architecture/`. A second repair of a queued PR (kickoff's "Repair"
+  subsection) also parks inside a batch: it is the pipeline's own limit, like
+  the fix-round cap. Parked packages are logged on the batch issue and held
   for the report. Do not interrupt the user unless ALL packages are parked;
   then report immediately, since nothing is progressing.
 - **Live checklist.** Mirror each package outcome (merged, queued, waiting
   for a human merge, parked) to the batch issue checklist as it happens, so a
-  dropped session can resume from the issue.
+  dropped session can resume from the issue. Mirror the repair start and
+  outcome lines (`Repair (clean update)`, `Repair (conflict)`) the same way.
 
 ## 5. Report
 
-When every package is ready or parked, run the token report and post it as
+When every package is ready or parked and the repair pass has settled
+(kickoff section 4), run the token report and post it as
 its own comment on the batch issue, before the report comment below (which
 links to it):
 
@@ -205,7 +209,7 @@ say so in the comment.
 
 Then post the report to the batch issue:
 PRs merged, queued, and waiting for a human merge (with the reason, as in
-kickoff section 4), every decision made during the run, parked packages
+kickoff section 4), which PRs were repaired, every decision made during the run, parked packages
 with their open questions, anything deferred, and any lessons (collected as
 in kickoff section 4; promotion stays human). End both the batch-issue
 report and the chat digest with:
@@ -213,9 +217,11 @@ report and the chat digest with:
 ```
 ## What happened
 - PR #NN merged  - <package title>
+- PR #NN merged (repaired: clean update)  - <package title>
 - PR #NN queued (waiting on checks)  - <package title>
 - PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
+- #NN parked (needs-human): second repair needed: <reason>
 - Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Token report: <link to the batch-issue comment>
 

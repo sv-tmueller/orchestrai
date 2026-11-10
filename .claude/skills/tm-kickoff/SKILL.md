@@ -188,6 +188,8 @@ it when the package ships (step 7) or parks.
    the last tester verdict is not PASS (fix round not yet re-tested),
    complete the test loop first before shipping. The statuses post on every
    repo; only the queue depends on the repo being set up for auto merge.
+   After a PR is queued, run a repair pass (see "Repair (queued PRs behind
+   the default branch)" below).
    1. Read the head: `gh pr view <pr> --json headRefOid --jq .headRefOid`.
    2. Read the setup now, never from an earlier run. A read that fails or
       prints `null` is passed as `unknown` and never parks the package.
@@ -208,6 +210,8 @@ it when the package ships (step 7) or parks.
       - Verdict commit, full track: the last tester PASS `COMMIT`. The
         reviewer runs right after that PASS with nothing pushed between.
       - Verdict commit, lean track: the SHA on the reviewer's `CHECKS` line.
+      - Verdict commit, carried: the new head, only as the "Repair (queued PRs
+        behind the default branch)" subsection defines it.
       - A lead-verified ship has no APPROVE on the new head and the head
         differs from the tester's PASS commit, so pass `none`. The script
         reports `head-moved`: nothing is posted and nothing is queued.
@@ -451,6 +455,151 @@ When in doubt, full.
   track change to full, the architect item stays
   `[-] 1. sub-plan skipped (lean)` and the tester item runs as normal
   (`[>] 3. test   <- dispatching tester`).
+
+### Repair (queued PRs behind the default branch)
+
+A queued PR waits for its checks, and the default branch can move on while it
+waits. This pass brings such a PR up to date and, when its own changes are
+untouched, carries the verdicts to the new head so the merge can fire again.
+It writes to GitHub only through the commands below. In this text `<default>`
+is the PR's base branch (`baseRefName`), `<V>` is the head the verdict
+statuses sit on, and `<H>` is the head after the update.
+
+**Repair set.** The open PRs of this run's packages that are queued
+(`autoMergeRequest` set), plus the PR currently in repair. A queued PR that an
+earlier, dropped session queued belongs to the set too. Step 7 queues a merge
+only on a set-up repo, so on any other repo the set is empty and nothing here
+runs.
+
+**Pass.** For each PR in the set run
+`gh pr view <pr> --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName`.
+
+- `MERGED`: drop it from the set.
+- `UNKNOWN`: read it again at the next pass.
+- If the slot is free, start a repair on the first PR, in the order queued,
+  whose `mergeStateStatus` is `BEHIND` (clean attempt) or `DIRTY` (straight
+  to the conflict path, no update call).
+
+**Triggers.** Run a pass after step 7 queues a PR, when the slot frees, and at
+wave end, repeated every 60 s until the repair pass has settled (section 4).
+When several packages ship in the same turn, finish step 7 for all of them,
+then run one pass.
+
+**The slot.** There is one per run, so only one PR is updated at a time. It is
+held from the start marker until the PR has merged, parked, or is waiting for a
+human merge. After a re-queue it is held until `gh pr checks <pr>` stops
+exiting 8 (pending) and one more 60 s cycle passes with no merge, so the next
+update cannot land just before this PR merges. While it is held, no other
+update or conflict path starts, and the lead keeps routing the other packages.
+A conflict path also takes the next free one of the 3 package slots, ahead of
+packages not yet started.
+
+**Clean attempt.** In this order:
+
+1. Precondition: both statuses are `success` on `<V>`. This needs
+   `gh api 'repos/{owner}/{repo}/commits/<V>/status' --jq '[.statuses[] |
+   select((.context=="orchestrai/test" or .context=="orchestrai/review") and
+   .state=="success")] | length'` to print 2. Otherwise take the conflict path
+   with the reason `statuses missing on <V7>`, before any write.
+2. Post on the PR: `Repair (clean update) from <V40>: behind <default>.`
+3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. The
+   repair never relies on the old request.
+4. Update: `gh api -X PUT 'repos/{owner}/{repo}/pulls/<pr>/update-branch' -f
+   expected_head_sha=<V>`. This is always a merge update and is pinned to
+   `<V>`. A conflict or a moved head returns 422 and a nonzero exit. Do not
+   use `gh pr update-branch`: it pins to its own read of the head.
+5. The call is asynchronous. Read `headRefOid` every 60 s, up to 10 minutes,
+   until it differs from `<V>`. That value is `<H>`.
+6. `git fetch origin`, then
+   `node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/same-changes.mjs"
+   --from <V> --head <H> --default-ref origin/<default>`. It makes no gh
+   calls and prints `{ result, reason }`. Carry the verdicts only on exit 0
+   with `identical`. Every other result, and exit 2, takes the conflict path.
+7. Wait for checks to appear. Every 60 s, up to 10 minutes, run
+   `gh pr view <pr> --json headRefOid,statusCheckRollup --jq '.headRefOid,
+   (.statusCheckRollup | length)'` and continue once the count is above 0.
+   Still 0 after 10 minutes means "no checks reported", which is not green.
+   Then every 60 s run `gh pr checks <pr> > /dev/null 2>&1` and read only the
+   exit code: 8 is pending, 0 is green, anything else is red. The head must
+   still be `<H>` throughout.
+8. Carry the verdicts through step 7, running sub-steps 1 to 4 and 6 only,
+   with `<H>` as the verdict commit (sub-step 3 names it). Sub-step 1 must
+   read `<H>`. Work out `--track` and `--fallback-review` as step 7 does. Skip
+   sub-step 5 (the PR is already ready) and sub-step 7 (the outcome line
+   below replaces it). `ship-decision.mjs` is unchanged.
+9. Post the outcome on the PR and on the issue, and mirror it to the batch
+   issue: `Repair (clean update) <V7>..<H7>: same changes, CI green on <H7>,
+   statuses carried; <merged|queued|waiting for a human merge (<reason>)>.`
+   Classify it with `gh pr view <pr> --json state,autoMergeRequest` read
+   after sub-step 6: `MERGED` is merged, a set `autoMergeRequest` is queued,
+   anything else is waiting for a human merge, with the script's `reason`, or
+   "queue refused: <first stderr line>" or "status post failed: <context>" as
+   sub-step 6 records. None of these parks the PR, none is retried, and none
+   counts as a repair.
+
+**Conflict path.** It starts on `DIRTY`, on any update refusal, and on any
+failed condition above. The reason is exactly one of:
+
+- `conflicts with <default>`
+- `update refused: <first stderr line>`
+- `update did not land in 10 minutes`
+- `head moved during the repair`
+- `no checks reported on <H7>`
+- `CI red on <H7>`
+- `own changes differ (same-changes: <result>)`
+- `same-changes error`
+- `statuses missing on <V7>`
+
+In order:
+
+1. Count (below). A `Repair (conflict)` marker already on the PR means park.
+2. Post on the PR: `Repair (conflict) from <head40>: <reason>.` (`<head40>` is
+   the PR head when the path starts.) Mirror it to the batch issue.
+3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. Then
+   run `gh pr ready --undo <pr>` and label the issue `in-progress` and
+   `phase:developer`.
+4. Dispatch the developer in the fix-round format: "issue #<n>, branch
+   <branch>: fetch it, work detached on it. Repair: <reason>. Merge
+   `origin/<default>` into it with a merge commit (no rebase, no force push),
+   resolve any conflict so both sides' changes hold, fix what fails, run the
+   full check suite, and push. If nothing needs a change, push nothing and say
+   so in NOTES." Annotate the plan-status item `(repair)`. The developer is
+   dispatched in every conflict-path case.
+5. Continue from step 3: tester, then reviewer. On the lean track the lean
+   reviewer's check run stands in for the re-test, and the lean diff check
+   still applies. Fix-round counters carry on from the PR comments with no
+   reset.
+6. Ship again through step 7 in full. On a repair re-ship, sub-step 7's
+   summary covers the repair round only. Findings from the first ship are not
+   repeated, filed or posted again.
+7. Free the slot under the rule above.
+
+**Count.** The number of `Repair (conflict)` markers on the PR. A clean update
+does not count, because it dispatches no agent and changes no reviewed line. A
+resumed run reads the same markers.
+
+**Resume.** A PR whose latest `Repair (clean update) from` marker has no later
+outcome line joins the repair set. Take `<V>` from the marker. If the head is
+still `<V>`, update again (same attempt, no new marker). Otherwise take the
+head as `<H>` and continue at the same-changes step. A draft PR with
+`in-progress` whose latest stage comment is a `Repair (conflict)` marker goes
+back to the developer with that reason; the gate's resume rule for draft PRs
+handles it.
+
+**Parking.** A second conflict-path repair is not started. Instead:
+
+1. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`.
+2. Post on the issue: `Parked: PR #<pr> needs a second repair: <reason>. One
+   repair per PR; the first: <link to the Repair (conflict) marker>.`
+3. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`
+   and `phase:*` off.
+4. Mirror it to the batch issue and free the slot. The run carries on with the
+   next pass and the other packages.
+
+The repair queues a merge only through sub-step 6 of step 7. Its other merge
+command is `--disable-auto`. Never `--admin`, and never a merge without
+`--auto`. If `--match-head-commit` is ignored together with `--auto`, the
+required statuses, which exist only on `<H>`, still hold any later commit.
 
 ### Remote stage dispatch (columns.json)
 
@@ -875,6 +1024,13 @@ The wave ends when every package has shipped or parked and none is waiting
 on a runner: a package in the waiting list keeps the run open, and the lead
 keeps polling (see "Remote stage dispatch (columns.json)" above).
 
+The wave also ends only when the repair pass has settled (see "Repair
+(queued PRs behind the default branch)" above): the slot is free, and every
+PR in the repair set has merged, parked, is waiting for a human merge, or is
+queued with checks that stopped pending a full cycle ago (reported as
+queued). Settle it before the worktree cleanup, because the conflict path
+dispatches agents.
+
 Before reporting, run the worktree cleanup above (no agents in flight) so the
 lead's checkout is left on the default branch with a clean tree, then post the
 token report from "Token report (wave end)" above on each package issue.
@@ -887,17 +1043,22 @@ instead (its skill section 5).
 
 Report to the user: PRs merged, queued, and waiting for a human merge (with
 the reason), packages parked (`needs-human`, with their open questions),
-issues deferred to later waves or stopped at the gate, and any lessons.
+issues deferred to later waves or stopped at the gate, which PRs were
+repaired (and how), and any lessons.
 Classify each ready PR with the gate's read (`gh pr view <n> --json
 state,autoMergeRequest`, see "Resume detection") at report time, so a merge
-that landed during the wave shows as merged. End with:
+that landed during the wave shows as merged. A repaired PR's line gets the
+suffix `(repaired: clean update)` or `(repaired: conflict resolved)`, as in
+the merged example below, on whichever outcome it ended in. End with:
 
 ```
 ## What happened
 - PR #NN merged  - <package title>
+- PR #NN merged (repaired: clean update)  - <package title>
 - PR #NN queued (waiting on checks)  - <package title>
 - PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
+- #NN parked (needs-human): second repair needed: <reason>
 - Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
