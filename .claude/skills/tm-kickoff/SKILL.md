@@ -579,7 +579,8 @@ In order:
    stage`: a repair holds the one slot, and a runner stage has no timeout.
 2. Post on the PR: `Repair (conflict) from <head40>: <reason>.` (`<head40>` is
    the PR head when the path starts.) Mirror it to the batch issue.
-3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
+3. Read `gh pr view <pr> --json autoMergeRequest` again. If
+   `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
    exits nonzero, read the PR's `state` again. If it is `MERGED` or `CLOSED`,
    drop the PR from the set and stop. Otherwise park the package (Parking,
    below) with the reason `could not switch auto merge off: <first stderr
@@ -639,17 +640,22 @@ open (a fix-round cap, BLOCKED, an unanswered NEEDS_CONTEXT). A park here is
 final for the pipeline: it never picks the PR up again (Resume, above). In
 order:
 
-1. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
-   exits nonzero, carry on, and add "auto merge may still be on" to both
-   comments below.
+1. Read `gh pr view <pr> --json state,autoMergeRequest` again. If `state` is
+   `MERGED` or `CLOSED`, drop the PR from the set and stop. If
+   `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. If it
+   exits nonzero, read the PR's `state` again: if it is `MERGED` or `CLOSED`,
+   drop the PR from the set and stop; otherwise carry on, and add "auto merge
+   may still be on" to both comments below.
 2. Post on the PR: `Repair parked: <reason>.` This is the repair's closing
    line.
 3. Post on the issue: `Parked: PR #<pr>: <reason>.`, then a link to the first
    `Repair (conflict) from` marker for a second repair, or to the open `from`
    marker for an interrupted repair, and then this text: "The pipeline does
    not pick this PR up again. To finish it, bring the branch up to date and
-   merge it yourself. To have the package rebuilt, close the PR, delete its
-   branch, remove `needs-human` and run /tm-kickoff on this issue."
+   merge it yourself; the merge needs `orchestrai/test` and
+   `orchestrai/review` as `success` on the new head, and nothing posts them
+   for you. To have the package rebuilt, close the PR, delete its branch,
+   remove `needs-human` and run /tm-kickoff on this issue."
 4. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`
    and `phase:*` off.
 5. Mirror it to the batch issue and free the slot. The run carries on with the
@@ -1087,8 +1093,9 @@ The wave also ends only when the repair pass has settled (see "Repair (queued
 PRs behind the default branch)" above): the slot is free, and every PR in the
 repair set has merged, parked, is waiting for a human merge, or is queued with
 checks that stopped pending a full cycle ago or that have been pending for 30
-minutes since the re-queue (reported as queued). Settle it before the worktree
-cleanup, because the conflict path dispatches agents.
+minutes since the first wave-end pass or since its latest re-queue, whichever
+is later (reported as queued). Settle it before the worktree cleanup, because
+the conflict path dispatches agents.
 
 Before reporting, run the worktree cleanup above (no agents in flight) so the
 lead's checkout is left on the default branch with a clean tree, then post the

@@ -211,10 +211,10 @@ say so in the comment.
 
 Then post the report to the batch issue:
 PRs merged, queued, and waiting for a human merge (with the reason, as in
-kickoff section 4), which PRs were repaired, every decision made during the run, parked packages
-with their open questions, anything deferred, and any lessons (collected as
-in kickoff section 4; promotion stays human). End both the batch-issue
-report and the chat digest with:
+kickoff section 4), which PRs were repaired, every decision made during the
+run, parked packages with their open questions, anything deferred, and any
+lessons (collected as in kickoff section 4; promotion stays human). End both
+the batch-issue report and the chat digest with:
 
 ```
 ## What happened
