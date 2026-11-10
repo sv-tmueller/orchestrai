@@ -6,7 +6,7 @@
  * dispatchSeat, exactly as the tm-kickoff SKILL.md one-liner does, with a
  * /proc watcher logging pid/ppid, fd/0 target, wchan, and timestamps for
  * every claude/gh/node process in the seat's tree. The probe task is the
- * stall shape from the four recorded occurrences, compressed: branch off
+ * stall shape from the five recorded occurrences, compressed: branch off
  * origin/main in a scratch worktree under /tmp, empty commit, push, then
  * `gh pr create --dry-run` (dry-run only; a real PR is not authorized on
  * this repo). stdin state at gh-write time is observable even without a
@@ -35,13 +35,11 @@
  * committed to the repo.
  */
 
-import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, readlinkSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { spawn, execFileSync } from 'node:child_process'
+import { appendFileSync, existsSync, readFileSync, readlinkSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dir, '..')
@@ -158,8 +156,6 @@ function procState(pid) {
 // Enumerate all pids once per poll, record interesting ones (the seat's
 // tree and any gh/git process), and keep a ppid map so the tree is
 // derivable from the log.
-import { readdirSync } from 'node:fs'
-
 function pollProcs() {
   let pids
   try {
@@ -307,7 +303,9 @@ pollProcs()
 //    watcher capture at gh-write time?
 // ---------------------------------------------------------------------------
 const finished = exitInfo.code === 0
-const stalled = !finished && exitInfo.signal === 'SIGKILL'
+// Both signals count: the hard kill sends SIGTERM first and the wrapper has
+// no SIGTERM handler, so a stalled seat usually dies in that phase.
+const stalled = !finished && (exitInfo.signal === 'SIGTERM' || exitInfo.signal === 'SIGKILL')
 log(`VERDICT arm=${arm} finished=${finished} stalled=${stalled} code=${exitInfo.code} signal=${exitInfo.signal}`)
 log(`log file: ${logPath}`)
 
