@@ -474,6 +474,29 @@ describe('collect', () => {
     assert.deepEqual(seen, [['api', 'user']])
   })
 
+  test('collect sends calls through the guard: a rejected call never reaches the runner', () => {
+    // A repo whose full_name is `--web` makes the pull request call `pr list --repo --web ...`,
+    // which the guard refuses because a flag value starts with a dash.
+    const table = {
+      ...responses,
+      'api --paginate --slurp user/repos?affiliation=owner&per_page=100': json([[repo('octo', '--web', { full_name: '--web' })]]),
+      'api repos/--web': json({ private: false, allow_auto_merge: true, default_branch: 'main' }),
+      'api repos/--web/branches/main/protection': fail(404, 'Branch not protected'),
+    }
+    const { run, calls } = recordingRunner(table)
+    const result = collect(run)
+    assert.equal(
+      calls.some((args) => args[0] === 'pr'),
+      false,
+      'the runner received the rejected pr list call'
+    )
+    assert.equal(result.entries.length, 1)
+    assert.equal(result.entries[0].repo, '--web')
+    assert.equal(result.entries[0].result, undefined)
+    assert.match(result.entries[0].error, /not read-only/)
+    assert.match(render(result), /^--web: could not read: refusing a call that is not read-only/m)
+  })
+
   test('one entry per owned, unarchived repo, with the expected states', () => {
     const { run } = recordingRunner()
     const result = collect(run)
@@ -534,9 +557,19 @@ describe('collect', () => {
 describe('render', () => {
   const entry = (repo, result, facts = {}) => ({
     repo,
-    facts: { visibility: 'public', prCount: 3, prCheckNames: ['Unit tests'], testFileCount: 4, ...facts },
+    facts: {
+      visibility: 'public',
+      allowAutoMerge: true,
+      protection: { kind: 'present', requiredChecks: ['Unit tests'], prRequired: true, forcePushesOff: true },
+      pipelineLabels: false,
+      prCount: 3,
+      prCheckNames: ['Unit tests'],
+      testFileCount: 4,
+      ...facts,
+    },
     result,
   })
+  const setUp = { state: 'set up', missing: [], flags: [], layers: ['base', 'ci'] }
 
   test('prints a summary of counts per state and one block per repo', () => {
     const text = render({
@@ -586,6 +619,59 @@ describe('render', () => {
     })
     assert.match(text, /test files: at least 7/)
     assert.match(text, /flag: no tests, short track off/)
+  })
+
+  test('prints protection, auto merge, required checks and pipeline labels for a set-up repo', () => {
+    const text = render({ login: 'o', entries: [entry('o/a', setUp)] })
+    assert.match(text, /^ {2}protection: present$/m)
+    assert.match(text, /^ {2}auto merge: on$/m)
+    assert.match(text, /^ {2}required checks: Unit tests$/m)
+    assert.match(text, /^ {2}pipeline labels: no$/m)
+  })
+
+  test('lists every required check, including one that never runs on PRs', () => {
+    const protection = { kind: 'present', requiredChecks: ['Unit tests', 'stale-check'], prRequired: true, forcePushesOff: true }
+    const text = render({ login: 'o', entries: [entry('o/a', setUp, { protection })] })
+    assert.match(text, /^ {2}required checks: Unit tests, stale-check$/m)
+  })
+
+  test('says none for required checks when protection has none', () => {
+    const protection = { kind: 'present', requiredChecks: [], prRequired: true, forcePushesOff: true }
+    const text = render({ login: 'o', entries: [entry('o/a', setUp, { protection })] })
+    assert.match(text, /^ {2}protection: present$/m)
+    assert.match(text, /^ {2}required checks: none$/m)
+  })
+
+  test('prints protection none, auto merge off and pipeline labels yes', () => {
+    const text = render({
+      login: 'o',
+      entries: [
+        entry('o/a', { state: 'not set up', missing: ['branch protection'], flags: [], layers: ['base'] }, {
+          protection: { kind: 'none' },
+          allowAutoMerge: false,
+          pipelineLabels: true,
+        }),
+      ],
+    })
+    assert.match(text, /^ {2}protection: none$/m)
+    assert.match(text, /^ {2}auto merge: off$/m)
+    assert.match(text, /^ {2}required checks: none$/m)
+    assert.match(text, /^ {2}pipeline labels: yes$/m)
+  })
+
+  test('prints protection as not available on the current plan', () => {
+    const text = render({
+      login: 'o',
+      entries: [
+        entry(
+          'o/a',
+          { state: 'blocked', reason: 'branch protection is not available on the current plan', missing: [], flags: [], layers: ['base'] },
+          { protection: { kind: 'unavailable', message: 'Upgrade to GitHub Pro' } }
+        ),
+      ],
+    })
+    assert.match(text, /^ {2}protection: not available on the current plan$/m)
+    assert.match(text, /^ {2}required checks: none$/m)
   })
 
   test('uses no em dashes', () => {

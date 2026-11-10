@@ -278,6 +278,12 @@ export function collect(run) {
 // Output
 // ---------------------------------------------------------------------------
 
+const PROTECTION_LABELS = {
+  present: 'present',
+  none: 'none',
+  unavailable: 'not available on the current plan',
+}
+
 export function render({ login, entries }) {
   const count = (state) => entries.filter((e) => e.result?.state === state).length
   const unreadable = entries.filter((e) => e.error !== undefined).length
@@ -294,6 +300,11 @@ export function render({ login, entries }) {
     const { facts, result } = e
     lines.push(`${e.repo}: ${result.state}`)
     lines.push(`  visibility: ${facts.visibility}`)
+    lines.push(`  protection: ${PROTECTION_LABELS[facts.protection.kind]}`)
+    lines.push(`  auto merge: ${facts.allowAutoMerge ? 'on' : 'off'}`)
+    const required = facts.protection.kind === 'present' ? facts.protection.requiredChecks : []
+    lines.push(`  required checks: ${required.length > 0 ? required.join(', ') : 'none'}`)
+    lines.push(`  pipeline labels: ${facts.pipelineLabels ? 'yes' : 'no'}`)
     lines.push(`  layers: ${result.layers.join(', ')}`)
     if (result.reason) lines.push(`  blocked: ${result.reason}`)
     if (result.missing.length > 0) lines.push(`  missing: ${result.missing.join(', ')}`)
