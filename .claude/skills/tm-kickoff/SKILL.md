@@ -462,8 +462,8 @@ A queued PR waits for its checks, and the default branch can move on while it
 waits. This pass brings such a PR up to date and, when its own changes are
 untouched, carries the verdicts to the new head so the merge can fire again.
 It writes to GitHub only through the commands below. In this text `<default>`
-is the PR's base branch (`baseRefName`), `<V>` is the head the verdict
-statuses sit on, and `<H>` is the head after the update.
+is the repo's default branch, the same one step 7 sub-step 2 reads, `<V>` is
+the head the verdict statuses sit on, and `<H>` is the head after the update.
 
 **Repair set.** The open PRs of this run's packages that are queued
 (`autoMergeRequest` set), plus the PR currently in repair. A queued PR that an
@@ -471,10 +471,15 @@ earlier, dropped session queued belongs to the set too. Step 7 queues a merge
 only on a set-up repo, so on any other repo the set is empty and nothing here
 runs.
 
-**Pass.** For each PR in the set run
+**Pass.** Read `<default>` once per pass with
+`gh api 'repos/{owner}/{repo}' --jq .default_branch`. Then for each PR in the
+set run
 `gh pr view <pr> --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName`.
 
 - `MERGED`: drop it from the set.
+- `baseRefName` is not `<default>`: drop it from the set. The repair only
+  handles PRs into the default branch. Such a PR stays queued and is reported
+  as queued.
 - `UNKNOWN`: read it again at the next pass.
 - If the slot is free, start a repair on the first PR, in the order queued,
   whose `mergeStateStatus` is `BEHIND` (clean attempt) or `DIRTY` (straight
@@ -519,8 +524,9 @@ packages not yet started.
    `gh pr view <pr> --json headRefOid,statusCheckRollup --jq '.headRefOid,
    (.statusCheckRollup | length)'` and continue once the count is above 0.
    Still 0 after 10 minutes means "no checks reported", which is not green.
-   Then every 60 s run `gh pr checks <pr> > /dev/null 2>&1` and read only the
-   exit code: 8 is pending, 0 is green, anything else is red. The head must
+   Then every 60 s, up to 30 minutes, run `gh pr checks <pr> > /dev/null 2>&1`
+   and read only the exit code: 8 is pending, 0 is green, anything else is
+   red. Still pending after 30 minutes is not green either. The head must
    still be `<H>` throughout.
 8. Carry the verdicts through step 7, running sub-steps 1 to 4 and 6 only,
    with `<H>` as the verdict commit (sub-step 3 names it). Sub-step 1 must
@@ -546,13 +552,14 @@ failed condition above. The reason is exactly one of:
 - `head moved during the repair`
 - `no checks reported on <H7>`
 - `CI red on <H7>`
+- `CI still pending on <H7> after 30 minutes`
 - `own changes differ (same-changes: <result>)`
 - `same-changes error`
 - `statuses missing on <V7>`
 
 In order:
 
-1. Count (below). A `Repair (conflict)` marker already on the PR means park.
+1. Count (below). A finished conflict repair already on the PR means park.
 2. Post on the PR: `Repair (conflict) from <head40>: <reason>.` (`<head40>` is
    the PR head when the path starts.) Mirror it to the batch issue.
 3. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`. Then
@@ -572,25 +579,41 @@ In order:
 6. Ship again through step 7 in full. On a repair re-ship, sub-step 7's
    summary covers the repair round only. Findings from the first ship are not
    repeated, filed or posted again.
-7. Free the slot under the rule above.
+7. Post on the PR: `Repair (conflict) done: <merged|queued|waiting for a
+   human merge (<reason>)>.`, classified as in step 9 of the clean attempt,
+   and mirror it to the batch issue. Then free the slot under the rule above.
 
-**Count.** The number of `Repair (conflict)` markers on the PR. A clean update
-does not count, because it dispatches no agent and changes no reviewed line. A
-resumed run reads the same markers.
+**Count.** The number of `Repair (conflict) from` markers on the PR that have
+a later `Repair (conflict) done` line. These are the finished conflict
+repairs. A marker with no later `done` line is a repair still in progress: it
+is resumed, not counted (Resume, below). A clean update does not count,
+because it dispatches no agent and changes no reviewed line. A resumed run
+reads the same markers.
 
-**Resume.** A PR whose latest `Repair (clean update) from` marker has no later
-outcome line joins the repair set. Take `<V>` from the marker. If the head is
-still `<V>`, update again (same attempt, no new marker). Otherwise take the
-head as `<H>` and continue at the same-changes step. A draft PR with
-`in-progress` whose latest stage comment is a `Repair (conflict)` marker goes
-back to the developer with that reason; the gate's resume rule for draft PRs
-handles it.
+**Resume.** Read the PR's repair comments before the first pass.
+
+- A `Repair (conflict) from` marker closes any earlier clean attempt on the
+  same PR. That clean attempt is not resumed.
+- A PR whose latest `Repair (clean update) from` marker has no later outcome
+  line and no later `Repair (conflict) from` marker joins the repair set as
+  an interrupted clean attempt. Take `<V>` from the marker. If the head is
+  still `<V>`, update again (same attempt, no new marker). Otherwise take the
+  head as `<H>` and continue at the same-changes step.
+- A PR whose latest `Repair (conflict) from` marker has no later
+  `Repair (conflict) done` line is in an interrupted conflict repair. It is
+  the same repair, not a second one, so the Count does not park it. If the PR
+  is still ready, the session was lost before step 3 of the conflict path:
+  continue at step 3 with the marker's reason. If the PR is a draft with
+  `in-progress`, the gate's resume rule for draft PRs finds the stage from
+  the PR comments, and it goes back to the developer with the marker's reason
+  when no stage comment is later than the marker. When it ships again, finish
+  with steps 6 and 7 of the conflict path.
 
 **Parking.** A second conflict-path repair is not started. Instead:
 
 1. If `autoMergeRequest` is set, run `gh pr merge <pr> --disable-auto`.
 2. Post on the issue: `Parked: PR #<pr> needs a second repair: <reason>. One
-   repair per PR; the first: <link to the Repair (conflict) marker>.`
+   repair per PR; the first: <link to the Repair (conflict) from marker>.`
 3. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`
    and `phase:*` off.
 4. Mirror it to the batch issue and free the slot. The run carries on with the
