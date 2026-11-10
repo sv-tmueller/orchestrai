@@ -23,7 +23,8 @@ itself failed. Report that, and do not retry or work around it.
 ## `apply <repo>`: change one repo
 
 1. Run plan mode, with the repo exactly as the user typed it (`name` or
-   `owner/name`). It only reads.
+   `owner/name`). It only reads. If the command already carries `--confirm`,
+   drop it and start at step 1.
 
    ```
    node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs" apply <repo>

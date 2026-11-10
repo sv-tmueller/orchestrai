@@ -39,17 +39,19 @@ import {
 // ---------------------------------------------------------------------------
 // Read-only guard
 // ---------------------------------------------------------------------------
+// Every read call Check makes. The write fence is tested against the same list.
+const ACCEPTED_READS = [
+  ['api', 'user'],
+  ['api', '--paginate', '--slurp', 'user/repos?affiliation=owner&per_page=100'],
+  ['api', 'repos/acme/widget'],
+  ['api', 'repos/acme/widget/branches/main/protection'],
+  ['api', 'repos/acme/widget/git/trees/main?recursive=1'],
+  ['api', '--paginate', '--slurp', 'repos/acme/widget/labels?per_page=100'],
+  ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup'],
+]
+
 describe('isReadOnly', () => {
-  const accepted = [
-    ['api', 'user'],
-    ['api', '--paginate', '--slurp', 'user/repos?affiliation=owner&per_page=100'],
-    ['api', 'repos/acme/widget'],
-    ['api', 'repos/acme/widget/branches/main/protection'],
-    ['api', 'repos/acme/widget/git/trees/main?recursive=1'],
-    ['api', '--paginate', '--slurp', 'repos/acme/widget/labels?per_page=100'],
-    ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup'],
-  ]
-  for (const args of accepted) {
+  for (const args of ACCEPTED_READS) {
     test(`accepts: gh ${args.join(' ')}`, () => {
       assert.equal(isReadOnly(args), true)
     })
@@ -636,6 +638,14 @@ describe('evaluate', () => {
       const plan = planChanges(facts)
       const expected = plan.needsCi ? [...plan.changes, 'needs CI first'] : plan.changes
       assert.deepEqual(evaluate(facts).missing, expected, name)
+    }
+  })
+
+  test('set up exactly when not blocked, no CI is needed and there are no writes', () => {
+    for (const [name, facts] of Object.entries(FIXTURES)) {
+      const plan = planChanges(facts)
+      const nothingToDo = plan.blocked === null && !plan.needsCi && buildWrites(TARGET, facts).length === 0
+      assert.equal(evaluate(facts).state === 'set up', nothingToDo, name)
     }
   })
 
@@ -1305,6 +1315,14 @@ describe('isAllowedWrite', () => {
     ['PATCH on another repo', ['api', '-X', 'PATCH', 'repos/octo/other', '--input', '-']],
     ['DELETE on the repo', ['api', '-X', 'DELETE', 'repos/octo/widget', '--input', '-']],
     ['PUT on the repo path', ['api', '-X', 'PUT', 'repos/octo/widget', '--input', '-']],
+    // Each of these has the right shape except for one of the three fixed
+    // tokens (command, method flag, input flag), so dropping that check passes.
+    ['another command, PATCH path', ['repo', '-X', 'PATCH', 'repos/octo/widget', '--input', '-']],
+    ['another method flag, PATCH path', ['api', '-H', 'PATCH', 'repos/octo/widget', '--input', '-']],
+    ['another input flag, PATCH path', ['api', '-X', 'PATCH', 'repos/octo/widget', '--jq', '-']],
+    ['another command, PUT path', ['repo', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['another method flag, PUT path', ['api', '-H', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', '-']],
+    ['another input flag, PUT path', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--jq', '-']],
     ['graphql', ['api', 'graphql', '--input', '-']],
     ['a status post', ['api', '-X', 'POST', 'repos/octo/widget/statuses/abc123', '--input', '-']],
     ['a labels post', ['api', '-X', 'POST', 'repos/octo/widget/labels', '--input', '-']],
@@ -1399,6 +1417,14 @@ describe('the read guard and the write fence stay apart', () => {
     }
     assert.equal(isReadOnly(['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection', '--input', '-']), false)
     assert.equal(isReadOnly(['api', '-X', 'PATCH', 'repos/octo/widget', '--input', '-']), false)
+  })
+
+  test('isAllowedWrite refuses every read call Check makes', () => {
+    const [put, patch] = buildWrites(TARGET, noProtection)
+    for (const args of ACCEPTED_READS) {
+      assert.equal(isAllowedWrite(args, put.body, TARGET), false, args.join(' '))
+      assert.equal(isAllowedWrite(args, patch.body, TARGET), false, args.join(' '))
+    }
   })
 
   test('guarded never forwards a second argument, so a read cannot carry a body', () => {
@@ -1558,11 +1584,68 @@ describe('runApply', () => {
       assert.equal(a.text, b.text)
     })
 
-    test('the owner is matched without regard to case, and later calls use the canonical name', () => {
-      const fake = makeFake()
-      const { code, text } = apply(fake, 'Octo/widget')
+    test('the owner is matched without regard to case', () => {
+      const { code, text } = apply(makeFake(), 'Octo/widget')
       assert.equal(code, 0)
       assert.ok(tokenOf(text))
+    })
+
+    test('later calls use the canonical name from the response, not the typed one', () => {
+      // GitHub resolves names without regard to case, and the fake does too for
+      // the repo read. Every later call in the fake matches exactly, so a call
+      // that used the typed WIDGET would fail there.
+      const typed = apply(makeFake(), 'WIDGET')
+      const canonical = apply(makeFake(), 'widget')
+      assert.equal(typed.code, 0)
+      assert.equal(typed.text, canonical.text)
+      assert.equal(tokenOf(typed.text), tokenOf(canonical.text))
+
+      const fake = makeFake()
+      const token = tokenOf(apply(fake, 'WIDGET').text)
+      const confirmed = apply(fake, 'WIDGET', '--confirm', token)
+      assert.equal(confirmed.code, 0)
+      const writePaths = fake.state.calls.filter((c) => !isReadOnly(c.args)).map((c) => c.args[3])
+      assert.deepEqual(writePaths, ['repos/octo/widget/branches/main/protection', 'repos/octo/widget'])
+    })
+
+    // The fake answers a repo whose name is `--web` as if it were octo/widget, so
+    // a call built from it can be told apart. Only the read guard stops it.
+    const dashFake = (afterWritesOnly = false) => {
+      const fake = makeFake({ repo: afterWritesOnly ? {} : { full_name: '--web' } })
+      const seen = []
+      const run = (args, input) => {
+        seen.push({ args, afterWrite: fake.state.writes.length > 0 })
+        const res = fake.run(
+          args.map((a) => (a === '--web' ? 'octo/widget' : a.replace('repos/--web', 'repos/octo/widget'))),
+          input
+        )
+        const isRepoRead = args.join(' ') === 'api repos/octo/widget'
+        if (afterWritesOnly && isRepoRead && fake.state.writes.length > 0) {
+          return ok({ ...fake.state.repo, full_name: '--web' })
+        }
+        return res
+      }
+      return { fake, run, seen }
+    }
+
+    test('plan mode reads through the guard: a name the guard refuses never reaches the runner', () => {
+      const { fake, run, seen } = dashFake()
+      const { code, text } = runApply(run, ['widget'])
+      assert.equal(code, 1)
+      assert.match(text, /not read-only/)
+      assert.equal(seen.some((c) => c.args[0] === 'pr'), false, 'the runner received the rejected pr list call')
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('the re-read after the writes goes through the guard too', () => {
+      const { fake, run, seen } = dashFake(true)
+      const token = tokenOf(runApply(run, ['widget']).text)
+      seen.length = 0
+      const { code, text } = runApply(run, ['widget', '--confirm', token])
+      assert.equal(code, 1)
+      assert.equal(fake.state.writes.length, 2)
+      assert.match(text, /could not re-read the repo: .*not read-only/)
+      assert.equal(seen.some((c) => c.afterWrite && c.args[0] === 'pr'), false, 'a rejected pr list call ran after the writes')
     })
 
     test('nothing to change prints one line and no token', () => {
@@ -1661,6 +1744,37 @@ describe('runApply', () => {
       assert.notEqual(fake.state.protection, null)
     })
 
+    test('writes go through the fence: a body it refuses never reaches the runner', () => {
+      // A completed check named '' is the one input that makes buildWrites build a
+      // body the fence refuses (contexts: ['']), while the plan and token still
+      // come out normally. A runApply that called the raw runner for its writes
+      // would send it, and this test would fail.
+      const fake = makeFake({ prs: [pr(12, [done('')])] })
+      const token = tokenOf(apply(fake, 'widget').text)
+      assert.ok(token, 'plan mode printed no token')
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 1)
+      assert.match(text, /refusing a call that is not an allowed write/)
+      assert.equal(fake.state.calls.some((c) => c.args.includes('-X')), false, 'a write reached the runner')
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('exits 1 when a write fails, even though the re-read then says set up', () => {
+      // Only the auto merge PATCH is planned. The wrapper lets it change the
+      // fake's state but answers 502, so the re-read looks fine and only the
+      // failed write is left to make the exit code 1.
+      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_squash_merge: true } })
+      const token = tokenOf(apply(fake, 'widget').text)
+      const run = (args, input) => {
+        const res = fake.run(args, input)
+        return args[1] === '-X' && args[2] === 'PATCH' ? fail(502, 'Bad Gateway') : res
+      }
+      const { code, text } = runApply(run, ['widget', '--confirm', token])
+      assert.equal(code, 1)
+      assert.match(text, /write failed/)
+      assert.match(text, /^octo\/widget: set up$/m)
+    })
+
     test('exits 1 when the re-read still says not set up after the writes', () => {
       // A host that drops the status block would leave "up to date required" missing.
       const fake = makeFake()
@@ -1695,6 +1809,7 @@ describe('runApply', () => {
     refused('two repos', makeFake, ['widget', 'other'], /usage|one repo/i)
     refused('a flag it does not know', makeFake, ['widget', '--force'], /usage|unknown/i)
     refused('--confirm without a token', makeFake, ['widget', '--confirm'], /usage|token/i)
+    refused('a repeated --confirm', makeFake, ['widget', '--confirm', 'a', '--confirm', 'b'], /usage|token/i)
     refused('a name starting with a dash', makeFake, ['--web'], /usage|unknown|repo/i)
     refused('a name starting with a dot', makeFake, ['.hidden'], /repo name/i)
     refused('a name with a space', makeFake, ['wid get'], /repo name/i)
