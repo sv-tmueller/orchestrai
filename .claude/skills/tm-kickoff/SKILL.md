@@ -283,7 +283,10 @@ Routing rules:
   package.
 - Parking: post the reason on the issue, apply `needs-human` (remove
   `in-progress` and any `phase:*` label if present), and move on to the
-  other packages.
+  other packages. If the package's PR has an open repair (see "Repair
+  (queued PRs behind the default branch)" below), use that subsection's
+  Parking steps instead: they post the repair's closing line and include
+  this step.
 - Inside an /tm-advisor batch, mirror lead decisions and package outcomes
   (merged, queued, waiting for a human merge, parked) to the batch tracking
   issue as they happen.
@@ -597,8 +600,8 @@ line. A resumed run reads the same markers.
 outcome line of a clean attempt (step 9), `Repair (conflict) done` (step 7 of
 the conflict path), or `Repair parked` (Parking, below). A repair is open
 while the latest PR comment that starts with `Repair ` is a `from` marker. A
-`Repair (conflict) from` marker posted after a clean start marker continues
-that same repair on the conflict path.
+`Repair (conflict) from` marker posted after a clean start marker belongs
+to that same repair, which has moved to the conflict path.
 
 **Resume.** A later session never continues a repair that an earlier session
 left open. Before the gate's resume rules run for an issue, and before the

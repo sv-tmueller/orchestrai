@@ -188,7 +188,8 @@ advisor differs from a plain `/tm-kickoff` run in three ways:
 - **Live checklist.** Mirror each package outcome (merged, queued, waiting
   for a human merge, parked) to the batch issue checklist as it happens, so a
   dropped session can resume from the issue. Mirror the repair start and
-  outcome lines (`Repair (clean update)`, `Repair (conflict)`) the same way.
+  outcome lines (`Repair (clean update)`, `Repair (conflict)`, `Repair
+  parked`) the same way.
 
 ## 5. Report
 
