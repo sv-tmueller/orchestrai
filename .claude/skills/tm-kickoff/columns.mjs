@@ -139,7 +139,8 @@ export function main(argv) {
       process.stdout.write(JSON.stringify({ absent: true }) + '\n')
       process.exit(0)
     }
-    throw err
+    process.stderr.write(`invalid columns config: cannot read ${path} (${err.code})\n`)
+    process.exit(1)
   }
 
   try {

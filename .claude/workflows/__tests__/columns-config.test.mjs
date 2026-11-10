@@ -262,6 +262,16 @@ describe('CLI', () => {
     assert.equal(result.stderr, '')
   })
 
+  test('an unreadable path exits 1 with a one-line report, not a stack trace', () => {
+    const result = run('--file', tmpRoot)
+
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    const lines = result.stderr.replace(/\n$/, '').split('\n')
+    assert.equal(lines.length, 1, `expected one line, got: ${result.stderr}`)
+    assert.match(lines[0], /^invalid columns config: cannot read .+ \(EISDIR\)$/)
+  })
+
   test('invalid JSON exits nonzero with a one-line report', () => {
     const result = run('--file', configFile('{ not json'))
 
