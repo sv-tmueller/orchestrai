@@ -1334,6 +1334,11 @@ describe('isAllowedWrite', () => {
     ['PATCH on another repo', ['api', '-X', 'PATCH', 'repos/octo/other', '--input', '-']],
     ['DELETE on the repo', ['api', '-X', 'DELETE', 'repos/octo/widget', '--input', '-']],
     ['PUT on the repo path', ['api', '-X', 'PUT', 'repos/octo/widget', '--input', '-']],
+    // The path must match exactly: a longer path, a query string or a longer repo name is not the fenced path.
+    ['PUT on a longer protection path', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection/required_status_checks/contexts', '--input', '-']],
+    ['PUT with a query string', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection?x=1', '--input', '-']],
+    ['PATCH on a longer repo name', ['api', '-X', 'PATCH', 'repos/octo/widget-x', '--input', '-']],
+    ['PATCH on the protection path', ['api', '-X', 'PATCH', 'repos/octo/widget/branches/main/protection', '--input', '-']],
     // Each of these has the right shape except for one of the three fixed
     // tokens (command, method flag, input flag), so dropping that check passes.
     ['another command, PATCH path', ['repo', '-X', 'PATCH', 'repos/octo/widget', '--input', '-']],
@@ -1375,6 +1380,7 @@ describe('isAllowedWrite', () => {
     ['contexts not an array', okPut({ required_status_checks: { strict: true, contexts: 'Unit tests' } })],
     ['a null status block', okPut({ required_status_checks: null })],
     ['a copied value that is not a boolean', okPut({ lock_branch: 'false' })],
+    ['a non-boolean dismiss_stale_reviews', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, dismiss_stale_reviews: 'true' } })],
     ['a null body', null],
     ['an array body', []],
     ['a string body', '{}'],
@@ -1727,6 +1733,18 @@ describe('runApply', () => {
       assert.deepEqual(fake.state.writes, [])
     })
 
+    test('the token must match exactly: no trimming, no case folding, no prefix', () => {
+      const fake = makeFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      assert.notEqual(token.toUpperCase(), token)
+      for (const value of ['', token.slice(0, 6), token.toUpperCase(), ' ' + token, token + '\n']) {
+        const { code, text } = apply(fake, 'widget', '--confirm', value)
+        assert.equal(code, 2, JSON.stringify(value))
+        assert.match(text, /plan changed since it was shown, nothing written/)
+        assert.deepEqual(fake.state.writes, [])
+      }
+    })
+
     test('with nothing to change, any token writes nothing', () => {
       const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget', '--confirm', 'whatever')
@@ -1849,7 +1867,7 @@ describe('runApply', () => {
       ['widget'],
       /blocked|not available on the current plan/i
     )
-    refused('a repo that needs CI first', () => makeFake({ prs: [] }), ['widget'], /needs CI first/i)
+    refused('a repo that needs CI first', () => makeFake({ prs: [] }), ['widget'], /needs CI first: it has test files but no finished, non-draft PR has run a check/)
 
     describe('signed commits and the protection PUT', () => {
       // The PUT replaces the whole rule and cannot carry required_signatures, so a
