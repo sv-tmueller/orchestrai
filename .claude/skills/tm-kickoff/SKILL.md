@@ -89,8 +89,9 @@ to find an existing PR.
   and waiting on checks. Anything else means waiting for a human merge. The
   exception is a PR whose latest review comment carries the
   `Model: sonnet (run-long fallback)` marker: it owes an Opus review and
-  re-enters at the reviewer stage (see "Limit deaths" below). A ready PR whose
-  issue still carries `in-progress` stopped inside step 7. Classify it the
+  re-enters at the reviewer stage (see "Limit deaths" below). Apart from that
+  exception, a ready PR whose issue still carries `in-progress` stopped inside
+  step 7. Classify it the
   same way, remove `in-progress` and any `phase:*` label, and post no
   statuses and queue nothing. If it classifies as waiting for a human merge,
   give the reason "step 7 interrupted". If the issue carries `in-progress` but
