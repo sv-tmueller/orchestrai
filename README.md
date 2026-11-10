@@ -102,7 +102,8 @@ pending. Hermes already caps fix rounds at 3 per stage.
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
   `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup),
   `/tm-review-changes` (diff review), `/tm-review-codebase` (repo review),
-  `/tm-map-codebase` (architecture map). Hermes variants ship as
+  `/tm-map-codebase` (architecture map), `/tm-repo-guard` (read-only guard
+  state of your repos). Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
   the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
   on Hermes.
@@ -152,6 +153,7 @@ must be committed rather than installed from the marketplace.
 /tm-review-changes      # review the current diff
 /tm-review-codebase     # review the whole repo
 /tm-map-codebase        # map the repo architecture
+/tm-repo-guard          # report each owned repo's guard state (read-only)
 ```
 
 ### Model config
