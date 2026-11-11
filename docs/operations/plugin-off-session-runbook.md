@@ -32,9 +32,8 @@ env CLAUDE_CONFIG_DIR=<config-dir> claude --permission-mode manual --settings '{
 ```
 
 - `env` runs the `claude` binary found on PATH, so a shell alias or function
-  named `claude` does not apply. Run `type claude` to see whether you have
-  one. If the alias sets a config dir, put `CLAUDE_CONFIG_DIR=<config-dir>`
-  right after `env`.
+  named `claude` does not apply. Run `type claude` to see whether you
+  have one.
 - Never add a bypass flag. Do not put this command in an alias.
 - The command changes no settings file: the checksums of `settings.json` and
   `plugins/installed_plugins.json` were the same before and after the test
@@ -120,8 +119,9 @@ runs without a prompt, and other commands ask you first.
    session.
 7. Check the plugin is back and calls go through:
    - Run `/tm-repo-guard` with no argument. Each config dir with the plugin
-     should print `at the newest commit`. It reads only the
-     `orchestrai@orchestrai` copy.
+     should print a line that ends in `at the newest commit`. A line that says
+     `not at the newest commit` means that dir still has the old copy. It
+     reads only the `orchestrai@orchestrai` copy.
    - Quit and start a new session the normal way. `/orchestrai:` should offer
      commands again, and an ordinary call in the mode that failed should go
      through.
