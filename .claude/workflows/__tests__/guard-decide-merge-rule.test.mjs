@@ -826,7 +826,9 @@ describe('merge-rule: how the answer is shaped', () => {
 describe('merge-rule: the rule file says what it does not cover', () => {
   test('the header has a Not covered section', async () => {
     const { readFileSync } = await import('node:fs')
+    // Header lines wrap, so the comment markers are folded into single spaces.
     const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
+      .replace(/\s*\n\s*\*\s*/g, ' ')
     assert.match(source, /Not covered/)
     for (const topic of ['curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell', 'variable in its destination', 'write the branch name out', 'reads the words of a command line as written', 'inside a variable or substitution', 'never change which branch']) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)

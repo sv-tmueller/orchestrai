@@ -151,7 +151,13 @@ function scriptIndex(words) {
     } else if (t.startsWith('--')) {
       continue
     } else if (/^-[A-Za-z]+$/.test(t) && t.includes('c')) {
-      return i + 1 < words.length ? i + 1 : -1
+      // More options may follow the cluster; the command string is the first
+      // word after them.
+      let j = i + 1
+      while (j < words.length && /^[-+]./.test(words[j].text)) {
+        j += SHELL_VALUE_OPTIONS.has(words[j].text) ? 2 : 1
+      }
+      return j < words.length ? j : -1
     } else if (!/^[-+][A-Za-z]+$/.test(t)) {
       return -1
     }
@@ -170,7 +176,9 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
   const command = { words, redirects, wrapped, nested: false, afterCd }
   const name = commandName(command)
   let line = null
-  if (SHELLS.has(name)) {
+  // A command word that expands ($SHELL) is read as a shell only when a -c
+  // cluster follows it.
+  if (SHELLS.has(name) || words[0].expands) {
     const at = scriptIndex(words)
     if (at >= 0) line = words[at].text
   } else if (name === 'eval') {

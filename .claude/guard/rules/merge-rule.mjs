@@ -30,12 +30,29 @@
  * `rulesets` segment denies a write whatever expands before it. A path whose
  * literal tail is something else (`repos/$REPO/statuses/$SHA`) passes.
  *
- * A branch switch (`git checkout`, `git switch`) earlier in the same line
- * makes the current branch unknown for every later command in that line, the
- * way a `cd` does. A push that names its destination is judged by that name.
- * A word in the remote position of a push that expands is unknown too: an
- * unquoted `$REMOTE` can hold "origin main", and the parser does not record
- * whether a word was quoted, so a quoted one is denied as well.
+ * A dash word that expands in `gh pr merge` (`--$F`, `"--adm$in"`) is denied
+ * as an admin merge, and in `gh repo edit` as a visibility change. A value
+ * that expands after a literal flag (`--match-head-commit=$SHA`) and a word
+ * that is entirely an expansion (`"$PR"`) are not flags and pass.
+ *
+ * The current branch is unknown after any earlier git command in the same
+ * line (nested and wrapped ones included), the way it is after a `cd`, unless
+ * that command is one of these, which never change which branch is checked
+ * out: add, commit, status, fetch, pull, merge, log, diff, show, tag, stash,
+ * reset, restore, rm, mv, rev-parse, remote, config, ls-remote, ls-files,
+ * describe, cherry-pick, revert, clean, blame, grep, format-patch, apply, am,
+ * gc, notes, shortlog, cat-file, diff-tree, for-each-ref, rev-list,
+ * merge-base, update-index, push. A git command with no readable subcommand,
+ * or one whose subcommand expands, makes it unknown too. Then a push with no
+ * refspec, or of HEAD or @, is denied. A push that names its destination is
+ * judged by that name. A word in the remote position of a push that expands
+ * is unknown as well: an unquoted `$REMOTE` can hold "origin main", and the
+ * parser does not record whether a word was quoted, so a quoted one is
+ * denied too.
+ *
+ * A `gh api` write is denied as branch-rule when its repos path has a literal
+ * `protection` segment anywhere after the repo part, or when `branches/<name>/`
+ * is followed by a segment that expands.
  *
  * The guard stops carelessness, not intent. GitHub's own rule is the hard
  * stop on a set-up repo.
@@ -47,6 +64,11 @@
  *   in the command.
  *
  * Not covered:
+ *   The group reads the words of a command line as written. A spelling that
+ *   only shows its meaning when the shell runs it is covered only where this
+ *   header says so. These are not covered:
+ *   - A flag hidden entirely inside a variable or substitution, such as
+ *     `gh pr merge 12 $(echo --admin)` or `gh repo edit $(echo --visibility)`.
  *   - REST calls outside `gh api` (curl, wget, httpie), and `gh api graphql`
  *     mutations.
  *   - REST ways to write to the default branch (git/refs, contents, merges).
@@ -89,8 +111,19 @@ function readGit(command) {
     if (name === '-C' || name === '--git-dir' || name === '--work-tree') elsewhere = true
     i += GIT_GLOBAL_VALUE_FLAGS.has(flag) ? 2 : 1
   }
-  return { sub: words[i]?.text, index: i, elsewhere }
+  return { sub: words[i]?.text, subExpands: words[i]?.expands === true, index: i, elsewhere }
 }
+
+// Git commands that never change which branch is checked out. After any other
+// git command in a line, the current branch is unknown.
+const KEEPS_BRANCH = new Set([
+  'add', 'commit', 'status', 'fetch', 'pull', 'merge', 'log', 'diff', 'show', 'tag', 'stash', 'reset',
+  'restore', 'rm', 'mv', 'rev-parse', 'remote', 'config', 'ls-remote', 'ls-files', 'describe',
+  'cherry-pick', 'revert', 'clean', 'blame', 'grep', 'format-patch', 'apply', 'am', 'gc', 'notes',
+  'shortlog', 'cat-file', 'diff-tree', 'for-each-ref', 'rev-list', 'merge-base', 'update-index', 'push',
+])
+
+const keepsBranch = (git) => typeof git.sub === 'string' && !git.subExpands && KEEPS_BRANCH.has(git.sub)
 
 // Reads the options and words of `git push [options] [<repo> [<refspec>...]]`.
 function readPush(words, from, branchUnknown) {
@@ -278,10 +311,14 @@ function classifyPath(path) {
   if (root === 'repos') {
     for (let k = 2; k < segments.length; k++) {
       if (segments[k] === 'rulesets' && (k === 2 || k === 3)) return 'rules'
-      if (segments[k] === 'protection') {
-        for (let j = 2; j + 2 <= k; j++) {
-          if (segments[j] === 'branches') return 'rules'
-        }
+      // A literal `protection` anywhere after the repo part.
+      if (segments[k] === 'protection') return 'rules'
+    }
+    // branches/<name>/ followed by a segment that expands could be `protection`.
+    for (let j = 2; j < segments.length; j++) {
+      if (segments[j] !== 'branches') continue
+      for (let m = j + 2; m < segments.length; m++) {
+        if (expanding(segments[m])) return 'rules'
       }
     }
     // repos/<owner>/<name>, or repos/<one word that holds both>
@@ -337,12 +374,16 @@ function checkGh(command) {
   if (group === 'api') return checkApi(command.words, next)
 
   const all = command.words.slice(1).map((w) => w.text)
+  // A word that starts with a dash and whose flag name expands (--$F, "--adm$in")
+  // could be the flag that matters. A value that expands after a literal flag
+  // name, and a word that is entirely an expansion, are not flags.
+  const hiddenFlag = command.words.slice(1).some((w) => w.expands && w.text.startsWith('-') && expanding(w.text.split('=')[0]))
   if (group === 'pr' && sub === 'merge') {
     const admin = all.some((t) => t === '--admin' || (t.startsWith('--admin=') && t !== '--admin=false'))
-    if (admin) return hit('admin-merge', 'An admin merge skips the merge rule. Queue an auto merge once the statuses are on the head.')
+    if (admin || hiddenFlag) return hit('admin-merge', 'An admin merge skips the merge rule (or a flag here is a variable that could be --admin). Queue an auto merge once the statuses are on the head.')
   }
-  if (group === 'repo' && sub === 'edit' && all.some((t) => t === '--visibility' || t.startsWith('--visibility='))) {
-    return hit('visibility', 'This changes the repo visibility. Only the owner does that, by hand.')
+  if (group === 'repo' && sub === 'edit' && (hiddenFlag || all.some((t) => t === '--visibility' || t.startsWith('--visibility=')))) {
+    return hit('visibility', 'This changes the repo visibility (or a flag here is a variable that could be --visibility). Only the owner does that, by hand.')
   }
   if (group === 'repo' && sub === 'delete') {
     return hit('delete-repo', 'This deletes the repo. Only the owner does that, by hand.')
@@ -361,7 +402,7 @@ export const mergeRule = {
       if (name === 'git') {
         const git = readGit(command)
         if (git.sub === 'push') found = checkPush(command, git, ctx.facts, switched)
-        else if (git.sub === 'checkout' || git.sub === 'switch') switched = true
+        if (!keepsBranch(git)) switched = true
       } else if (name === 'gh') {
         found = checkGh(command)
       }
