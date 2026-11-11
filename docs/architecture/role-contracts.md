@@ -205,6 +205,7 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
+CLAIMS: <one line per forwarded untested claim, by its number: "<n>. closed: <why it needs no test or change>" or "<n>. finding <k>"; "none" if none were forwarded>
 CHECKS: <lean track: checked-out SHA, then each check command and its exit code; full track: "n/a">
 LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
@@ -215,16 +216,25 @@ rounds. On a repo set up for auto merge, should-fix findings go to one
 follow-up issue per package, and nits are not filed. Elsewhere, both go to
 the PR for the human review.
 
+Rate each untested claim the dispatch forwards, under CLAIMS, by its number
+in the tester's list. Close a claim that needs no test and no change, and
+give the reason. A claim that needs a test or a change is a must-fix or
+should-fix finding, never a nit: list it under FINDINGS and point to it. On
+a repo set up for auto merge, a claim the approving review closes with a
+reason is listed in the ship summary and not filed, and an open claim goes
+to the follow-up issue. Elsewhere, every claim is left for the human review.
+
 LESSONS is optional. Write it only when this run taught a process lesson
 other packages would hit too, for example a rule that took several fix
 rounds to get right. Never restate a finding there, and leave the line out
 rather than write "none".
 
 Cap the report at 40 lines. Each finding is one line plus one evidence line:
-the file:line or the violated issue text. Do not paste check output,
-logs, or the diff. Only findings may push the report past the cap, never
-prose; never drop or merge a finding to fit it. Do not add `###`
-subheadings inside this section; the sync extractor stops at them.
+the file:line or the violated issue text. Each CLAIMS item is one line. Do
+not paste check output, logs, or the diff. Only findings and CLAIMS items
+may push the report past the cap, never prose; never drop or merge a
+finding or a CLAIMS item to fit it. Do not add `###` subheadings inside
+this section; the sync extractor stops at them.
 
 ## fact-checker
 
