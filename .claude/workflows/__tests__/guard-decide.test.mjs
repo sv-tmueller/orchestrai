@@ -16,6 +16,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { decide } from '../../guard/decide.mjs'
+import { GROUPS } from '../../guard/groups.mjs'
 
 const FACTS = {
   repoClass: 'personal-set-up',
@@ -296,6 +297,23 @@ describe('decide: calls no rule applies to', () => {
   }
 })
 
+describe('decide: the rule group registry', () => {
+  test('every group has a unique id and a check function', () => {
+    assert.ok(GROUPS.length >= 1)
+    const ids = GROUPS.map((g) => g.id)
+    assert.equal(new Set(ids).size, ids.length)
+    for (const group of GROUPS) {
+      assert.equal(typeof group.id, 'string')
+      assert.equal(typeof group.check, 'function')
+    }
+  })
+
+  test('the merge-rule group is registered and decides through decide', () => {
+    assert.ok(GROUPS.some((g) => g.id === 'merge-rule'))
+    expectAnswer(decide(bash('git push origin main'), facts()), 'deny', 'merge-rule/push-default')
+  })
+})
+
 describe('decide: no side effects', () => {
   const guardDir = fileURLToPath(new URL('../../guard/', import.meta.url))
   const rulesDir = `${guardDir}rules/`
@@ -307,8 +325,9 @@ describe('decide: no side effects', () => {
   ]
   const forbidden = /^(node:)?(fs|fs\/promises|child_process|net|http|https|http2|dns|dgram|tls|worker_threads|vm)$/
 
-  test('the file list includes the core files', () => {
-    assert.ok(files.length >= 3)
+  test('the file list includes the core files and the merge-rule group', () => {
+    assert.ok(files.length >= 4)
+    assert.ok(files.some((f) => f.endsWith('rules/merge-rule.mjs')))
   })
 
   for (const file of files) {
