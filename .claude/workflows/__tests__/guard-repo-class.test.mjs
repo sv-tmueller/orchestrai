@@ -579,6 +579,109 @@ describe('lookupRepoClass: the folder', () => {
         'remote get-url --push --all -- origin',
       ])
     })
+
+    describe('when the fetch URL is not on GitHub', () => {
+      const ELSEWHERE = 'https://git.example.invalid/some-org/shared.git'
+      const GH_PUSH = 'https://github.com/octo/widget-api.git'
+      const away = (pushUrls, extra = {}) => ({
+        '/work/x': { remotes: { origin: ELSEWHERE }, head: { origin: 'trunk' }, pushUrls: { origin: pushUrls }, ...extra },
+      })
+      const calls = (local) => local.gitCalls.map((a) => a.slice(2).join(' '))
+
+      test('a GitHub push URL is personal-not-set-up, source fallback, with no gh call', () => {
+        const table = { ...FIXTURES['set up'].answers, ...ME }
+        const { got, gh, files } = lookup({ folder: '/work/x', folders: away([GH_PUSH]), table })
+        assert.equal(got.repoClass, 'personal-not-set-up')
+        assert.equal(got.source, 'fallback')
+        assert.equal(got.defaultBranch, 'trunk')
+        assert.match(got.detail, /push/)
+        assert.equal(gh.calls.length, 0)
+        assert.equal(files.size, 0)
+      })
+
+      test('two push URLs where one is GitHub, in either order', () => {
+        for (const urls of [[ELSEWHERE, GH_PUSH], [GH_PUSH, ELSEWHERE]]) {
+          const { got, gh } = lookup({ folder: '/work/x', folders: away(urls) })
+          assert.equal(got.repoClass, 'personal-not-set-up', urls.join(' '))
+          assert.equal(got.source, 'fallback', urls.join(' '))
+          assert.equal(gh.calls.length, 0)
+        }
+      })
+
+      test('an invalid github.com push URL counts as GitHub', () => {
+        for (const url of ['https://github.com/octo', 'ssh://[example.invalid]@github.com/octo/widget-api']) {
+          const { got, gh } = lookup({ folder: '/work/x', folders: away([url]) })
+          assert.equal(got.repoClass, 'personal-not-set-up', url)
+          assert.equal(got.source, 'fallback', url)
+          assert.equal(gh.calls.length, 0, url)
+        }
+      })
+
+      test('a push URL that is not on GitHub either stays no-github-repo, source local', () => {
+        const { got, gh } = lookup({ folder: '/work/x', folders: away(['https://git.example.invalid/other.git', '/srv/git/shared.git']) })
+        assert.deepEqual(got, { repoClass: 'no-github-repo', owner: null, repo: null, defaultBranch: 'trunk', source: 'local' })
+        assert.equal(gh.calls.length, 0)
+      })
+
+      test('a failing push URL read throws, like any other unexpected git failure', () => {
+        assert.throws(() => lookup({ folder: '/work/x', folders: away([ELSEWHERE], { pushFails: ['origin'] }) }))
+      })
+
+      test('a non-GitHub remote costs four git calls, the push read included, and no gh call', () => {
+        const { gh, local } = lookup({ folder: '/work/x', folders: away([ELSEWHERE]) })
+        assert.equal(gh.calls.length, 0)
+        assert.deepEqual(calls(local), [
+          'remote',
+          'remote get-url -- origin',
+          'remote get-url --push --all -- origin',
+          'symbolic-ref --short refs/remotes/origin/HEAD',
+        ])
+      })
+
+      test('an invalid github.com fetch URL is personal-not-set-up and the push URLs are not read', () => {
+        const folders = away(['https://git.example.invalid/other.git'])
+        folders['/work/x'].remotes.origin = 'https://github.com/octo'
+        const { got, local } = lookup({ folder: '/work/x', folders })
+        assert.equal(got.repoClass, 'personal-not-set-up')
+        assert.equal(got.source, 'fallback')
+        assert.equal(calls(local).some((c) => c.includes('--push')), false)
+      })
+    })
+
+    describe('several remotes and none named origin', () => {
+      const ELSEWHERE = 'https://git.example.invalid/a.git'
+      const many = (pushUrls) => ({
+        '/work/x': { remotes: { a: ELSEWHERE, b: 'https://git.example.invalid/b.git' }, pushUrls },
+      })
+
+      test('a GitHub push URL on one of them is personal-not-set-up with no gh call', () => {
+        const { got, gh } = lookup({ folder: '/work/x', folders: many({ b: ['https://github.com/octo/widget-api.git'] }) })
+        assert.equal(got.repoClass, 'personal-not-set-up')
+        assert.equal(got.source, 'fallback')
+        assert.match(got.detail, /origin/)
+        assert.equal(gh.calls.length, 0)
+      })
+
+      test('no GitHub URL anywhere stays no-github-repo, with each remote read for fetch and push', () => {
+        const { got, gh, local } = lookup({ folder: '/work/x', folders: many({}) })
+        assert.equal(got.repoClass, 'no-github-repo')
+        assert.equal(got.source, 'local')
+        assert.equal(gh.calls.length, 0)
+        assert.deepEqual(local.gitCalls.map((a) => a.slice(2).join(' ')), [
+          'remote',
+          'remote get-url -- a',
+          'remote get-url --push --all -- a',
+          'remote get-url -- b',
+          'remote get-url --push --all -- b',
+        ])
+      })
+
+      test('a failing push URL read throws', () => {
+        const folders = many({})
+        folders['/work/x'].pushFails = ['b']
+        assert.throws(() => lookup({ folder: '/work/x', folders }))
+      })
+    })
   })
 
   test('a github.com URL with a bad path is personal-not-set-up with no gh call', () => {

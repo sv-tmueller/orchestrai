@@ -251,6 +251,33 @@ describe('lookupRepoClass with real git', () => {
     assert.equal(calls.length, 0)
   })
 
+  test('a pushurl on GitHub with a fetch URL elsewhere is personal-not-set-up with no gh call', () => {
+    const dir = newRepo('push-to-github', 'https://example.invalid/x/y.git')
+    git(dir, 'config', 'remote.origin.pushurl', 'https://github.com/octo/widget-api.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.repoClass, 'personal-not-set-up')
+    assert.equal(got.source, 'fallback')
+    assert.equal(calls.length, 0)
+  })
+
+  test('a pushInsteadOf rewrite to GitHub with a fetch URL elsewhere is personal-not-set-up with no gh call', () => {
+    const dir = newRepo('push-rewrite-to-github', 'https://example.invalid/x/y.git')
+    git(dir, 'config', 'url.https://github.com/octo/widget-api.git.pushInsteadOf', 'https://example.invalid/x/y.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.repoClass, 'personal-not-set-up')
+    assert.equal(got.source, 'fallback')
+    assert.equal(calls.length, 0)
+  })
+
+  test('a pushurl on another non-GitHub host leaves no-github-repo', () => {
+    const dir = newRepo('push-elsewhere', 'https://example.invalid/x/y.git')
+    git(dir, 'config', 'remote.origin.pushurl', 'https://other.example.invalid/x/y.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.repoClass, 'no-github-repo')
+    assert.equal(got.source, 'local')
+    assert.equal(calls.length, 0)
+  })
+
   test('a pushurl equal to the fetch URL leaves the lookup as it was', () => {
     const dir = newRepo('pushurl-same', 'https://github.com/octo/widget-api.git')
     git(dir, 'config', 'remote.origin.pushurl', 'git@github.com:octo/widget-api.git')
