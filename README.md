@@ -63,7 +63,9 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 - **Lean vs full track.** A `size:S` package whose diff stays out of
   `.claude/agents`, `.claude/skills`, `.claude/workflows`, and executable code
   skips the architect and tester stages; everything else runs the full
-  five-stage pipeline. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
+  five-stage pipeline. On a repo set up for auto merge that has no test files
+  (the repo guard's rule), every package runs the full track, so a merge never
+  rests on the reviewer alone. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
   "Pipeline tracks (lean and full)".
 - **Dependency environment.** The lead builds one read-only dependency
   environment per run and passes its path to the developer, tester, and
@@ -192,8 +194,9 @@ repo has no test files:
 - `agent verdicts only, short track off`: no CI and no tests. On a repo with
   the pipeline labels, the two verdict statuses are then the only gate.
 
-The flags only mark the repo in the report. They do not change how the
-pipeline picks its track.
+The flags only mark the repo in the report. The pipeline checks the same
+rule on its own: on a repo set up for auto merge, no test files means every
+package runs the full track (see "Pipeline rules").
 
 ### Apply
 
