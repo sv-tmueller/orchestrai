@@ -2819,4 +2819,180 @@ describe('config dirs', () => {
       })
     })
   })
+
+  // Round 1 findings from the tester (issue #502, PR #511).
+  describe('hardening', () => {
+    // The shared fake plus the extra behaviors the real disk has: `isDir`
+    // throws for errors other than "does not exist", and `real` resolves
+    // links. Both are opt-in so the earlier tests stay as they are.
+    const withDisk = (base, { isDirErrors = {}, links = {}, realErrors = [] } = {}) => ({
+      ...base,
+      isDir(path) {
+        if (path in isDirErrors) throw new Error(isDirErrors[path])
+        return base.isDir(path)
+      },
+      real(path) {
+        if (realErrors.includes(path)) throw new Error('ELOOP: cannot resolve')
+        return links[path] ?? path
+      },
+    })
+    const report = (local) => {
+      const result = collectConfigDirs(runner([]), local)
+      return { result, text: renderConfigDirs(result) }
+    }
+
+    // The whole class the script's one-line collapse covers: C0, DEL, C1, U+2028, U+2029.
+    const controlChars = [
+      ...Array.from({ length: 0x20 }, (_, i) => String.fromCharCode(i)),
+      ...Array.from({ length: 0x21 }, (_, i) => String.fromCharCode(0x7f + i)),
+      ' ',
+      ' ',
+    ]
+
+    describe('finding 1: one line per dir', () => {
+      test('a control character in a dir name never reaches the output, and the dir stays one line', () => {
+        for (const c of controlChars) {
+          const name = `.claude-x${c}y`
+          const text = report(fakeLocal({ dirs: [marker(dirOf(name))] })).text
+          const code = c.codePointAt(0).toString(16)
+          assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
+          assert.deepEqual(
+            text.split('\n').slice(1),
+            ['~/.claude-x y: plugin not installed, auto update not recorded, no installed copy', ''],
+            `U+${code} broke the dir line`
+          )
+        }
+      })
+
+      test('a control character in CLAUDE_CONFIG_DIR never reaches the output, and the dir stays one line', () => {
+        for (const c of controlChars) {
+          const envDir = `/srv/e${c}lsewhere`
+          const text = report(fakeLocal({ dirs: [envDir], envDir })).text
+          const code = c.codePointAt(0).toString(16)
+          assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
+          assert.deepEqual(
+            text.split('\n').slice(1),
+            ['/srv/e lsewhere: plugin not installed, auto update not recorded, no installed copy', ''],
+            `U+${code} broke the dir line`
+          )
+        }
+      })
+
+      test('a could-not-read line with a control character in the dir name is also one line', () => {
+        const name = '.claude-x\nFAKE: plugin installed'
+        const parts = configDir(name, { installed: '{ not json' })
+        const lines = report(fakeLocal(parts)).text.split('\n')
+        assert.equal(lines.length, 3)
+        assert.match(lines[1], /^~\/\.claude-x FAKE: plugin installed: could not read: installed_plugins\.json: /)
+      })
+
+      test('a control character in the message of a disk error is collapsed', () => {
+        const badMarker = marker(dirOf('.claude-b'))
+        const local = withDisk(fakeLocal({ dirs: [badMarker] }), {
+          isDirErrors: { [badMarker]: 'EACCES: denied\u001b[31m\nFAKE' },
+        })
+        const text = report(local).text
+        assert.ok(!text.includes('\u001b'))
+        assert.equal(text.split('\n').length, 3)
+      })
+    })
+
+    describe('finding 2: "is not there" versus "cannot be looked at"', () => {
+      const badMarker = marker(dirOf('.claude-b'))
+
+      test('a candidate whose projects folder cannot be looked at is a could-not-read line, counted, and failed', () => {
+        const tidy = { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }
+        const local = withDisk(fakeLocal(merge(configDir('.claude-a', tidy), { dirs: [badMarker] })), {
+          isDirErrors: { [badMarker]: 'EACCES: permission denied' },
+        })
+        const { result, text } = report(local)
+        const lines = text.split('\n')
+        assert.equal(lines[0], 'config dirs: 2 (1 with the plugin, 1 auto update on, 1 at the newest commit, 1 could not read)')
+        assert.equal(lineOf(text, '~/.claude-b'), '~/.claude-b: could not read: EACCES: permission denied')
+        assert.ok(lineOf(text, '~/.claude-a'))
+        assert.equal(result.failed, true)
+      })
+
+      test('a candidate that itself cannot be looked at is a could-not-read line', () => {
+        const dir = dirOf('.claude-b')
+        const local = withDisk(fakeLocal({ dirs: [marker(dir)] }), { isDirErrors: { [dir]: 'EACCES: permission denied' } })
+        const { result, text } = report(local)
+        assert.equal(lineOf(text, '~/.claude-b'), '~/.claude-b: could not read: EACCES: permission denied')
+        assert.equal(result.failed, true)
+      })
+
+      test('a dangling link is a could-not-read line', () => {
+        const dir = dirOf('.claude-x')
+        const base = fakeLocal()
+        const local = withDisk(
+          { ...base, names: (p) => (p === HOME ? ['.claude-x'] : []) },
+          { isDirErrors: { [dir]: 'dangling link' } }
+        )
+        const { result, text } = report(local)
+        assert.equal(lineOf(text, '~/.claude-x'), '~/.claude-x: could not read: dangling link')
+        assert.ok(text.startsWith('config dirs: 1 (0 with the plugin, 0 auto update on, 0 at the newest commit, 1 could not read)'))
+        assert.equal(result.failed, true)
+      })
+
+      test('a candidate with no projects folder is still skipped and not failed', () => {
+        const { result, text } = report(withDisk(fakeLocal({ dirs: [dirOf('.claude-plain')] })))
+        assert.equal(text, 'config dirs: 0 (0 with the plugin, 0 auto update on, 0 at the newest commit, 0 could not read)\n')
+        assert.equal(result.failed, false)
+      })
+
+      test('findConfigDirs carries the error on the dir and keeps the other dirs', () => {
+        const local = withDisk(fakeLocal({ dirs: [marker(dirOf('.claude-a')), badMarker] }), {
+          isDirErrors: { [badMarker]: 'EACCES: permission denied' },
+        })
+        const found = findConfigDirs(local)
+        assert.deepEqual(
+          found.dirs.map((d) => [d.path, d.error]),
+          [
+            [dirOf('.claude-a'), undefined],
+            [dirOf('.claude-b'), 'EACCES: permission denied'],
+          ]
+        )
+        assert.equal(found.error, null)
+      })
+    })
+
+    describe('finding 3: two names for one dir give one line', () => {
+      const alpha = dirOf('.claude-alpha')
+      const link = dirOf('.claude-link')
+      const tidy = { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }
+      const two = () => fakeLocal(merge(configDir('.claude-alpha', tidy), { dirs: [marker(link)] }))
+
+      test('a link to a config dir is one dir, shown under the first name in sort order, and counted once', () => {
+        const { result, text } = report(withDisk(two(), { links: { [link]: alpha, [marker(link)]: marker(alpha) } }))
+        assert.equal(
+          text,
+          'config dirs: 1 (1 with the plugin, 1 auto update on, 1 at the newest commit, 0 could not read)\n' +
+            '~/.claude-alpha: plugin installed, auto update on, at the newest commit\n'
+        )
+        assert.equal(result.failed, false)
+      })
+
+      test('the first name in sort order wins even when it is the link', () => {
+        const first = dirOf('.claude-0link')
+        const local = withDisk(fakeLocal(merge(configDir('.claude-alpha', tidy), { dirs: [marker(first)] })), { links: { [first]: alpha } })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [first])
+      })
+
+      test('CLAUDE_CONFIG_DIR that is a link to a home dir is one dir', () => {
+        const base = fakeLocal({ ...configDir('.claude-alpha', tidy), dirs: ['/srv/link', marker(alpha)], envDir: '/srv/link' })
+        const local = withDisk(base, { links: { '/srv/link': alpha } })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [alpha])
+      })
+
+      test('when the real path cannot be resolved it falls back to the resolved path and keeps both names', () => {
+        const local = withDisk(two(), { links: { [link]: alpha }, realErrors: [link] })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [alpha, link])
+      })
+
+      test('a local with no real function falls back to the resolved path', () => {
+        const { real, ...rest } = withDisk(two(), { links: { [link]: alpha } })
+        assert.deepEqual(findConfigDirs(rest).dirs.map((d) => d.path), [alpha, link])
+      })
+    })
+  })
 })

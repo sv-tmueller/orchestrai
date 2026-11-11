@@ -33,7 +33,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -791,6 +791,8 @@ const MARKETPLACE_KEY = 'orchestrai'
 
 // Everything about the disk goes through `local`, so a test can hand in a fake
 // home. `read` returns null for a missing file and throws on any other error.
+// `isDir` is false only when the path is not there; it throws when the path
+// cannot be looked at, or is a link with no target. `real` resolves links.
 function nodeLocal() {
   return {
     home: homedir(),
@@ -799,10 +801,18 @@ function nodeLocal() {
     isDir: (path) => {
       try {
         return statSync(path).isDirectory()
-      } catch {
-        return false
+      } catch (err) {
+        if (err.code === 'ENOTDIR') return false
+        if (err.code !== 'ENOENT') throw err
+        try {
+          lstatSync(path)
+        } catch {
+          return false
+        }
+        throw new Error('broken link: its target does not exist')
       }
     },
+    real: (path) => realpathSync(path),
     read: (path) => {
       try {
         return readFileSync(path, 'utf8')
@@ -818,23 +828,43 @@ const oneLine = (message) => String(message).replace(CONTROL_RUN, ' ').trim()
 
 // A `projects` folder is written by every session. A `plugins` folder is not a
 // safe marker: other tools keep `.claude-<something>` dirs with one.
+// A candidate that is not there, or has no marker, is skipped. One that cannot
+// be looked at (or is a dangling link) is kept with an `error`, so it is
+// reported instead of vanishing.
 export function findConfigDirs(local) {
-  const found = new Map()
+  const found = []
   let error = null
   try {
     for (const name of local.names(local.home)) {
       if (name !== '.claude' && !name.startsWith('.claude-')) continue
       const path = resolve(local.home, name)
-      if (local.isDir(path) && local.isDir(join(path, 'projects'))) found.set(path, { path, fromEnv: false })
+      try {
+        if (local.isDir(path) && local.isDir(join(path, 'projects'))) found.push({ path, fromEnv: false })
+      } catch (err) {
+        found.push({ path, fromEnv: false, error: oneLine(err.message) })
+      }
     }
   } catch (err) {
     error = oneLine(err.message)
   }
-  if (local.envDir) {
-    const path = resolve(local.envDir)
-    found.set(path, { path, fromEnv: true })
+  if (local.envDir) found.push({ path: resolve(local.envDir), fromEnv: true })
+  found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  // Two names for one dir (a link) are one dir; the first name in sort order is
+  // shown. A path that cannot be resolved keeps its own resolved path as key.
+  const real = (path) => {
+    try {
+      return local.real(path)
+    } catch {
+      return path
+    }
   }
-  const dirs = [...found.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  const seen = new Set()
+  const dirs = found.filter(({ path }) => {
+    const key = real(path)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
   return { dirs, error }
 }
 
@@ -902,9 +932,11 @@ export function collectConfigDirs(run, local) {
     return newestByRepo.get(repo)
   }
 
-  const dirs = found.map(({ path, fromEnv }) => {
-    const name = displayPath(path, local.home)
+  const dirs = found.map(({ path, fromEnv, error: lookError }) => {
+    // The name comes from the disk or the environment: one line, whatever it holds.
+    const name = oneLine(displayPath(path, local.home))
     try {
+      if (lookError !== undefined) throw new Error(lookError)
       if (fromEnv && !local.isDir(path)) throw new Error('not a directory')
       const { installed, sha } = readInstalled(local, path)
       const { autoUpdate, repo } = readMarketplace(local, path)
