@@ -185,6 +185,16 @@ state per repo. It never writes.
 - `could not read`: GitHub refused a read. The command exits 1 and does not
   retry.
 
+After the repos, Check lists your Claude Code config dirs: `~/.claude` and each
+`~/.claude-<name>` that has a `projects` folder, plus the one in
+`CLAUDE_CONFIG_DIR` if it is set. For each dir it shows three facts: whether the
+orchestrai plugin is installed for your user, whether auto update is on for its
+marketplace, and whether the installed copy is the newest commit. It reads the
+plugin files in each dir and makes one GitHub read for the newest commit. It
+changes nothing. To switch auto update on, use `/plugin` in that dir. A dir it
+cannot read says `could not read`, and the command exits 1. Right after a merge,
+a copy stays behind until auto update runs in that dir.
+
 Each repo also shows its visibility, protection, auto merge, squash merge,
 required checks, whether it has the pipeline labels, the test file count and
 the checks seen on the last ten PRs. One of two flags can appear. Both mean the

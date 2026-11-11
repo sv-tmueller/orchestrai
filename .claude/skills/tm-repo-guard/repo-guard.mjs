@@ -7,6 +7,11 @@
  * goes through `guarded()`, which refuses anything outside a small allowlist,
  * so a future edit cannot quietly add a write.
  *
+ * Check also prints one line per Claude Code config dir (issue #502): whether
+ * the plugin is installed, whether auto update is on, and whether the installed
+ * copy is the newest commit. The dir facts come from each dir's plugin files;
+ * the newest commit is one more read through `guarded()`. Nothing is written.
+ *
  * Apply changes one repo, and only after the owner confirms. Its two writes
  * go through `writeGuarded()`, a separate fence that accepts exactly the
  * branch protection PUT and the repo PATCH, with bodies it validates. The read
@@ -20,7 +25,7 @@
  *        node repo-guard.mjs apply <repo>              plan: prints changes and a token
  *        node repo-guard.mjs apply <repo> --confirm T  writes, when T matches the plan
  *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
- * Exit:  Check: 0 when every repo was read, 1 when any repo could not be read.
+ * Exit:  Check: 0 when every repo and config dir was read, 1 when any could not be.
  *        Apply: 0 done or nothing to change, 1 read or write failed,
  *        2 usage error, refusal or token mismatch.
  *        Statuses: 0 commands printed, 1 a read failed, 2 usage error or refusal.
@@ -28,7 +33,9 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 // ---------------------------------------------------------------------------
@@ -773,12 +780,213 @@ function statusesResult(run, argv) {
   return { code: 0, text: out.join('\n') + '\n' }
 }
 
+// ---------------------------------------------------------------------------
+// Config dirs (Check, issue #502)
+// ---------------------------------------------------------------------------
+
+// Fixed here, not read from .claude-plugin/marketplace.json: the script runs
+// from the plugin cache, where that file is not present.
+const PLUGIN_KEY = 'orchestrai@orchestrai'
+const MARKETPLACE_KEY = 'orchestrai'
+
+// Everything about the disk goes through `local`, so a test can hand in a fake
+// home. `read` returns null for a missing file and throws on any other error.
+function nodeLocal() {
+  return {
+    home: homedir(),
+    envDir: process.env.CLAUDE_CONFIG_DIR || null,
+    names: (path) => readdirSync(path),
+    isDir: (path) => {
+      try {
+        return statSync(path).isDirectory()
+      } catch {
+        return false
+      }
+    },
+    read: (path) => {
+      try {
+        return readFileSync(path, 'utf8')
+      } catch (err) {
+        if (err.code === 'ENOENT') return null
+        throw err
+      }
+    },
+  }
+}
+
+const oneLine = (message) => String(message).replace(CONTROL_RUN, ' ').trim()
+
+// A `projects` folder is written by every session. A `plugins` folder is not a
+// safe marker: other tools keep `.claude-<something>` dirs with one.
+export function findConfigDirs(local) {
+  const found = new Map()
+  let error = null
+  try {
+    for (const name of local.names(local.home)) {
+      if (name !== '.claude' && !name.startsWith('.claude-')) continue
+      const path = resolve(local.home, name)
+      if (local.isDir(path) && local.isDir(join(path, 'projects'))) found.set(path, { path, fromEnv: false })
+    }
+  } catch (err) {
+    error = oneLine(err.message)
+  }
+  if (local.envDir) {
+    const path = resolve(local.envDir)
+    found.set(path, { path, fromEnv: true })
+  }
+  const dirs = [...found.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  return { dirs, error }
+}
+
+function readJsonFile(local, dir, file) {
+  let data
+  try {
+    const text = local.read(join(dir, 'plugins', file))
+    if (text === null) return undefined
+    data = JSON.parse(text)
+  } catch (err) {
+    throw new Error(`${file}: ${oneLine(err.message)}`)
+  }
+  return data
+}
+
+function readInstalled(local, dir) {
+  const file = 'installed_plugins.json'
+  const data = readJsonFile(local, dir, file)
+  if (data === undefined) return { installed: false, sha: null }
+  if (!isObject(data) || !isObject(data.plugins)) throw new Error(`${file}: unexpected shape`)
+  const entries = data.plugins[PLUGIN_KEY]
+  if (entries === undefined) return { installed: false, sha: null }
+  if (!Array.isArray(entries) || !entries.every(isObject)) throw new Error(`${file}: unexpected shape`)
+  const user = entries.find((e) => e.scope === 'user')
+  if (user === undefined) return { installed: false, sha: null }
+  const sha = typeof user.gitCommitSha === 'string' && HEAD_SHA.test(user.gitCommitSha) ? user.gitCommitSha : null
+  return { installed: true, sha }
+}
+
+function readMarketplace(local, dir) {
+  const file = 'known_marketplaces.json'
+  const data = readJsonFile(local, dir, file)
+  if (data === undefined) return { autoUpdate: null, repo: null }
+  if (!isObject(data)) throw new Error(`${file}: unexpected shape`)
+  const entry = isObject(data[MARKETPLACE_KEY]) ? data[MARKETPLACE_KEY] : {}
+  const autoUpdate = typeof entry.autoUpdate === 'boolean' ? entry.autoUpdate : null
+  const source = isObject(entry.source) ? entry.source : {}
+  const parts = source.source === 'github' && typeof source.repo === 'string' ? source.repo.split('/') : []
+  const repo = parts.length === 2 && parts.every(validPart) ? parts.join('/') : null
+  return { autoUpdate, repo }
+}
+
+// Never throws: the caller prints every dir whatever happens to one of them.
+export function collectConfigDirs(run, local) {
+  const call = guarded(run)
+  const { dirs: found, error } = findConfigDirs(local)
+  let failed = error !== null
+
+  // One read per repo; the answer is the same for every dir that names it.
+  const newestByRepo = new Map()
+  const newestOf = (repo) => {
+    if (!newestByRepo.has(repo)) {
+      let answer
+      try {
+        const res = call(['api', `repos/${repo}/commits/HEAD`])
+        if (res.code !== 0) throw new Error(parseError(res).message)
+        const sha = JSON.parse(res.stdout)?.sha
+        if (typeof sha !== 'string' || !HEAD_SHA.test(sha)) throw new Error('the answer has no 40-character commit')
+        answer = { sha }
+      } catch (err) {
+        answer = { error: oneLine(err.message) }
+      }
+      newestByRepo.set(repo, answer)
+    }
+    return newestByRepo.get(repo)
+  }
+
+  const dirs = found.map(({ path, fromEnv }) => {
+    const name = displayPath(path, local.home)
+    try {
+      if (fromEnv && !local.isDir(path)) throw new Error('not a directory')
+      const { installed, sha } = readInstalled(local, path)
+      const { autoUpdate, repo } = readMarketplace(local, path)
+      let commit = { kind: 'none' }
+      if (installed && sha === null) commit = { kind: 'unrecorded' }
+      else if (installed && repo === null) commit = { kind: 'nosource' }
+      else if (installed) {
+        const newest = newestOf(repo)
+        if (newest.error !== undefined) {
+          failed = true
+          commit = { kind: 'unreadable', message: newest.error }
+        } else if (newest.sha === sha) {
+          commit = { kind: 'current' }
+        } else {
+          commit = { kind: 'behind', installed: sha.slice(0, 7), newest: newest.sha.slice(0, 7) }
+        }
+      }
+      return { name, installed, autoUpdate, commit }
+    } catch (err) {
+      failed = true
+      return { name, error: oneLine(err.message) }
+    }
+  })
+  return { failed, error, dirs }
+}
+
+function displayPath(path, home) {
+  const base = resolve(home)
+  if (path === base) return '~'
+  return path.startsWith(base + sep) ? `~${path.slice(base.length)}` : path
+}
+
+const COMMIT_FACTS = {
+  none: () => 'no installed copy',
+  current: () => 'at the newest commit',
+  behind: (c) => `not at the newest commit (installed ${c.installed}, newest ${c.newest})`,
+  unrecorded: () => 'commit not recorded',
+  nosource: () => 'newest commit unknown (no GitHub source recorded)',
+  unreadable: (c) => `newest commit unknown (could not read: ${c.message})`,
+}
+
+export function renderConfigDirs({ error, dirs }) {
+  const lines = []
+  if (error !== null) {
+    lines.push(`config dirs: could not list the home folder: ${error}`)
+  } else {
+    const count = (pick) => dirs.filter((d) => d.error === undefined && pick(d)).length
+    lines.push(
+      `config dirs: ${dirs.length} (${count((d) => d.installed)} with the plugin, ${count((d) => d.autoUpdate === true)} auto update on, ${count((d) => d.commit.kind === 'current')} at the newest commit, ${dirs.filter((d) => d.error !== undefined).length} could not read)`
+    )
+  }
+  for (const d of dirs) {
+    if (d.error !== undefined) {
+      lines.push(`${d.name}: could not read: ${d.error}`)
+      continue
+    }
+    const auto = d.autoUpdate === null ? 'not recorded' : d.autoUpdate ? 'on' : 'off'
+    lines.push(
+      `${d.name}: plugin ${d.installed ? 'installed' : 'not installed'}, auto update ${auto}, ${COMMIT_FACTS[d.commit.kind](d.commit)}`
+    )
+  }
+  return lines.join('\n') + '\n'
+}
+
 export function main(argv = process.argv.slice(2)) {
   try {
     if (argv.length === 0) {
-      const result = collect(ghRunner)
-      process.stdout.write(render(result))
-      if (result.entries.some((e) => e.error !== undefined)) process.exitCode = 1
+      let failed = false
+      let printed = false
+      try {
+        const result = collect(ghRunner)
+        process.stdout.write(render(result))
+        printed = true
+        if (result.entries.some((e) => e.error !== undefined)) failed = true
+      } catch (err) {
+        process.stderr.write(`repo-guard: ${err.message}\n`)
+        failed = true
+      }
+      // Local reads, so this part runs even when the repo list failed.
+      const config = collectConfigDirs(ghRunner, nodeLocal())
+      process.stdout.write((printed ? '\n' : '') + renderConfigDirs(config))
+      if (failed || config.failed) process.exitCode = 1
     } else if (argv[0] === 'apply') {
       const out = runApply(ghRunner, argv.slice(1))
       process.stdout.write(out.text)

@@ -1,6 +1,6 @@
 ---
 name: tm-repo-guard
-description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks), apply them to one repo after you confirm, or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
+description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state, apply them to one repo after you confirm, or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
 disable-model-invocation: true
 ---
 
@@ -16,9 +16,15 @@ the script makes every GitHub call itself.
 node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs"
 ```
 
-Print its stdout as is. The script only reads. Exit 0 means every repo was
-read; exit 1 means at least one entry says "could not read", or the repo list
-itself failed. Report that, and do not retry or work around it.
+Print its stdout as is. The script only reads. After the repos it prints one
+line per Claude Code config dir: is the plugin installed, is auto update on,
+and is the installed copy the newest commit. Exit 0 means every repo and
+config dir was read; exit 1 means at least one entry says "could not read",
+the repo list itself failed, a config dir could not be read, or the newest
+commit could not be read. Report that, and do not retry or work around it.
+
+Never switch auto update on, install the plugin or update it from this flow.
+That is the owner's step, in `/plugin` in that dir.
 
 ## `apply <repo>`: change one repo
 
