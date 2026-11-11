@@ -20,15 +20,16 @@ edited here. Acting on these findings is the guard batch's job.
   three refuse. So design 4.2 "if the guard cannot run, the command is
   refused" does not hold as written.
 - Project settings cannot switch bypass on (observed, row 6). A flag settings
-  source can (observed, row 7f), and so can user settings with nothing at launch
-  (observed, row 7): sessions started with a throwaway config dir whose
-  `settings.json` held only `defaultMode: bypassPermissions` ran in bypass, and
-  a project hook's denial still held. So design 4.1 "it is chosen when the
-  session is launched" does not hold as written.
+  source can (observed, row 7f). Sessions started with a throwaway config dir
+  whose `settings.json` held only `defaultMode: bypassPermissions` ran in bypass
+  with nothing at launch, and a project hook's denial still held (observed, row
+  7). That the mode came from those user settings is an inference (see the note
+  on C7, 7 and C7b). So design 4.1 "it is chosen when the session is launched"
+  does not hold as written.
 - Row 7 ran in a second session, with a throwaway config dir that had a login.
   Between that session's first run and row 7, five plugins arrived in that
-  config dir without an install. Row 7's control was run again in that state
-  (C7b).
+  config dir with no install by hand. Row 7's control was run again in that
+  state (C7b).
 - A hook in project settings fired and denied in a separate top-level headless
   process started with the subprocess seat's flags. A hook shipped in a plugin
   loaded with `--plugin-dir` also fired and denied in bypass mode.
@@ -202,11 +203,13 @@ Notes per row, from the stream-json events, `hook.log` and the debug logs:
   `permission_mode=bypassPermissions` and no `agent_id`; the tool result is
   `PreToolUse:Bash hook error: probe hook: denied`, decision `reject`, source
   `hook`; no marker. C7b: like C7, run right after row 7; marker created. No
-  mode flag and no `--settings` were passed. Row 6, started without a mode flag
-  and without user settings, ran in `default`. So the mode came from the
-  throwaway user settings (an inference from these runs). After C7b, the
-  throwaway `settings.json` was checked and still held only
-  `{"permissions":{"defaultMode":"bypassPermissions"}}`.
+  mode flag and no `--settings` were passed. The launch did pass
+  `CLAUDE_CONFIG_DIR` and `--setting-sources user,project`, which name no mode;
+  "nothing at launch" in this document means no mode flag and no `--settings`.
+  Row 6, started without a mode flag and without user settings, ran in
+  `default`. So the mode came from the throwaway user settings (an inference
+  from these runs). After C7b, the throwaway `settings.json` was checked and
+  still held only `{"permissions":{"defaultMode":"bypassPermissions"}}`.
 - **Plugins in the second session.** C7's init event listed 5 plugins, row 7's
   and C7b's 10. The five new ones, orchestrai and superpowers among them,
   appeared in the throwaway config dir after C7, under `plugins/synced`. Nothing
@@ -243,10 +246,11 @@ tested".
 - **"Project settings cannot switch bypass on, so it is chosen when the
   session is launched."** The first half holds (row 6, and the CLI warning).
   The second half does not hold as written; change: bypass can be on with
-  nothing at launch, from the user settings of the config dir the session starts
-  with (row 7). In C7, row 7 and C7b, a config dir whose `settings.json` set
-  `defaultMode: bypassPermissions` started the session in bypass with no mode
-  flag and no `--settings`, and the project hook's denial still held (row 7).
+  nothing at launch (row 7). In C7, row 7 and C7b, sessions started with a
+  config dir whose `settings.json` set `defaultMode: bypassPermissions` ran in
+  bypass with no mode flag and no `--settings`, and the project hook's denial
+  still held (row 7). That the mode came from those user settings is an
+  inference (see the note on C7, 7 and C7b).
   The CLI warning also names policy settings; they were not tested. Every other
   run that made a tool call in bypass got its mode at launch, from
   `--permission-mode bypassPermissions`, `--dangerously-skip-permissions` or a
@@ -302,9 +306,9 @@ tested".
 - Async hooks, hooks in user settings, hooks on tools other than Bash, and
   commands the hook does not recognise (the probe hook only looks for one
   marker string).
-- Plugins that arrive in a config dir with a login without an install (see
-  "Plugins in the second session"). How and when they arrive was not checked. It
-  matters if the guard ships in a plugin.
+- Plugins that arrive in a config dir with a login, with no install by hand
+  (see "Plugins in the second session"). How and when they arrive was not
+  checked. It matters if the guard ships in a plugin.
 
 ## Observed side effects on config dirs
 
@@ -338,8 +342,9 @@ after. The throwaway config dir gained five plugins during the session (see
   not tested, and neither was a config dir with more settings or with plugins
   added by hand.
 - Row 7 ran in a second session with its own `<probe-dir>`. The plugin set of
-  its config dir changed between C7 and row 7 without an install; C7b is the
-  control in row 7's state.
+  its config dir changed between C7 and row 7 with no install by hand; C7b is
+  the control in row 7's state.
+- Every run passed `--setting-sources`. A launch without it was not tested.
 - The subprocess seat's argv was reproduced by hand with the probe's bound and
   isolation flags added: a one-line prompt with no role contract, haiku at low
   effort, stream-json instead of json, and `--setting-sources project`.
