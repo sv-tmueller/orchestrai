@@ -31,12 +31,13 @@ If your usual `claude` is an alias or function that sets a config dir (check
 with `type claude`), use this form instead:
 
 ```sh
-env CLAUDE_CONFIG_DIR=<config-dir> claude --permission-mode manual --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false}}'
+CLAUDE_CONFIG_DIR=<config-dir> env claude --permission-mode manual --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false}}'
 ```
 
 - `env` runs the `claude` binary found on PATH, so a shell alias or function
-  named `claude` does not apply. Run `type claude` to see whether you
-  have one.
+  named `claude` does not apply. `CLAUDE_CONFIG_DIR` comes before `env` so
+  that the shell expands a `~` in `<config-dir>`: after `env`, zsh passes the
+  `~` on unexpanded.
 - Never add a bypass flag. Do not put this command in an alias.
 - The command changes no settings file: the checksums of `settings.json` and
   `plugins/installed_plugins.json` were the same before and after the test
@@ -115,8 +116,8 @@ not tested here.
 6. When the PR is merged (`gh pr view <pr> --json state --jq .state` prints
    `MERGED`), update the plugin in each config dir that `/tm-repo-guard`
    lists. Leave out `CLAUDE_CONFIG_DIR` for the default dir.
-   - `env CLAUDE_CONFIG_DIR=<config-dir> claude plugin marketplace update orchestrai`
-   - `env CLAUDE_CONFIG_DIR=<config-dir> claude plugin update orchestrai@orchestrai`
+   - `CLAUDE_CONFIG_DIR=<config-dir> env claude plugin marketplace update orchestrai`
+   - `CLAUDE_CONFIG_DIR=<config-dir> env claude plugin update orchestrai@orchestrai`
 
    Do not wait for auto update: when it applies is not known (design section
    8). The help says "restart required to apply", so step 7 starts a new
@@ -124,8 +125,9 @@ not tested here.
 7. Check the plugin is back and calls go through:
    - Run `/tm-repo-guard` with no argument. Each config dir with the plugin
      should print a line that ends in `at the newest commit`. A line that says
-     `not at the newest commit` means that dir still has the old copy. It
-     reads only the `orchestrai@orchestrai` copy.
+     `not at the newest commit` means that dir still has the old copy: run
+     step 6 again for it. The check reads only the `orchestrai@orchestrai`
+     copy.
    - Quit and start a new session the normal way. `/orchestrai:` should offer
      commands again, and an ordinary call in the mode that failed should go
      through.
