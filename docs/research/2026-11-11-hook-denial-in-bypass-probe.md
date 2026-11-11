@@ -22,8 +22,8 @@ edited here. Acting on these findings is the guard batch's job.
 - A hook in project settings fired and denied in a separate top-level headless
   process started with the subprocess seat's flags. A hook shipped in a plugin
   loaded with `--plugin-dir` also fired and denied in bypass mode.
-- The hook input carried `permission_mode` in every run, and `agent_id` only
-  inside the subagent.
+- The hook input carried `permission_mode` in every run in which the hook
+  fired, and `agent_id` only inside the subagent.
 
 ## Setup
 
@@ -34,12 +34,13 @@ edited here. Acting on these findings is the guard batch's job.
   in it is committed.
 - Bounds on every run: `--model haiku --effort low`, `--max-turns 4` (6 for
   the subagent rows), `--max-budget-usd 0.50`, `--setting-sources project`
-  (the one deviation is named at row 7f), `--strict-mcp-config`,
+  (the one deviation, `user,project`, is C7, named at row 7),
+  `--strict-mcp-config`,
   `--tools Bash` (`Bash,Agent` for the subagent rows) and
   `--no-session-persistence`. The 20 runs together cost 0.0114 USD.
 - `<config-dir>` below means the config dir the nested sessions inherited. No
-  run set `CLAUDE_CONFIG_DIR` except row 7, which pointed it at a folder
-  inside `<probe-dir>`.
+  run set `CLAUDE_CONFIG_DIR` except C7, the control of row 7, which pointed
+  it at a folder inside `<probe-dir>`.
 - Each run asks the model to run `touch probe-marker-<id>` with the Bash tool.
   The marker file is the evidence that the command ran. `hook.sh` appends one
   `FIRED` line with the hook input to `hook.log` on every call, so a hook that
