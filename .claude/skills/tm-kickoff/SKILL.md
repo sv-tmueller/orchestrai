@@ -107,7 +107,9 @@ to find an existing PR.
   or a `Track: lean` comment exists. A lean package (a `Track: lean` comment
   and no later `Track: full` comment) re-enters at the developer or the
   reviewer, never the tester; when its stage cannot be determined from the PR
-  comments, re-enter at the reviewer.
+  comments, re-enter at the reviewer. Whenever a lean package re-enters a
+  stage on resume, the owed Opus review above included, set `track:lean` on
+  the issue first: parking and step 7 take it off.
 - Remote resume: two label pairs name a waiting package. `phase:<stage>`
   together with `run:<r>` re-enters the waiting list for that stage; it
   never re-dispatches the seat, and sweep it through the poll below on the
@@ -536,8 +538,8 @@ else, and every `size:M`, runs full. When in doubt, full.
   `gh pr diff <n> --name-only`; if the paths still pass, run the lean
   check. If eligibility is broken, post `Track: full - <reason; the paths
   that broke eligibility>` on the issue, or `Track: full - <the lean
-  check's reason>` when the lean check broke it, and continue on the full
-  track from step 3 (tester).
+  check's reason>` when the lean check broke it, remove `track:lean`, and
+  continue on the full track from step 3 (tester).
 - **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
   (step 5) with the PR, branch, issue and "lean track", forwarding any
   NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
@@ -676,7 +678,9 @@ In order:
    drop the PR from the set and stop. Otherwise park the package (Parking,
    below) with the reason `could not switch auto merge off: <first stderr
    line>`. If it exits 0, or no request was set, run `gh pr ready --undo
-   <pr>` and label the issue `in-progress` and `phase:developer`.
+   <pr>` and label the issue `in-progress` and `phase:developer`, plus
+   `track:lean` for a lean package (a `Track: lean` comment and no later
+   `Track: full` comment).
 4. Dispatch the developer in the fix-round format: "issue #<n>, branch
    <branch>: fetch it, work detached on it. Repair: <reason>. Merge
    `origin/<default>` into it with a merge commit (no rebase, no force push),
