@@ -254,13 +254,18 @@ export function lookupRepoClass({ folder, sessionId, run, local, stateDir }) {
   }
   const names = list.stdout.split('\n').map((n) => n.trim()).filter(Boolean)
   const urlOf = (name) => gitOut(['remote', 'get-url', '--', name])
+  // Pushes go to the push URLs, which pushurl and pushInsteadOf can change, so
+  // the fetch URL alone does not say where a push lands.
+  const pushUrlsOf = (name) =>
+    gitOut(['remote', 'get-url', '--push', '--all', '--', name]).split('\n').map((u) => u.trim()).filter(Boolean)
+  const anyGitHub = (urls) => urls.some((u) => parseGitHubRemote(u) !== null)
 
   let name
   if (names.includes('origin')) name = 'origin'
   else if (names.length === 1) name = names[0]
   else if (names.length === 0) return noGitHub()
   else {
-    if (!names.some((n) => parseGitHubRemote(urlOf(n)) !== null)) return noGitHub()
+    if (!names.some((n) => anyGitHub([urlOf(n), ...pushUrlsOf(n)]))) return noGitHub()
     return result('personal-not-set-up', 'fallback', { detail: 'several remotes and none is named origin' })
   }
 
@@ -271,7 +276,15 @@ export function lookupRepoClass({ folder, sessionId, run, local, stateDir }) {
   }
 
   const remote = parseGitHubRemote(urlOf(name))
-  if (remote === null) return noGitHub(head())
+  if (remote === null) {
+    // Fetched from another host. A push URL on GitHub, valid or not, still puts
+    // pushes on GitHub, so only the deny list would apply to a guarded repo.
+    if (!anyGitHub(pushUrlsOf(name))) return noGitHub(head())
+    return result('personal-not-set-up', 'fallback', {
+      defaultBranch: head(),
+      detail: 'the remote is fetched from another host but a push URL is on GitHub',
+    })
+  }
   if (remote.invalid) {
     return result('personal-not-set-up', 'fallback', {
       defaultBranch: head(),
@@ -279,15 +292,13 @@ export function lookupRepoClass({ folder, sessionId, run, local, stateDir }) {
     })
   }
 
-  // Pushes go to the push URLs, which pushurl and pushInsteadOf can change. If
-  // any of them is not the repo that was fetched, the fetch URL says nothing
-  // about where a push lands. Not covered: remote.pushDefault and
-  // branch.<name>.pushRemote, which pick another remote.
+  // Every push URL must be the repo that was fetched. Not covered:
+  // remote.pushDefault and branch.<name>.pushRemote, which pick another remote.
   const same = (url) => {
     const other = parseGitHubRemote(url)
     return other !== null && !other.invalid && `${other.owner}/${other.repo}`.toLowerCase() === `${remote.owner}/${remote.repo}`.toLowerCase()
   }
-  const pushUrls = gitOut(['remote', 'get-url', '--push', '--all', '--', name]).split('\n').map((u) => u.trim()).filter(Boolean)
+  const pushUrls = pushUrlsOf(name)
   if (pushUrls.length === 0 || !pushUrls.every(same)) {
     return result('personal-not-set-up', 'fallback', {
       ...remote,
