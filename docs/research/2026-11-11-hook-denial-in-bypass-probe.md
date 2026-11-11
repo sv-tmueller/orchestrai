@@ -455,15 +455,15 @@ equivalent in the report.
    mk deny-json;  run 1a --permission-mode bypassPermissions
    mk deny-exit2; run 1b --permission-mode bypassPermissions
    mk deny-json;  run 1c --dangerously-skip-permissions
-   # subagent rows (C2 with "mk none", row 2 with "mk deny-json"; marker id in the prompt):
-   env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-C2. Do not run any command yourself. Wait for its result." \
+   # subagent rows (the marker id is in the prompt):
+   mk none; env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-C2. Do not run any command yourself. Wait for its result." \
      sh run.sh C2 --permission-mode bypassPermissions --agents '<agent JSON above>'
-   env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-2. Do not run any command yourself. Wait for its result." \
+   mk deny-json; env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-2. Do not run any command yourself. Wait for its result." \
      sh run.sh 2 --permission-mode bypassPermissions --agents '<agent JSON above>'
-   # subprocess seat rows (C3 with "mk none", row 3 with "mk deny-json"):
-   env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+   # subprocess seat rows:
+   mk none; env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
      sh run.sh C3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
-   env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+   mk deny-json; env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
      sh run.sh 3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
    mk crash;        run 4a --permission-mode bypassPermissions
    mk crash block;  run 4a-b --permission-mode bypassPermissions
