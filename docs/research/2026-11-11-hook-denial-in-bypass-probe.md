@@ -11,9 +11,10 @@ edited here. Acting on these findings is the guard batch's job.
 - A hook denial held in every bypass run in which the hook returned a denial,
   and inside a subagent. Both deny forms (JSON `permissionDecision: deny`, and
   exit code 2) worked. Bypass came from both bypass flags
-  (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`),
-  from a `--settings` flag (row 7f) and from user settings with nothing at
-  launch (row 7).
+  (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`)
+  and from a `--settings` flag (row 7f). In row 7 it was on with nothing at
+  launch; that it came from user settings is an inference (see the note on C7,
+  7 and C7b).
 - A hook that cannot run does not refuse the command by default. A crashing
   hook, a hook that times out and a missing hook script all let the command
   through in bypass mode. Setting `"onFailure":"block"` on the hook made all
