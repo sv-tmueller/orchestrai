@@ -13,8 +13,11 @@ sections 3.4 and 4.2).
   it names no mode, so expect the same refusal in every mode.
 - The guard is a plugin hook (design 4.2). Claude Code runs hooks only inside
   its own sessions, so a command typed in a plain terminal never reaches the
-  guard. Every step below, apart from the session checks in steps 1 and 7, is
-  a shell command: run it in the plugin-off session or in a plain terminal.
+  guard. Apart from the session checks in steps 1 and 7, every step below can
+  be done with shell commands: run them in the plugin-off session or in a
+  plain terminal. Where a step names `/tm-repo-guard`, the same script runs
+  from a shell in the checkout as
+  `node .claude/skills/tm-repo-guard/repo-guard.mjs`.
 - If the guard ever ships some other way than as a plugin hook, this command
   no longer switches it off.
 
@@ -47,9 +50,9 @@ env CLAUDE_CONFIG_DIR=<config-dir> claude --permission-mode manual --settings '{
   the command switches off only the two plugin keys. This was not checked.
 
 Check the switch inside the session: type `/orchestrai:`. Nothing should be
-offered. If something is offered, an orchestrai copy under another key is
-still on. Find its key in `/plugin` (only read it there: switching the plugin
-off in `/plugin` is expected to write a settings file), quit, add
+offered. If something is offered, an orchestrai copy under another key may
+still be on. Find its key in `/plugin` (only read it there: switching the
+plugin off in `/plugin` is expected to write a settings file), quit, add
 `"<key>":false` to the JSON in the command and start again.
 
 ## Permission mode
