@@ -4,6 +4,8 @@ Date: 2026-11-10
 Status: approved design. Decisions settled with the owner on 2026-11-10.
 Part of batch #470. Resolves issue #471, which records the design only. It
 changes no code, skill, agent, or workflow.
+Sections 4, 7 and 8 were revised on 2026-11-11, after the probe and the
+owner's decisions in batch #538.
 
 ## 1. Goal
 
@@ -73,34 +75,70 @@ the two statuses. There is no admin exception to the rule.
 ### 4.1 Bypass mode
 
 - Bypass permission mode is per repo. It exists only together with the merge
-  rule and the guard.
-- Project settings cannot switch bypass on, so it is chosen when the session
-  is launched.
-- The guard refuses work in bypass on a personal repo that is not set up.
+  rule and the guard. The guard makes it per repo: it reads the permission
+  mode from the hook input and acts per repo, whatever the launch command was.
+- Project settings cannot switch bypass on. The owner switches it on, by a
+  launch flag or by the user settings of a config dir. The machinery never
+  switches it on.
+- What the probe saw
+  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`): project
+  settings did not grant bypass (row 6). Both bypass flags and a `--settings`
+  flag did (rows 1a to 1c, 7f). A session with no mode flag and no
+  `--settings` ran in bypass in a config dir whose user settings held a
+  bypass default (row 7). That the mode came from those user settings is an
+  inference.
+- In the modes where the guard acts (4.2), it refuses work on a personal repo
+  that is not set up.
+  - Every change is refused. Reading is allowed.
+  - The `/tm-repo-guard` commands always pass.
+  - GitHub is asked once per session, with the same check as
+    `/tm-repo-guard`. The guard remembers the answer. If GitHub cannot be
+    reached, the repo counts as not set up.
+- In a personal repo that is set up, and outside any GitHub repo, only the
+  deny list (4.3) applies. Repos owned by an organization are untouched
+  (4.2).
 
 ### 4.2 The guard
 
+- The guard lives in the orchestrai plugin, as a plugin hook.
+- The guard acts only in modes where nobody is asked: `bypassPermissions`,
+  `auto` and `dontAsk`. In prompting modes it does nothing.
 - The guard only denies. It never asks, because nobody answers in an
   unattended run.
-- If the guard cannot run, the command is refused.
+- If the guard cannot run, the command is refused. So every guard hook must
+  set the block failure policy (`"onFailure":"block"`) and a short explicit
+  timeout, and must never be async. With the default policy, a crashing
+  hook, a hook that times out and a missing hook script all let the command
+  run in bypass, and the block policy refused all three
+  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, rows 4a to
+  4c-b). The probe set a 5 second timeout. The default timeout was not
+  tested. The CLI schema says the failure policy is ignored for async hooks
+  (read, not tested).
 - Repos owned by an organization are never touched, and the guard does
   nothing there.
+- The guard enforces on a short list of repos, starting with orchestrai.
+  Everywhere else it only logs what it would refuse, the refusal in 4.1
+  included.
 - The guard stops carelessness, not intent. The GitHub rule is the hard stop
   for the default branch.
 
 ### 4.3 The base deny list
 
+The first four entries are built in step 2. The last two depend on a run and
+wait for step 3.
+
 - Going around the merge rule: push to the default branch, force push, admin
   merge, changing the rule, changing visibility, deleting a repo.
 - Data loss: recursive deletes outside the repo or worktree, hard resets and
   cleans on the main checkout, dropping databases.
-- Secrets in a commit, or writes to credential files.
+- Secrets in a commit, or writes to credential files. The guard checks file
+  names only, with no content scan.
 - Changes to the guard and to permission settings.
 - Edits to issue text during a run.
 - Posting verdict statuses outside a pipeline run.
 
 Each repo can add its own entries, for commands with effects outside the
-code.
+code. The per-repo list waits for the first repo that needs it.
 
 ## 5. Contract and run bounds
 
@@ -169,19 +207,34 @@ Each step is used for real on orchestrai before the next one is built.
 
 1. Merge rule, `tm-repo-guard`, auto merge in the pipeline, the repair step,
    the dropped version field.
-2. The guard, and bypass tied to it.
+2. The guard, and bypass tied to it, in three batches:
+   - The guard core with the merge-rule deny group, and the repo class
+     (batch #538). Nothing is wired to a hook yet.
+   - The other three deny groups (data loss, secrets by file name, the guard
+     and permission settings), the hook with the enforce list and the log,
+     and a live repeat of the probe against the real guard. This batch goes
+     live on orchestrai.
+   - Headless seats keep the guard, and the enforce list widens.
 3. Contract with dependencies and waves, the dispatch ceiling, one live run
-   per repo, the queued contract, the notification.
+   per repo, the queued contract, the notification, and the two
+   run-dependent deny entries (issue text edits, verdict statuses).
 
 Then the other repos: public repos with CI first, repos whose agents can
 cause effects outside the code last, private repos once the plan allows it.
 
 ## 8. Unverified items and open points
 
+Verified:
+
+- That a hook denial holds in bypass mode and inside subagents. In the probe
+  of 2026-11-11
+  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`), a PreToolUse
+  hook on Bash held its denial in every bypass run in which it returned one,
+  in both deny forms, and inside a subagent (JSON form, row 2). The research
+  doc lists the probe's limits.
+
 Unverified:
 
-- That a hook denial holds in bypass mode and inside subagents. Step 2 starts
-  with that test.
 - Whether a plugin auto update applies in the running session or the
   following one.
 
@@ -190,8 +243,18 @@ Open points for steps 2 and 3:
 - Remote runners: a stage can be handed to a runner on another machine. The
   guard and the one-live-run rule have to account for that.
 - Subprocess seats: seats can run as separate headless Claude Code processes
-  with their own permission mode. The guard design has to cover them.
+  with their own permission mode. The guard design has to cover them. The seat
+  adapter switches the orchestrai plugin off today, so a guard in the plugin
+  does not load there. This is read from the code, not observed.
+- Plugins that arrive in a config dir with a login, with no install by hand.
+  In the probe, five plugins appeared in a throwaway config dir during one
+  session. How and when they arrive was not checked. It matters because the
+  guard ships in a plugin.
 
 ## 9. References
 
 - Issue #471 (this design's issue) and batch #470.
+- `docs/research/2026-11-11-hook-denial-in-bypass-probe.md`: the probe of
+  hook denial in bypass mode and inside subagents.
+- Issues #521 and #533 (the probe; row 7 ran under #533) and batch #538 (the
+  guard core, and the owner's decisions of 2026-11-11).
