@@ -86,6 +86,7 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   7 again). A PR that needs a second repair parks. A repair that is
   interrupted parks too, and a parked repair stays with the owner. Mechanics:
   step 7 and "Repair (queued PRs behind the default branch)" in the same file.
+  What "set up" means and how to get a repo there: see "Repo guard" below.
 - **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
   seat contracts, so the lead routes on the short report instead of expanding
   it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
@@ -125,6 +126,94 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
   commits, tests, CI, writing style). Imported by the repo `CLAUDE.md` or
   `AGENTS.md`.
 - `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist.
+
+## Repo guard
+
+Claude Code only. Auto merge is safe only on a repo where nothing can reach the
+default branch without passing the checks. `/tm-repo-guard` reads your repos
+against that rule and, on your yes, sets one repo up. Details:
+`.claude/skills/tm-repo-guard/SKILL.md`.
+
+It works from any folder, because it only talks to GitHub through `gh`. It
+looks at the repos your own GitHub account owns and skips archived ones.
+Repos owned by an organization are never touched.
+
+### What "set up" means
+
+A repo is set up when all of these hold on its default branch:
+
+- Branch protection is on, and a PR is required.
+- No approving review is required (the pipeline merges without one).
+- Force pushes and deletion are off.
+- The rule applies to admins too, so you have no way around it either.
+- A PR must be up to date with the default branch before it merges.
+- Auto merge is on and squash merge is allowed.
+- The required checks match the rule below.
+
+**The rule for required checks.** Every check that showed up on the newest
+finished PR becomes required, whoever runs it: the repo's own CI or an outside
+service. The same rule holds on every repo. The newest finished PR is the
+highest-numbered non-draft PR among the last ten (open, merged or closed)
+whose checks have all finished. Skipped checks do not count. A check that only
+older PRs ran is no longer required, and the report lists it as "not required:
+no longer runs".
+
+On a repo with the pipeline labels (`in-progress` and `needs-human`), the two
+verdict statuses `orchestrai/review` and `orchestrai/test` are required too.
+
+Hand-made PRs on a set-up repo follow the same rule. They need every required
+check to pass, and on a repo with the pipeline labels they also need both
+verdict statuses on their head, like any other PR.
+
+### Check
+
+`/tm-repo-guard` with no argument reads every repo you own and prints one
+state per repo. It never writes.
+
+- `set up`: nothing to change.
+- `not set up`: the `missing` line lists what is off. It also says `needs CI
+  first` when the repo has test files but no finished, non-draft PR has run a
+  check. Add CI and merge a PR through it, then check again.
+- `blocked`: branch protection is not available on the current plan. Private
+  repos need a paid GitHub plan for it.
+- `could not read`: GitHub refused a read. The command exits 1 and does not
+  retry.
+
+Each repo also shows its visibility, protection, auto merge, squash merge,
+required checks, whether it has the pipeline labels, the test file count and
+the checks seen on the last ten PRs. Two flags can appear. Both mean the
+repo has no test files, so the short (lean) track is off:
+
+- `no tests, short track off`: CI runs, but there are no tests.
+- `agent verdicts only, short track off`: no CI and no tests, so the two
+  verdict statuses are the only gate.
+
+### Apply
+
+`/tm-repo-guard apply <repo>` changes one repo at a time. Give the name or
+`owner/name`. It refuses a repo that is not owned by your own account, an
+archived repo, a blocked repo, a repo that needs CI first, and a repo that
+requires signed commits (the protection write could reset that).
+
+1. It first prints a plan: the changes, the required checks after apply, the
+   GitHub writes it will make (branch protection, then repo settings, only
+   those that are needed), and a confirm token that covers those exact writes.
+2. It asks you in the session whether to apply. Only your own yes to that
+   question counts.
+3. On yes, it runs the same command with the token. If anything changed since
+   the plan was shown (a new PR, a setting flipped by hand), the token no
+   longer matches and nothing is written. Run the plan again to get a new one.
+4. It prints the repo's state as GitHub holds it afterwards.
+
+A repo that is already set up prints "set up, nothing to change" and asks
+nothing. Protection settings the guard does not manage are carried over, not
+reset. Apply also removes any required check that is no longer in the list.
+
+### When a required check stops reporting
+
+If a required check is renamed or retired, no PR can report it, so PRs wait
+and do not merge. Run Apply again. The newest finished PR now decides the
+list, so the old check drops out and the new one comes in.
 
 ## Zone 1: Claude Code
 
@@ -167,6 +256,8 @@ must be committed rather than installed from the marketplace.
 /tm-map-codebase        # map the repo architecture
 /tm-repo-guard          # report each owned repo's guard state (apply <repo> asks first)
 ```
+
+`/tm-repo-guard` is explained under "Repo guard" below.
 
 ### Model config
 
