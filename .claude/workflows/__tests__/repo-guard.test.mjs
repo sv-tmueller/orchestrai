@@ -1,6 +1,6 @@
 /**
- * Tests for tm-repo-guard: the read-only check (issue #472, batch #470) and
- * apply (issue #481).
+ * Tests for tm-repo-guard: the read-only check (issue #472, batch #470),
+ * apply (issue #481) and the statuses mode (issue #501).
  *
  * `repo-guard.mjs` ships with the plugin at
  * `.claude/skills/tm-repo-guard/repo-guard.mjs`. It reads the GitHub state of
@@ -34,7 +34,9 @@ import {
   writeGuarded,
   writeArgs,
   runApply,
+  runStatuses,
 } from '../../skills/tm-repo-guard/repo-guard.mjs'
+import { decide } from '../../skills/tm-kickoff/ship-decision.mjs'
 
 // ---------------------------------------------------------------------------
 // Read-only guard
@@ -1963,6 +1965,302 @@ describe('runApply', () => {
       const { code } = runApply(fake.run, ['widget', '--confirm', 'abcdefabcdef'])
       assert.equal(code, 2)
       assert.deepEqual(fake.state.writes, [])
+    })
+  })
+})
+
+describe('runStatuses', () => {
+  const HEAD = 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12'
+  const OTHER_HEAD = '0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6'
+  const ok = (value) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' })
+  const fail = (status, message) => ({
+    code: 1,
+    stdout: JSON.stringify({ message, status: String(status) }),
+    stderr: `gh: ${message} (HTTP ${status})`,
+  })
+
+  const BOTH = ['orchestrai/review', 'orchestrai/test']
+  const protectionWith = (contexts) => ({
+    required_status_checks: { strict: true, contexts, checks: contexts.map((context) => ({ context, app_id: null })) },
+    enforce_admins: { enabled: true },
+    required_pull_request_reviews: { required_approving_review_count: 0 },
+  })
+
+  // A made-up account. Each `over` key replaces that read's answer.
+  function makeFake(over = {}) {
+    const state = {
+      login: 'octo',
+      repo: { full_name: 'octo/widget', name: 'widget', owner: { login: 'octo', type: 'User' }, ...over.repo },
+      pr: { state: 'open', merged: false, draft: false, head: { sha: HEAD }, base: { ref: 'main' }, ...over.pr },
+      protection: over.protection === undefined ? ok(protectionWith(BOTH)) : over.protection,
+      userRes: over.userRes ?? null,
+      repoRes: over.repoRes ?? null,
+      prRes: over.prRes ?? null,
+      calls: [],
+    }
+    function run(args, input) {
+      state.calls.push({ args, input })
+      const key = args.join(' ')
+      if (key === 'api user') return state.userRes ?? ok({ login: state.login })
+      if (key === 'api repos/octo/widget') return state.repoRes ?? ok(state.repo)
+      if (key === 'api repos/octo/widget/pulls/42') return state.prRes ?? ok(state.pr)
+      if (key === `api repos/octo/widget/branches/${encodeURIComponent(state.pr.base.ref)}/protection`) return state.protection
+      throw new Error(`unexpected gh call: ${key}`)
+    }
+    return { run, state }
+  }
+
+  const statuses = (fake, ...argv) => runStatuses(fake.run, argv)
+  const readPaths = (fake) => fake.state.calls.map((c) => c.args.join(' '))
+  const lines = (text) => text.trimEnd().split('\n')
+
+  // Splits one printed command the way a shell would, for single quotes only.
+  function splitCommand(line) {
+    const words = []
+    let cur = null
+    let quoted = false
+    for (const ch of line) {
+      if (ch === "'") {
+        quoted = !quoted
+        cur ??= ''
+      } else if (ch === ' ' && !quoted) {
+        if (cur !== null) words.push(cur)
+        cur = null
+      } else {
+        cur = (cur ?? '') + ch
+      }
+    }
+    if (cur !== null) words.push(cur)
+    return words
+  }
+
+  const TEST_LINE = `gh api -X POST 'repos/octo/widget/statuses/${HEAD}' -f state=success -f context=orchestrai/test -f description='by hand: owner verified'`
+  const REVIEW_LINE = `gh api -X POST 'repos/octo/widget/statuses/${HEAD}' -f state=success -f context=orchestrai/review -f description='by hand: owner reviewed'`
+  const QUEUE_LINE = `gh pr merge 42 --repo octo/widget --squash --auto --match-head-commit ${HEAD}`
+
+  describe('the printed commands', () => {
+    test('prints the head and the three commands in the pipeline order', () => {
+      const fake = makeFake()
+      const { code, text } = statuses(fake, 'widget', '42')
+      assert.equal(code, 0)
+      assert.equal(
+        text,
+        [`octo/widget PR #42: head ${HEAD}`, 'run these in your own shell:', TEST_LINE, REVIEW_LINE, QUEUE_LINE].join('\n') + '\n'
+      )
+    })
+
+    test('makes exactly four reads, in order, and never passes input', () => {
+      const fake = makeFake()
+      statuses(fake, 'widget', '42')
+      assert.deepEqual(readPaths(fake), [
+        'api user',
+        'api repos/octo/widget',
+        'api repos/octo/widget/pulls/42',
+        'api repos/octo/widget/branches/main/protection',
+      ])
+      for (const c of fake.state.calls) {
+        assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+        assert.equal(c.input, undefined)
+      }
+    })
+
+    test('a short name and owner/name give the same output, matched without regard to case', () => {
+      const a = statuses(makeFake(), 'widget', '42')
+      assert.equal(statuses(makeFake(), 'octo/widget', '42').text, a.text)
+      assert.equal(statuses(makeFake(), 'Octo/widget', '42').text, a.text)
+    })
+
+    test('every printed command is refused by the read guard and the write fence', () => {
+      const { text } = statuses(makeFake(), 'widget', '42')
+      const commands = lines(text).slice(2)
+      assert.equal(commands.length, 3)
+      for (const line of commands) {
+        const words = splitCommand(line)
+        assert.equal(words[0], 'gh')
+        const args = words.slice(1)
+        assert.equal(isReadOnly(args), false, line)
+        assert.equal(isAllowedWrite(args, undefined, { repo: 'octo/widget', branch: 'main' }), false, line)
+        let called = false
+        assert.throws(
+          () =>
+            guarded(() => {
+              called = true
+              return { code: 0, stdout: '', stderr: '' }
+            })(args),
+          /not read-only/
+        )
+        assert.equal(called, false)
+      }
+    })
+
+    test('the head is in both status paths and after --match-head-commit', () => {
+      const { text } = statuses(makeFake({ pr: { head: { sha: OTHER_HEAD } } }), 'widget', '42')
+      const [, , testLine, reviewLine, queueLine] = lines(text)
+      assert.ok(testLine.includes(`'repos/octo/widget/statuses/${OTHER_HEAD}'`))
+      assert.ok(reviewLine.includes(`'repos/octo/widget/statuses/${OTHER_HEAD}'`))
+      assert.ok(queueLine.endsWith(`--match-head-commit ${OTHER_HEAD}`))
+      assert.ok(!text.includes(HEAD))
+    })
+
+    test('both descriptions start with "by hand: " and differ from every description the pipeline writes', () => {
+      const { text } = statuses(makeFake(), 'widget', '42')
+      const printed = lines(text)
+        .slice(2, 4)
+        .map((line) => splitCommand(line).find((w) => w.startsWith('description=')).slice('description='.length))
+      for (const d of printed) assert.ok(d.startsWith('by hand: '), d)
+      assert.notEqual(printed[0], printed[1])
+      const pipeline = new Set()
+      for (const track of ['full', 'lean']) {
+        for (const fallbackReview of [false, true]) {
+          const res = decide({
+            track,
+            verdictCommit: HEAD,
+            head: HEAD,
+            fallbackReview,
+            autoMerge: true,
+            branchProtected: true,
+            branchRules: 0,
+          })
+          for (const s of res.statuses) pipeline.add(s.description)
+        }
+      }
+      assert.ok(pipeline.size >= 4)
+      for (const d of printed) assert.ok(!pipeline.has(d), d)
+    })
+
+    test('a draft PR gets a ready line just before the queue line', () => {
+      const { code, text } = statuses(makeFake({ pr: { draft: true } }), 'widget', '42')
+      assert.equal(code, 0)
+      assert.deepEqual(lines(text).slice(2), [TEST_LINE, REVIEW_LINE, 'gh pr ready 42 --repo octo/widget', QUEUE_LINE])
+    })
+
+    test('a PR that is not a draft gets no ready line', () => {
+      assert.doesNotMatch(statuses(makeFake(), 'widget', '42').text, /gh pr ready/)
+    })
+
+    test('reads the protection of the PR base branch, not the default branch', () => {
+      const fake = makeFake({ pr: { base: { ref: 'release/1.x' } } })
+      const { code } = statuses(fake, 'widget', '42')
+      assert.equal(code, 0)
+      assert.equal(readPaths(fake)[3], 'api repos/octo/widget/branches/release%2F1.x/protection')
+    })
+  })
+
+  describe('refusals', () => {
+    function refuses(fake, argv, pattern) {
+      const { code, text } = runStatuses(fake.run, argv)
+      assert.equal(code, 2)
+      assert.equal(lines(text).length, 1, text)
+      assert.match(text, /^refusing: /)
+      assert.match(text.trimEnd(), pattern)
+      assert.doesNotMatch(text, /gh api|gh pr/)
+      for (const c of fake.state.calls) assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+    }
+
+    test('an owner other than the user reads only the user', () => {
+      const fake = makeFake()
+      refuses(fake, ['some-org/widget', '42'], /^refusing: some-org\/widget is not a repo of your own account \(octo\)$/)
+      assert.deepEqual(readPaths(fake), ['api user'])
+    })
+
+    test('an organization owner type', () => {
+      const fake = makeFake({ repo: { owner: { login: 'octo', type: 'Organization' } } })
+      refuses(fake, ['widget', '42'], /^refusing: octo\/widget is not a repo of your own account \(octo\)$/)
+    })
+
+    test('a repo owner login that differs from the user', () => {
+      const fake = makeFake({ repo: { owner: { login: 'someone-else', type: 'User' } } })
+      refuses(fake, ['widget', '42'], /^refusing: octo\/widget is not a repo of your own account \(octo\)$/)
+    })
+
+    test('a closed PR', () => {
+      refuses(makeFake({ pr: { state: 'closed' } }), ['widget', '42'], /^refusing: octo\/widget PR #42 is not open \(closed\)$/)
+    })
+
+    test('a merged PR', () => {
+      refuses(makeFake({ pr: { state: 'closed', merged: true } }), ['widget', '42'], /^refusing: octo\/widget PR #42 is not open \(merged\)$/)
+    })
+
+    const NOT_REQUIRED = /^refusing: octo\/widget does not require orchestrai\/review and orchestrai\/test on main$/
+
+    test('a base branch with no protection', () => {
+      refuses(makeFake({ protection: fail(404, 'Branch not protected') }), ['widget', '42'], NOT_REQUIRED)
+    })
+
+    test('protection that the plan does not offer', () => {
+      const res = fail(403, 'Upgrade to GitHub Pro or make this repository public to enable this feature.')
+      refuses(makeFake({ protection: res }), ['widget', '42'], NOT_REQUIRED)
+    })
+
+    test('only one verdict context required', () => {
+      refuses(makeFake({ protection: ok(protectionWith(['orchestrai/review'])) }), ['widget', '42'], NOT_REQUIRED)
+      refuses(makeFake({ protection: ok(protectionWith(['orchestrai/test'])) }), ['widget', '42'], NOT_REQUIRED)
+    })
+
+    test('CI checks only', () => {
+      refuses(makeFake({ protection: ok(protectionWith(['Unit tests'])) }), ['widget', '42'], NOT_REQUIRED)
+    })
+
+    test('names the PR base branch in the refusal', () => {
+      const fake = makeFake({ pr: { base: { ref: 'release/1.x' } }, protection: fail(404, 'Branch not protected') })
+      refuses(fake, ['widget', '42'], /on release\/1\.x$/)
+    })
+  })
+
+  describe('usage errors', () => {
+    const cases = [
+      ['no arguments', []],
+      ['one argument', ['widget']],
+      ['three arguments', ['widget', '42', 'extra']],
+      ['PR 0', ['widget', '0']],
+      ['PR abc', ['widget', 'abc']],
+      ['PR #12', ['widget', '#12']],
+      ['PR -1', ['widget', '-1']],
+      ['PR with a leading zero', ['widget', '042']],
+      ['a flag', ['widget', '--confirm']],
+      ['a flag after the PR', ['widget', '42', '--repo']],
+      ['a flag as the repo', ['--help', '42']],
+    ]
+    for (const [name, argv] of cases) {
+      test(`${name}: exit 2, one usage line, no call`, () => {
+        const fake = makeFake()
+        const { code, text } = runStatuses(fake.run, argv)
+        assert.equal(code, 2)
+        assert.equal(text, 'usage: repo-guard.mjs statuses <repo> <pr>\n')
+        assert.deepEqual(fake.state.calls, [])
+      })
+    }
+
+    for (const bad of ['.hidden', 'a/b/c', 'bad name', 'octo/']) {
+      test(`bad repo name ${JSON.stringify(bad)}: exit 2, one line, no call`, () => {
+        const fake = makeFake()
+        const { code, text } = runStatuses(fake.run, [bad, '42'])
+        assert.equal(code, 2)
+        assert.equal(text, `refusing: invalid repo name: ${bad}\n`)
+        assert.deepEqual(fake.state.calls, [])
+      })
+    }
+  })
+
+  describe('read failures', () => {
+    function failsRead(fake, pattern) {
+      const { code, text } = runStatuses(fake.run, ['widget', '42'])
+      assert.equal(code, 1)
+      assert.equal(lines(text).length, 1, text)
+      assert.match(text, /^could not read: /)
+      assert.match(text, pattern)
+    }
+
+    test('the user read', () => failsRead(makeFake({ userRes: fail(401, 'Bad credentials') }), /user: Bad credentials/))
+    test('the repo read', () => failsRead(makeFake({ repoRes: fail(404, 'Not Found') }), /repo: Not Found/))
+    test('the PR read, including a PR that does not exist', () =>
+      failsRead(makeFake({ prRes: fail(404, 'Not Found') }), /pull request: Not Found/))
+    test('the protection read', () => failsRead(makeFake({ protection: fail(500, 'Server Error') }), /protection: Server Error/))
+
+    test('a head that is not 40 lowercase hex characters', () => {
+      for (const sha of ['abc123', HEAD.toUpperCase(), `${HEAD}; echo`, undefined, 42]) {
+        failsRead(makeFake({ pr: { head: { sha } } }), /head/)
+      }
     })
   })
 })

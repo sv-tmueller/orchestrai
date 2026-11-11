@@ -12,12 +12,18 @@
  * branch protection PUT and the repo PATCH, with bodies it validates. The read
  * guard is never loosened for them.
  *
+ * Statuses (issue #501) prints the commands that record both verdict statuses
+ * on a PR head and queue its merge, for the owner to run in their own shell.
+ * It makes four reads through `guarded()` and never writes.
+ *
  * Usage: node repo-guard.mjs                           Check
  *        node repo-guard.mjs apply <repo>              plan: prints changes and a token
  *        node repo-guard.mjs apply <repo> --confirm T  writes, when T matches the plan
+ *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
  * Exit:  Check: 0 when every repo was read, 1 when any repo could not be read.
  *        Apply: 0 done or nothing to change, 1 read or write failed,
  *        2 usage error, refusal or token mismatch.
+ *        Statuses: 0 commands printed, 1 a read failed, 2 usage error or refusal.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -670,6 +676,90 @@ export function runApply(run, argv) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Statuses
+// ---------------------------------------------------------------------------
+
+const STATUSES_USAGE = 'usage: repo-guard.mjs statuses <repo> <pr>'
+const PR_NUMBER = /^[1-9][0-9]*$/
+const HEAD_SHA = /^[0-9a-f]{40}$/
+
+// Start with "by hand: " so a status the owner posted is plain on the commit.
+// None of them matches a description the pipeline writes.
+const HAND_TEST = 'by hand: owner verified'
+const HAND_REVIEW = 'by hand: owner reviewed'
+
+function parseStatusesArgs(argv) {
+  if (argv.length !== 2 || argv.some((a) => a.startsWith('-')) || !PR_NUMBER.test(argv[1])) {
+    return { error: STATUSES_USAGE }
+  }
+  const parts = argv[0].split('/')
+  if (parts.length > 2 || !parts.every(validPart)) return { error: `refusing: invalid repo name: ${argv[0]}` }
+  return { typed: argv[0], owner: parts.length === 2 ? parts[0] : null, name: parts[parts.length - 1], pr: argv[1] }
+}
+
+// Prints the commands that record both verdicts and queue the merge. It only
+// reads, and the owner runs what it prints. It never builds `writeGuarded`.
+export function runStatuses(run, argv) {
+  const args = parseStatusesArgs(argv)
+  if (args.error) return { code: 2, text: `${args.error}\n` }
+
+  const refuse = (message) => ({ code: 2, text: `refusing: ${message}\n` })
+  const notOwn = (repo, login) => refuse(`${repo} is not a repo of your own account (${login})`)
+  const call = guarded(run)
+
+  let login
+  try {
+    login = parseOk(call(['api', 'user']), 'user').login
+  } catch (err) {
+    return { code: 1, text: `could not read: ${err.message}\n` }
+  }
+  if (args.owner !== null && args.owner.toLowerCase() !== login.toLowerCase()) return notOwn(args.typed, login)
+
+  const requested = `${login}/${args.name}`
+  let full
+  let pr
+  let protection
+  try {
+    const info = readRepo(call, requested)
+    if (info.owner?.type !== 'User' || info.owner?.login?.toLowerCase() !== login.toLowerCase()) {
+      return notOwn(requested, login)
+    }
+    full = info.full_name ?? requested
+    if (!full.split('/').every(validPart)) throw new Error(`repo: unexpected name ${full}`)
+
+    pr = parseOk(call(['api', `repos/${full}/pulls/${args.pr}`]), 'pull request')
+    // The head goes into the owner's shell, so it must be a plain 40-hex value.
+    if (typeof pr.head?.sha !== 'string' || !HEAD_SHA.test(pr.head.sha)) {
+      throw new Error('pull request: head is not a 40-character lowercase hex commit')
+    }
+    if (typeof pr.base?.ref !== 'string' || pr.base.ref === '') throw new Error('pull request: no base branch')
+    if (pr.state !== 'open') return refuse(`${full} PR #${args.pr} is not open (${pr.merged === true ? 'merged' : 'closed'})`)
+
+    protection = classifyProtection(call(['api', `repos/${full}/branches/${encodeURIComponent(pr.base.ref)}/protection`]))
+    if (protection.kind === 'error') throw new Error(`protection: ${protection.message}`)
+  } catch (err) {
+    return { code: 1, text: `could not read: ${err.message}\n` }
+  }
+
+  if (protection.kind !== 'present' || !VERDICT_CHECKS.every((c) => protection.requiredChecks.includes(c))) {
+    return refuse(`${full} does not require ${VERDICT_CHECKS.join(' and ')} on ${pr.base.ref}`)
+  }
+
+  const sha = pr.head.sha
+  const status = (context, description) =>
+    `gh api -X POST 'repos/${full}/statuses/${sha}' -f state=success -f context=${context} -f description='${description}'`
+  const out = [
+    `${full} PR #${args.pr}: head ${sha}`,
+    'run these in your own shell:',
+    status('orchestrai/test', HAND_TEST),
+    status('orchestrai/review', HAND_REVIEW),
+  ]
+  if (pr.draft === true) out.push(`gh pr ready ${args.pr} --repo ${full}`)
+  out.push(`gh pr merge ${args.pr} --repo ${full} --squash --auto --match-head-commit ${sha}`)
+  return { code: 0, text: out.join('\n') + '\n' }
+}
+
 export function main(argv = process.argv.slice(2)) {
   try {
     if (argv.length === 0) {
@@ -680,8 +770,12 @@ export function main(argv = process.argv.slice(2)) {
       const out = runApply(ghRunner, argv.slice(1))
       process.stdout.write(out.text)
       process.exitCode = out.code
+    } else if (argv[0] === 'statuses') {
+      const out = runStatuses(ghRunner, argv.slice(1))
+      process.stdout.write(out.text)
+      process.exitCode = out.code
     } else {
-      process.stderr.write(`repo-guard: unknown argument ${argv[0]}\n${USAGE}\n`)
+      process.stderr.write(`repo-guard: unknown argument ${argv[0]}\n${USAGE}\n${STATUSES_USAGE}\n`)
       process.exitCode = 2
     }
   } catch (err) {
