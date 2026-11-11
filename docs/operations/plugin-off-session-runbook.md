@@ -29,11 +29,10 @@ env claude --permission-mode manual --settings '{"enabledPlugins":{"orchestrai@o
   one. If the alias sets a config dir, put `CLAUDE_CONFIG_DIR=<config-dir>`
   right after `env`.
 - Never add a bypass flag. Do not put this command in an alias.
-- The command changes no settings file: in the test run, the checksums of two
-  settings files were the same before and after (test record). The
-  `--settings` help says only "load additional settings", so that the JSON
-  holds for this one session is expected, not checked. The control run, which
-  left `--settings` out, listed the plugin again.
+- The command changes no settings file: the checksums of `settings.json` and
+  `plugins/installed_plugins.json` were the same before and after the test
+  (test record). It holds for that one session only: a control run started
+  right after, without `--settings`, listed the plugin again.
 - Both keys are set because the plugin can be loaded under two keys, one per
   copy (the marketplace copy and the synced copy). The seat adapter's comment
   says disabling only the first copy left the synced second copy loading
@@ -85,10 +84,10 @@ with the plugin off it is expected to be gone too. Only the GitHub rule
   default with nothing at launch (probe row 7; that the mode came from those
   settings is an inference, design 4.1), and an alias can add a bypass flag.
 - One command covers both kinds of guard bug. A bug in the decision logic
-  leaves prompting modes alone anyway. A guard that crashes or times out was
-  seen to refuse in bypass mode. The failure policy names no mode, so expect it
-  to refuse in a prompting mode too, and then switching the plugin off is
-  required.
+  is expected to leave prompting modes alone (design 4.2). A guard that
+  crashes or times out was seen to refuse in bypass mode. The failure policy
+  names no mode, so expect it to refuse in a prompting mode too, and then
+  switching the plugin off is required.
 - Do not use `auto`, `dontAsk` or a bypass flag in this session.
 - Not known: whether `--permission-mode manual` beats a bypass default in a
   config dir's user settings. The test below ran with the inherited config
@@ -140,8 +139,9 @@ with the plugin off it is expected to be gone too. Only the GitHub rule
 
 Tested 2026-11-11 on Claude Code 2.1.319 with two headless runs (one turn,
 no tools, small model, in a folder outside any repo, in `<tmp-dir>`). The
-test run used the command above. The control was the same command without the
-`--settings` argument. Both used the inherited config dir.
+test run used the command above. The control ran right after it and was the
+same command without the `--settings` argument. Both used the inherited config
+dir.
 
 - Test run: the start-up record listed no orchestrai plugin, and no
   `orchestrai:` skill, command or agent.
