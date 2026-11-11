@@ -28,7 +28,7 @@ class ParseError extends Error {}
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/
 const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'while', 'until', '!'])
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh'])
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish'])
 const CD_COMMANDS = new Set(['cd', 'pushd', 'popd'])
 const NO_VALUE = new Set()
 
@@ -58,8 +58,43 @@ const SUDO_VALUE_FLAGS = new Set([
   '--chroot', '--role', '--type', '--other-user',
 ])
 
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
+
+// `env -S` takes a whole command line as one string. Its value goes to
+// `lines` and is parsed as a line.
+function skipEnv(words, lines) {
+  let i = 0
+  while (i < words.length) {
+    const t = words[i].text
+    if (ASSIGNMENT.test(t)) {
+      i++
+    } else if (t === '--') {
+      i++
+      break
+    } else if (t === '-S' || t === '--split-string') {
+      if (words[i + 1]) lines.push(words[i + 1].text)
+      i += 2
+    } else if (t.startsWith('--split-string=')) {
+      lines.push(t.slice('--split-string='.length))
+      i++
+    } else if (t.startsWith('-S') && t.length > 2) {
+      lines.push(t.slice(2))
+      i++
+    } else if (t.length > 1 && t.startsWith('-')) {
+      i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
+    } else {
+      break
+    }
+  }
+  return words.slice(i)
+}
+
 const WRAPPERS = {
-  env: (rest) => skipFlags(rest, new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']), { assignments: true }),
+  env: (rest, lines) => skipEnv(rest, lines),
+  stdbuf: (rest) => skipFlags(rest, new Set(['-i', '-o', '-e', '--input', '--output', '--error'])),
+  setsid: (rest) => skipFlags(rest, NO_VALUE),
+  ionice: (rest) => skipFlags(rest, new Set(['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid'])),
+  doas: (rest) => skipFlags(rest, new Set(['-u', '-C'])),
   command: (rest) => skipFlags(rest, NO_VALUE),
   exec: (rest) => skipFlags(rest, new Set(['-a'])),
   nohup: (rest) => skipFlags(rest, NO_VALUE),
@@ -88,6 +123,7 @@ export function parseCommandLine(text) {
 function unwrap(input) {
   let words = input
   let wrapped = false
+  const lines = []
   for (let guard = 0; guard < 50 && words.length > 0; guard++) {
     const head = words[0].text
     if (ASSIGNMENT.test(head) || KEYWORDS.has(head)) {
@@ -97,24 +133,39 @@ function unwrap(input) {
     }
     const wrapper = WRAPPERS[head.slice(head.lastIndexOf('/') + 1)]
     if (!wrapper) break
-    words = wrapper(words.slice(1))
+    words = wrapper(words.slice(1), lines)
     wrapped = true
   }
-  return { words, wrapped }
+  return { words, wrapped, lines }
 }
 
-// Index of the script word after a `-c` cluster, or -1.
+const SHELL_VALUE_OPTIONS = new Set(['-O', '+O', '-o', '+o', '--rcfile', '--init-file'])
+
+// Index of the script word after a `-c` cluster, or -1. Other options may
+// stand before it: long options, `-O name`, `+O name`, `+x` and the like.
 function scriptIndex(words) {
   for (let i = 1; i < words.length; i++) {
     const t = words[i].text
-    if (!/^-[A-Za-z]+$/.test(t)) return -1
-    if (t.includes('c')) return i + 1 < words.length ? i + 1 : -1
+    if (SHELL_VALUE_OPTIONS.has(t)) {
+      i++
+    } else if (t.startsWith('--')) {
+      continue
+    } else if (/^-[A-Za-z]+$/.test(t) && t.includes('c')) {
+      return i + 1 < words.length ? i + 1 : -1
+    } else if (!/^[-+][A-Za-z]+$/.test(t)) {
+      return -1
+    }
   }
   return -1
 }
 
 function buildCommand(rawWords, redirects, afterCd, depth) {
-  const { words, wrapped } = unwrap(rawWords)
+  const { words, wrapped, lines } = unwrap(rawWords)
+  if (lines.length > 0) {
+    const line = [...lines, ...words.map((w) => w.text)].join(' ')
+    const inner = scan(line, 0, depth + 1, afterCd, false)
+    return { command: null, extra: inner.commands.map((c) => ({ ...c, nested: true })), sawCd: inner.sawCd }
+  }
   if (words.length === 0) return { command: null, extra: [], sawCd: false }
   const command = { words, redirects, wrapped, nested: false, afterCd }
   const name = commandName(command)
