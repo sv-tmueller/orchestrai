@@ -238,6 +238,67 @@ describe('parseGitHubRemote', () => {
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
   })
 
+  test('reads the other spellings of the GitHub host: ssh.github.com and one trailing dot', () => {
+    const urls = [
+      'ssh://git@ssh.github.com:443/octo/widget-api.git',
+      'ssh://git@SSH.GitHub.com:443/octo/widget-api.git',
+      'https://github.com./octo/widget-api',
+      'https://GITHUB.COM./octo/widget-api',
+      'ssh://git@github.com.:22/octo/widget-api.git',
+      'git@github.com.:octo/widget-api.git',
+      'git@ssh.github.com:octo/widget-api.git',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
+  test('gives null for a host that only resembles GitHub', () => {
+    const urls = [
+      'https://www.github.com/octo/widget-api',
+      'https://api.github.com/octo/widget-api',
+      'https://gist.github.com/octo/widget-api',
+      'ssh://git@ssh.github.com.example.invalid/octo/widget-api.git',
+      'https://ssh.github.com.example.invalid/octo/widget-api',
+      'https://github.com../octo/widget-api',
+      'https://.github.com/octo/widget-api',
+      'git@github.com..:octo/widget-api.git',
+      'git@www.github.com:octo/widget-api.git',
+      'git@ssh.github.com.example.invalid:octo/widget-api.git',
+    ]
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  test('the host ends at the first slash, question mark, hash or backslash, so a later @ is not the host', () => {
+    const urls = [
+      'https://example.invalid#@github.com/octo/widget-api',
+      'https://example.invalid?@github.com/octo/widget-api',
+      'https://example.invalid/#@github.com/octo/widget-api',
+      'https://example.invalid?x=1@github.com/octo/widget-api',
+      'https://example.invalid#x@github.com/octo/widget-api',
+      'https://example.invalid\\@github.com/octo/widget-api',
+      'https://user:pw@example.invalid#@github.com/octo/widget-api',
+      'ssh://git@example.invalid?@ssh.github.com:443/octo/widget-api.git',
+    ]
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  test('a fragment or query after a real github.com path makes the path invalid, never another repo', () => {
+    const urls = [
+      'https://user:token@github.com/octo/widget-api#frag',
+      'https://github.com/octo/widget-api?x=1',
+      'https://github.com/octo/widget-api.git#frag',
+      'https://github.com?x=1',
+      'https://github.com#/octo/widget-api',
+      'https://github.com?/octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  test('a scp-like user part may hold a hash, because ssh splits at the last @', () => {
+    // `ssh -G 'example.invalid#@github.com'` gives user `example.invalid#` and host github.com.
+    assert.deepEqual(parseGitHubRemote('example.invalid#@github.com:octo/widget-api'), widget)
+    assert.equal(parseGitHubRemote('git@example.invalid#@notgithub.com:octo/widget-api'), null)
+  })
+
   test('keeps the case of the owner and repo name', () => {
     assert.deepEqual(parseGitHubRemote('https://github.com/Octo/Widget-API.git'), { owner: 'Octo', repo: 'Widget-API' })
   })
@@ -346,6 +407,27 @@ describe('lookupRepoClass: the folder', () => {
     const { got, gh } = lookup({ folder: '/work/x', folders })
     assert.equal(got.repoClass, 'no-github-repo')
     assert.equal(gh.calls.length, 0)
+  })
+
+  test('a look-alike URL with the set-up answers is no-github-repo, with no gh call', () => {
+    const table = { ...FIXTURES['set up'].answers, ...ME }
+    for (const url of ['https://example.invalid#@github.com/octo/widget-api', 'https://example.invalid?@github.com/octo/widget-api']) {
+      const folders = { '/work/x': { remotes: { origin: url } } }
+      const { got, gh } = lookup({ folder: '/work/x', folders, table })
+      assert.equal(got.repoClass, 'no-github-repo', url)
+      assert.equal(got.source, 'local', url)
+      assert.equal(gh.calls.length, 0, url)
+    }
+  })
+
+  test('ssh.github.com and a trailing dot are read from github.com, as personal-set-up', () => {
+    const table = { ...FIXTURES['set up'].answers, ...ME }
+    for (const url of ['ssh://git@ssh.github.com:443/octo/widget-api.git', 'https://github.com./octo/widget-api']) {
+      const folders = { '/work/x': { remotes: { origin: url } } }
+      const { got, gh } = lookup({ folder: '/work/x', folders, table })
+      assert.equal(got.repoClass, 'personal-set-up', url)
+      assert.deepEqual(gh.keys(), SIX('widget-api'), url)
+    }
   })
 
   test('a github.com URL with a bad path is personal-not-set-up with no gh call', () => {

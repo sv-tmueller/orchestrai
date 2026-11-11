@@ -33,9 +33,14 @@ const text = (v) => (typeof v === 'string' ? v : null)
 // The remote
 // ---------------------------------------------------------------------------
 
-// { owner, repo } for a github.com remote, { invalid: true } for a github.com
-// URL whose path is not exactly owner/repo, null for any other host or a local
-// path. Only github.com counts as GitHub.
+// These hosts, compared in lower case, are GitHub: the site, the same name with
+// one trailing dot, and the ssh-over-443 host. Any other name is not, www and
+// every other subdomain included.
+const GITHUB_HOSTS = new Set(['github.com', 'github.com.', 'ssh.github.com'])
+
+// { owner, repo } for a GitHub remote, { invalid: true } for a GitHub URL whose
+// path is not exactly owner/repo, null for any other host or a local path.
+// A query or fragment stays in the path, so it makes the path invalid.
 export function parseGitHubRemote(url) {
   if (typeof url !== 'string') return null
   const input = url.trim()
@@ -43,9 +48,11 @@ export function parseGitHubRemote(url) {
   let path
   const scheme = /^(?:https?|git|ssh):\/\/(.*)$/i.exec(input)
   if (scheme) {
-    const slash = scheme[1].indexOf('/')
-    const authority = slash === -1 ? scheme[1] : scheme[1].slice(0, slash)
-    path = slash === -1 ? '' : scheme[1].slice(slash + 1)
+    // The host part ends at the first / ? # or backslash, as a URL parser reads
+    // it. Without this, "https://other.invalid#@github.com/o/r" looks like GitHub.
+    const end = scheme[1].search(/[/?#\\]/)
+    const authority = end === -1 ? scheme[1] : scheme[1].slice(0, end)
+    path = end === -1 ? '' : scheme[1].slice(scheme[1][end] === '/' ? end + 1 : end)
     // The user and token part may hold a colon, so cut at the last @.
     const hostPort = /^([^:]+)(?::\d+)?$/.exec(authority.slice(authority.lastIndexOf('@') + 1))
     host = hostPort?.[1]
@@ -54,7 +61,7 @@ export function parseGitHubRemote(url) {
     host = scp?.[1]
     path = scp?.[2]
   }
-  if (host === undefined || host.toLowerCase() !== 'github.com') return null
+  if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
@@ -271,6 +278,8 @@ export function nodeRepoClassLocal() {
     git: (args) => {
       const res = spawnSync('git', args, {
         encoding: 'utf8',
+        // English messages, because the "not a git repository" test reads stderr.
+        env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
         // Stdin is closed so git cannot stall waiting on it.
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 5000,

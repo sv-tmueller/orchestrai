@@ -112,6 +112,30 @@ describe('nodeRepoClassLocal git', () => {
     assert.match(res.stderr, /not a git repository/)
     assert.equal(res.stdout, '')
   })
+
+  // A stub `git` first on PATH prints the environment it got, so the test needs
+  // no translated git. The parent sets another locale to prove the override.
+  test('runs git with LC_ALL=C and LANG=C on top of the inherited environment', () => {
+    const bin = fresh('stub-bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'git'), '#!/bin/sh\nprintf "%s|%s|%s" "$LC_ALL" "$LANG" "$KEEP_ME"\n', { mode: 0o755 })
+    const names = ['PATH', 'LC_ALL', 'LANG', 'KEEP_ME']
+    const before = Object.fromEntries(names.map((n) => [n, process.env[n]]))
+    try {
+      process.env.PATH = bin
+      process.env.LC_ALL = 'de_DE.UTF-8'
+      process.env.LANG = 'de_DE.UTF-8'
+      process.env.KEEP_ME = 'inherited'
+      const res = nodeRepoClassLocal().git(['remote'])
+      assert.equal(res.code, 0)
+      assert.equal(res.stdout, 'C|C|inherited')
+    } finally {
+      for (const n of names) {
+        if (before[n] === undefined) delete process.env[n]
+        else process.env[n] = before[n]
+      }
+    }
+  })
 })
 
 describe('defaultStateDir with the real environment', () => {
@@ -142,6 +166,22 @@ describe('lookupRepoClass with real git', () => {
     assert.equal(got.owner, 'octo')
     assert.equal(got.repo, 'widget-api')
     assert.deepEqual(calls, [['api', 'repos/octo/widget-api']])
+  })
+
+  test('the organization list is written with mode 0600 in a folder with mode 0700', () => {
+    const dir = newRepo('org-modes', 'https://github.com/acme/widget-api.git')
+    const stateDir = fresh('state')
+    const run = (args) => {
+      assert.deepEqual(args, ['api', 'repos/acme/widget-api'])
+      const owner = { login: 'acme', type: 'Organization' }
+      return { code: 0, stdout: JSON.stringify({ full_name: 'acme/widget-api', owner, default_branch: 'main' }), stderr: '' }
+    }
+    const got = lookupRepoClass({ folder: dir, sessionId: 'sess-1', run, local: nodeRepoClassLocal(), stateDir })
+    assert.equal(got.repoClass, 'organization')
+    const file = join(stateDir, 'organization-repos.json')
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { repos: ['acme/widget-api'] })
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+    assert.equal(statSync(stateDir).mode & 0o777, 0o700)
   })
 
   test('a repo and its worktree resolve to the same owner and repo, and share the session entry', () => {
