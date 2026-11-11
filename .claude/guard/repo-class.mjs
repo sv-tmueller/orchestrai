@@ -13,11 +13,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
-import { evaluate, gatherFacts, guarded, nodeLocal, parseError } from '../skills/tm-repo-guard/repo-guard.mjs'
+import { evaluate, gatherFacts, guarded, parseError } from '../skills/tm-repo-guard/repo-guard.mjs'
 
 export const REPO_CLASSES = ['personal-set-up', 'personal-not-set-up', 'organization', 'no-github-repo']
 
@@ -39,29 +39,51 @@ const text = (v) => (typeof v === 'string' ? v : null)
 const GITHUB_HOSTS = new Set(['github.com', 'github.com.', 'ssh.github.com'])
 
 // { owner, repo } for a GitHub remote, { invalid: true } for a GitHub URL whose
-// path is not exactly owner/repo, null for any other host or a local path.
-// A query or fragment stays in the path, so it makes the path invalid.
+// path is not exactly owner/repo, or whose host or user part git would read
+// differently (see below), null for any other host or a local path. A query or
+// fragment stays in the path, so it makes the path invalid.
+//
+// Two readers disagree about where the host is, and the parser follows the one
+// that connects. For http and https the host ends at the first / ? # or
+// backslash, as a URL parser reads it, so "https://other.invalid#@github.com/o/r"
+// goes to other.invalid. For ssh, git and the scp-like form, git ends the host
+// only at the first slash and ssh splits user and host at the last @, so
+// "ssh://other.invalid#@github.com/o/r" does go to github.com. Before it finds
+// the host git also decodes %XX and strips [...]: "ssh://other.invalid%2F@github.com/o/r"
+// goes to other.invalid. A % or bracket in the user or host part is not
+// reproduced here, so such a remote is invalid, never GitHub.
+// `git fetch-pack --diag-url <url>` shows the host git takes; the local test
+// compares the parser with it.
 export function parseGitHubRemote(url) {
   if (typeof url !== 'string') return null
   const input = url.trim()
-  let host
+  let user
+  let hostText
   let path
-  const scheme = /^(?:https?|git|ssh):\/\/(.*)$/i.exec(input)
+  let isScheme = false
+  const scheme = /^(https?|git|ssh|git\+ssh|ssh\+git):\/\/(.*)$/i.exec(input)
   if (scheme) {
-    // The host part ends at the first / ? # or backslash, as a URL parser reads
-    // it. Without this, "https://other.invalid#@github.com/o/r" looks like GitHub.
-    const end = scheme[1].search(/[/?#\\]/)
-    const authority = end === -1 ? scheme[1] : scheme[1].slice(0, end)
-    path = end === -1 ? '' : scheme[1].slice(scheme[1][end] === '/' ? end + 1 : end)
+    isScheme = true
+    const web = /^https?$/i.test(scheme[1])
+    const rest = scheme[2]
+    const end = rest.search(web ? /[/?#\\]/ : /\//)
+    const authority = end === -1 ? rest : rest.slice(0, end)
+    path = end === -1 ? '' : rest.slice(rest[end] === '/' ? end + 1 : end)
     // The user and token part may hold a colon, so cut at the last @.
-    const hostPort = /^([^:]+)(?::\d+)?$/.exec(authority.slice(authority.lastIndexOf('@') + 1))
-    host = hostPort?.[1]
+    const at = authority.lastIndexOf('@')
+    user = authority.slice(0, Math.max(at, 0))
+    hostText = authority.slice(at + 1)
   } else {
-    const scp = /^(?:[^@/:\s]+@)?([^@/:\s]+):(.*)$/.exec(input)
-    host = scp?.[1]
-    path = scp?.[2]
+    const scp = /^(?:([^@/:\s]+)@)?([^@/:\s]+):(.*)$/.exec(input)
+    if (!scp) return null
+    user = scp[1] ?? ''
+    hostText = scp[2]
+    path = scp[3]
   }
+  if (/[%[\]]/.test(hostText)) return { invalid: true }
+  const host = isScheme ? /^([^:]+)(?::\d+)?$/.exec(hostText)?.[1] : hostText
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
+  if (/[%[\]]/.test(user)) return { invalid: true }
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
@@ -163,6 +185,11 @@ function askGitHub({ call, local, stateDir, key, remote, head }) {
     if (res.code !== 0) throw new Error(parseError(res).message)
     info = JSON.parse(res.stdout)
     if (!isObject(info)) throw new Error('the repo answer is not an object')
+    // gh asks its default host, which GH_HOST can move. An answer from another
+    // host says nothing about the github.com repo, so it is no answer.
+    if (typeof info.html_url !== 'string' || !info.html_url.toLowerCase().startsWith('https://github.com/')) {
+      throw new Error('the repo answer did not come from github.com')
+    }
   } catch (err) {
     // A 404 is handled like any other failure: the two cannot be told apart.
     const detail = `could not read the repo from GitHub: ${oneLine(err.message)}`
@@ -210,7 +237,7 @@ function askGitHub({ call, local, stateDir, key, remote, head }) {
 // A failure other than "not a git repository" throws, so a hook can block.
 export function lookupRepoClass({ folder, sessionId, run, local, stateDir }) {
   if (typeof folder !== 'string' || !isAbsolute(folder)) throw new TypeError('folder must be an absolute path')
-  if (typeof stateDir !== 'string' || stateDir === '') throw new TypeError('stateDir must be a path')
+  if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) throw new TypeError('stateDir must be an absolute path')
 
   const git = (args) => local.git(['-C', folder, ...args])
   const gitOut = (args) => {
@@ -248,7 +275,24 @@ export function lookupRepoClass({ folder, sessionId, run, local, stateDir }) {
   if (remote.invalid) {
     return result('personal-not-set-up', 'fallback', {
       defaultBranch: head(),
-      detail: 'the github.com remote does not name one owner and one repo',
+      detail: 'the GitHub remote does not name one owner and one repo, or its host cannot be read the way git reads it',
+    })
+  }
+
+  // Pushes go to the push URLs, which pushurl and pushInsteadOf can change. If
+  // any of them is not the repo that was fetched, the fetch URL says nothing
+  // about where a push lands. Not covered: remote.pushDefault and
+  // branch.<name>.pushRemote, which pick another remote.
+  const same = (url) => {
+    const other = parseGitHubRemote(url)
+    return other !== null && !other.invalid && `${other.owner}/${other.repo}`.toLowerCase() === `${remote.owner}/${remote.repo}`.toLowerCase()
+  }
+  const pushUrls = gitOut(['remote', 'get-url', '--push', '--all', '--', name]).split('\n').map((u) => u.trim()).filter(Boolean)
+  if (pushUrls.length === 0 || !pushUrls.every(same)) {
+    return result('personal-not-set-up', 'fallback', {
+      ...remote,
+      defaultBranch: head(),
+      detail: 'a push URL of the remote is not the repo that is fetched',
     })
   }
 
@@ -272,8 +316,17 @@ export function defaultStateDir({ env = process.env, home = homedir() } = {}) {
   return join(root, 'orchestrai')
 }
 
+// A missing file is null. Any other failure throws, and the memory treats it as a miss.
+function readFileOrNull(path) {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+}
+
 export function nodeRepoClassLocal() {
-  const { read } = nodeLocal()
   return {
     git: (args) => {
       const res = spawnSync('git', args, {
@@ -287,7 +340,7 @@ export function nodeRepoClassLocal() {
       if (res.error) throw new Error(`could not run git: ${res.error.message}`)
       return { code: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
     },
-    read,
+    read: readFileOrNull,
     // The folder is private to the owner. A temp file and a rename keep a
     // reader from ever seeing half a file.
     write: (path, content) => {

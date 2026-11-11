@@ -45,6 +45,7 @@ function personal(name, { info = {}, protection = TIDY_PROTECTION } = {}) {
   return {
     [`api repos/${full}`]: json({
       full_name: full,
+      html_url: `https://github.com/${full}`,
       owner: { login: 'octo', type: 'User' },
       archived: false,
       private: false,
@@ -65,6 +66,7 @@ const ME = { 'api user': json({ login: 'octo' }) }
 const orgRead = (full, extra = {}) => ({
   [`api repos/${full}`]: json({
     full_name: full,
+    html_url: `https://github.com/${full}`,
     owner: { login: full.split('/')[0], type: 'Organization' },
     archived: false,
     default_branch: 'trunk',
@@ -138,7 +140,8 @@ const STATE = '/state/orchestrai'
 const GH_URL = 'https://github.com/octo/widget-api.git'
 const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' })
 
-// folders: { <path>: { notRepo, broken, gitThrows, remotes: {name: url}, head: {name: branch}, urlFails: [name] } }
+// folders: { <path>: { notRepo, broken, gitThrows, remotes: {name: url}, head: {name: branch}, urlFails: [name],
+//   pushUrls: {name: [url]} (default: the fetch URL), pushFails: [name] } }
 function makeLocal({ folders, files = new Map(), failWrite = false, readThrows = false }) {
   const gitCalls = []
   const git = (args) => {
@@ -155,6 +158,14 @@ function makeLocal({ folders, files = new Map(), failWrite = false, readThrows =
     const remotes = f.remotes ?? {}
     const cmd = rest.join(' ')
     if (cmd === 'remote') return ok(Object.keys(remotes).map((n) => `${n}\n`).join(''))
+    if (rest.slice(0, 5).join(' ') === 'remote get-url --push --all --') {
+      const name = rest[5]
+      if (!(name in remotes) || (f.pushFails ?? []).includes(name)) {
+        return { code: 2, stdout: '', stderr: `error: No such remote '${name}'\n` }
+      }
+      const urls = (f.pushUrls ?? {})[name] ?? [remotes[name]]
+      return ok(urls.map((u) => `${u}\n`).join(''))
+    }
     if (rest[0] === 'remote' && rest[1] === 'get-url' && rest[2] === '--') {
       const name = rest[3]
       if (!(name in remotes) || (f.urlFails ?? []).includes(name)) {
@@ -234,8 +245,32 @@ describe('parseGitHubRemote', () => {
       'git@github.com:octo/widget-api.git',
       'git@GITHUB.COM:octo/widget-api.git',
       'github.com:octo/widget-api',
+      'git+ssh://git@github.com/octo/widget-api',
+      'ssh+git://git@github.com/octo/widget-api.git',
+      'GIT+SSH://git@github.com/octo/widget-api',
     ]
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
+  // git decodes %XX and strips [...] before it finds the host of an ssh://, git://
+  // or scp-like remote, so these go to example.invalid, not to GitHub.
+  test('marks a remote whose user part holds a percent sign or a bracket as invalid', () => {
+    const urls = [
+      'ssh://example.invalid%2F@github.com/octo/widget-api',
+      'ssh://[example.invalid]@github.com/octo/widget-api',
+      'ssh://[example.invalid:22]@github.com/octo/widget-api',
+      '[example.invalid]@github.com:octo/widget-api',
+      'git://example.invalid%2F@github.com/octo/widget-api',
+      'https://example.invalid%2F@github.com/octo/widget-api',
+      'git+ssh://[example.invalid]@github.com/octo/widget-api',
+      'example.invalid%2F@github.com:octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  test('a percent sign or bracket in the user part of a host that is not GitHub is still null', () => {
+    assert.equal(parseGitHubRemote('ssh://[a]@example.invalid/octo/widget-api'), null)
+    assert.equal(parseGitHubRemote('[a]@example.invalid:octo/widget-api'), null)
   })
 
   test('reads the other spellings of the GitHub host: ssh.github.com and one trailing dot', () => {
@@ -267,7 +302,7 @@ describe('parseGitHubRemote', () => {
     for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
   })
 
-  test('the host ends at the first slash, question mark, hash or backslash, so a later @ is not the host', () => {
+  test('an http(s) host ends at the first slash, question mark, hash or backslash, so a later @ is not the host', () => {
     const urls = [
       'https://example.invalid#@github.com/octo/widget-api',
       'https://example.invalid?@github.com/octo/widget-api',
@@ -276,9 +311,35 @@ describe('parseGitHubRemote', () => {
       'https://example.invalid#x@github.com/octo/widget-api',
       'https://example.invalid\\@github.com/octo/widget-api',
       'https://user:pw@example.invalid#@github.com/octo/widget-api',
-      'ssh://git@example.invalid?@ssh.github.com:443/octo/widget-api.git',
     ]
     for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  // git's own ssh and git transports end the host only at the first slash (see
+  // `git fetch-pack --diag-url`), and ssh splits user and host at the last @.
+  test('an ssh or git remote keeps a ? # or backslash in the user part, so the host after the last @ is the host', () => {
+    const urls = [
+      'ssh://git@example.invalid?@ssh.github.com:443/octo/widget-api.git',
+      'ssh://example.invalid#@github.com/octo/widget-api',
+      'ssh://example.invalid\\@github.com/octo/widget-api',
+      'git://example.invalid?x@github.com/octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
+  test('an ssh or git remote whose host part holds ? or # is a different host, not GitHub', () => {
+    const urls = [
+      'ssh://github.com?x/octo/widget-api',
+      'ssh://github.com#x/octo/widget-api',
+      'ssh://git@github.com:22#/octo/widget-api',
+      'git://github.com?@example.invalid/octo/widget-api',
+    ]
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  test('a percent sign or bracket in the host part is invalid, not GitHub and not another host', () => {
+    const urls = ['ssh://%67ithub.com/octo/widget-api', 'ssh://git@[github.com]:22/octo/widget-api', '[github.com]:octo/widget-api', 'ssh://[example.invalid]/octo/widget-api']
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
   })
 
   test('a fragment or query after a real github.com path makes the path invalid, never another repo', () => {
@@ -430,6 +491,96 @@ describe('lookupRepoClass: the folder', () => {
     }
   })
 
+  test('a remote git sends to another host, with an organization answer ready, is personal-not-set-up with no gh call', () => {
+    const files = new Map()
+    for (const url of ['ssh://example.invalid%2F@github.com/some-org/shared', '[example.invalid]@github.com:some-org/shared']) {
+      const folders = { '/work/shared': { remotes: { origin: url } } }
+      const { got, gh } = lookup({ folder: '/work/shared', folders, table: orgRead('some-org/shared'), files })
+      assert.equal(got.repoClass, 'personal-not-set-up', url)
+      assert.equal(got.source, 'fallback', url)
+      assert.equal(gh.calls.length, 0, url)
+    }
+    assert.equal(files.size, 0)
+  })
+
+  describe('push URLs', () => {
+    const SHARED = 'https://github.com/some-org/shared.git'
+    const fork = (pushUrls, extra = {}) => ({
+      '/work/shared': { remotes: { origin: SHARED }, head: { origin: 'trunk' }, pushUrls: { origin: pushUrls }, ...extra },
+    })
+
+    test('a push URL equal to the fetch URL changes nothing: same answer, same number of gh calls', () => {
+      const same = lookup({ folder: '/work/shared', folders: fork([SHARED]), table: orgRead('some-org/shared') })
+      const plain = lookup({ folder: '/work/shared', folders: { '/work/shared': { remotes: { origin: SHARED } } }, table: orgRead('some-org/shared') })
+      assert.equal(same.got.repoClass, 'organization')
+      assert.deepEqual(same.got, plain.got)
+      assert.equal(same.gh.calls.length, 1)
+    })
+
+    test('a push URL that names the same repo in another spelling or case is fine', () => {
+      const urls = ['git@github.com:Some-Org/Shared.git', 'ssh://git@ssh.github.com:443/some-org/shared']
+      const { got, gh } = lookup({ folder: '/work/shared', folders: fork(urls), table: orgRead('some-org/shared') })
+      assert.equal(got.repoClass, 'organization')
+      assert.equal(gh.calls.length, 1)
+    })
+
+    test('a push URL for another GitHub repo is personal-not-set-up with no gh call', () => {
+      const { got, gh } = lookup({ folder: '/work/shared', folders: fork(['https://github.com/octo/shared-fork.git']), table: orgRead('some-org/shared') })
+      assert.equal(got.repoClass, 'personal-not-set-up')
+      assert.equal(got.source, 'fallback')
+      assert.equal(got.defaultBranch, 'trunk')
+      assert.match(got.detail, /push/)
+      assert.equal(gh.calls.length, 0)
+    })
+
+    test('a push URL that is not on GitHub is personal-not-set-up with no gh call', () => {
+      for (const url of ['https://git.example.invalid/some-org/shared.git', '/srv/git/shared.git', 'https://github.com/some-org']) {
+        const { got, gh } = lookup({ folder: '/work/shared', folders: fork([url]), table: orgRead('some-org/shared') })
+        assert.equal(got.repoClass, 'personal-not-set-up', url)
+        assert.equal(got.source, 'fallback', url)
+        assert.equal(gh.calls.length, 0, url)
+      }
+    })
+
+    test('two push URLs where one differs is personal-not-set-up with no gh call, in either order', () => {
+      const other = 'https://github.com/octo/shared-fork.git'
+      for (const urls of [[SHARED, other], [other, SHARED]]) {
+        const { got, gh } = lookup({ folder: '/work/shared', folders: fork(urls), table: orgRead('some-org/shared') })
+        assert.equal(got.repoClass, 'personal-not-set-up', urls.join(' '))
+        assert.equal(gh.calls.length, 0)
+      }
+    })
+
+    test('no push URL at all is personal-not-set-up, never trusted', () => {
+      const { got, gh } = lookup({ folder: '/work/shared', folders: fork([]), table: orgRead('some-org/shared') })
+      assert.equal(got.repoClass, 'personal-not-set-up')
+      assert.equal(gh.calls.length, 0)
+    })
+
+    test('the push check runs before the session memory, so a changed push URL is not hidden by it', () => {
+      const files = new Map()
+      lookup({ folder: '/work/shared', folders: fork([SHARED]), table: orgRead('some-org/shared'), files })
+      const second = lookup({ folder: '/work/shared', folders: fork(['https://github.com/octo/shared-fork.git']), table: {}, files })
+      assert.equal(second.got.repoClass, 'personal-not-set-up')
+      assert.equal(second.got.source, 'fallback')
+    })
+
+    test('a failing push URL read throws, like any other unexpected git failure', () => {
+      assert.throws(() => lookup({ folder: '/work/shared', folders: fork([SHARED], { pushFails: ['origin'] }), table: orgRead('some-org/shared') }))
+    })
+
+    test('a first lookup of a set-up personal repo makes three git calls and six gh calls', () => {
+      const table = { ...FIXTURES['set up'].answers, ...ME }
+      const { gh, local } = lookup({ table })
+      assert.equal(gh.calls.length, 6)
+      assert.deepEqual(local.gitCalls.map((a) => a.slice(2).join(' ')), [
+        'remote',
+        'remote get-url -- origin',
+        'remote get-url --push --all -- origin',
+      ])
+    })
+  })
+
   test('a github.com URL with a bad path is personal-not-set-up with no gh call', () => {
     const folders = { '/work/x': { remotes: { origin: 'https://github.com/octo' }, head: { origin: 'main' } } }
     const { got, gh } = lookup({ folder: '/work/x', folders })
@@ -456,6 +607,8 @@ describe('lookupRepoClass: the folder', () => {
     assert.throws(() => lookupRepoClass({ ...args, folder: '-C' }), TypeError)
     assert.throws(() => lookupRepoClass({ ...args, folder: undefined }), TypeError)
     assert.throws(() => lookupRepoClass({ ...args, folder: WORK, stateDir: '' }), TypeError)
+    assert.throws(() => lookupRepoClass({ ...args, folder: WORK, stateDir: 'state/orchestrai' }), TypeError)
+    assert.throws(() => lookupRepoClass({ ...args, folder: WORK, stateDir: undefined }), TypeError)
   })
 
   test('the remote URL is never stored or returned', () => {
@@ -524,11 +677,62 @@ describe('lookupRepoClass: GitHub', () => {
     assert.deepEqual(gh.keys(), ['api repos/some-org/shared'])
   })
 
+  describe('an answer that does not come from github.com is no answer', () => {
+    const wrongHost = (extra) => {
+      const info = JSON.parse(orgRead('some-org/shared')['api repos/some-org/shared'].stdout)
+      return { 'api repos/some-org/shared': json({ ...info, ...extra }) }
+    }
+    const folders = { '/work/shared': { remotes: { origin: 'git@github.com:some-org/shared.git' }, head: { origin: 'trunk' } } }
+
+    test('an html_url on another host takes the offline path and leaves the organization list alone', () => {
+      const files = new Map()
+      const table = wrongHost({ html_url: 'https://ghe.example.invalid/some-org/shared' })
+      const { got, gh } = lookup({ folder: '/work/shared', folders, table, files })
+      assert.equal(got.repoClass, 'personal-not-set-up')
+      assert.equal(got.source, 'fallback')
+      assert.equal(got.defaultBranch, 'trunk')
+      assert.match(got.detail, /github\.com/)
+      assert.deepEqual(gh.keys(), ['api repos/some-org/shared'])
+      assert.equal(files.has(ORG_FILE), false)
+    })
+
+    test('a missing html_url counts the same way', () => {
+      const files = new Map()
+      const table = wrongHost({ html_url: undefined })
+      const { got } = lookup({ folder: '/work/shared', folders, table, files })
+      assert.equal(got.repoClass, 'personal-not-set-up')
+      assert.equal(got.source, 'fallback')
+      assert.equal(files.has(ORG_FILE), false)
+    })
+
+    test('a look-alike prefix is not github.com', () => {
+      const table = wrongHost({ html_url: 'https://github.com.example.invalid/some-org/shared' })
+      assert.equal(lookup({ folder: '/work/shared', folders, table }).got.source, 'fallback')
+    })
+
+    test('a wrong-host answer does not remove an organization entry that was remembered', () => {
+      const files = new Map([[ORG_FILE, JSON.stringify({ repos: ['some-org/shared'] })]])
+      const table = wrongHost({ html_url: 'https://ghe.example.invalid/some-org/shared', owner: { login: 'some-org', type: 'User' } })
+      const { got } = lookup({ folder: '/work/shared', folders, table, files })
+      assert.equal(got.repoClass, 'organization')
+      assert.equal(got.source, 'remembered-owner')
+      assert.deepEqual(JSON.parse(files.get(ORG_FILE)), { repos: ['some-org/shared'] })
+    })
+
+    test('the right host in upper case is accepted', () => {
+      const table = wrongHost({ html_url: 'HTTPS://GitHub.com/some-org/shared' })
+      const { got } = lookup({ folder: '/work/shared', folders, table })
+      assert.equal(got.repoClass, 'organization')
+      assert.equal(got.source, 'github')
+    })
+  })
+
   test("another user's repo is personal-not-set-up", () => {
     const table = {
       ...ME,
       'api repos/octo/widget-api': json({
         full_name: 'octo/widget-api',
+        html_url: 'https://github.com/octo/widget-api',
         owner: { login: 'someone-else', type: 'User' },
         default_branch: 'main',
       }),
@@ -590,6 +794,7 @@ describe('lookupRepoClass: GitHub', () => {
       ...ME,
       'api repos/octo/widget-api': json({
         full_name: '--web',
+        html_url: 'https://github.com/--web',
         owner: { login: 'octo', type: 'User' },
         default_branch: 'main',
         allow_auto_merge: true,

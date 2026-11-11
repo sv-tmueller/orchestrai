@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-import { lookupRepoClass, nodeRepoClassLocal, defaultStateDir } from '../../guard/repo-class.mjs'
+import { lookupRepoClass, nodeRepoClassLocal, parseGitHubRemote, defaultStateDir } from '../../guard/repo-class.mjs'
 
 const GIT_ENV = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']
 const saved = {}
@@ -94,6 +94,16 @@ describe('nodeRepoClassLocal write and read', () => {
     assert.deepEqual(readdirSync(dir), ['a.json'])
   })
 
+  test('a read of a path that is not a readable file throws, only a missing file is null', () => {
+    const { read } = nodeRepoClassLocal()
+    const dir = fresh('a-dir')
+    mkdirSync(dir)
+    assert.throws(() => read(dir))
+    const blocker = fresh('blocker-read')
+    writeFileSync(blocker, 'a file, not a folder')
+    assert.throws(() => read(join(blocker, 'x.json')))
+  })
+
   test('a write into a path that cannot be made throws', () => {
     const { write } = nodeRepoClassLocal()
     const blocker = fresh('blocker')
@@ -139,7 +149,7 @@ describe('nodeRepoClassLocal git', () => {
 })
 
 describe('defaultStateDir with the real environment', () => {
-  test('is outside the folder it is asked about and ends in orchestrai', () => {
+  test('ends in orchestrai', () => {
     const dir = defaultStateDir()
     assert.match(dir, /[\\/]orchestrai$/)
   })
@@ -174,7 +184,8 @@ describe('lookupRepoClass with real git', () => {
     const run = (args) => {
       assert.deepEqual(args, ['api', 'repos/acme/widget-api'])
       const owner = { login: 'acme', type: 'Organization' }
-      return { code: 0, stdout: JSON.stringify({ full_name: 'acme/widget-api', owner, default_branch: 'main' }), stderr: '' }
+      const info = { full_name: 'acme/widget-api', html_url: 'https://github.com/acme/widget-api', owner, default_branch: 'main' }
+      return { code: 0, stdout: JSON.stringify(info), stderr: '' }
     }
     const got = lookupRepoClass({ folder: dir, sessionId: 'sess-1', run, local: nodeRepoClassLocal(), stateDir })
     assert.equal(got.repoClass, 'organization')
@@ -222,6 +233,33 @@ describe('lookupRepoClass with real git', () => {
     assert.equal(calls.length, 0)
   })
 
+  test('a pushurl for another repo makes the repo personal-not-set-up with no gh call', () => {
+    const dir = newRepo('pushurl', 'https://github.com/acme/widget-api.git')
+    git(dir, 'config', 'remote.origin.pushurl', 'https://github.com/octo/widget-api-fork.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.repoClass, 'personal-not-set-up')
+    assert.equal(got.source, 'fallback')
+    assert.match(got.detail, /push/)
+    assert.equal(calls.length, 0)
+  })
+
+  test('a pushInsteadOf rewrite to another repo counts as a different push URL', () => {
+    const dir = newRepo('push-rewrite', 'https://github.com/acme/widget-api.git')
+    git(dir, 'config', 'url.https://github.com/octo/other-name.pushInsteadOf', 'https://github.com/acme/widget-api.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.source, 'fallback')
+    assert.equal(calls.length, 0)
+  })
+
+  test('a pushurl equal to the fetch URL leaves the lookup as it was', () => {
+    const dir = newRepo('pushurl-same', 'https://github.com/octo/widget-api.git')
+    git(dir, 'config', 'remote.origin.pushurl', 'git@github.com:octo/widget-api.git')
+    const { got, calls } = offlineLookup(dir, { stateDir: fresh('state') })
+    assert.equal(got.owner, 'octo')
+    assert.equal(got.repo, 'widget-api')
+    assert.deepEqual(calls, [['api', 'repos/octo/widget-api']])
+  })
+
   test('a repo with no remote is no-github-repo', () => {
     const { got } = offlineLookup(newRepo('no-remote'), { stateDir: fresh('state') })
     assert.equal(got.repoClass, 'no-github-repo')
@@ -231,4 +269,94 @@ describe('lookupRepoClass with real git', () => {
   test('a folder that does not exist throws', () => {
     assert.throws(() => offlineLookup(join(base, 'does-not-exist'), { stateDir: fresh('state') }))
   })
+})
+
+// ---------------------------------------------------------------------------
+// The remote parser against git itself
+// ---------------------------------------------------------------------------
+
+// `git fetch-pack --diag-url <url>` prints, with no network, the host git takes
+// from an ssh, git or scp-like remote. git reads these differently from a URL
+// parser: it decodes %XX and strips [...] first, and ssh splits the user from the
+// host at the last @. Git has no https transport in fetch-pack, so https remotes
+// are not in this table.
+const ACCEPTED_HOSTS = ['github.com', 'github.com.', 'ssh.github.com']
+
+function gitsHost(url) {
+  const res = spawnSync('git', ['fetch-pack', '--diag-url', url], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
+  if (res.status !== 0) return { error: res.stderr.trim() }
+  const field = (name) => new RegExp(`^Diag: ${name}=(.*)$`, 'm').exec(res.stdout)?.[1]
+  const withPort = field('hostandport')
+  const text = field('userandhost') ?? withPort
+  if (text === undefined) return { error: `no host in: ${res.stdout}` }
+  const host = text.slice(text.lastIndexOf('@') + 1)
+  return { host: (withPort === undefined ? host : host.replace(/:\d+$/, '')).toLowerCase() }
+}
+
+const probe = gitsHost('ssh://git@github.com/o/r')
+const SKIP = probe.error === undefined ? false : `this git has no usable "fetch-pack --diag-url": ${probe.error}`
+const isGitHub = (url) => {
+  const parsed = parseGitHubRemote(url)
+  return parsed !== null && !parsed.invalid
+}
+
+describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, () => {
+  const sameAsGit = [
+    // git sends all five of these to example.invalid
+    'ssh://example.invalid%2F@github.com/some-org/shared',
+    'ssh://[example.invalid]@github.com/some-org/shared',
+    'ssh://[example.invalid:22]@github.com/some-org/shared',
+    '[example.invalid]@github.com:some-org/shared',
+    'git://example.invalid%2F@github.com/some-org/shared',
+    // look-alikes
+    'ssh://git@example.invalid?@ssh.github.com:443/o/r.git',
+    'ssh://example.invalid#@github.com/o/r',
+    'git://example.invalid#@github.com/o/r',
+    'ssh://github.com?x/o/r',
+    'ssh://github.com#x/o/r',
+    'ssh://git@github.com:22#/o/r',
+    'ssh://git@github.com.example.invalid/o/r',
+    'ssh://ssh.github.com.example.invalid/o/r',
+    'ssh://www.github.com/o/r',
+    'ssh://git@api.github.com/o/r',
+    'ssh://git@github.com../o/r',
+    'git@github.com@example.invalid:o/r',
+    'git@notgithub.com:o/r',
+    'git@www.github.com:o/r',
+    // the accepted hosts
+    'ssh://git@github.com/o/r.git',
+    'ssh://git@ssh.github.com:443/o/r.git',
+    'ssh://git@github.com./o/r',
+    'ssh://git@GITHUB.COM:22/o/r',
+    'git://github.com/o/r',
+    'git://github.com./o/r',
+    'git://github.com:9418/o/r',
+    'git+ssh://git@github.com/o/r',
+    'ssh+git://git@github.com/o/r',
+    'git@github.com:o/r',
+    'git@GITHUB.COM:o/r',
+    'github.com:o/r',
+    'git@ssh.github.com:o/r',
+    // the scp-like form with a hash in the user part
+    'example.invalid#@github.com:o/r',
+  ]
+
+  for (const url of sameAsGit) {
+    test(`says GitHub exactly when git's host is GitHub: ${url}`, () => {
+      const seen = gitsHost(url)
+      assert.equal(seen.error, undefined, `git refused ${url}`)
+      assert.equal(isGitHub(url), ACCEPTED_HOSTS.includes(seen.host), `git's host is ${seen.host}`)
+    })
+  }
+
+  // git decodes or strips these in the host, so the parser cannot read the real
+  // host. It must still never say GitHub for a host git sends elsewhere.
+  for (const url of ['ssh://%67ithub.com/o/r', 'ssh://git@[github.com]:22/o/r', '[github.com]:o/r', 'ssh://[example.invalid]/o/r', 'ssh://%65xample.invalid/o/r']) {
+    test(`never says GitHub for a host git sends elsewhere: ${url}`, () => {
+      const seen = gitsHost(url)
+      assert.equal(seen.error, undefined, `git refused ${url}`)
+      if (!ACCEPTED_HOSTS.includes(seen.host)) assert.equal(isGitHub(url), false, `git's host is ${seen.host}`)
+      assert.deepEqual(parseGitHubRemote(url), { invalid: true })
+    })
+  }
 })
