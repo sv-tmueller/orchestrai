@@ -5,17 +5,15 @@ print exact commands for the rest.
 
 Run once when adopting the orchestrai plugin into an existing repo.
 
-## 1. Branch protection
+## 1. Labels
 
-- [ ] Protect `main`: block direct pushes, require a PR, require status checks to
-      pass before merge.
-- [ ] (Optional) Create the labels the workflow uses: the sizing set `size:S`,
+- [ ] Create the labels the workflow uses: the sizing set `size:S`,
       `size:M`, `size:L`, `size:XL` (see process-core.md "Sizing") plus
       `in-progress` and `needs-human` (see team-guide.md "Agent team").
       `/tm-kickoff` and `/tm-advisor` create these six automatically on first
-      run, including `/tm-advisor` (file only). So this step is only needed if
-      you file sized issues by hand (for example via `gh issue create`)
-      before the first kickoff or advisor run.
+      run, including `/tm-advisor` (file only). Create them before the merge
+      rule (section 5): Apply requires the two verdict statuses only on a repo
+      that has `in-progress` and `needs-human`.
 - [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
       `type:feat`, `type:fix`.
 
@@ -73,10 +71,26 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `.github/workflows/ci.yml` and fill in the real commands. Keep its cost
       controls: pinned `timeout-minutes` on every job, a `concurrency` group
       with `cancel-in-progress: true`, and e2e/build skipped on draft PRs.
-- [ ] Make the relevant CI jobs required status checks on `main`.
 - [ ] If you deploy, make e2e a pre-deploy gate.
+- [ ] Where the repo has tests, land CI before section 5: merge the PR that
+      adds it, so its checks have run on a finished, non-draft PR. The guard
+      refuses the repo until then ("needs CI first").
 
-## 5. First slice of work
+## 5. Merge rule
+
+- [ ] After the labels (section 1) and CI (section 4), type
+      `/tm-repo-guard apply <owner>/<name>` with this repo's full name. It
+      shows the changes and asks before it writes. It requires every check
+      that ran on the newest finished PR, plus `orchestrai/review` and
+      `orchestrai/test` once the labels from section 1 exist.
+- [ ] If Apply refuses the repo as not your own (an organization repo, or one
+      owned by another account), protect `main` by hand in the repo's GitHub
+      settings instead: block direct pushes, require a PR, require status
+      checks to pass before merge, and make the relevant CI jobs required
+      status checks. A private repo on a plan without branch protection is
+      blocked either way.
+
+## 6. First slice of work
 
 - [ ] Brainstorm the first design via `superpowers:brainstorming`; save the spec to
       `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`.

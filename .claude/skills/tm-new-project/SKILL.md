@@ -23,6 +23,10 @@ Check, in this repo:
   there is no GitHub remote or `gh` auth.
 - The five docs dirs: `docs/architecture`, `docs/operations`, `docs/plans`,
   `docs/reviews`, `docs/superpowers/specs`.
+- The repo's full name, for the guard command in section 4:
+  `gh repo view --json nameWithOwner -q .nameWithOwner`. Skip it, with a
+  note, under the same conditions as the labels; section 4 then prints
+  `<owner>/<name>`.
 
 **Already set up:** all six labels present (or not checked, for lack of a
 remote or `gh` auth) and all five dirs present. Stop here; do not run
@@ -30,6 +34,7 @@ sections 2-4. Report:
 
     Already set up: labels present, docs tree present. Nothing to do.
     Labels: <all present | not checked: <reason>>
+    Merge rule: not checked here. Type /tm-repo-guard apply <owner>/<name> to check and apply it.
 
 Otherwise, continue through sections 2-4 below. Each checks its own
 precondition and skips what is already done, so a mixed (partially set up)
@@ -73,16 +78,31 @@ placeholder files just to force tracking.
 
 These need a browser or a human decision; print them, do not run them.
 
-**Branch protection.** In the repo's GitHub settings, protect `main`: block
-direct pushes, require a PR, require status checks to pass before merge.
-
 **Tests and CI/CD.** Decide the e2e approach for this app and scaffold
 `e2e/`. Copy `templates/ci.yml` (in this skill's directory) to
 `.github/workflows/ci.yml` and fill in the real commands. Keep its cost
 controls: pinned `timeout-minutes` on every job, a `concurrency` group with
-`cancel-in-progress: true`, and e2e/build skipped on draft PRs. Make the
-relevant CI jobs required status checks on `main` (the setting above). If
-you deploy, make e2e a pre-deploy gate.
+`cancel-in-progress: true`, and e2e/build skipped on draft PRs. If you
+deploy, make e2e a pre-deploy gate. Where the repo has tests, CI comes before
+the next step: merge the PR that adds it, so its checks have run on a
+finished, non-draft PR. Until then the guard refuses the repo ("needs CI
+first").
+
+**Merge rule (repo guard).** After the labels (section 2) and CI (above),
+the owner types:
+
+    /tm-repo-guard apply <owner>/<name>
+
+with this repo's full name from section 1 filled in. It shows the changes
+and asks before it writes. It requires every check that ran on the newest
+finished PR, plus `orchestrai/review` and `orchestrai/test` once the
+`in-progress` and `needs-human` labels exist, which is why it comes last.
+
+If Apply refuses the repo as not your own (an organization repo, or one
+owned by another account), protect `main` by hand in the repo's GitHub
+settings instead: block direct pushes, require a PR, require status checks
+to pass before merge, and make the relevant CI jobs required status checks.
+A private repo on a plan without branch protection is blocked either way.
 
 **Claude Code plugins.** Accept the superpowers plugin prompt that
 `.claude/settings.json` triggers. If no prompt appears (a known gap,
@@ -123,4 +143,6 @@ Report, in this order:
   re-reading this file.
 
 All changes are left uncommitted for the user to review and commit. This
-skill never runs `git commit`.
+skill never runs `git commit`. It never runs `/tm-repo-guard`,
+`repo-guard.mjs` or its `--confirm` step either: it prints the command and
+the owner types it.
