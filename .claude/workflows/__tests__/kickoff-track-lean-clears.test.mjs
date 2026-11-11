@@ -69,7 +69,7 @@ const CLAUSES = [
     'repair, conflict path step 3',
     'sets',
     ' **Conflict path.** ',
-    ' **Count.** ',
+    ' 4. Dispatch the developer in the fix-round format',
     'label the issue `in-progress` and `phase:developer`, plus `track:lean` for a lean package (a `Track: lean` comment and no later `Track: full` comment).',
   ],
 ]
