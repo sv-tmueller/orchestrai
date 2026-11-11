@@ -758,11 +758,19 @@ order:
 3. Post on the issue: `Parked: PR #<pr>: <reason>.`, then a link to the first
    `Repair (conflict) from` marker for a second repair, or to the open `from`
    marker for an interrupted repair, and then this text: "The pipeline does
-   not pick this PR up again. To finish it, bring the branch up to date and
-   merge it yourself; the merge needs `orchestrai/test` and
-   `orchestrai/review` as `success` on the new head, and nothing posts them
-   for you. To have the package rebuilt, close the PR, delete its branch,
-   remove `needs-human` and run /tm-kickoff on this issue."
+   not pick this PR up again, and it posts no more verdicts on it. To finish
+   it, bring the branch up to date and merge it yourself. The merge needs
+   `orchestrai/test` and `orchestrai/review` as `success` on the new head.
+   `/tm-repo-guard statuses <repo> <pr>` prints the commands that record both
+   verdicts on that head and queue the merge; it runs none of them. Run them
+   yourself, in your own shell, and only once you have checked the new head:
+   they record that you verified and reviewed it. After any later push, run
+   the command again. To have the package rebuilt, close the PR, delete its
+   branch, remove `needs-human` and run /tm-kickoff on this issue." In that
+   text `<pr>` is the PR number and `<repo>` is what
+   `gh repo view --json nameWithOwner --jq .nameWithOwner` prints; if that
+   read fails, post `<repo>` as it is. The lead never runs
+   `/tm-repo-guard statuses` or a command it prints.
 4. Apply the routing rules' "Parking" step: `needs-human` on, `in-progress`,
    `phase:*` and `track:lean` off.
 5. Mirror it to the batch issue and free the slot. The run carries on with the
