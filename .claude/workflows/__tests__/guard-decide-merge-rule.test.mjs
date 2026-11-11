@@ -327,7 +327,7 @@ describe('merge-rule: branch-rule', () => {
       `gh api -X PUT ${API}/rulesets/42 --input -`,
       `gh api --method=DELETE /${API}/rulesets/42`,
       `gh api -X PUT https://api.github.com/${API}/branches/main/protection --input -`,
-      `gh api -x put ${API}/branches/main/protection --input -`,
+      `gh api -X put ${API}/branches/main/protection --input -`,
       `gh api --method=put ${API}/branches/main/protection --input -`,
       `gh api -X DELETE orgs/acme/rulesets/42`,
       `gh api ${API}/branches/feat/x/protection -F required=true`,

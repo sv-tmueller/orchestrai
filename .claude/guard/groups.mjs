@@ -6,4 +6,6 @@
  * `{ id, check(ctx) }`, where `check` returns null or `{ entry, reason }`.
  */
 
-export const GROUPS = []
+import { mergeRule } from './rules/merge-rule.mjs'
+
+export const GROUPS = [mergeRule]
