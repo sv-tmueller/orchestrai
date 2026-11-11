@@ -81,7 +81,9 @@ Where a run checks one, the results section says so.
 ## Observed results
 
 Every run had: init event `tools` as listed in Setup, 5 built-in plugins (6
-with `--plugin-dir`), and no PreToolUse hook event other than the probe's own.
+with `--plugin-dir`) except C7, which showed 4 (`cc-plugin-sec-default` absent
+in the throwaway config dir), and no PreToolUse hook event other than the
+probe's own.
 In every run except C7 the model made the Bash call (no "model did not try"
 case).
 
