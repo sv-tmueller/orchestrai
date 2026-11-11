@@ -493,26 +493,51 @@ above). Limit deaths have no such bound.
 ### Pipeline tracks (lean and full)
 
 The numbered pipeline above is the full track, the default for every
-package. A package qualifies for the lean track only on `size:S` and a
+package. A package qualifies for the lean track only on `size:S`, a
 diff that avoids `.claude/agents`, `.claude/skills`, `.claude/workflows`
-and executable code. Everything else, and every `size:M`, runs full.
-When in doubt, full.
+and executable code, and a lean check (below) that allows it. Everything
+else, and every `size:M`, runs full. When in doubt, full.
 
 - **Before dispatch.** Predict the track from the issue body and state it
   and why in the wave plan or advisor proposal.
-- **Track comment.** For a lean package, post `Track: lean - <reason;
-  expected paths; verification: reviewer runs the check suite>` on the
-  issue, and set the `track:lean` label at the same time. It is both the
-  sub-plan checkpoint and the resume marker: skip the architect stage.
+- **Lean check.** On a repo set up for auto merge that has no test files,
+  the lean track is off, because a lean merge there would rest on the
+  reviewer alone. Run it only for a package the size and path rule above
+  lets through, and run it fresh each time:
+  1. The three reads of step 7 sub-step 2. Set up is decided as in "Fix
+     rounds" rule 8: a read that fails or prints `null` is passed as
+     `unknown` and counts as set up.
+  2. `git fetch origin`.
+  3. `node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/lean-allowed.mjs"
+     --default-ref origin/<default> --auto-merge true|false|unknown
+     --branch-protected true|false|unknown --branch-rules <n>|unknown`.
+     Pass `--default-ref unknown` when the first read or the fetch failed.
+     It makes no gh calls: it lists the files on `origin/<default>` with
+     git, counts test files with the repo guard's own rule, and prints
+     `{ allowed, reason }`.
+  On a set-up repo, a file list that cannot be read falls to full. When
+  `allowed` is false the package runs full with the script's `reason`; a
+  nonzero exit runs full with the reason `lean-allowed error`. Repos with
+  test files, and repos that are not set up, keep the track the size and
+  path rule gives.
+- **Track comment.** For a lean package, run the lean check first. If it
+  allows the lean track, post `Track: lean - <reason; expected paths;
+  verification: reviewer runs the check suite>` on the issue, and set the
+  `track:lean` label at the same time. It is both the sub-plan checkpoint
+  and the resume marker: skip the architect stage. If it does not, post
+  `Track: full - <the lean check's reason>` instead, set no label, and
+  run the full track from step 1 (architect).
 - **Stages.** Skip step 1 (architect). The developer dispatch (step 2)
   says "lean track: no sub-plan, the issue body is the spec". A lean card
   never carries `phase:architect` or `phase:tester`: only `phase:developer`
   and `phase:reviewer`.
 - **Diff check.** Before every lean reviewer dispatch (after DONE or
   DONE_WITH_CONCERNS, after each fix round, and on resume), check
-  `gh pr diff <n> --name-only`. If eligibility is broken, post
-  `Track: full - <reason; the paths that broke eligibility>` on the issue
-  and continue on the full track from step 3 (tester).
+  `gh pr diff <n> --name-only`; if the paths still pass, run the lean
+  check. If eligibility is broken, post `Track: full - <reason; the paths
+  that broke eligibility>` on the issue, or `Track: full - <the lean
+  check's reason>` when the lean check broke it, and continue on the full
+  track from step 3 (tester).
 - **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
   (step 5) with the PR, branch, issue and "lean track", forwarding any
   NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
