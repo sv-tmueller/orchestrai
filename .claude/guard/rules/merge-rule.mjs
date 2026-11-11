@@ -38,8 +38,8 @@
  * The current branch is unknown after any earlier git command in the same
  * line (nested and wrapped ones included), the way it is after a `cd`, unless
  * that command is one of these, which never change which branch is checked
- * out: add, commit, status, fetch, pull, merge, log, diff, show, tag, stash,
- * reset, restore, rm, mv, rev-parse, remote, config, ls-remote, ls-files,
+ * out: add, commit, status, fetch, pull, merge, log, diff, show, tag, stash
+ * (except `stash branch`), reset, restore, rm, mv, rev-parse, remote, config, ls-remote, ls-files,
  * describe, cherry-pick, revert, clean, blame, grep, format-patch, apply, am,
  * gc, notes, shortlog, cat-file, diff-tree, for-each-ref, rev-list,
  * merge-base, update-index, push. A git command with no readable subcommand,
@@ -123,7 +123,14 @@ const KEEPS_BRANCH = new Set([
   'shortlog', 'cat-file', 'diff-tree', 'for-each-ref', 'rev-list', 'merge-base', 'update-index', 'push',
 ])
 
-const keepsBranch = (git) => typeof git.sub === 'string' && !git.subExpands && KEEPS_BRANCH.has(git.sub)
+function keepsBranch(git, command) {
+  if (typeof git.sub !== 'string' || git.subExpands || !KEEPS_BRANCH.has(git.sub)) return false
+  if (git.sub !== 'stash') return true
+  // `git stash branch <name>` checks out a new branch. The stash verb is the
+  // first word after `stash` that is not an option; one that expands is unknown.
+  const verb = command.words.slice(git.index + 1).find((w) => !w.text.startsWith('-'))
+  return !verb || (!verb.expands && verb.text !== 'branch')
+}
 
 // Reads the options and words of `git push [options] [<repo> [<refspec>...]]`.
 function readPush(words, from, branchUnknown) {
@@ -402,7 +409,7 @@ export const mergeRule = {
       if (name === 'git') {
         const git = readGit(command)
         if (git.sub === 'push') found = checkPush(command, git, ctx.facts, switched)
-        if (!keepsBranch(git)) switched = true
+        if (!keepsBranch(git, command)) switched = true
       } else if (name === 'gh') {
         found = checkGh(command)
       }
