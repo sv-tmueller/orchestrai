@@ -63,6 +63,12 @@ function makeRepo(t, files) {
   return dir
 }
 
+// Adds an index entry without a file on disk, so a newline or non-ASCII name
+// never meets the file system (newline support, macOS Unicode normalization).
+function addEntry(dir, mode, sha, path) {
+  git(dir, 'update-index', '--add', '--cacheinfo', `${mode},${sha},${path}`)
+}
+
 function run(cwd, ...args) {
   return spawnSync(process.execPath, [scriptPath, ...args], {
     cwd,
@@ -107,6 +113,16 @@ describe('lean-allowed: the decision', () => {
       autoMerge: true,
       branchProtected: false,
       branchRules: 0,
+      paths: ['README.md'],
+    })
+    assert.deepEqual(out, { allowed: true, reason: 'not set up for auto merge' })
+  })
+
+  test('auto merge off with protection and rules: not set up', () => {
+    const out = leanAllowed({
+      autoMerge: false,
+      branchProtected: true,
+      branchRules: 3,
       paths: ['README.md'],
     })
     assert.deepEqual(out, { allowed: true, reason: 'not set up for auto merge' })
@@ -243,18 +259,30 @@ describe('lean-allowed: the CLI on a temp repo', () => {
 
   test('--default-ref unknown: unreadable, git is not called', (t) => {
     const dir = makeRepo(t, { 'src/a.test.js': 'x' })
+    // A git call would read this branch, find src/a.test.js and return allowed.
+    git(dir, 'branch', 'unknown')
     const r = run(dir, ...flags('unknown'))
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(r.stdout), { allowed: false, reason: UNREADABLE })
-    // Outside any repo a git call would fail the same way, so also check a
-    // PATH with no git at all: the answer must not change.
-    const bare = spawnSync(process.execPath, [scriptPath, ...flags('unknown')], {
-      cwd: dir,
-      env: { ...GIT_ENV, PATH: '' },
-      encoding: 'utf8',
-    })
-    assert.equal(bare.status, 0, bare.stderr)
-    assert.deepEqual(JSON.parse(bare.stdout), { allowed: false, reason: UNREADABLE })
+  })
+
+  test('a submodule entry named like a test file does not count', (t) => {
+    const dir = makeRepo(t, { 'README.md': 'x' })
+    addEntry(dir, '160000', git(dir, 'rev-parse', 'HEAD'), 'vendor/lib.test.js')
+    git(dir, 'commit', '-q', '-m', 'add a submodule entry')
+    assert.match(git(dir, 'ls-tree', '-r', 'main'), /^160000 commit /m)
+    const r = run(dir, ...flags('main'))
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), { allowed: false, reason: NO_TESTS })
+  })
+
+  test('a newline in a directory and non-ASCII in the file name: test file found', (t) => {
+    const dir = makeRepo(t, { 'README.md': 'x' })
+    addEntry(dir, '100644', git(dir, 'rev-parse', 'HEAD:README.md'), 'déjà\nvu/café.test.js')
+    git(dir, 'commit', '-q', '-m', 'add an odd path')
+    const r = run(dir, ...flags('main'))
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), { allowed: true, reason: 'test files found' })
   })
 
   test('not set up: --default-ref unknown is still allowed', (t) => {
