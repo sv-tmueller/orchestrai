@@ -7,9 +7,10 @@ dirs, and the cause is the guard (`docs/superpowers/specs/2026-11-10-autonomous-
 sections 3.4 and 4.2).
 
 - A guard that cannot run refuses with a tool error that ends in
-  `blocking because onFailure is "block"`. It does so in every permission mode
-  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, rows 4a-b to
-  4c-b).
+  `blocking because onFailure is "block"`. The probe saw this in bypass mode
+  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, rows 4a-b and
+  4b-b). Other modes were not tested. The failure policy as the CLI describes
+  it names no mode, so expect the same refusal in every mode.
 - The guard only acts inside Claude Code sessions. Every repair step below
   also works from a plain terminal.
 - This covers the guard as a plugin hook (design 4.2). If it ever ships
@@ -120,10 +121,12 @@ no tools, small model, in a folder outside any repo, in `<tmp-dir>`). The
 test run used the command above. The control was the same command without the
 `--settings` argument. Both used the inherited config dir.
 
-- Test run: the start-up record listed 10 plugins, none of them orchestrai,
-  and no `orchestrai:` skill, command or agent.
-- Control: 11 plugins, one of them orchestrai (`orchestrai@orchestrai`), with
-  `orchestrai:` entries in the skill, command and agent lists.
+- Test run: the start-up record listed no orchestrai plugin, and no
+  `orchestrai:` skill, command or agent.
+- Control: the start-up record listed the orchestrai plugin
+  (`orchestrai@orchestrai`), with `orchestrai:` entries in the skill, command
+  and agent lists. That plugin was the only difference between the two plugin
+  lists.
 - Both runs reported the permission mode as `default`, although the flag
   said `manual`. So the start-up record names it `default`.
 - The checksums of the config dir's `settings.json` and
