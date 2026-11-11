@@ -430,6 +430,205 @@ describe('merge-rule: the pipeline commands that must keep working', () => {
   ])
 })
 
+// Tester round 1 (issue #539). Every row below is a spelling no earlier row
+// covered. The rule behind them: a word the guard cannot read is unknown, and
+// unknown is denied where the worst reading is one of the entries.
+
+describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => {
+  describe('denied', () => {
+    defineDenyRows('admin-merge', [
+      'gh -R acme/widget pr merge 12 --admin',
+      'gh --repo acme/widget pr merge 12 --admin',
+      'gh --repo=acme/widget pr merge 12 --admin',
+      'gh pr -R acme/widget merge 12 --admin',
+      'gh pr --repo acme/widget merge 12 --admin',
+      'gh pr --repo=acme/widget merge --admin 12',
+      'gh pr merge -R acme/widget 12 --admin',
+    ])
+    defineDenyRows('delete-repo', [
+      'gh -R acme/widget repo delete --yes',
+      'gh repo --repo acme/widget delete --yes',
+      'gh repo --repo=acme/widget delete',
+      'gh -R acme/widget api -X DELETE repos/acme/widget',
+    ])
+    defineDenyRows('visibility', [
+      'gh -R acme/widget repo edit --visibility private',
+      'gh repo -R acme/widget edit --visibility=public',
+      'gh -R acme/widget api -X PATCH repos/acme/widget -f visibility=private',
+    ])
+    defineDenyRows('branch-rule', [
+      'gh -R acme/widget api -X PUT repos/acme/widget/branches/main/protection --input -',
+    ])
+  })
+
+  describe('passes', () => {
+    defineAllowRows('gh flag', [
+      'gh -R acme/widget pr view 12',
+      'gh pr -R acme/widget merge 12 --squash --auto',
+      'gh --repo acme/widget repo view',
+      'gh repo -R acme/widget edit --enable-auto-merge',
+      'gh -R acme/widget api repos/acme/widget',
+    ])
+  })
+})
+
+describe('merge-rule round 1, finding 2: gh api with a word the guard cannot read', () => {
+  describe('a path with variables, denied by what it ends in', () => {
+    defineDenyRows('branch-rule', [
+      'gh api -X PUT "repos/$REPO/branches/main/protection" --input rule.json',
+      'gh api -X DELETE "repos/$REPO/branches/$B/protection"',
+      'gh api -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" -f strict=false',
+      'gh api -X POST "repos/$REPO/rulesets" --input r.json',
+      'gh api -X PUT "repos/$O/$R/rulesets/42" --input -',
+      'gh api -X DELETE "repos/${O}/widget/rulesets/42"',
+      'gh api -X DELETE "orgs/$ORG/rulesets/42"',
+      'gh api -X "$M" repos/acme/widget/branches/main/protection',
+      'gh api -X "$M" "repos/$REPO/rulesets"',
+    ])
+    defineDenyRows('delete-repo', [
+      'gh api -X DELETE "repos/$REPO"',
+      'gh api -X DELETE repos/$REPO',
+      'gh api -X DELETE repos/$OWNER/$REPO',
+      'gh api -X DELETE "repos/${O}/widget"',
+      'gh api -X DELETE repos/acme/$R',
+      'gh api -X "$M" repos/acme/widget',
+      'gh api -X$M repos/acme/widget',
+      'gh api --method="$M" repos/acme/widget',
+      'gh api -X "$M" "repos/$REPO"',
+      'gh api -X "$(echo DELETE)" repos/acme/widget',
+    ])
+    defineDenyRows('visibility', [
+      'gh api -X PATCH "repos/$REPO" -f visibility=private',
+      'gh api -X PATCH "repos/$REPO" -F private=true',
+      'gh api -X PATCH "repos/$REPO" --input body.json',
+      'gh api -X PATCH repos/$OWNER/$REPO -f visibility=public',
+      'gh api -X PATCH repos/acme/widget -f "$K=private"',
+      'gh api --method PATCH "repos/$REPO" -f visibility="$V"',
+    ])
+  })
+
+  describe('an endpoint that is entirely unknown, with a write method', () => {
+    defineDenyRows('api-unknown', [
+      'gh api -X DELETE "$EP"',
+      'gh api -X DELETE $(echo repos/acme/widget)',
+      'gh api -X PUT "$EP" --input -',
+      'gh api "$EP" -f x=y',
+      'gh api -X "$M" "$EP"',
+      'gh api -X POST "$BASE/branches/main/protection" --input r.json',
+    ])
+  })
+
+  describe('passes: a literal tail that is something else', () => {
+    defineAllowRows('gh api variable', [
+      'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test -f description=x',
+      'gh api -X PUT "repos/$REPO/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
+      'gh api "repos/$REPO"',
+      'gh api "repos/$REPO/branches/main/protection"',
+      'gh api "repos/$REPO/rulesets"',
+      'gh api -X DELETE "repos/$REPO/labels/bug"',
+      'gh api -X PATCH "repos/$REPO" -f allow_auto_merge=true',
+      'gh api -X PATCH "repos/$REPO" -f description="$D"',
+      'gh api -X "$M" repos/acme/widget/labels',
+      'gh api "$EP"',
+      'gh api -X GET "$EP"',
+      'gh api -X DELETE "repos/$REPO/git/refs/heads/feat/x"',
+      'gh api -X DELETE repos/acme/widget/labels/rulesets',
+    ])
+  })
+})
+
+describe('merge-rule round 1, finding 3: a branch switch earlier in the line', () => {
+  describe('denied: the current branch is no longer known', () => {
+    defineDenyRows('push-default', [
+      'git checkout main && git push',
+      'git switch main && git push',
+      'git checkout main; git push origin HEAD',
+      'git checkout -- file.txt && git push',
+      'git checkout main && git push origin @',
+      'git checkout main && git push -u origin HEAD',
+      "bash -c 'git checkout main && git push'",
+      'git -c advice.detachedHead=false switch main && git push',
+      'git -C ../wt checkout main && git push',
+      'git switch -c feat/y && git commit -m x && git push',
+    ])
+  })
+
+  describe('passes: the push names its branch', () => {
+    defineAllowRows('switch', [
+      'git checkout -b feat/x && git push -u origin feat/x',
+      'git switch main && git push origin feat/x',
+      'git switch -c feat/y && git push origin feat/y:feat/y',
+      'git checkout feat/x && git push origin HEAD:refs/heads/feat/x',
+      'git push && git checkout main',
+      'git checkout main',
+    ])
+  })
+})
+
+describe('merge-rule round 1, finding 4: an expanding word in the remote position', () => {
+  // The word in the remote position can hide a refspec: an unquoted
+  // `$REMOTE` that holds "origin main" splits into two words. The parser does
+  // not record whether a word was quoted, so a quoted one is denied as well.
+  describe('denied', () => {
+    defineDenyRows('push-default', [
+      'git push $ARGS',
+      'git push $(echo origin main)',
+      'git push "$REMOTE"',
+      'git push "$REMOTE" feat/x',
+      'git push $REMOTE feat/x',
+      'git push -u "$REMOTE" feat/x',
+      'git push `echo origin main`',
+    ])
+  })
+})
+
+describe('merge-rule round 1, finding 5: heads/<x> as a destination', () => {
+  defineDenyRows('push-default', [
+    'git push origin feat/x:heads/main',
+    'git push origin heads/main',
+  ])
+  defineAllowRows('heads', [
+    'git push origin feat/x:heads/feat/y',
+    'git push origin heads/feat/y',
+  ])
+})
+
+describe('merge-rule round 1, finding 7: -f=name=value', () => {
+  defineDenyRows('visibility', [
+    'gh api -X PATCH repos/acme/widget -f=private=true',
+    'gh api -X PATCH repos/acme/widget -F=visibility=public',
+    'gh api -X=PATCH repos/acme/widget -f visibility=private',
+  ])
+  defineAllowRows('field', [
+    'gh api -X PATCH repos/acme/widget -f=allow_auto_merge=true',
+    'gh api -X=GET repos/acme/widget',
+  ])
+})
+
+describe('merge-rule round 1, finding 8: a variable in the destination', () => {
+  // Denied even when it would be harmless. The fix is to write the branch
+  // name out in the command.
+  defineDenyRows('push-default', [
+    'git push --force-with-lease origin HEAD:refs/heads/$BRANCH',
+    'git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"',
+  ])
+  defineAllowRows('literal branch', [
+    'git push --force-with-lease origin HEAD:refs/heads/feat/539-guard-core',
+  ])
+})
+
+describe('merge-rule round 1: pipeline commands written with variables still pass', () => {
+  defineAllowRows('pipeline', [
+    'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
+    'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+    'gh pr ready "$PR"',
+    'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/review -f description="ok"',
+    'gh api "repos/$REPO/pulls/$PR" --jq .head.sha',
+    'gh label create "size:S" --color c2e0c6 --force',
+    'git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
+  ])
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')
@@ -495,7 +694,7 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
     assert.match(source, /Not covered/)
-    for (const topic of ['curl', 'graphql', 'git/refs', 'xargs']) {
+    for (const topic of ['curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell', 'variable in its destination', 'write the branch name out']) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
     }
   })

@@ -337,6 +337,93 @@ describe('parseCommandLine: unwrapping', () => {
     assert.deepEqual(texts("sudo bash -c 'a'").map((w) => w[0]), ['bash', 'a'])
   })
 
+  describe('shells with options before -c (tester round 1, finding 6)', () => {
+    const lines = [
+      "bash --login -c 'a'",
+      "bash --norc -c 'a'",
+      "bash --noprofile --norc -c 'a'",
+      "bash -O extglob -c 'a'",
+      "bash +O extglob -c 'a'",
+      "bash +x -c 'a'",
+      "bash --posix -lc 'a'",
+      "bash -o pipefail -c 'a'",
+      "bash --rcfile x -c 'a'",
+      "fish -c 'a'",
+      "sudo fish -c 'a'",
+    ]
+    for (const line of lines) {
+      test(`gives the nested command: ${line}`, () => {
+        const commands = parse(line)
+        assert.equal(commands.length, 2)
+        assert.equal(commands[1].words[0].text, 'a')
+        assert.equal(commands[1].nested, true)
+      })
+    }
+
+    test('options before a script file still give no nested command', () => {
+      assert.equal(parse('bash --norc script.sh').length, 1)
+      assert.equal(parse('bash -O extglob script.sh').length, 1)
+    })
+  })
+
+  describe('env -S (tester round 1, finding 6)', () => {
+    test("env -S '<line>' gives a nested command", () => {
+      const commands = parse("env -S 'git push origin main'")
+      assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
+      assert.equal(commands[0].nested, true)
+    })
+
+    test('env --split-string=<line> gives a nested command', () => {
+      assert.deepEqual(texts("env --split-string='git push origin main'"), [['git', 'push', 'origin', 'main']])
+    })
+
+    test('the words after the string join its line', () => {
+      assert.deepEqual(texts("env -S 'git push' origin main"), [['git', 'push', 'origin', 'main']])
+    })
+
+    test('env -S with variables in front still gives the command', () => {
+      assert.deepEqual(texts("env A=1 -S 'git push origin main'"), [['git', 'push', 'origin', 'main']])
+    })
+  })
+
+  describe('more wrappers (tester round 1, finding 6)', () => {
+    const lines = [
+      'stdbuf -o0 git push',
+      'stdbuf -oL git push',
+      'stdbuf -o L git push',
+      'stdbuf -i0 -o0 -e0 git push',
+      'setsid git push',
+      'setsid -f git push',
+      'ionice -c3 git push',
+      'ionice -c 3 -n 7 git push',
+      'ionice -p 5 git push',
+      'doas git push',
+      'doas -u bob git push',
+    ]
+    for (const line of lines) {
+      test(`unwraps: ${line}`, () => {
+        const commands = parse(line)
+        assert.equal(commands.length, 1)
+        assert.deepEqual(commands[0].words.map((w) => w.text), ['git', 'push'])
+        assert.equal(commands[0].wrapped, true)
+      })
+    }
+  })
+
+  describe('known gap: a command handed to a shell on its input', () => {
+    // Documented in the "Not covered" header of rules/merge-rule.mjs. These
+    // rows pin the gap so a change to it is a decision, not an accident.
+    test('a command piped into a shell is not unwrapped', () => {
+      const commands = parse("echo 'git push origin main' | bash")
+      assert.ok(!commands.some((c) => c.words[0].text === 'git'))
+    })
+
+    test('a here-string handed to a shell is not unwrapped', () => {
+      const commands = parse("bash <<< 'git push origin main'")
+      assert.ok(!commands.some((c) => c.words[0].text === 'git'))
+    })
+  })
+
   test('running a script file gives no nested command', () => {
     assert.equal(parse('bash script.sh').length, 1)
     assert.equal(parse('bash -x script.sh').length, 1)
