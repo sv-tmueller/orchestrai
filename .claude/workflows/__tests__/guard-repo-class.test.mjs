@@ -501,6 +501,27 @@ describe('lookupRepoClass: GitHub', () => {
     assert.equal(got.source, 'fallback')
   })
 
+  test('every call goes through the read-only guard: a refused call never reaches the runner', () => {
+    // A full_name of `--web` would make the pull request call `pr list --repo --web ...`,
+    // which the guard refuses because a flag value starts with a dash.
+    const table = {
+      ...ME,
+      'api repos/octo/widget-api': json({
+        full_name: '--web',
+        owner: { login: 'octo', type: 'User' },
+        default_branch: 'main',
+        allow_auto_merge: true,
+        allow_squash_merge: true,
+      }),
+      'api repos/--web/branches/main/protection': fail(404, 'Branch not protected'),
+    }
+    const { got, gh } = lookup({ table })
+    assert.equal(got.repoClass, 'personal-not-set-up')
+    assert.equal(got.source, 'fallback')
+    assert.match(got.detail, /refusing a call that is not read-only/)
+    assert.equal(gh.keys().some((k) => k.startsWith('pr list')), false)
+  })
+
   test('owner and repo come from the full_name GitHub returns, after a rename', () => {
     const table = { ...personal('new-name'), ...ME, 'api repos/octo/widget-api': personal('new-name')['api repos/octo/new-name'] }
     const { got } = lookup({ table })
