@@ -197,6 +197,45 @@ describe('role contract sync', () => {
     assert.ok(doc.includes('for the human review'), 'paragraph lacks "for the human review"')
   })
 
+  // Issue #522: the reviewer rates each forwarded untested claim under a
+  // CLAIMS line. The line and the rating paragraph are identical in the
+  // reviewer section of role-contracts.md (the fact-checker section has its
+  // own CLAIMS line), the reviewer agent file, and the reviewer prompt.
+  test('reviewer: the CLAIMS line and the claim-rating paragraph are identical in all three copies', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const roleIdx = rcSrc.indexOf('## reviewer\n')
+    assert.ok(roleIdx >= 0, 'role-contracts.md: "## reviewer" section not found')
+    const nextIdx = rcSrc.indexOf('\n## ', roleIdx + '## reviewer\n'.length)
+    const copies = {
+      'role-contracts.md': rcSrc.slice(roleIdx, nextIdx >= 0 ? nextIdx : rcSrc.length),
+      'reviewer.md': readFileSync(join(agentsDir, 'reviewer.md'), 'utf8'),
+      'adapters/prompts/reviewer.md': readFileSync(join(promptsDir, 'reviewer.md'), 'utf8'),
+    }
+    const claimsLine = (src) =>
+      src.split('\n').filter((l) => l.startsWith('CLAIMS: <one line per forwarded untested claim'))
+    const paragraphOf = (name, src) => {
+      const start = src.indexOf('Rate each untested claim the dispatch forwards')
+      assert.ok(start >= 0, `${name}: paragraph "Rate each untested claim the dispatch forwards" not found`)
+      const end = src.indexOf('\n\n', start)
+      return src.slice(start, end >= 0 ? end : src.length)
+    }
+
+    const lines = {}
+    const paragraphs = {}
+    for (const [name, src] of Object.entries(copies)) {
+      lines[name] = claimsLine(src)
+      assert.equal(lines[name].length, 1, `${name}: expected exactly one CLAIMS line, found ${lines[name].length}`)
+      paragraphs[name] = paragraphOf(name, src)
+    }
+    for (const name of ['reviewer.md', 'adapters/prompts/reviewer.md']) {
+      assert.equal(lines[name][0], lines['role-contracts.md'][0], `${name}: CLAIMS line differs from role-contracts.md`)
+      assert.equal(paragraphs[name], paragraphs['role-contracts.md'], `${name}: claim-rating paragraph differs from role-contracts.md`)
+    }
+    const doc = paragraphs['role-contracts.md']
+    assert.ok(doc.includes('never a nit'), 'paragraph lacks "never a nit"')
+    assert.ok(doc.includes('listed in the ship summary and not filed'), 'paragraph lacks "listed in the ship summary and not filed"')
+  })
+
   // Normative rule presence checks for roles with sentinel rules.
   for (const [role, phrases] of Object.entries(SENTINEL_RULES)) {
     for (const phrase of phrases) {
