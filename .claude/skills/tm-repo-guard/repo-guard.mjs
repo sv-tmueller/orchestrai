@@ -700,11 +700,15 @@ function parseStatusesArgs(argv) {
 
 // Prints the commands that record both verdicts and queue the merge. It only
 // reads, and the owner runs what it prints. It never builds `writeGuarded`.
-// A nonzero exit is always one line: gh and API text can carry line breaks.
+// A nonzero exit is always one visible line: gh and API text can carry line
+// breaks and terminal escapes. Every C0 control, DEL, every C1 control and the
+// two Unicode separators (\p{Zl}, \p{Zp}) collapse to one space.
+const CONTROL_RUN = /\s*[\x00-\x1f\x7f-\x9f\p{Zl}\p{Zp}]+\s*/gu
+
 export function runStatuses(run, argv) {
   const out = statusesResult(run, argv)
   if (out.code === 0) return out
-  return { code: out.code, text: out.text.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim() + '\n' }
+  return { code: out.code, text: out.text.replace(CONTROL_RUN, ' ').trim() + '\n' }
 }
 
 function statusesResult(run, argv) {

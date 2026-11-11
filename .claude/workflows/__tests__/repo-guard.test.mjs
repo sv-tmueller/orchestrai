@@ -2355,6 +2355,38 @@ describe('runStatuses', () => {
       oneLine(makeFake({ repoRes: multi(500, 'a\u2028b\u2029c') }), ['widget', '42'], 1, /^could not read: repo: a b c\n$/)
     })
 
+    // Every C0 and C1 control, DEL, and the two Unicode separators.
+    const CONTROLS = [
+      ...Array.from({ length: 0x20 }, (_, i) => i),
+      ...Array.from({ length: 0x21 }, (_, i) => 0x7f + i),
+      0x2028,
+      0x2029,
+    ].map((n) => String.fromCharCode(n))
+    const hex = (ch) => `U+${ch.charCodeAt(0).toString(16).padStart(4, '0')}`
+    const hasControl = (text) => [...text].some((ch) => CONTROLS.includes(ch))
+
+    test('no control or separator character survives a read failure', () => {
+      for (const ch of CONTROLS) {
+        const text = oneLine(
+          makeFake({ userRes: rawErr(`a${ch}b ${ch}${ch} c${ch}`) }),
+          ['widget', '42'],
+          1,
+          /^could not read: user: /
+        )
+        assert.equal(hasControl(text.slice(0, -1)), false, hex(ch))
+        assert.match(text, /^could not read: user: a b c\n$/, hex(ch))
+      }
+    })
+
+    test('no control or separator character survives a refusal with an API-derived value', () => {
+      for (const ch of CONTROLS) {
+        const fake = makeFake({ userRes: ok({ login: `octo${ch}x` }) })
+        const text = oneLine(fake, ['some-org/widget', '42'], 2, /^refusing: /)
+        assert.equal(hasControl(text.slice(0, -1)), false, hex(ch))
+        assert.match(text, /\(octo x\)\n$/, hex(ch))
+      }
+    })
+
     test('a login with line breaks in the owner refusal', () => {
       const fake = makeFake({ userRes: ok({ login: 'octo\nsecond line' }) })
       oneLine(fake, ['some-org/widget', '42'], 2, /^refusing: some-org\/widget is not a repo of your own account \(octo second line\)\n$/)
