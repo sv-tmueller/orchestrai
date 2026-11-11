@@ -11,8 +11,10 @@ sections 3.4 and 4.2).
   (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, rows 4a-b and
   4b-b). Other modes were not tested. The failure policy as the CLI describes
   it names no mode, so expect the same refusal in every mode.
-- The guard only acts inside Claude Code sessions. Every repair step below
-  also works from a plain terminal.
+- The guard is a plugin hook (design 4.2), so it is expected to act only
+  inside Claude Code sessions. The repair steps below use `git`, `gh`, `node`
+  and `claude plugin` commands, which are expected to work from a plain
+  terminal too. Not tested.
 - This covers the guard as a plugin hook (design 4.2). If it ever ships
   another way, this command no longer covers it.
 
@@ -27,45 +29,61 @@ env claude --permission-mode manual --settings '{"enabledPlugins":{"orchestrai@o
   one. If the alias sets a config dir, put `CLAUDE_CONFIG_DIR=<config-dir>`
   right after `env`.
 - Never add a bypass flag. Do not put this command in an alias.
-- The command changes no settings file. `--settings` takes the inline JSON as
-  an extra settings source for this one session. It holds for that session
-  only. The next session started without it loads the plugin again.
+- The command changes no settings file: in the test run, the checksums of two
+  settings files were the same before and after (test record). The
+  `--settings` help says only "load additional settings", so that the JSON
+  holds for this one session is expected, not checked. The control run, which
+  left `--settings` out, listed the plugin again.
 - Both keys are set because the plugin can be loaded under two keys, one per
-  copy (the marketplace copy and the synced copy). Switching off one key alone
-  failed in earlier trials.
-- The owner's other hooks and the CLAUDE.md rules stay on.
+  copy (the marketplace copy and the synced copy). The seat adapter's comment
+  says disabling only the first copy left the synced second copy loading
+  (`.claude/adapters/claude-code-subprocess.mjs`, lines 194-195). It was not
+  re-tried here.
+- Your other hooks and the CLAUDE.md rules are expected to stay on, because
+  the command switches off only the two plugin keys. This was not checked.
 
-Check the switch inside the session: typing `/orchestrai:` offers nothing. If
-something is offered, a copy under another key is still on. Read its key in
-`/plugin`, quit, add the key to the JSON with `false` and start again.
+Check the switch inside the session: type `/orchestrai:`. The test run's
+start-up record listed no `orchestrai:` skill, command or agent, so expect
+nothing to be offered. The interactive picker was not checked. If something is
+offered, a copy under another key may still be on. Find its key in `/plugin` or
+`claude plugin list` (the help says only that it lists installed plugins; that
+it shows the key was not checked), quit, add the key to the JSON with `false`
+and start again.
 
 ## Why this command
 
 It is the switch the repo already uses for subprocess seats
-(`.claude/adapters/claude-code-subprocess.mjs`). The other ways, with the
-Claude Code 2.1.319 help as the source:
+(`.claude/adapters/claude-code-subprocess.mjs`, `SETTINGS_FRAGMENT`, line
+202). The other ways are read from the Claude Code 2.1.319 help (and for
+`disableAllHooks`, from the research doc). None of these ways was tested
+here:
 
-- `--bare` reads no OAuth or keychain login, only `ANTHROPIC_API_KEY`, so a
-  subscription login does not work. It also drops every hook and CLAUDE.md.
-- `--safe-mode` switches off every customization (CLAUDE.md, skills, plugins,
-  hooks, MCP servers). That is far more than the guard. Its effect on the
-  synced copy is not tested here.
+- `--bare`: the help says it skips hooks (those defined in settings and by
+  installed plugins) and CLAUDE.md auto-discovery, and that Anthropic auth is
+  only `ANTHROPIC_API_KEY` or `apiKeyHelper` via `--settings` (OAuth and
+  keychain are never read). A subscription login would not apply.
+- `--safe-mode`: the help says it starts with all customizations (CLAUDE.md,
+  skills, installed plugins, hooks, MCP servers and more) disabled. That is
+  far more than the guard. Its effect on the synced copy is not tested here.
 - `disableAllHooks` in a settings file changes that file and outlasts the
-  session. Passed by flag, it leaves the plugin loaded, so the start-up record
-  cannot show the switch, and it drops every other hook too.
-- `/plugin` disable or `claude plugin disable` writes a settings file and
-  stays in force for later sessions.
+  session. It is a switch for all hooks, not for the plugin, so your other
+  hooks would be expected to go too. Its effect was not tested.
+- `/plugin` disable or `claude plugin disable`: the help says only "Disable an
+  enabled plugin", with a scope of user, project or local. It is expected to
+  write a settings file and stay in force for later sessions.
 
 ## Permission mode
 
-The command names a prompting mode, `manual` (the name the 2.1.319 help
-lists; the start-up record shows it as `default`). With the plugin off, the
-deny list is gone too. Only the GitHub rule and the prompts remain, so you
-approve each command.
+The command names `manual`, the mode the 2.1.319 help lists. The start-up
+record shows it as `default`. Design 4.2 names `bypassPermissions`, `auto` and
+`dontAsk` as the modes where nobody is asked, so `manual` is expected to be a
+prompting mode. The design puts the base deny list in the guard (4.2, 4.3), so
+with the plugin off it is expected to be gone too. Only the GitHub rule
+(design 4.2) and the prompts should remain, so you approve each command.
 
 - Name the mode because a config dir's user settings can make bypass the
-  default with nothing at launch (probe row 7), and an alias can add a bypass
-  flag.
+  default with nothing at launch (probe row 7; that the mode came from those
+  settings is an inference, design 4.1), and an alias can add a bypass flag.
 - One command covers both kinds of guard bug. A bug in the decision logic
   leaves prompting modes alone anyway. A guard that crashes or times out was
   seen to refuse in bypass mode. The failure policy names no mode, so expect it
@@ -83,8 +101,8 @@ approve each command.
    (`/orchestrai:`).
 2. Find the faulty merge: `git fetch origin`, then
    `git log --oneline -10 origin/main -- .claude/`. Look for merges that
-   touched `.claude/guard/` or the plugin's hook file. The refusal text
-   helps.
+   touched the guard code or the plugin's hook file (the guard is not built
+   yet, so those paths do not exist yet). The refusal text may help.
 3. Open a one-line issue. Create a branch from `origin/main`, run
    `git revert <sha>` (squash merges have one parent, so no `-m`), push the
    branch and open a PR with `Closes #N`. Title: `fix: revert <original
@@ -105,15 +123,17 @@ approve each command.
    - `env CLAUDE_CONFIG_DIR=<config-dir> claude plugin update orchestrai@orchestrai`
    - Leave out `CLAUDE_CONFIG_DIR` for the default dir. The help says
      "restart required to apply". These two commands are read from the CLI
-     help, not run. Auto update gets there too, later.
+     help, not run. Auto update may also get there. Whether and when it
+     applies is not tested (design section 8).
 7. Check the guard is back:
-   - `/tm-repo-guard` Check: each config dir's copy is the newest commit.
-   - Quit and start a new session the normal way. `/orchestrai:` offers
-     commands again, and an ordinary call in the mode that failed goes
-     through.
+   - `/tm-repo-guard` with no argument prints, per config dir, whether the
+     installed copy is the newest commit (its SKILL.md). Each should say yes.
+   - Quit and start a new session the normal way. Expect `/orchestrai:` to
+     offer commands again and an ordinary call in the mode that failed to go
+     through. Not tested, because the guard is not built yet.
    - If it is still refused, the synced copy may still be on the faulty
-     commit. How that copy updates is open (design section 8). Go back to the
-     plugin-off command and record it on an issue.
+     commit. How that copy updates was not checked. Go back to the plugin-off
+     command and record it on an issue.
 8. Open an issue for the real fix of the reverted change.
 
 ## Test record
@@ -140,6 +160,8 @@ test run used the command above. The control was the same command without the
 
 ## Open points
 
-- The synced copy's update path is open (design section 8).
+- How the synced copy updates was not checked. Design section 8 lists the
+  related open points (whether an auto update applies in the running session,
+  and plugins that arrive in a config dir with a login).
 - The guard is not wired yet, so a refusal followed by this recovery was not
   exercised end to end.
