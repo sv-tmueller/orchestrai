@@ -279,22 +279,48 @@ sessions. The checksums are not part of this document.
 
 ## Repeat steps
 
-Work from a fresh `mktemp -d`, outside every repo, and check that it is not a
-git work tree. Set `P` to its path for every command (shell state does not
-carry over between tool calls in some harnesses, so repeat `P=<probe-dir>` on
-each command). Run the rows one after another, never in parallel.
+Work from a fresh `mktemp -d`, outside every repo. Set `P` to its path for
+every command (shell state does not carry over between tool calls in some
+harnesses, so repeat `P=<probe-dir>` on each command). Run the rows one after
+another, never in parallel.
 
-1. Preflight (stop and report BLOCKED on anything but a clean pass):
+Check that `<probe-dir>` is not a git work tree:
+
+```sh
+cd "$P" && git rev-parse --is-inside-work-tree; echo "exit=$?"
+```
+
+Expected: `fatal: not a git repository (or any of the parent directories): .git`
+and `exit=128`. The output `true` means a work tree: pick another folder.
+
+The original run used zsh on macOS. The commands below work the same in sh,
+bash and zsh, because per-row variables are passed with `env VAR=value`, never
+as a prefix on a shell function. In sh, a prefix on a function stays set for
+all later calls: `sh -c 'f() { :; }; X=1 f; echo "X=$X"'` prints `X=1`, while
+zsh prints `X=`. That would carry one row's prompt, tool list or
+`CLAUDE_CONFIG_DIR` into the next.
+
+The steps need GNU `timeout` (coreutils), in the preflight and in `run.sh`.
+Where it is not installed, use an equivalent that ends the run after the same
+time (60 seconds for the preflight, 180 in `run.sh`), for example `gtimeout`
+from Homebrew coreutils. Change the word in both places and name the
+equivalent in the report.
+
+1. Preflight, run from `<probe-dir>` (stop and report BLOCKED on anything but a
+   clean pass). `claude` can be an alias in an interactive shell, and an alias
+   adds its own flags and config dir. So the preflight runs through `sh -c`,
+   which ignores aliases, as `run.sh` does:
 
    ```sh
-   timeout 60 claude -p "Reply with the single word ok." --model haiku --effort low --tools "" --max-turns 1 \
+   sh -c 'timeout 60 claude -p "Reply with the single word ok." --model haiku --effort low --tools "" --max-turns 1 \
      --permission-mode bypassPermissions --setting-sources project --strict-mcp-config \
-     --no-session-persistence --output-format json </dev/null; echo "exit=$?"
+     --no-session-persistence --output-format json </dev/null'; echo "exit=$?"
    ```
 
 2. Save the setup script as `setup.sh` in `<probe-dir>` and run
    `P=<probe-dir> sh setup.sh`. It writes `hook.sh`, the plugin, the throwaway
-   user settings for row 7, `mk-settings.sh` and `run.sh`.
+   user settings for row 7, `settings-row6.json` (the row 6 project settings),
+   `mk-settings.sh` and `run.sh`.
 
    ```sh
    #!/bin/sh
@@ -326,6 +352,8 @@ each command). Run the rows one after another, never in parallel.
    printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}\"/hook.sh deny-json","timeout":5}]}]}}' > "$P/probe-plugin/hooks/hooks.json"
 
    printf '%s\n' '{"permissions":{"defaultMode":"bypassPermissions"}}' > "$P/cfg/settings.json"
+
+   printf '%s\n' '{"permissions":{"defaultMode":"bypassPermissions"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/hook.sh deny-json","timeout":5}]}]}}' > "$P/settings-row6.json"
 
    cat > "$P/mk-settings.sh" <<'EOF'
    #!/bin/sh
@@ -375,8 +403,8 @@ each command). Run the rows one after another, never in parallel.
    another way. Reply with the tool result word for word.`
 
    The wrapper in the original run also refused to start inside a git work
-   tree. That check is not in the script above. Check by hand that
-   `<probe-dir>` is not a work tree.
+   tree. That check is not in the script above. Use the check at the top of
+   these steps.
 
 3. `mk-settings.sh deny-json` writes this project settings file (the others
    change only the last word of the command, and `block` adds
@@ -394,7 +422,8 @@ each command). Run the rows one after another, never in parallel.
    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}\"/hook.sh deny-json","timeout":5}]}]}}
    ```
 
-   Row 6 project settings (copy to `.claude/settings.json`):
+   Row 6 project settings (`setup.sh` writes this file as
+   `settings-row6.json`; step 4 copies it to `.claude/settings.json`):
 
    ```json
    {"permissions":{"defaultMode":"bypassPermissions"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/hook.sh deny-json","timeout":5}]}]}}
@@ -407,10 +436,18 @@ each command). Run the rows one after another, never in parallel.
    ```
 
 4. Run the rows in this order. Each line is `settings step` then `run step`;
-   all run from `<probe-dir>`. Define two helpers first:
-   `mk() { P=<probe-dir> sh mk-settings.sh "$@"; }` and
-   `run() { P=<probe-dir> sh run.sh "$@"; }`. In the lines below, `$P` is
-   `<probe-dir>`.
+   all run from `<probe-dir>`. Start with this setup, and repeat it at the top
+   of every call if you run the lines in separate calls:
+
+   ```sh
+   export P=<probe-dir>; cd "$P"
+   mk() { sh mk-settings.sh "$@"; }
+   run() { sh run.sh "$@"; }
+   ```
+
+   Rows that need extra variables skip `run` and call
+   `env VAR=value sh run.sh <id> ...` directly, so nothing stays set for the
+   next row. In the lines below, `$P` is `<probe-dir>`.
 
    ```sh
    mk deny-json;  run B0 --permission-mode dontAsk --allowedTools Bash
@@ -419,24 +456,24 @@ each command). Run the rows one after another, never in parallel.
    mk deny-exit2; run 1b --permission-mode bypassPermissions
    mk deny-json;  run 1c --dangerously-skip-permissions
    # subagent rows (C2 with "mk none", row 2 with "mk deny-json"; marker id in the prompt):
-   TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-C2. Do not run any command yourself. Wait for its result." \
-     run C2 --permission-mode bypassPermissions --agents '<agent JSON above>'
-   TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-2. Do not run any command yourself. Wait for its result." \
-     run 2 --permission-mode bypassPermissions --agents '<agent JSON above>'
+   env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-C2. Do not run any command yourself. Wait for its result." \
+     sh run.sh C2 --permission-mode bypassPermissions --agents '<agent JSON above>'
+   env TOOLS="Bash,Agent" MAXTURNS=6 PROMPT="Use the Agent tool to run the prober agent with the task: touch probe-marker-2. Do not run any command yourself. Wait for its result." \
+     sh run.sh 2 --permission-mode bypassPermissions --agents '<agent JSON above>'
    # subprocess seat rows (C3 with "mk none", row 3 with "mk deny-json"):
-   CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-     run C3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
-   CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-     run 3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
+   env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+     sh run.sh C3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
+   env CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+     sh run.sh 3 --permission-mode auto --settings '{"enabledPlugins":{"orchestrai@orchestrai":false,"orchestrai@synced":false},"permissions":{"blockReadsOutsideWorkingDirectories":true}}'
    mk crash;        run 4a --permission-mode bypassPermissions
    mk crash block;  run 4a-b --permission-mode bypassPermissions
-   mk hang;         WAIT=25 run 4b --permission-mode bypassPermissions
-   mk hang block;   WAIT=25 run 4b-b --permission-mode bypassPermissions
+   mk hang;         env WAIT=25 sh run.sh 4b --permission-mode bypassPermissions
+   mk hang block;   env WAIT=25 sh run.sh 4b-b --permission-mode bypassPermissions
    mk missing;      run 4c --permission-mode bypassPermissions
    mk missing block; run 4c-b --permission-mode bypassPermissions
    mk none;         run 5 --permission-mode bypassPermissions --plugin-dir "$P/probe-plugin"
-   cp settings-row6.json .claude/settings.json;  run 6      # settings-row6.json holds the row 6 file above
-   mk none; CLAUDE_CONFIG_DIR="$P/cfg" SOURCES=user,project run C7
+   cp settings-row6.json .claude/settings.json;  run 6      # settings-row6.json is written by setup.sh
+   mk none; env CLAUDE_CONFIG_DIR="$P/cfg" SOURCES=user,project sh run.sh C7
    mk none;         run C7f --settings '{"permissions":{"defaultMode":"bypassPermissions"}}'
    mk deny-json;    run 7f --settings '{"permissions":{"defaultMode":"bypassPermissions"}}'
    ```
@@ -445,9 +482,10 @@ each command). Run the rows one after another, never in parallel.
    the same launch as C7 with `mk deny-json`, id `7`. Row 7f runs only if
    row 7 is "not tested".
 
-5. Read the evidence per run: `node ev.mjs <id>` (below) prints the init mode,
-   plugin count, every Bash `tool_use` and `tool_result`, the hook events
-   and the `hook.log` lines. The marker is `ls probe-marker-<id>`.
+5. Save the script below as `ev.mjs` in `<probe-dir>`. Then read the evidence
+   per run: `node ev.mjs <id>` prints the init mode, plugin count, every Bash
+   `tool_use` and `tool_result`, the hook events and the `hook.log` lines.
+   The marker is `ls probe-marker-<id>`.
 
    ```js
    // usage: node ev.mjs <id>   (run from the probe dir; reads logs/<id>.jsonl and logs/<id>.hook.log)
