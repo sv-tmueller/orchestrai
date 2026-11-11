@@ -86,7 +86,6 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   7 again). A PR that needs a second repair parks. A repair that is
   interrupted parks too, and a parked repair stays with the owner. Mechanics:
   step 7 and "Repair (queued PRs behind the default branch)" in the same file.
-  What "set up" means and how to get a repo there: see "Repo guard" below.
 - **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
   seat contracts, so the lead routes on the short report instead of expanding
   it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
@@ -134,8 +133,8 @@ default branch without passing the checks. `/tm-repo-guard` reads your repos
 against that rule and, on your yes, sets one repo up. Details:
 `.claude/skills/tm-repo-guard/SKILL.md`.
 
-It works from any folder, because it only talks to GitHub through `gh`. It
-looks at the repos your own GitHub account owns and skips archived ones.
+It works from any folder: every call names its repo, so it reads nothing from
+the current folder. It looks at the repos your own GitHub account owns and skips archived ones.
 Repos owned by an organization are never touched.
 
 ### What "set up" means
@@ -145,14 +144,16 @@ A repo is set up when all of these hold on its default branch:
 - Branch protection is on, and a PR is required.
 - No approving review is required (the pipeline merges without one).
 - Force pushes and deletion are off.
-- The rule applies to admins too, so you have no way around it either.
+- The rule applies to admins too, so admin pushes and merges are stopped as
+  well. An admin can still edit or remove the protection itself.
 - A PR must be up to date with the default branch before it merges.
 - Auto merge is on and squash merge is allowed.
 - The required checks match the rule below.
 
 **The rule for required checks.** Every check that showed up on the newest
 finished PR becomes required, whoever runs it: the repo's own CI or an outside
-service. The same rule holds on every repo. The newest finished PR is the
+service. The `orchestrai/*` verdict statuses are left out of this rule; the
+label rule below covers them. The same rule holds on every repo. The newest finished PR is the
 highest-numbered non-draft PR among the last ten (open, merged or closed)
 whose checks have all finished. Skipped checks do not count. A check that only
 older PRs ran is no longer required, and the report lists it as "not required:
@@ -163,7 +164,8 @@ verdict statuses `orchestrai/review` and `orchestrai/test` are required too.
 
 Hand-made PRs on a set-up repo follow the same rule. They need every required
 check to pass, and on a repo with the pipeline labels they also need both
-verdict statuses on their head, like any other PR.
+verdict statuses on their head, like any other PR. Without them the PR waits
+until you post both statuses on its head.
 
 ### Check
 
@@ -181,12 +183,15 @@ state per repo. It never writes.
 
 Each repo also shows its visibility, protection, auto merge, squash merge,
 required checks, whether it has the pipeline labels, the test file count and
-the checks seen on the last ten PRs. Two flags can appear. Both mean the
-repo has no test files, so the short (lean) track is off:
+the checks seen on the last ten PRs. One of two flags can appear. Both mean the
+repo has no test files:
 
 - `no tests, short track off`: CI runs, but there are no tests.
-- `agent verdicts only, short track off`: no CI and no tests, so the two
-  verdict statuses are the only gate.
+- `agent verdicts only, short track off`: no CI and no tests. On a repo with
+  the pipeline labels, the two verdict statuses are then the only gate.
+
+The flags only mark the repo in the report. They do not change how the
+pipeline picks its track.
 
 ### Apply
 
@@ -257,7 +262,7 @@ must be committed rather than installed from the marketplace.
 /tm-repo-guard          # report each owned repo's guard state (apply <repo> asks first)
 ```
 
-`/tm-repo-guard` is explained under "Repo guard" below.
+`/tm-repo-guard` is explained under "Repo guard" above.
 
 ### Model config
 
