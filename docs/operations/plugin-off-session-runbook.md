@@ -59,16 +59,18 @@ Claude Code 2.1.319 help as the source:
 ## Permission mode
 
 The command names a prompting mode, `manual` (the name the 2.1.319 help
-lists; the start-up record shows it as `default`). With the plugin off, the deny
-list is gone too. Only the GitHub rule and the prompts remain, so you approve
-each command.
+lists; the start-up record shows it as `default`). With the plugin off, the
+deny list is gone too. Only the GitHub rule and the prompts remain, so you
+approve each command.
 
 - Name the mode because a config dir's user settings can make bypass the
   default with nothing at launch (probe row 7), and an alias can add a bypass
   flag.
 - One command covers both kinds of guard bug. A bug in the decision logic
-  leaves prompting modes alone anyway. A guard that crashes or times out
-  refuses in every mode, and then switching the plugin off is required.
+  leaves prompting modes alone anyway. A guard that crashes or times out was
+  seen to refuse in bypass mode. The failure policy names no mode, so expect it
+  to refuse in a prompting mode too, and then switching the plugin off is
+  required.
 - Do not use `auto`, `dontAsk` or a bypass flag in this session.
 - Not known: whether `--permission-mode manual` beats a bypass default in a
   config dir's user settings. The test below ran with the inherited config
