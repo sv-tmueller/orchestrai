@@ -23,9 +23,9 @@ Check, in this repo:
   there is no GitHub remote or `gh` auth.
 - The five docs dirs: `docs/architecture`, `docs/operations`, `docs/plans`,
   `docs/reviews`, `docs/superpowers/specs`.
-- The repo's full name, for the guard command in section 4:
-  `gh repo view --json nameWithOwner -q .nameWithOwner`. Skip it, with a
-  note, under the same conditions as the labels; section 4 then prints
+- The repo's full name, for the guard command (the Already set up report and
+  section 4): `gh repo view --json nameWithOwner -q .nameWithOwner`. Skip it,
+  with a note, under the same conditions as the labels; section 4 then prints
   `<owner>/<name>`.
 
 **Already set up:** all six labels present (or not checked, for lack of a
