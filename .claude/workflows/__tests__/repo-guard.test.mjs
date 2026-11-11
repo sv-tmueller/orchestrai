@@ -1,6 +1,7 @@
 /**
  * Tests for tm-repo-guard: the read-only check (issue #472, batch #470),
- * apply (issue #481) and the statuses mode (issue #501).
+ * apply (issue #481), the statuses mode (issue #501) and the config dirs
+ * part of Check (issue #502).
  *
  * `repo-guard.mjs` ships with the plugin at
  * `.claude/skills/tm-repo-guard/repo-guard.mjs`. It reads the GitHub state of
@@ -14,6 +15,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { basename, dirname } from 'node:path'
 
 import {
   isReadOnly,
@@ -35,6 +37,9 @@ import {
   writeArgs,
   runApply,
   runStatuses,
+  findConfigDirs,
+  collectConfigDirs,
+  renderConfigDirs,
   main,
 } from '../../skills/tm-repo-guard/repo-guard.mjs'
 import { decide } from '../../skills/tm-kickoff/ship-decision.mjs'
@@ -2448,6 +2453,546 @@ describe('runStatuses', () => {
       const { code, written } = runMain(['statuses', '.hidden', '42'])
       assert.equal(code, 2)
       assert.equal(written, 'refusing: invalid repo name: .hidden\n')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Config dirs (Check, issue #502)
+// ---------------------------------------------------------------------------
+// Every test runs on a fake in-memory `local` under a made-up home. None of
+// them touches the real home folder, spawns gh or calls main.
+describe('config dirs', () => {
+  const HOME = '/home/tester'
+  const PLUGIN = 'orchestrai@orchestrai'
+  const REPO = 'acme/agent-kit'
+  const NEWEST = 'a'.repeat(40)
+  const OLDER = '1a2b3c4' + 'd'.repeat(33)
+
+  // Files are a path -> text map; every ancestor of a file or listed dir is a dir.
+  function fakeLocal({ files = {}, dirs = [], envDir = null, listError = null, readErrors = {} } = {}) {
+    const dirSet = new Set()
+    const addWithParents = (p) => {
+      for (let d = p; d !== '/' && !dirSet.has(d); d = dirname(d)) dirSet.add(d)
+    }
+    dirs.forEach(addWithParents)
+    Object.keys(files).forEach((f) => addWithParents(dirname(f)))
+    return {
+      home: HOME,
+      envDir,
+      names(path) {
+        if (listError !== null && path === HOME) throw new Error(listError)
+        const all = [...dirSet, ...Object.keys(files)]
+        return all.filter((p) => dirname(p) === path).map((p) => basename(p))
+      },
+      isDir: (path) => dirSet.has(path),
+      read(path) {
+        if (path in readErrors) throw new Error(readErrors[path])
+        return files[path] ?? null
+      },
+    }
+  }
+
+  const dirOf = (name) => `${HOME}/${name}`
+  const marker = (dir) => `${dir}/projects`
+  const installedPath = (dir) => `${dir}/plugins/installed_plugins.json`
+  const marketsPath = (dir) => `${dir}/plugins/known_marketplaces.json`
+  const userEntry = (sha) => ({ scope: 'user', installPath: '/made/up', version: 'x', gitCommitSha: sha })
+  const installedJson = (entries) => JSON.stringify({ version: 2, plugins: { [PLUGIN]: entries } })
+  const marketsJson = (extra = {}, source = { source: 'github', repo: REPO }) =>
+    JSON.stringify({ orchestrai: { source, ...extra } })
+
+  // One config dir: its marker plus the two plugin files that are given.
+  const configDir = (name, { installed, markets } = {}) => {
+    const dir = dirOf(name)
+    return {
+      dirs: [marker(dir)],
+      files: {
+        ...(installed === undefined ? {} : { [installedPath(dir)]: installed }),
+        ...(markets === undefined ? {} : { [marketsPath(dir)]: markets }),
+      },
+    }
+  }
+  const merge = (...parts) => ({
+    dirs: parts.flatMap((p) => p.dirs ?? []),
+    files: Object.assign({}, ...parts.map((p) => p.files ?? {})),
+  })
+
+  const ok = (stdout) => ({ code: 0, stdout: JSON.stringify(stdout), stderr: '' })
+  const notFound = { code: 1, stdout: JSON.stringify({ message: 'Not Found', status: '404' }), stderr: 'gh: Not Found (HTTP 404)' }
+  const runner = (calls, answer = ok({ sha: NEWEST })) => (args) => {
+    calls.push(args)
+    return answer
+  }
+
+  const lineOf = (text, display) => text.split('\n').find((l) => l.startsWith(`${display}:`))
+
+  describe('findConfigDirs', () => {
+    test('keeps ~/.claude and ~/.claude-<x> dirs that have a projects folder, sorted by path', () => {
+      const local = fakeLocal({ dirs: [marker(dirOf('.claude-zeta')), marker(dirOf('.claude')), marker(dirOf('.claude-alpha'))] })
+      const found = findConfigDirs(local)
+      assert.deepEqual(found.dirs.map((d) => d.path), [dirOf('.claude'), dirOf('.claude-alpha'), dirOf('.claude-zeta')])
+      assert.equal(found.error, null)
+    })
+
+    test('skips a dir with no projects folder, a .claudex dir, a .claude.json file and other dot dirs', () => {
+      const local = fakeLocal({
+        dirs: [marker(dirOf('.claude-alpha')), dirOf('.claude-noprojects'), marker(dirOf('.claudex')), marker(dirOf('.config'))],
+        files: { [dirOf('.claude.json')]: '{}', [dirOf('.claude-file')]: 'x' },
+      })
+      assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [dirOf('.claude-alpha')])
+    })
+
+    test('counts the CLAUDE_CONFIG_DIR dir even outside home and with no projects folder', () => {
+      const local = fakeLocal({ dirs: [marker(dirOf('.claude-alpha')), '/srv/elsewhere'], envDir: '/srv/elsewhere' })
+      const found = findConfigDirs(local)
+      assert.deepEqual(found.dirs.map((d) => [d.path, d.fromEnv]), [
+        [dirOf('.claude-alpha'), false],
+        ['/srv/elsewhere', true],
+      ])
+    })
+
+    test('lists a dir once when CLAUDE_CONFIG_DIR names a home dir, with or without a trailing slash', () => {
+      for (const envDir of [dirOf('.claude-alpha'), `${dirOf('.claude-alpha')}/`]) {
+        const local = fakeLocal({ dirs: [marker(dirOf('.claude-alpha'))], envDir })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [dirOf('.claude-alpha')])
+      }
+    })
+
+    test('a failure listing home sets error, does not throw, and still returns the env dir', () => {
+      const local = fakeLocal({ dirs: ['/srv/elsewhere'], envDir: '/srv/elsewhere', listError: 'EACCES: denied' })
+      const found = findConfigDirs(local)
+      assert.equal(found.error, 'EACCES: denied')
+      assert.deepEqual(found.dirs.map((d) => d.path), ['/srv/elsewhere'])
+    })
+  })
+
+  describe('collectConfigDirs and renderConfigDirs', () => {
+    const report = (local, calls = [], answer) => {
+      const result = collectConfigDirs(runner(calls, answer), local)
+      return { result, text: renderConfigDirs(result) }
+    }
+
+    test('prints the summary and one line per dir with the three facts, in fixed order', () => {
+      const parts = merge(
+        configDir('.claude'),
+        configDir('.claude-alpha', { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }),
+        configDir('.claude-beta', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson() }),
+        configDir('.claude-delta', { installed: installedJson([{ scope: 'user' }]), markets: marketsJson({ autoUpdate: false }) }),
+        configDir('.claude-gamma', { installed: installedJson([userEntry(NEWEST)]), markets: '{ not json' })
+      )
+      const { result, text } = report(fakeLocal(parts))
+      const lines = text.split('\n')
+      assert.equal(lines[0], 'config dirs: 5 (3 with the plugin, 1 auto update on, 1 at the newest commit, 1 could not read)')
+      assert.equal(lines[1], '~/.claude: plugin not installed, auto update not recorded, no installed copy')
+      assert.equal(lines[2], '~/.claude-alpha: plugin installed, auto update on, at the newest commit')
+      assert.equal(
+        lines[3],
+        '~/.claude-beta: plugin installed, auto update not recorded, not at the newest commit (installed 1a2b3c4, newest aaaaaaa)'
+      )
+      assert.equal(lines[4], '~/.claude-delta: plugin installed, auto update off, commit not recorded')
+      assert.match(lines[5], /^~\/\.claude-gamma: could not read: known_marketplaces\.json: /)
+      assert.equal(lines.length, 7)
+      assert.equal(lines[6], '')
+      assert.equal(result.failed, true)
+    })
+
+    test('a tidy report is not failed', () => {
+      const parts = configDir('.claude-alpha', { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) })
+      assert.equal(report(fakeLocal(parts)).result.failed, false)
+    })
+
+    test('with no config dir it prints a zero summary and is not failed', () => {
+      const { result, text } = report(fakeLocal())
+      assert.equal(text, 'config dirs: 0 (0 with the plugin, 0 auto update on, 0 at the newest commit, 0 could not read)\n')
+      assert.equal(result.failed, false)
+    })
+
+    test('shows a path outside home in full', () => {
+      const local = fakeLocal({ dirs: ['/srv/elsewhere'], envDir: '/srv/elsewhere' })
+      assert.match(report(local).text, /^\/srv\/elsewhere: plugin not installed, auto update not recorded, no installed copy$/m)
+    })
+
+    test('when home cannot be listed it prints one line saying so and marks failed', () => {
+      const { result, text } = report(fakeLocal({ listError: 'EACCES: denied' }))
+      assert.equal(text, 'config dirs: could not list the home folder: EACCES: denied\n')
+      assert.equal(result.failed, true)
+    })
+
+    test('when home cannot be listed the env dir is still reported after that line', () => {
+      const local = fakeLocal({ dirs: ['/srv/elsewhere'], envDir: '/srv/elsewhere', listError: 'EACCES: denied' })
+      const lines = report(local).text.split('\n')
+      assert.equal(lines[0], 'config dirs: could not list the home folder: EACCES: denied')
+      assert.match(lines[1], /^\/srv\/elsewhere: plugin not installed/)
+    })
+
+    describe('auto update', () => {
+      const cases = [
+        ['on when autoUpdate is true', marketsJson({ autoUpdate: true }), 'auto update on'],
+        ['off when autoUpdate is false', marketsJson({ autoUpdate: false }), 'auto update off'],
+        ['not recorded when the field is missing', marketsJson(), 'auto update not recorded'],
+        ['not recorded when the value is not a boolean', marketsJson({ autoUpdate: 'true' }), 'auto update not recorded'],
+        ['not recorded when the marketplace entry is missing', JSON.stringify({ other: { autoUpdate: true } }), 'auto update not recorded'],
+        ['not recorded when the marketplaces file is missing', undefined, 'auto update not recorded'],
+      ]
+      for (const [name, markets, expected] of cases) {
+        test(name, () => {
+          const parts = configDir('.claude-alpha', { installed: installedJson([userEntry(NEWEST)]), markets })
+          assert.ok(lineOf(report(fakeLocal(parts)).text, '~/.claude-alpha').includes(`, ${expected},`))
+        })
+      }
+    })
+
+    describe('plugin installed', () => {
+      const cases = [
+        ['a user entry counts as installed', installedJson([userEntry(NEWEST)]), 'plugin installed'],
+        ['a user entry among project entries counts as installed', installedJson([{ scope: 'project', projectPath: '/p' }, userEntry(NEWEST)]), 'plugin installed'],
+        ['a project-only entry does not count', installedJson([{ scope: 'project', projectPath: '/p', gitCommitSha: NEWEST }]), 'plugin not installed'],
+        ['a missing plugin key does not count', JSON.stringify({ version: 2, plugins: { 'other@other': [userEntry(NEWEST)] } }), 'plugin not installed'],
+        ['a missing installed_plugins.json does not count', undefined, 'plugin not installed'],
+      ]
+      for (const [name, installed, expected] of cases) {
+        test(name, () => {
+          const parts = configDir('.claude-alpha', { installed, markets: marketsJson() })
+          assert.ok(lineOf(report(fakeLocal(parts)).text, '~/.claude-alpha').startsWith(`~/.claude-alpha: ${expected},`))
+        })
+      }
+
+      test('a missing installed_plugins.json and no marketplaces file is not a failure', () => {
+        const { result, text } = report(fakeLocal(configDir('.claude-alpha')))
+        assert.ok(text.includes('~/.claude-alpha: plugin not installed, auto update not recorded, no installed copy'))
+        assert.equal(result.failed, false)
+      })
+    })
+
+    describe('installed commit', () => {
+      const bad = [
+        ['missing', { scope: 'user' }],
+        ['not a string', { scope: 'user', gitCommitSha: 12 }],
+        ['too short', { scope: 'user', gitCommitSha: 'abc123' }],
+        ['upper case', { scope: 'user', gitCommitSha: 'A'.repeat(40) }],
+      ]
+      for (const [name, entry] of bad) {
+        test(`${name}: reads "commit not recorded" and makes no call`, () => {
+          const calls = []
+          const parts = configDir('.claude-alpha', { installed: installedJson([entry]), markets: marketsJson() })
+          const { result, text } = report(fakeLocal(parts), calls)
+          assert.ok(text.includes('plugin installed, auto update not recorded, commit not recorded'))
+          assert.deepEqual(calls, [])
+          assert.equal(result.failed, false)
+        })
+      }
+    })
+
+    describe('could not read', () => {
+      const next = configDir('.claude-next', { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) })
+      const unreadable = (installed, markets, readErrors) =>
+        report(fakeLocal({ ...merge(configDir('.claude-bad', { installed, markets }), next), readErrors }))
+
+      const shapes = [
+        ['installed_plugins.json is an array', JSON.stringify([]), undefined, 'installed_plugins.json: unexpected shape'],
+        ['installed_plugins.json is null', 'null', undefined, 'installed_plugins.json: unexpected shape'],
+        ['plugins is not an object', JSON.stringify({ plugins: [] }), undefined, 'installed_plugins.json: unexpected shape'],
+        ['the plugin value is not an array', JSON.stringify({ plugins: { [PLUGIN]: {} } }), undefined, 'installed_plugins.json: unexpected shape'],
+        ['the plugin value holds a non-object', JSON.stringify({ plugins: { [PLUGIN]: ['x'] } }), undefined, 'installed_plugins.json: unexpected shape'],
+        ['known_marketplaces.json is an array', undefined, JSON.stringify([]), 'known_marketplaces.json: unexpected shape'],
+      ]
+      for (const [name, installed, markets, message] of shapes) {
+        test(`${name}`, () => {
+          const { result, text } = unreadable(installed, markets)
+          assert.equal(lineOf(text, '~/.claude-bad'), `~/.claude-bad: could not read: ${message}`)
+          assert.ok(lineOf(text, '~/.claude-next').includes('plugin installed, auto update on'))
+          assert.ok(text.startsWith('config dirs: 2 (1 with the plugin, 1 auto update on, 1 at the newest commit, 1 could not read)'))
+          assert.equal(result.failed, true)
+        })
+      }
+
+      test('bad JSON in installed_plugins.json names that file', () => {
+        const { result, text } = unreadable('{ not json', undefined)
+        assert.match(lineOf(text, '~/.claude-bad'), /^~\/\.claude-bad: could not read: installed_plugins\.json: .+/)
+        assert.equal(result.failed, true)
+      })
+
+      test('bad JSON in known_marketplaces.json names that file', () => {
+        const { text } = unreadable(undefined, '{ not json')
+        assert.match(lineOf(text, '~/.claude-bad'), /^~\/\.claude-bad: could not read: known_marketplaces\.json: .+/)
+      })
+
+      test('a read error other than a missing file is could not read, with its message on one line', () => {
+        const readErrors = { [installedPath(dirOf('.claude-bad'))]: 'EACCES: denied\nsecond line' }
+        const { result, text } = unreadable('{}', undefined, readErrors)
+        assert.equal(lineOf(text, '~/.claude-bad'), '~/.claude-bad: could not read: installed_plugins.json: EACCES: denied second line')
+        assert.ok(lineOf(text, '~/.claude-next'))
+        assert.equal(result.failed, true)
+      })
+
+      test('a CLAUDE_CONFIG_DIR that is not a directory is could not read, and the other dirs are still reported', () => {
+        const { result, text } = report(fakeLocal({ ...next, envDir: '/srv/missing' }))
+        assert.equal(lineOf(text, '/srv/missing'), '/srv/missing: could not read: not a directory')
+        assert.ok(lineOf(text, '~/.claude-next'))
+        assert.equal(result.failed, true)
+      })
+    })
+
+    describe('newest commit', () => {
+      const three = merge(
+        ...['.claude-a', '.claude-b', '.claude-c'].map((n) =>
+          configDir(n, { installed: installedJson([userEntry(OLDER)]), markets: marketsJson() })
+        )
+      )
+
+      test('makes one read-only call for three dirs on the same repo', () => {
+        const calls = []
+        report(fakeLocal(three), calls)
+        assert.deepEqual(calls, [['api', `repos/${REPO}/commits/HEAD`]])
+        assert.equal(isReadOnly(calls[0]), true)
+      })
+
+      test('makes one call per repo when dirs record different repos', () => {
+        const other = configDir('.claude-d', {
+          installed: installedJson([userEntry(OLDER)]),
+          markets: marketsJson({}, { source: 'github', repo: 'acme/other-kit' }),
+        })
+        const calls = []
+        report(fakeLocal(merge(three, other)), calls)
+        assert.deepEqual(calls.map((c) => c[1]).sort(), [`repos/${REPO}/commits/HEAD`, 'repos/acme/other-kit/commits/HEAD'])
+      })
+
+      test('makes no call when no dir has the plugin with a recorded commit', () => {
+        const calls = []
+        const parts = merge(configDir('.claude-a'), configDir('.claude-b', { installed: installedJson([{ scope: 'user' }]), markets: marketsJson() }))
+        report(fakeLocal(parts), calls)
+        assert.deepEqual(calls, [])
+      })
+
+      test('a failed read prints the unknown text, keeps the first two facts and marks failed', () => {
+        const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson({ autoUpdate: true }) })
+        const { result, text } = report(fakeLocal(parts), [], notFound)
+        assert.equal(
+          lineOf(text, '~/.claude-a'),
+          '~/.claude-a: plugin installed, auto update on, newest commit unknown (could not read: Not Found)'
+        )
+        assert.equal(result.failed, true)
+      })
+
+      test('a runner that throws is a failed read, not a crash', () => {
+        const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson() })
+        const result = collectConfigDirs(() => {
+          throw new Error('could not run gh: not found')
+        }, fakeLocal(parts))
+        assert.ok(renderConfigDirs(result).includes('newest commit unknown (could not read: could not run gh: not found)'))
+        assert.equal(result.failed, true)
+      })
+
+      test('an answer with no 40-hex sha is a failed read', () => {
+        const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson() })
+        const { result, text } = report(fakeLocal(parts), [], ok({ sha: 'nope' }))
+        assert.match(lineOf(text, '~/.claude-a'), /newest commit unknown \(could not read: .+\)$/)
+        assert.equal(result.failed, true)
+      })
+
+      const sources = [
+        ['a non-github source', { source: 'git', url: 'https://example.invalid/x.git' }],
+        ['a repo with three parts', { source: 'github', repo: 'acme/agent-kit/extra' }],
+        ['a repo with a leading dot part', { source: 'github', repo: 'acme/.hidden' }],
+        ['a repo with a leading dash part', { source: 'github', repo: '-acme/agent-kit' }],
+        ['a repo that is not a string', { source: 'github', repo: 7 }],
+        ['a null source', null],
+      ]
+      for (const [name, source] of sources) {
+        test(`${name} makes no call, reads "no GitHub source recorded" and is not failed`, () => {
+          const calls = []
+          const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson({}, source) })
+          const { result, text } = report(fakeLocal(parts), calls)
+          assert.ok(text.includes('plugin installed, auto update not recorded, newest commit unknown (no GitHub source recorded)'))
+          assert.deepEqual(calls, [])
+          assert.equal(result.failed, false)
+        })
+      }
+
+      test('a missing marketplace entry reads "no GitHub source recorded" with no call', () => {
+        const calls = []
+        const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: JSON.stringify({}) })
+        const { text } = report(fakeLocal(parts), calls)
+        assert.ok(text.includes('newest commit unknown (no GitHub source recorded)'))
+        assert.deepEqual(calls, [])
+      })
+    })
+  })
+
+  // Round 1 findings from the tester (issue #502, PR #511).
+  describe('hardening', () => {
+    // The shared fake plus the extra behaviors the real disk has: `isDir`
+    // throws for errors other than "does not exist", and `real` resolves
+    // links. Both are opt-in so the earlier tests stay as they are.
+    const withDisk = (base, { isDirErrors = {}, links = {}, realErrors = [] } = {}) => ({
+      ...base,
+      isDir(path) {
+        if (path in isDirErrors) throw new Error(isDirErrors[path])
+        return base.isDir(path)
+      },
+      real(path) {
+        if (realErrors.includes(path)) throw new Error('ELOOP: cannot resolve')
+        return links[path] ?? path
+      },
+    })
+    const report = (local) => {
+      const result = collectConfigDirs(runner([]), local)
+      return { result, text: renderConfigDirs(result) }
+    }
+
+    // The whole class the script's one-line collapse covers: C0, DEL, C1, U+2028, U+2029.
+    const controlChars = [
+      ...Array.from({ length: 0x20 }, (_, i) => String.fromCharCode(i)),
+      ...Array.from({ length: 0x21 }, (_, i) => String.fromCharCode(0x7f + i)),
+      ' ',
+      ' ',
+    ]
+
+    describe('finding 1: one line per dir', () => {
+      test('a control character in a dir name never reaches the output, and the dir stays one line', () => {
+        for (const c of controlChars) {
+          const name = `.claude-x${c}y`
+          const text = report(fakeLocal({ dirs: [marker(dirOf(name))] })).text
+          const code = c.codePointAt(0).toString(16)
+          assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
+          assert.deepEqual(
+            text.split('\n').slice(1),
+            ['~/.claude-x y: plugin not installed, auto update not recorded, no installed copy', ''],
+            `U+${code} broke the dir line`
+          )
+        }
+      })
+
+      test('a control character in CLAUDE_CONFIG_DIR never reaches the output, and the dir stays one line', () => {
+        for (const c of controlChars) {
+          const envDir = `/srv/e${c}lsewhere`
+          const text = report(fakeLocal({ dirs: [envDir], envDir })).text
+          const code = c.codePointAt(0).toString(16)
+          assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
+          assert.deepEqual(
+            text.split('\n').slice(1),
+            ['/srv/e lsewhere: plugin not installed, auto update not recorded, no installed copy', ''],
+            `U+${code} broke the dir line`
+          )
+        }
+      })
+
+      test('a could-not-read line with a control character in the dir name is also one line', () => {
+        const name = '.claude-x\nFAKE: plugin installed'
+        const parts = configDir(name, { installed: '{ not json' })
+        const lines = report(fakeLocal(parts)).text.split('\n')
+        assert.equal(lines.length, 3)
+        assert.match(lines[1], /^~\/\.claude-x FAKE: plugin installed: could not read: installed_plugins\.json: /)
+      })
+
+      test('a control character in the message of a disk error is collapsed', () => {
+        const badMarker = marker(dirOf('.claude-b'))
+        const local = withDisk(fakeLocal({ dirs: [badMarker] }), {
+          isDirErrors: { [badMarker]: 'EACCES: denied\u001b[31m\nFAKE' },
+        })
+        const text = report(local).text
+        assert.ok(!text.includes('\u001b'))
+        assert.equal(text.split('\n').length, 3)
+      })
+    })
+
+    describe('finding 2: "is not there" versus "cannot be looked at"', () => {
+      const badMarker = marker(dirOf('.claude-b'))
+
+      test('a candidate whose projects folder cannot be looked at is a could-not-read line, counted, and failed', () => {
+        const tidy = { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }
+        const local = withDisk(fakeLocal(merge(configDir('.claude-a', tidy), { dirs: [badMarker] })), {
+          isDirErrors: { [badMarker]: 'EACCES: permission denied' },
+        })
+        const { result, text } = report(local)
+        const lines = text.split('\n')
+        assert.equal(lines[0], 'config dirs: 2 (1 with the plugin, 1 auto update on, 1 at the newest commit, 1 could not read)')
+        assert.equal(lineOf(text, '~/.claude-b'), '~/.claude-b: could not read: EACCES: permission denied')
+        assert.ok(lineOf(text, '~/.claude-a'))
+        assert.equal(result.failed, true)
+      })
+
+      test('a candidate that itself cannot be looked at is a could-not-read line', () => {
+        const dir = dirOf('.claude-b')
+        const local = withDisk(fakeLocal({ dirs: [marker(dir)] }), { isDirErrors: { [dir]: 'EACCES: permission denied' } })
+        const { result, text } = report(local)
+        assert.equal(lineOf(text, '~/.claude-b'), '~/.claude-b: could not read: EACCES: permission denied')
+        assert.equal(result.failed, true)
+      })
+
+      test('a dangling link is a could-not-read line', () => {
+        const dir = dirOf('.claude-x')
+        const base = fakeLocal()
+        const local = withDisk(
+          { ...base, names: (p) => (p === HOME ? ['.claude-x'] : []) },
+          { isDirErrors: { [dir]: 'dangling link' } }
+        )
+        const { result, text } = report(local)
+        assert.equal(lineOf(text, '~/.claude-x'), '~/.claude-x: could not read: dangling link')
+        assert.ok(text.startsWith('config dirs: 1 (0 with the plugin, 0 auto update on, 0 at the newest commit, 1 could not read)'))
+        assert.equal(result.failed, true)
+      })
+
+      test('a candidate with no projects folder is still skipped and not failed', () => {
+        const { result, text } = report(withDisk(fakeLocal({ dirs: [dirOf('.claude-plain')] })))
+        assert.equal(text, 'config dirs: 0 (0 with the plugin, 0 auto update on, 0 at the newest commit, 0 could not read)\n')
+        assert.equal(result.failed, false)
+      })
+
+      test('findConfigDirs carries the error on the dir and keeps the other dirs', () => {
+        const local = withDisk(fakeLocal({ dirs: [marker(dirOf('.claude-a')), badMarker] }), {
+          isDirErrors: { [badMarker]: 'EACCES: permission denied' },
+        })
+        const found = findConfigDirs(local)
+        assert.deepEqual(
+          found.dirs.map((d) => [d.path, d.error]),
+          [
+            [dirOf('.claude-a'), undefined],
+            [dirOf('.claude-b'), 'EACCES: permission denied'],
+          ]
+        )
+        assert.equal(found.error, null)
+      })
+    })
+
+    describe('finding 3: two names for one dir give one line', () => {
+      const alpha = dirOf('.claude-alpha')
+      const link = dirOf('.claude-link')
+      const tidy = { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }
+      const two = () => fakeLocal(merge(configDir('.claude-alpha', tidy), { dirs: [marker(link)] }))
+
+      test('a link to a config dir is one dir, shown under the first name in sort order, and counted once', () => {
+        const { result, text } = report(withDisk(two(), { links: { [link]: alpha, [marker(link)]: marker(alpha) } }))
+        assert.equal(
+          text,
+          'config dirs: 1 (1 with the plugin, 1 auto update on, 1 at the newest commit, 0 could not read)\n' +
+            '~/.claude-alpha: plugin installed, auto update on, at the newest commit\n'
+        )
+        assert.equal(result.failed, false)
+      })
+
+      test('the first name in sort order wins even when it is the link', () => {
+        const first = dirOf('.claude-0link')
+        const local = withDisk(fakeLocal(merge(configDir('.claude-alpha', tidy), { dirs: [marker(first)] })), { links: { [first]: alpha } })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [first])
+      })
+
+      test('CLAUDE_CONFIG_DIR that is a link to a home dir is one dir', () => {
+        const base = fakeLocal({ ...configDir('.claude-alpha', tidy), dirs: ['/srv/link', marker(alpha)], envDir: '/srv/link' })
+        const local = withDisk(base, { links: { '/srv/link': alpha } })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [alpha])
+      })
+
+      test('when the real path cannot be resolved it falls back to the resolved path and keeps both names', () => {
+        const local = withDisk(two(), { links: { [link]: alpha }, realErrors: [link] })
+        assert.deepEqual(findConfigDirs(local).dirs.map((d) => d.path), [alpha, link])
+      })
+
+      test('a local with no real function falls back to the resolved path', () => {
+        const { real, ...rest } = withDisk(two(), { links: { [link]: alpha } })
+        assert.deepEqual(findConfigDirs(rest).dirs.map((d) => d.path), [alpha, link])
+      })
     })
   })
 })
