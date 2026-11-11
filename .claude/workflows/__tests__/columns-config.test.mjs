@@ -11,7 +11,7 @@
 
 import { test, describe, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
@@ -270,6 +270,26 @@ describe('CLI', () => {
     const lines = result.stderr.replace(/\n$/, '').split('\n')
     assert.equal(lines.length, 1, `expected one line, got: ${result.stderr}`)
     assert.match(lines[0], /^invalid columns config: cannot read .+ \(EISDIR\)$/)
+  })
+
+  test('a path under a regular file exits 1 with a one-line ENOTDIR report', () => {
+    const path = join(configFile(VALID), 'columns.json')
+    const result = run('--file', path)
+
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, `invalid columns config: cannot read ${path} (ENOTDIR)\n`)
+  })
+
+  test('a file with no read permission exits 1 with a one-line EACCES report', (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return t.skip('chmod cannot block root')
+    const path = configFile(VALID)
+    chmodSync(path, 0o000)
+    const result = run('--file', path)
+
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, `invalid columns config: cannot read ${path} (EACCES)\n`)
   })
 
   test('invalid JSON exits nonzero with a one-line report', () => {
