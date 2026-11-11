@@ -7,7 +7,7 @@
  * a reason in the approving review closes a claim. A closed claim is listed in
  * the summary and never filed. Every other claim is open and goes into the
  * follow-up issue, as today. Fourteen clauses carry that rule. Each is pinned
- * as an exact phrase, so a clause swapped for its opposite fails. Three pins
+ * as an exact phrase, so a clause swapped for its opposite fails. Five pins
  * guard text that must not change: the not-set-up wording and the nit rules.
  *
  * Each pin is searched between a start anchor and an end anchor, so a phrase
@@ -46,7 +46,7 @@ const PINS = [
   ['a set-up repo files only the open claims', SUB7, OUT,
     'file the open should-fix findings and open untested claims as one follow-up issue (below)'],
   ['a closed claim is listed in the summary and never filed', SUB7, OUT,
-    "List each closed untested claim (below) in the summary too, verbatim from the tester report, with the reviewer's reason; a closed claim is never filed."],
+    "On a set-up repo, also list each closed untested claim (below) in the summary, verbatim from the tester report, with the reviewer's reason; a closed claim is never filed."],
   ['nits are listed in the summary and never filed', SUB7, OUT,
     "also list the approving review's nits in the summary; nits are never filed."],
   ['claims come from the last tester PASS only', OPEN, CLOSED,
@@ -65,6 +65,10 @@ const PINS = [
     'It is listed in the summary with that reason and never filed.'],
   ['closed claims alone file nothing', NOTHING, ONE,
     'File nothing, even when the summary lists closed untested claims.'],
+  ['the follow-up block is for a set-up repo only', OUT, OPEN,
+    'The follow-up issue (set-up repo only):'],
+  ['Follow-up: none is for when nothing is open', SUB7, OUT,
+    'then put `Follow-up: #<m>` in the summary, or `Follow-up: none` when nothing is open.'],
 ]
 
 function once(anchor) {

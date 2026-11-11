@@ -250,9 +250,9 @@ it, together with `track:lean`, when the package ships (step 7) or parks.
       follow-up issue (below), then put `Follow-up: #<m>` in the summary,
       or `Follow-up: none` when nothing is open. On a set-up repo, also list
       the approving review's nits in the summary; nits are never filed.
-      List each closed untested claim (below) in the summary too, verbatim
-      from the tester report, with the reviewer's reason; a closed claim is
-      never filed.
+      On a set-up repo, also list each closed untested claim (below) in the
+      summary, verbatim from the tester report, with the reviewer's reason;
+      a closed claim is never filed.
       Add one outcome line. It opens with
       "statuses on `<sha7>`" (the first 7 characters of the script's
       `sha`), or with "no statuses" when nothing was posted (`head-moved`,
