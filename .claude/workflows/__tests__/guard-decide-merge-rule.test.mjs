@@ -464,7 +464,7 @@ describe('merge-rule: how the answer is shaped', () => {
     })
   }
 
-  for (const mode of ['default', 'acceptEdits', 'plan']) {
+  for (const mode of ['default', 'manual', 'acceptEdits', 'plan']) {
     test(`a push to the default branch is allowed in mode ${mode}`, () => {
       const answer = decide(
         { tool: 'Bash', input: { command: 'git push origin main' }, mode, folder: '/work/widget' },

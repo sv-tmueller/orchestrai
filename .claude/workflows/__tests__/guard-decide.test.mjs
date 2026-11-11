@@ -51,7 +51,7 @@ const SKILL_LINE = `node "${SKILL_SCRIPT}"`
 const ACTING_CLASSES = ['personal-not-set-up', 'personal-set-up', 'no-github-repo']
 
 describe('decide: the mode rule', () => {
-  for (const mode of ['default', 'acceptEdits', 'plan']) {
+  for (const mode of ['default', 'manual', 'acceptEdits', 'plan']) {
     test(`${mode} allows a push to the default branch in a set-up repo`, () => {
       expectAnswer(decide(bash('git push --force origin main', { mode }), facts()), 'allow', 'mode')
     })
