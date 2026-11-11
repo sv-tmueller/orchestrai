@@ -2,7 +2,7 @@
  * Merge-rule group of the guard (issue #539, batch #538).
  *
  * Denies the shell commands that go around the merge rule on the default
- * branch. Six entries:
+ * branch. Seven entries:
  *
  *   push-default  a push to the default branch, in any spelling, or a push
  *                 whose destination cannot be known
@@ -16,13 +16,35 @@
  *   visibility    `gh repo edit --visibility`, or a PATCH of the repo that
  *                 sets visibility or private (or sends a body it cannot read)
  *   delete-repo   `gh repo delete`, or a DELETE of the repo through `gh api`
+ *   api-unknown   a write through `gh api` to an endpoint the guard cannot
+ *                 read because it starts with a variable or a substitution
  *
  * The group reads commands, not text, so wrappers, substitutions and
  * `bash -c` are seen through (see shell.mjs). It only looks at Bash calls.
  * It is pure.
  *
+ * The rule behind the reading: a word the guard cannot read is unknown, and
+ * unknown is denied where the worst reading is one of the entries above. A
+ * method word that expands counts as a write. A repo path made of variables
+ * (`repos/$REPO`) counts as a repo path. A literal `protection` or
+ * `rulesets` segment denies a write whatever expands before it. A path whose
+ * literal tail is something else (`repos/$REPO/statuses/$SHA`) passes.
+ *
+ * A branch switch (`git checkout`, `git switch`) earlier in the same line
+ * makes the current branch unknown for every later command in that line, the
+ * way a `cd` does. A push that names its destination is judged by that name.
+ * A word in the remote position of a push that expands is unknown too: an
+ * unquoted `$REMOTE` can hold "origin main", and the parser does not record
+ * whether a word was quoted, so a quoted one is denied as well.
+ *
  * The guard stops carelessness, not intent. GitHub's own rule is the hard
  * stop on a set-up repo.
+ *
+ * A push with a variable in its destination:
+ *   A push with a variable in its destination (HEAD:refs/heads/$BRANCH) is
+ *   denied even when it would be harmless, because the guard cannot tell
+ *   which branch the variable holds. The fix is to write the branch name out
+ *   in the command.
  *
  * Not covered:
  *   - REST calls outside `gh api` (curl, wget, httpie), and `gh api graphql`
@@ -33,9 +55,10 @@
  *     repo. A default-branch change can move the branch out from under the
  *     rule, so the owner decides in a later batch whether the list takes it.
  *   - What the parser cannot see into: scripts, aliases and functions; xargs,
- *     find -exec and git submodule foreach; a heredoc fed to a shell;
- *     $(...) inside an unquoted heredoc; abbreviated long options such as
- *     --mirr; push settings from -c or git config; the PowerShell tool.
+ *     find -exec and git submodule foreach; a heredoc fed to a shell; a
+ *     command piped into a shell (echo '...' | bash) or handed to one with
+ *     <<<; $(...) inside an unquoted heredoc; abbreviated long options such
+ *     as --mirr; push settings from -c or git config; the PowerShell tool.
  *   - Nothing was cut from the sub-plan's "Cut to fit" list: every entry and
  *     every parser feature in the plan is built.
  */
@@ -49,19 +72,14 @@ const API_VALUE_FLAGS = new Set([
   '-H', '--header', '-q', '--jq', '-t', '--template', '--hostname', '-p', '--preview', '--cache',
 ])
 
-const REPO_PATH = /^repos\/[^/]+\/[^/]+$/
-const PROTECTION_PATH = /^repos\/[^/]+\/[^/]+\/branches\/.+\/protection(\/|$)/
-const RULESETS_PATH = /^(repos\/[^/]+\/[^/]+|orgs\/[^/]+)\/rulesets(\/|$)/
-
 const hit = (entry, reason) => ({ entry, reason })
 
 // ---------------------------------------------------------------------------
-// git push
+// git
 // ---------------------------------------------------------------------------
 
-// Reads `git [global] push [options] [<repo> [<refspec>...]]`. Returns null
-// when the command is not a push.
-function readPush(command) {
+// Skips the global options and returns the subcommand and where it stands.
+function readGit(command) {
   const words = command.words
   let elsewhere = command.afterCd
   let i = 1
@@ -71,11 +89,14 @@ function readPush(command) {
     if (name === '-C' || name === '--git-dir' || name === '--work-tree') elsewhere = true
     i += GIT_GLOBAL_VALUE_FLAGS.has(flag) ? 2 : 1
   }
-  if (words[i]?.text !== 'push') return null
+  return { sub: words[i]?.text, index: i, elsewhere }
+}
 
-  const push = { elsewhere, force: false, mirror: false, all: null, tags: false, remove: false, positionals: [] }
+// Reads the options and words of `git push [options] [<repo> [<refspec>...]]`.
+function readPush(words, from, branchUnknown) {
+  const push = { branchUnknown, force: false, mirror: false, all: null, tags: false, remove: false, positionals: [] }
   let afterDashes = false
-  for (let j = i + 1; j < words.length; j++) {
+  for (let j = from; j < words.length; j++) {
     const word = words[j]
     const text = word.text
     if (afterDashes || !text.startsWith('-') || text === '-') {
@@ -107,7 +128,7 @@ function readPush(command) {
 
 // The branches a push writes to: { branches: [name], wild, unknown }.
 function pushDestinations(push, facts) {
-  const [, ...rest] = push.positionals
+  const [remote, ...rest] = push.positionals
   let refspecs = rest
   if (refspecs[0]?.text === 'tag' && refspecs.length >= 2) {
     refspecs = [{ text: `refs/tags/${refspecs[1].text}`, expands: refspecs[1].expands }, ...refspecs.slice(2)]
@@ -115,9 +136,11 @@ function pushDestinations(push, facts) {
 
   const out = { branches: [], wild: false, unknown: false }
   const current = () => {
-    if (push.elsewhere || typeof facts.currentBranch !== 'string') out.unknown = true
+    if (push.branchUnknown || typeof facts.currentBranch !== 'string') out.unknown = true
     else out.branches.push(facts.currentBranch)
   }
+
+  if (remote?.expands) out.unknown = true
 
   if (refspecs.length === 0) {
     if (!push.all && !push.mirror && !push.tags && !push.remove) current()
@@ -147,14 +170,14 @@ function pushDestinations(push, facts) {
     }
     if (dst.includes('*')) out.wild = true
     else if (dst.startsWith('refs/heads/')) out.branches.push(dst.slice('refs/heads/'.length))
+    else if (dst.startsWith('heads/')) out.branches.push(dst.slice('heads/'.length))
     else if (!dst.startsWith('refs/')) out.branches.push(dst)
   }
   return out
 }
 
-function checkGit(command, facts) {
-  const push = readPush(command)
-  if (!push) return null
+function checkPush(command, git, facts, switched) {
+  const push = readPush(command.words, git.index + 1, git.elsewhere || switched)
 
   const blind = push.force || push.mirror || push.positionals.slice(1).some((w) => w.text.startsWith('+'))
   if (blind) {
@@ -170,7 +193,7 @@ function checkGit(command, facts) {
     return hit('push-default', 'A wildcard destination can reach the default branch. Push your feature branch by name and open a PR.')
   }
   if (dest.unknown) {
-    return hit('push-default', 'The guard cannot tell which branch this push writes to (no branch named, a variable, or another folder). Name the feature branch in the command.')
+    return hit('push-default', 'The guard cannot tell which branch this push writes to (no branch named, a variable, another folder, or a branch switch earlier in the line). Name the feature branch in the command.')
   }
   if (dest.branches.length > 0 && typeof def !== 'string') {
     return hit('push-default', 'The default branch is not known, so the guard cannot tell this push from one to it. Retry when it is known, or ask the owner.')
@@ -186,31 +209,45 @@ function checkGit(command, facts) {
 // gh
 // ---------------------------------------------------------------------------
 
-function readApi(words) {
+const expanding = (text) => /[$`]/.test(text)
+
+// Reads the options and the endpoint of `gh api`, starting at `from`.
+function readApi(words, from) {
   let method = null
+  let methodUnknown = false
   let body = false
   let input = false
   const fields = []
   let endpoint = null
-  const fieldName = (value) => (value ?? '').split('=')[0]
+  const setMethod = (word, text) => {
+    method = text.replace(/^=/, '')
+    methodUnknown = word.expands
+  }
+  // `name=value`, `=name=value` (from -f=name=value) or a bare name.
+  const addField = (value) => {
+    const name = (value ?? '').replace(/^=/, '').split('=')[0]
+    fields.push({ name, unknown: expanding(name) })
+  }
 
-  for (let j = 2; j < words.length; j++) {
-    const t = words[j].text
+  for (let j = from; j < words.length; j++) {
+    const word = words[j]
+    const t = word.text
     if (t === '-X' || t === '--method') {
-      method = words[++j]?.text ?? null
+      const next = words[++j]
+      if (next) setMethod(next, next.text)
     } else if (t.startsWith('--method=')) {
-      method = t.slice('--method='.length)
+      setMethod(word, t.slice('--method='.length))
     } else if (/^-X./.test(t)) {
-      method = t.slice(2)
+      setMethod(word, t.slice(2))
     } else if (t === '-f' || t === '-F' || t === '--raw-field' || t === '--field') {
       body = true
-      fields.push(fieldName(words[++j]?.text))
+      addField(words[++j]?.text)
     } else if (/^--(raw-field|field)=/.test(t)) {
       body = true
-      fields.push(fieldName(t.slice(t.indexOf('=') + 1)))
+      addField(t.slice(t.indexOf('=') + 1))
     } else if (/^-[fF]./.test(t)) {
       body = true
-      fields.push(fieldName(t.slice(2)))
+      addField(t.slice(2))
     } else if (t === '--input') {
       body = input = true
       j++
@@ -225,46 +262,91 @@ function readApi(words) {
     }
   }
 
-  const verb = (method ?? (body ? 'POST' : 'GET')).toUpperCase()
+  const verb = methodUnknown ? 'UNKNOWN' : (method ?? (body ? 'POST' : 'GET')).toUpperCase()
   const path = endpoint === null
     ? null
     : endpoint.replace(/^https?:\/\/[^/]+\//, '').replace(/[?#].*$/, '').replace(/^\/+/, '').replace(/\/+$/, '')
   return { verb, path, fields, input }
 }
 
-function checkApi(words) {
-  const { verb, path, fields, input } = readApi(words)
+// Where a `gh api` path points, as far as the literal parts say.
+function classifyPath(path) {
+  const segments = path.split('/')
+  if (expanding(segments[0])) return 'unknown'
+  const [root] = segments
+
+  if (root === 'repos') {
+    for (let k = 2; k < segments.length; k++) {
+      if (segments[k] === 'rulesets' && (k === 2 || k === 3)) return 'rules'
+      if (segments[k] === 'protection') {
+        for (let j = 2; j + 2 <= k; j++) {
+          if (segments[j] === 'branches') return 'rules'
+        }
+      }
+    }
+    // repos/<owner>/<name>, or repos/<one word that holds both>
+    if (segments.length === 3 || (segments.length === 2 && expanding(segments[1]))) return 'repo'
+  }
+  if (root === 'orgs' && segments[2] === 'rulesets') return 'rules'
+  return 'other'
+}
+
+function checkApi(words, from) {
+  const { verb, path, fields, input } = readApi(words, from)
   if (path === null || verb === 'GET' || verb === 'HEAD') return null
 
-  if (PROTECTION_PATH.test(path) || RULESETS_PATH.test(path)) {
+  const kind = classifyPath(path)
+  if (kind === 'unknown') {
+    return hit('api-unknown', 'The guard cannot tell which API endpoint this writes to, because it starts with a variable or a substitution. Write the endpoint out in the command.')
+  }
+  if (kind === 'rules') {
     return hit('branch-rule', 'This changes the branch protection or a ruleset, which is the merge rule itself. Ask the owner to change it.')
   }
-  if (REPO_PATH.test(path)) {
-    if (verb === 'DELETE') {
-      return hit('delete-repo', 'This deletes the repo. Only the owner does that, by hand.')
+  if (kind === 'repo') {
+    if (verb === 'DELETE' || verb === 'UNKNOWN') {
+      return hit('delete-repo', 'This deletes the repo, or its method is a variable that could. Only the owner does that, by hand.')
     }
-    if (verb === 'PATCH' && (input || fields.includes('visibility') || fields.includes('private'))) {
-      return hit('visibility', 'This may change the repo visibility (or sends a body the guard cannot read). Only the owner does that, by hand.')
+    const touchesVisibility = fields.some((f) => f.unknown || f.name === 'visibility' || f.name === 'private')
+    if (verb === 'PATCH' && (input || touchesVisibility)) {
+      return hit('visibility', 'This may change the repo visibility (or sends a body or a field name the guard cannot read). Only the owner does that, by hand.')
     }
   }
   return null
 }
 
-function checkGh(command) {
-  const [, group, sub] = command.words.map((w) => w.text)
-  const rest = command.words.slice(3).map((w) => w.text)
+// gh's own flags (-R <repo>, --repo <repo>, any other dash word) may stand
+// between `gh`, the group and the subcommand.
+function readGh(words) {
+  let i = 1
+  const skipFlags = () => {
+    while (i < words.length && words[i].text.startsWith('-') && words[i].text.length > 1) {
+      i += words[i].text === '-R' || words[i].text === '--repo' ? 2 : 1
+    }
+  }
+  skipFlags()
+  const group = words[i]?.text
+  i++
+  // `gh api` keeps its own flags, so they are not skipped after the group.
+  if (group === 'api') return { group, sub: null, next: i }
+  skipFlags()
+  return { group, sub: words[i]?.text, next: i + 1 }
+}
 
+function checkGh(command) {
+  const { group, sub, next } = readGh(command.words)
+  if (group === 'api') return checkApi(command.words, next)
+
+  const all = command.words.slice(1).map((w) => w.text)
   if (group === 'pr' && sub === 'merge') {
-    const admin = rest.some((t) => t === '--admin' || (t.startsWith('--admin=') && t !== '--admin=false'))
+    const admin = all.some((t) => t === '--admin' || (t.startsWith('--admin=') && t !== '--admin=false'))
     if (admin) return hit('admin-merge', 'An admin merge skips the merge rule. Queue an auto merge once the statuses are on the head.')
   }
-  if (group === 'repo' && sub === 'edit' && rest.some((t) => t === '--visibility' || t.startsWith('--visibility='))) {
+  if (group === 'repo' && sub === 'edit' && all.some((t) => t === '--visibility' || t.startsWith('--visibility='))) {
     return hit('visibility', 'This changes the repo visibility. Only the owner does that, by hand.')
   }
   if (group === 'repo' && sub === 'delete') {
     return hit('delete-repo', 'This deletes the repo. Only the owner does that, by hand.')
   }
-  if (group === 'api') return checkApi(command.words)
   return null
 }
 
@@ -272,9 +354,17 @@ export const mergeRule = {
   id: 'merge-rule',
   check(ctx) {
     if (!ctx.commands) return null
+    let switched = false
     for (const command of ctx.commands) {
       const name = commandName(command)
-      const found = name === 'git' ? checkGit(command, ctx.facts) : name === 'gh' ? checkGh(command) : null
+      let found = null
+      if (name === 'git') {
+        const git = readGit(command)
+        if (git.sub === 'push') found = checkPush(command, git, ctx.facts, switched)
+        else if (git.sub === 'checkout' || git.sub === 'switch') switched = true
+      } else if (name === 'gh') {
+        found = checkGh(command)
+      }
       if (found) return found
     }
     return null
