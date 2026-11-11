@@ -86,7 +86,12 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
   PR's own changes are unchanged and CI is green on the new commit, and
   anything else gets one repair round (developer, tester, reviewer, then step
   7 again). A PR that needs a second repair parks. A repair that is
-  interrupted parks too, and a parked repair stays with the owner. Mechanics:
+  interrupted parks too, and a parked repair stays with the owner: the
+  pipeline posts no more verdicts on it. To finish one, bring the branch up
+  to date, check the new head, and run `/tm-repo-guard statuses <repo> <pr>`.
+  It prints the commands that record both verdicts and queue the merge, and
+  runs none of them; you run them in your own shell (see "Repo guard" below).
+  Mechanics:
   step 7 and "Repair (queued PRs behind the default branch)" in the same file.
 - **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
   seat contracts, so the lead routes on the short report instead of expanding
