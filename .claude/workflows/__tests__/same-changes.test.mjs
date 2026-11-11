@@ -254,6 +254,7 @@ describe('same-changes: usage errors exit 2 with one stderr line and no stdout',
     assert.equal(r.status, 2, `stdout: ${r.stdout}`)
     assert.equal(r.stdout, '')
     assert.equal(r.stderr.trim().split('\n').length, 1, r.stderr)
+    return r
   }
 
   test('an unknown flag', (t) => {
@@ -296,6 +297,34 @@ describe('same-changes: usage errors exit 2 with one stderr line and no stdout',
     editLine(repo.dir, 'a.txt', 10, 'line 10 unreviewed')
     const head = commitAll(repo.dir, 'unreviewed change')
     assertUsageError(repo.dir, '--from', repo.v, '--head', head, '--default-ref', head)
+  })
+
+  test('a default ref several commits past the head', (t) => {
+    const repo = makeRepo(t)
+    editLine(repo.dir, 'a.txt', 10, 'line 10 unreviewed')
+    const head = commitAll(repo.dir, 'unreviewed change')
+    editLine(repo.dir, 'b.txt', 1, 'b one moved')
+    commitAll(repo.dir, 'later change one')
+    editLine(repo.dir, 'b.txt', 2, 'b two moved')
+    const tip = commitAll(repo.dir, 'later change two')
+    const r = assertUsageError(repo.dir, '--from', repo.v, '--head', head, '--default-ref', tip)
+    assert.match(r.stderr, /already contains the head/)
+  })
+
+  test('a remote-tracking default ref that contains the head', (t) => {
+    const repo = makeRepo(t)
+    editLine(repo.dir, 'a.txt', 10, 'line 10 unreviewed')
+    const head = commitAll(repo.dir, 'unreviewed change')
+    git(repo.dir, 'update-ref', 'refs/remotes/origin/main', head)
+    const r = assertUsageError(repo.dir, '--from', repo.v, '--head', head, '--default-ref', 'origin/main')
+    assert.match(r.stderr, /already contains the head/)
+  })
+
+  test('a head equal to from and to the default ref', (t) => {
+    const repo = makeRepo(t)
+    // Pins the guard ahead of the "head did not move" shortcut.
+    const r = assertUsageError(repo.dir, '--from', repo.v, '--head', repo.v, '--default-ref', repo.v)
+    assert.match(r.stderr, /already contains the head/)
   })
 
   test('a directory that is not a git repo', (t) => {
