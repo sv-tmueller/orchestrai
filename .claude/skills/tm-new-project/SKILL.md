@@ -1,6 +1,6 @@
 ---
 name: tm-new-project
-description: "Run the once-per-repo plugin-adoption setup as a guided flow: create the workflow labels and the docs tree, then print the human-only steps (branch protection, CI, plugin install, design-plugin vetting). User-invocable only."
+description: "Run the once-per-repo plugin-adoption setup as a guided flow: create the workflow labels and the docs tree, then print the human-only steps (CI, the /tm-repo-guard apply command for the merge rule, plugin install, design-plugin vetting). User-invocable only."
 disable-model-invocation: true
 ---
 

@@ -183,7 +183,9 @@ it, together with `track:lean`, when the package ships (step 7) or parks.
    these"), then re-test.
 5. On PASS: post the tester's report as a PR comment, not only the verdict,
    then dispatch the reviewer with the PR, the issue number, and the
-   tester's UNTESTED CLAIMS, if any.
+   tester's UNTESTED CLAIMS, if any. Number the forwarded claims in the
+   tester's order, here and on every re-review, so the reviewer's `CLAIMS`
+   lines map to them by number.
 6. On CHANGES_REQUESTED: post the report as a PR comment with the round
    number, then send the must-fix findings to a fresh developer dispatch in
    the same format as step 4, then re-test, then re-review forwarding the
@@ -246,10 +248,13 @@ it, together with `track:lean`, when the package ships (step 7) or parks.
       the reads of sub-step 2, by "Fix rounds" rule 8. On a repo that is not
       set up, include should-fix findings and untested claims for the
       human review. On a set-up repo nobody reads the PR before it merges:
-      file the open should-fix findings and untested claims as one
+      file the open should-fix findings and open untested claims as one
       follow-up issue (below), then put `Follow-up: #<m>` in the summary,
       or `Follow-up: none` when nothing is open. On a set-up repo, also list
       the approving review's nits in the summary; nits are never filed.
+      On a set-up repo, also list each closed untested claim (below) in the
+      summary, verbatim from the tester report, with the reviewer's reason;
+      a closed claim is never filed.
       Add one outcome line. It opens with
       "statuses on `<sha7>`" (the first 7 characters of the script's
       `sha`), or with "no statuses" when nothing was posted (`head-moved`,
@@ -266,8 +271,19 @@ it, together with `track:lean`, when the package ships (step 7) or parks.
         the package, each finding once. Read each cited place on the head
         that ships and leave out only a finding that is fixed there; when
         unsure, keep it. Untested claims come from the last tester PASS
-        only, so the lean track has none. Nits never go in.
-      - **Nothing open.** File nothing.
+        only, so the lean track has none. Their ratings come from the
+        `CLAIMS` lines of the approving review this step ships on; ratings
+        from earlier review rounds do not count. A claim whose line names a
+        should-fix finding of that review (`<n>. finding <k>`) goes in
+        once, as that finding. Any other claim that review does not close
+        (below) goes in as an untested claim: no line for its number,
+        `closed:` with no reason, a pointer to a nit or to a missing
+        finding, or any other wording. Nits never go in.
+      - **Closed.** A claim whose line in the approving review reads
+        `<n>. closed: <reason>`, with a reason after the colon, is closed.
+        It is listed in the summary with that reason and never filed.
+      - **Nothing open.** File nothing, even when the summary lists closed
+        untested claims.
       - **One per package.** If an earlier summary comment on this issue
         carries `Follow-up: #<m>`, file no second one: post the open items
         #<m> does not list yet as a comment on #<m>, and put
