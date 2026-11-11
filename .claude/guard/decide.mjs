@@ -29,8 +29,10 @@ import { parseCommandLine } from './shell.mjs'
 import { GROUPS } from './groups.mjs'
 
 // Modes where the user is asked before a change. Any other value, a missing
-// one included, counts as unattended so a new mode fails closed.
-const PROMPTING_MODES = new Set(['default', 'acceptEdits', 'plan'])
+// one included, counts as unattended so a new mode fails closed. `manual` and
+// `default` are both listed: the CLI offers `manual`, and which name the hook
+// input carries for it is not known yet.
+const PROMPTING_MODES = new Set(['default', 'manual', 'acceptEdits', 'plan'])
 
 const REPO_CLASSES = new Set(['personal-set-up', 'personal-not-set-up', 'organization', 'no-github-repo'])
 
