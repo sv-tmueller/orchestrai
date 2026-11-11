@@ -167,7 +167,9 @@ verdict statuses `orchestrai/review` and `orchestrai/test` are required too.
 Hand-made PRs on a set-up repo follow the same rule. They need every required
 check to pass, and on a repo with the pipeline labels they also need both
 verdict statuses on their head, like any other PR. Without them the PR waits
-until you post both statuses on its head.
+until you post both statuses on its head. `/tm-repo-guard statuses <repo> <pr>`
+prints the PR's head commit and the commands that record both verdicts on it
+and queue the merge. You run them in your own shell; the command never does.
 
 ### Check
 
@@ -263,6 +265,7 @@ must be committed rather than installed from the marketplace.
 /tm-review-codebase     # review the whole repo
 /tm-map-codebase        # map the repo architecture
 /tm-repo-guard          # report each owned repo's guard state (apply <repo> asks first)
+/tm-repo-guard statuses <repo> <pr>  # print the commands that record both verdicts by hand
 ```
 
 `/tm-repo-guard` is explained under "Repo guard" above.

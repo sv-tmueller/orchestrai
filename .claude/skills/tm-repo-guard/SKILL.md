@@ -1,6 +1,6 @@
 ---
 name: tm-repo-guard
-description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks), or apply them to one repo after you confirm. Check only reads; apply asks first. User-invocable only.
+description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks), apply them to one repo after you confirm, or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
 disable-model-invocation: true
 ---
 
@@ -53,3 +53,20 @@ flow. If the confirm run says "plan changed since it was shown", print that
 and stop. Run plan mode again only when the owner asks, and treat its output
 as a new plan: show it, ask again (step 2), and confirm only on a new yes
 (step 3).
+
+## `statuses <repo> <pr>`: print the commands to record both verdicts
+
+```
+node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs" statuses <repo> <pr>
+```
+
+Give the repo as the user typed it (`name` or `owner/name`) and the PR number.
+The script only reads. It prints the PR head and the commands that post
+`orchestrai/test` and `orchestrai/review` on that head and queue the merge.
+Print its stdout as is. Exit 2 is a refusal or a usage error and exit 1 is a
+failed read: report it and stop.
+
+Never run the printed commands or any part of them, and never post a status or
+queue a merge any other way. If the owner asks, say the commands are for their
+own shell. They are pinned to the head at print time, so after any push run
+the mode again.
