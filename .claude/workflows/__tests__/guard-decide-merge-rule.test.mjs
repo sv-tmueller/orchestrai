@@ -687,6 +687,37 @@ describe('merge-rule round 2, finding 2: git commands that can move HEAD onto a 
   })
 })
 
+describe('merge-rule round 3: git stash branch checks out a new branch', () => {
+  // `stash` stays on the list of commands that keep the branch known, except
+  // its `branch` form. After `git stash branch <name>` the current branch is
+  // unknown, whatever the name, the same way it is after a checkout.
+  describe('denied', () => {
+    defineDenyRows('push-default', [
+      'git stash branch main && git push',
+      'git stash branch main && git push origin HEAD',
+      'git stash branch feat/x && git push',
+      'git -C . stash branch main && git push',
+      'git stash branch main stash@{0} && git push',
+      'git stash -q branch main && git push',
+      'git stash $VERB main && git push',
+    ])
+  })
+
+  describe('passes', () => {
+    defineAllowRows('stash', [
+      'git stash && git push',
+      'git stash push -m wip && git push',
+      'git stash push -m branch && git push',
+      'git stash pop && git push',
+      'git stash list && git push',
+      'git stash drop && git push',
+      'git stash apply && git push',
+      'git stash branch feat/x && git push origin feat/x',
+      'git stash branch feat/x && git push --force-with-lease origin HEAD:refs/heads/feat/x',
+    ])
+  })
+})
+
 describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and gh repo edit', () => {
   describe('denied', () => {
     defineDenyRows('admin-merge', [
