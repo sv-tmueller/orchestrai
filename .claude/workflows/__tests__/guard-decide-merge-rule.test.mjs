@@ -629,6 +629,140 @@ describe('merge-rule round 1: pipeline commands written with variables still pas
   ])
 })
 
+// Tester round 2 (issue #539).
+
+describe('merge-rule round 2, finding 2: git commands that can move HEAD onto a branch', () => {
+  // After any earlier git command in the line, the current branch is unknown,
+  // unless the command is on the list of commands that never change which
+  // branch is checked out. A push that names its destination is judged by it.
+  describe('denied: a bare push, or a push of HEAD, after a command not on the list', () => {
+    defineDenyRows('push-default', [
+      'git branch -M main && git push',
+      'git branch -m main && git push',
+      'git branch --move main && git push',
+      'git rebase main main && git push',
+      'git rebase --onto x y main && git push',
+      'git symbolic-ref HEAD refs/heads/main && git push',
+      'git bisect reset main && git push',
+      'git checkout main && git push',
+      'git switch main && git push origin HEAD',
+      'git worktree add ../w main && git push',
+      'git checkout -- file.txt && git push',
+      'git -C ../x branch -M main && git push',
+      "bash -c 'git branch -M main && git push'",
+      'git branch -M main; git push origin @',
+      'git $SUB main && git push',
+      'git && git push',
+      'git -c x=y && git push',
+    ])
+  })
+
+  describe('passes: commands on the list, and pushes that name their branch', () => {
+    defineAllowRows('git list', [
+      'git add -A && git commit -m x && git push',
+      'git fetch origin && git merge origin/main && git push',
+      'git pull --rebase && git push',
+      'git stash && git push',
+      'git commit --amend --no-edit && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+      'git rebase origin/main && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+      'git checkout --detach FETCH_HEAD && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+      'git branch -D feat/old && git push origin feat/1-x',
+      'git status && git log --oneline && git diff && git push',
+      'git tag v1 && git push',
+      'git ls-remote origin && git remote -v && git push',
+      'git reset --hard origin/feat/1-x && git push',
+      'git cherry-pick abc && git revert def && git push',
+      'git push && git push',
+    ])
+  })
+
+  describe('every command on the list keeps the branch known', () => {
+    const list = [
+      'add', 'commit', 'status', 'fetch', 'pull', 'merge', 'log', 'diff', 'show', 'tag', 'stash', 'reset',
+      'restore', 'rm', 'mv', 'rev-parse', 'remote', 'config', 'ls-remote', 'ls-files', 'describe',
+      'cherry-pick', 'revert', 'clean', 'blame', 'grep', 'format-patch', 'apply', 'am', 'gc', 'notes',
+      'shortlog', 'cat-file', 'diff-tree', 'for-each-ref', 'rev-list', 'merge-base', 'update-index', 'push',
+    ]
+    defineAllowRows('git list', list.map((sub) => `git ${sub} x && git push`))
+  })
+})
+
+describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and gh repo edit', () => {
+  describe('denied', () => {
+    defineDenyRows('admin-merge', [
+      'gh pr merge 12 --$F',
+      'gh pr merge 12 "--adm$in"',
+      'gh pr merge 12 --admin=$V',
+      'gh pr merge 12 -$F',
+      'gh -R acme/widget pr merge 12 --$F',
+    ])
+    defineDenyRows('visibility', [
+      'gh repo edit --$OPT private',
+      'gh repo edit "--vis$X" private',
+      'gh repo edit acme/widget --visibility=$V',
+    ])
+  })
+
+  describe('passes: a word that is entirely an expansion, or a value that expands', () => {
+    defineAllowRows('gh expansion', [
+      'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+      'gh pr merge $PR --disable-auto',
+      'gh repo edit "$REPO" --enable-auto-merge',
+      'gh pr merge 12 --match-head-commit=$SHA',
+      'gh pr merge 12 --subject "$S"',
+      'gh pr merge 12 --body "$B" --squash',
+      'gh repo edit --description "$D"',
+    ])
+  })
+
+  describe('not covered: a flag hidden entirely inside an expansion', () => {
+    // The "Not covered" header of rules/merge-rule.mjs names these two. The
+    // guard reads the words as written; the flag only shows when the shell runs
+    // the substitution. These rows pin the gap.
+    defineAllowRows('hidden flag', [
+      'gh pr merge 12 $(echo --admin)',
+      'gh repo edit $(echo --visibility) private',
+    ])
+  })
+})
+
+describe('merge-rule round 2, finding 4: more shell spellings', () => {
+  defineDenyRows('push-default', [
+    "bash -c -l 'git push origin main'",
+    "sh -c -e 'git push origin main'",
+    "$SHELL -c 'git push origin main'",
+    "\"$SH\" -lc 'git push origin main'",
+    "${SHELL} --login -c 'git push origin main'",
+  ])
+  defineAllowRows('shell', [
+    "bash -c -l 'git push origin feat/x'",
+    "$SHELL -c 'git status'",
+  ])
+})
+
+describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
+  describe('denied', () => {
+    defineDenyRows('branch-rule', [
+      'gh api "repos/$REPO/$X/main/protection" --method PUT --input -',
+      'gh api "repos/$REPO/branches/$B/$X" --method DELETE',
+      'gh api -X PUT "repos/$REPO/protection" --input -',
+      'gh api -X "$M" "repos/$REPO/$X/main/protection"',
+      'gh api -X DELETE "repos/$O/$R/branches/main/$X"',
+    ])
+  })
+
+  describe('passes', () => {
+    defineAllowRows('protection', [
+      'gh api "repos/$REPO/branches/$B"',
+      'gh api -X POST "repos/$REPO/branches/$B/rename" -f new_name=x',
+      'gh api "repos/$REPO/branches/main/protection"',
+      'gh api "repos/$REPO/$X/main/protection"',
+      'gh api "repos/$REPO/$X" --method PUT',
+      'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test',
+    ])
+  })
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')
@@ -694,7 +828,7 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
     assert.match(source, /Not covered/)
-    for (const topic of ['curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell', 'variable in its destination', 'write the branch name out']) {
+    for (const topic of ['curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell', 'variable in its destination', 'write the branch name out', 'reads the words of a command line as written', 'inside a variable or substitution', 'never change which branch']) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
     }
   })

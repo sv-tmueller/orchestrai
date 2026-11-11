@@ -366,6 +366,40 @@ describe('parseCommandLine: unwrapping', () => {
     })
   })
 
+  describe('options after the -c word, and a shell whose name expands (tester round 2, finding 4)', () => {
+    const lines = [
+      "bash -c -l 'a'",
+      "sh -c -e 'a'",
+      "bash -c -O extglob 'a'",
+      "bash -c +x 'a'",
+      "bash -lc --norc 'a'",
+      "$SHELL -c 'a'",
+      "\"$SH\" -lc 'a'",
+      "${SHELL} --login -c 'a'",
+      "$(command -v bash) -c 'a'",
+      "$SHELL -c -l 'a'",
+    ]
+    for (const line of lines) {
+      test(`gives the nested command: ${line}`, () => {
+        const commands = parse(line)
+        assert.equal(commands.length >= 2, true)
+        const inner = commands[commands.length - 1]
+        assert.equal(inner.words[0].text, 'a')
+        assert.equal(inner.nested, true)
+      })
+    }
+
+    test('a command word that expands with no -c cluster is left as it is', () => {
+      assert.equal(parse('$SHELL script.sh').length, 1)
+      assert.equal(parse('$SHELL -x script.sh').length, 1)
+      assert.deepEqual(texts('$X push origin main'), [['$X', 'push', 'origin', 'main']])
+    })
+
+    test('the command string is the first word after the options, not an option', () => {
+      assert.deepEqual(texts("bash -c -l 'a b'").slice(1), [['a', 'b']])
+    })
+  })
+
   describe('env -S (tester round 1, finding 6)', () => {
     test("env -S '<line>' gives a nested command", () => {
       const commands = parse("env -S 'git push origin main'")
