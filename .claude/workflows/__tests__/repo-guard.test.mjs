@@ -35,6 +35,7 @@ import {
   writeArgs,
   runApply,
   runStatuses,
+  main,
 } from '../../skills/tm-repo-guard/repo-guard.mjs'
 import { decide } from '../../skills/tm-kickoff/ship-decision.mjs'
 
@@ -2261,6 +2262,160 @@ describe('runStatuses', () => {
       for (const sha of ['abc123', HEAD.toUpperCase(), `${HEAD}; echo`, undefined, 42]) {
         failsRead(makeFake({ pr: { head: { sha } } }), /head/)
       }
+    })
+
+    test('a user answer with no usable login, with a short or a typed name', () => {
+      for (const body of [{}, { login: '' }, { login: 7 }, { login: null }]) {
+        for (const name of ['widget', 'octo/widget']) {
+          const fake = makeFake({ userRes: ok(body) })
+          const { code, text } = runStatuses(fake.run, [name, '42'])
+          assert.equal(code, 1)
+          assert.equal(lines(text).length, 1, text)
+          assert.match(text, /^could not read: user: /)
+          assert.deepEqual(readPaths(fake), ['api user'])
+        }
+      }
+    })
+
+    test('a full_name whose owner part or name part is not a valid name, and nothing of it is printed', () => {
+      const bad = ['-octo/widget', '.octo/widget', 'oc to/widget', 'octo/-widget', 'octo/.widget', 'octo/wid get', 'octo/wid;get', '/widget', 'octo/']
+      for (const full_name of bad) {
+        const fake = makeFake({ repo: { full_name } })
+        const { code, text } = runStatuses(fake.run, ['widget', '42'])
+        assert.equal(code, 1, full_name)
+        assert.equal(lines(text).length, 1, text)
+        assert.match(text, /^could not read: repo: unexpected name /)
+        assert.doesNotMatch(text, /gh api|gh pr/)
+        assert.deepEqual(readPaths(fake), ['api user', 'api repos/octo/widget'])
+      }
+    })
+
+    test('a full_name that is not a string or not owner/name', () => {
+      for (const full_name of [42, { a: 1 }, 'octo/widget/extra', 'widget']) {
+        const fake = makeFake({ repo: { full_name } })
+        const { code, text } = runStatuses(fake.run, ['widget', '42'])
+        assert.equal(code, 1, JSON.stringify(full_name))
+        assert.equal(lines(text).length, 1, text)
+        assert.match(text, /^could not read: repo: unexpected name /)
+        assert.deepEqual(readPaths(fake), ['api user', 'api repos/octo/widget'])
+      }
+    })
+
+    test('a PR with a missing or empty base.ref, and no protection read follows', () => {
+      for (const base of [{}, { ref: '' }, { ref: null }, { ref: 7 }, undefined, null]) {
+        const fake = makeFake({ pr: { base } })
+        const { code, text } = runStatuses(fake.run, ['widget', '42'])
+        assert.equal(code, 1)
+        assert.equal(lines(text).length, 1, text)
+        assert.equal(text, 'could not read: pull request: no base branch\n')
+        assert.deepEqual(readPaths(fake), ['api user', 'api repos/octo/widget', 'api repos/octo/widget/pulls/42'])
+      }
+    })
+  })
+
+  describe('one line on every nonzero exit', () => {
+    const multi = (status, message) => ({
+      code: 1,
+      stdout: JSON.stringify({ message, status: String(status) }),
+      stderr: '',
+    })
+    const rawErr = (stderr) => ({ code: 1, stdout: '', stderr })
+
+    function oneLine(fake, argv, code, head) {
+      const out = runStatuses(fake.run, argv)
+      assert.equal(out.code, code)
+      assert.equal(out.text.endsWith('\n'), true)
+      assert.doesNotMatch(out.text.slice(0, -1), /[\r\n\u2028\u2029]/, JSON.stringify(out.text))
+      assert.match(out.text, head)
+      return out.text
+    }
+
+    test('a gh stderr with several lines in the user read', () => {
+      const text = oneLine(
+        makeFake({ userRes: rawErr('To get started, please run:  gh auth login\nAlternatively, set a token.\n') }),
+        ['widget', '42'],
+        1,
+        /^could not read: user: /
+      )
+      assert.match(text, /gh auth login Alternatively, set a token\.\n$/)
+    })
+
+    test('a multi-line API message in each read', () => {
+      const msg = 'first part\r\nsecond part\n\nthird part'
+      const cases = [
+        [{ userRes: multi(500, msg) }, /user: first part second part third part/],
+        [{ repoRes: multi(500, msg) }, /repo: first part second part third part/],
+        [{ prRes: multi(500, msg) }, /pull request: first part second part third part/],
+        [{ protection: multi(500, msg) }, /protection: first part second part third part/],
+      ]
+      for (const [over, pattern] of cases) assert.match(oneLine(makeFake(over), ['widget', '42'], 1, /^could not read: /), pattern)
+    })
+
+    test('a line separator character in a message', () => {
+      oneLine(makeFake({ repoRes: multi(500, 'a\u2028b\u2029c') }), ['widget', '42'], 1, /^could not read: repo: a b c\n$/)
+    })
+
+    test('a login with line breaks in the owner refusal', () => {
+      const fake = makeFake({ userRes: ok({ login: 'octo\nsecond line' }) })
+      oneLine(fake, ['some-org/widget', '42'], 2, /^refusing: some-org\/widget is not a repo of your own account \(octo second line\)\n$/)
+    })
+
+    test('a login with line breaks in the repo owner refusal', () => {
+      const fake = makeFake({ userRes: ok({ login: 'octo\nx' }), repoRes: ok({ owner: { login: 'octo\nx', type: 'Organization' } }) })
+      // The fake only serves one repo path, so serve the odd login's path.
+      const run = (args, input) => (args.join(' ') === 'api repos/octo\nx/widget' ? fake.state.repoRes : fake.run(args, input))
+      oneLine({ run }, ['widget', '42'], 2, /^refusing: octo x\/widget is not a repo of your own account \(octo x\)\n$/)
+    })
+
+    test('a base branch with line breaks in the protection refusal', () => {
+      const ref = 'rel\nease'
+      const path = `api repos/octo/widget/branches/${encodeURIComponent(ref)}/protection`
+      const fake = makeFake({ pr: { base: { ref } } })
+      const run = (args, input) => (args.join(' ') === path ? fail(404, 'Branch not protected') : fake.run(args, input))
+      oneLine({ run }, ['widget', '42'], 2, /^refusing: octo\/widget does not require orchestrai\/review and orchestrai\/test on rel ease\n$/)
+    })
+
+    test('a typed repo name with a line break in the usage refusal', () => {
+      const fake = makeFake()
+      oneLine(fake, ['bad\nname', '42'], 2, /^refusing: invalid repo name: bad name\n$/)
+      assert.deepEqual(fake.state.calls, [])
+    })
+
+    test('a zero exit keeps its lines', () => {
+      assert.equal(lines(statuses(makeFake(), 'widget', '42').text).length, 5)
+    })
+  })
+
+  describe('main', () => {
+    // main writes to process.stdout and sets process.exitCode, so capture both.
+    function runMain(argv) {
+      const realWrite = process.stdout.write
+      const realCode = process.exitCode
+      let written = ''
+      process.stdout.write = (chunk) => {
+        written += chunk
+        return true
+      }
+      try {
+        process.exitCode = undefined
+        main(argv)
+        return { code: process.exitCode, written }
+      } finally {
+        process.stdout.write = realWrite
+        process.exitCode = realCode
+      }
+    }
+
+    test('statuses routes to runStatuses: a usage error prints one line on stdout and exits 2, with no gh call', () => {
+      const { code, written } = runMain(['statuses', 'widget'])
+      assert.equal(code, 2)
+      assert.equal(written, 'usage: repo-guard.mjs statuses <repo> <pr>\n')
+    })
+
+    test('statuses routes a bad repo name to a one-line refusal with exit 2', () => {
+      const { code, written } = runMain(['statuses', '.hidden', '42'])
+      assert.equal(code, 2)
+      assert.equal(written, 'refusing: invalid repo name: .hidden\n')
     })
   })
 })

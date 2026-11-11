@@ -700,7 +700,14 @@ function parseStatusesArgs(argv) {
 
 // Prints the commands that record both verdicts and queue the merge. It only
 // reads, and the owner runs what it prints. It never builds `writeGuarded`.
+// A nonzero exit is always one line: gh and API text can carry line breaks.
 export function runStatuses(run, argv) {
+  const out = statusesResult(run, argv)
+  if (out.code === 0) return out
+  return { code: out.code, text: out.text.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim() + '\n' }
+}
+
+function statusesResult(run, argv) {
   const args = parseStatusesArgs(argv)
   if (args.error) return { code: 2, text: `${args.error}\n` }
 
@@ -711,6 +718,7 @@ export function runStatuses(run, argv) {
   let login
   try {
     login = parseOk(call(['api', 'user']), 'user').login
+    if (typeof login !== 'string' || login === '') throw new Error('user: no login in the answer')
   } catch (err) {
     return { code: 1, text: `could not read: ${err.message}\n` }
   }
@@ -726,7 +734,8 @@ export function runStatuses(run, argv) {
       return notOwn(requested, login)
     }
     full = info.full_name ?? requested
-    if (!full.split('/').every(validPart)) throw new Error(`repo: unexpected name ${full}`)
+    const fullParts = typeof full === 'string' ? full.split('/') : []
+    if (fullParts.length !== 2 || !fullParts.every(validPart)) throw new Error(`repo: unexpected name ${full}`)
 
     pr = parseOk(call(['api', `repos/${full}/pulls/${args.pr}`]), 'pull request')
     // The head goes into the owner's shell, so it must be a plain 40-hex value.
