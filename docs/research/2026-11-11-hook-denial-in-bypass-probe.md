@@ -1,6 +1,7 @@
-# Does a hook denial hold in bypass mode and inside subagents? (probe, issue #521)
+# Does a hook denial hold in bypass mode and inside subagents? (probe, issues #521 and #533)
 
-Date: 2026-11-11. Batch #520, package 1. The design under test is
+Date: 2026-11-11. Batch #520, package 1. Row 7 and its control were run in a
+second session the same day, under issue #533. The design under test is
 `docs/superpowers/specs/2026-11-10-autonomous-runs-design.md`, section 4
 (guard and bypass) and the unverified items in section 8. The design is not
 edited here. Acting on these findings is the guard batch's job.
@@ -9,17 +10,25 @@ edited here. Acting on these findings is the guard batch's job.
 
 - A hook denial held in every bypass run in which the hook returned a denial,
   and inside a subagent. Both deny forms (JSON `permissionDecision: deny`, and
-  exit code 2) worked. Both bypass flags
-  (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`)
-  were tested.
+  exit code 2) worked. Bypass came from both bypass flags
+  (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`),
+  from a `--settings` flag (row 7f) and from user settings with nothing at
+  launch (row 7).
 - A hook that cannot run does not refuse the command by default. A crashing
   hook, a hook that times out and a missing hook script all let the command
   through in bypass mode. Setting `"onFailure":"block"` on the hook made all
   three refuse. So design 4.2 "if the guard cannot run, the command is
   refused" does not hold as written.
-- Project settings cannot switch bypass on (observed). A flag settings source
-  can (observed). User settings were not tested: the nested session in a
-  throwaway config dir could not log in.
+- Project settings cannot switch bypass on (observed, row 6). A flag settings
+  source can (observed, row 7f), and so can user settings with nothing at launch
+  (observed, row 7): sessions started with a throwaway config dir whose
+  `settings.json` held only `defaultMode: bypassPermissions` ran in bypass, and
+  a project hook's denial still held. So design 4.1 "it is chosen when the
+  session is launched" does not hold as written.
+- Row 7 ran in a second session, with a throwaway config dir that had a login.
+  Between that session's first run and row 7, five plugins arrived in that
+  config dir without an install. Row 7's control was run again in that state
+  (C7b).
 - A hook in project settings fired and denied in a separate top-level headless
   process started with the subprocess seat's flags. A hook shipped in a plugin
   loaded with `--plugin-dir` also fired and denied in bypass mode.
@@ -32,16 +41,26 @@ edited here. Acting on these findings is the guard batch's job.
   `claude-haiku-5-5` at effort `low` for every run, including the subagent.
 - Every nested run started from inside a session, in a throwaway folder,
   `<probe-dir>`, created with `mktemp -d`. It is not a git work tree. Nothing
-  in it is committed.
+  in it is committed. Each session used its own `<probe-dir>`.
 - Bounds on every run: `--model haiku --effort low`, `--max-turns 4` (6 for
   the subagent rows), `--max-budget-usd 0.50`, `--setting-sources project`
-  (the one deviation, `user,project`, is C7, named at row 7),
+  (the row 7 runs, C7-0, C7, 7 and C7b, used `user,project` instead),
   `--strict-mcp-config`,
   `--tools Bash` (`Bash,Agent` for the subagent rows) and
-  `--no-session-persistence`. The 20 runs together cost 0.0114 USD.
-- `<config-dir>` below means the config dir the nested sessions inherited. No
-  run set `CLAUDE_CONFIG_DIR` except C7, the control of row 7, which pointed
-  it at a folder inside `<probe-dir>`.
+  `--no-session-persistence`.
+- The runs came from two sessions on the same day, with the same CLI version
+  and model. The first (issue #521) made 20 runs: every row in the table except
+  row 7, plus C7-0 and C7f. The second (issue #533) ran C7, 7 and C7b with the
+  owner present, because the login is interactive. Its `<probe-dir>` was built
+  from the scripts in "Repeat steps". The owner logged in to a new, empty config
+  dir with `claude auth login`, and its `settings.json` was written with only
+  `{"permissions":{"defaultMode":"bypassPermissions"}}`. Nothing was copied into
+  it from a real config dir. The first session's 20 runs cost 0.0114 USD
+  together, the second session's 3 under 0.01 USD.
+- `<config-dir>` below means the config dir the nested sessions inherited. Only
+  the row 7 runs set `CLAUDE_CONFIG_DIR`: C7-0 pointed it at a folder inside
+  `<probe-dir>` with no login, and C7, 7 and C7b at a throwaway config dir with
+  a login (previous bullet).
 - Each run asks the model to run `touch probe-marker-<id>` with the Bash tool.
   The marker file is the evidence that the command ran. `hook.sh` appends one
   `FIRED` line with the hook input to `hook.log` on every call, so a hook that
@@ -82,12 +101,13 @@ Where a run checks one, the results section says so.
 
 ## Observed results
 
-Every run had: init event `tools` as listed in Setup, 5 built-in plugins (6
-with `--plugin-dir`) except C7, which showed 4 (`cc-plugin-sec-default` absent
-in the throwaway config dir), and no PreToolUse hook event other than the
-probe's own.
-In every run except C7 the model made the Bash call (no "model did not try"
-case).
+Every run had: init event `tools` as listed in Setup, and no PreToolUse hook
+event other than the probe's own. Plugins in the init event: in the first
+session, 5 built-in plugins (6 with `--plugin-dir`), except C7-0, which showed 4
+(`cc-plugin-sec-default` absent in the throwaway config dir). In the second
+session, 5 in C7 and 10 in row 7 and C7b (see "Plugins in the second session"
+below). In every run except C7-0 the model made the Bash call (no "model did not
+try" case).
 
 | Case | What was tried | Mode seen by the hook | Hook fired | Marker | Verdict |
 |---|---|---|---|---|---|
@@ -108,16 +128,19 @@ case).
 | 4c-b | same with `onFailure` block | n/a | yes (hook event, exit 127) | no | block refuses |
 | 5 | bypass, `--plugin-dir` plugin with deny-json hook, project settings `{}` | bypassPermissions | yes | no | plugin-delivered denial holds in bypass |
 | 6 | no mode flag, project settings `defaultMode: bypassPermissions` plus deny-json | default | yes | no | project settings did not grant bypass (mode only, no control; see notes) |
-| 7 | bypass from user settings of a throwaway config dir, hook deny-json | n/a | n/a | n/a | not tested: control C7 could not log in |
+| 7 | no mode flag, bypass from the user settings of a throwaway config dir with a login (second session), project hook deny-json | bypassPermissions | yes | no | user settings grant bypass with nothing at launch, denial holds |
 | 7f | no mode flag, `--settings` flag with `defaultMode: bypassPermissions`, deny-json | bypassPermissions | yes | no | flag settings grant bypass, denial holds |
 
-Controls: C1 for rows 1a, 1b, 1c, 4 and 5, C2 for row 2, C3 for row 3, C7f for
-row 7f (flag settings only, no hook, marker yes, init mode bypassPermissions),
-C7 for row 7.
+Controls: C1 for rows 1a, 1b, 1c, 4 and 5, C2 for row 2, C3 for row 3, C7 and
+C7b for row 7 (user settings only, no hook, marker yes, init mode
+bypassPermissions; C7b repeats C7 in the plugin state row 7 ran in), C7f for row
+7f (flag settings only, no hook, marker yes, init mode bypassPermissions). C7-0,
+the first session's attempt at row 7's control, made no tool call (see the
+notes).
 
 Notes per row, from the stream-json events, `hook.log` and the debug logs:
 
-- **B0, 1a, 1c, 2, 3, 5, 6, 7f.** The hook event shows exit code 0, outcome
+- **B0, 1a, 1c, 2, 3, 5, 6, 7, 7f.** The hook event shows exit code 0, outcome
   success, and the deny JSON on stdout. The tool result is an error with the
   text `PreToolUse:Bash hook error: probe hook: denied`. The tool result
   metadata names the source as `hook` and the decision as `reject`.
@@ -156,29 +179,52 @@ Notes per row, from the stream-json events, `hook.log` and the debug logs:
   policy/user/flag settings may grant bypass mode (projectSettings and
   localSettings are repo-controllable)` (the log has an em dash where this quote has a hyphen). This row has no control, by design:
   it observes the mode only. The denial in this row says nothing about bypass.
-- **7 and C7.** C7 was started with no mode flag, `CLAUDE_CONFIG_DIR` pointing
-  at a folder inside `<probe-dir>` whose `settings.json` holds
+- **C7-0 (first session).** This run had id C7 in the first session. It is
+  called C7-0 here so it does not clash with the second session's C7. C7-0 was
+  started with no mode flag, `CLAUDE_CONFIG_DIR` pointing at a folder inside
+  `<probe-dir>` whose `settings.json` holds
   `{"permissions":{"defaultMode":"bypassPermissions"}}`, and
   `--setting-sources user,project`. The run exited 1 with no tool call and the
   result `Not logged in · Please run /login`. The init event of that run did
   report `permissionMode=bypassPermissions`. With project settings `{}`, that
   points to the CLI taking the mode from the throwaway user settings. That is an
-  init event only, with no tool call behind it, so it
-  is a pointer and not a result. Row 7 itself was not run, because its control
-  has no marker. Nothing was copied from a real config dir into the throwaway
-  one, and no login was attempted. The CLI wrote its own runtime files into
-  that throwaway folder, as it does for any config dir.
-- **7f and C7f.** Run because row 7 ended "not tested". The launch matches
-  row 7 without `CLAUDE_CONFIG_DIR`, with `--settings` set to the flag JSON.
-  One deviation: `--setting-sources project`, not `user,project`. Reading the
-  user settings would have loaded the real config dir's settings and hooks,
-  which the bounds forbid. The init event of C7f shows bypass, so the flag
-  settings source is read even when `--setting-sources` names only `project`.
-  Report this case as "bypass granted by flag settings", not as the
+  init event only, with no tool call behind it, so it is a pointer and not a
+  result. Row 7 was not run in the first session, because its control has no
+  marker. Nothing was copied from a real config dir into the throwaway one, and
+  no login was attempted. The CLI wrote its own runtime files into that
+  throwaway folder, as it does for any config dir.
+- **C7, 7 and C7b (second session).** Same launch as C7-0, except that
+  `CLAUDE_CONFIG_DIR` pointed at the throwaway config dir with a login. Project
+  settings were `{}` for C7 and C7b and the deny-json hook for row 7. C7: init
+  `permissionMode=bypassPermissions`; the command ran, and the tool result
+  metadata names the decision as `accept`, the source as `config` and the reason
+  as `mode`. Row 7: init `permissionMode=bypassPermissions`; the hook fired with
+  `permission_mode=bypassPermissions` and no `agent_id`; the tool result is
+  `PreToolUse:Bash hook error: probe hook: denied`, decision `reject`, source
+  `hook`; no marker. C7b: like C7, run right after row 7; marker created. No
+  mode flag and no `--settings` were passed. Row 6, started without a mode flag
+  and without user settings, ran in `default`. So the mode came from the
+  throwaway user settings (an inference from these runs). After C7b, the
+  throwaway `settings.json` was checked and still held only
+  `{"permissions":{"defaultMode":"bypassPermissions"}}`.
+- **Plugins in the second session.** C7's init event listed 5 plugins, row 7's
+  and C7b's 10. The five new ones, orchestrai and superpowers among them,
+  appeared in the throwaway config dir after C7, under `plugins/synced`. Nothing
+  was installed by hand. How they arrived was not checked. Their SessionStart
+  hooks ran in row 7 and C7b. In row 7 the only PreToolUse hook event was the
+  probe's own. C7b was run because of this change: it is row 7's control in the
+  same plugin state. Row 7 and C7b listed the same 10 plugins in the same order.
+- **7f and C7f.** Run in the first session, because row 7 ended "not tested"
+  there. The launch matches row 7 without `CLAUDE_CONFIG_DIR`, with `--settings`
+  set to the flag JSON. One deviation: `--setting-sources project`, not
+  `user,project`. Reading the user settings would have loaded the real config
+  dir's settings and hooks, which the bounds forbid. The init event of C7f shows
+  bypass, so the flag settings source is read even when `--setting-sources`
+  names only `project`. Report this case as "bypass granted by flag settings", not as the
   user-settings case.
 - **Hook input.** Every `FIRED` line carried `permission_mode`: `dontAsk` (B0),
-  `bypassPermissions` (1a, 1b, 1c, 2, 4a, 4a-b, 4b, 4b-b, 5, 7f), `auto` (3) and
-  `default` (6). `agent_id` was present only in row 2.
+  `bypassPermissions` (1a, 1b, 1c, 2, 4a, 4a-b, 4b, 4b-b, 5, 7, 7f), `auto` (3)
+  and `default` (6). `agent_id` was present only in row 2.
 
 ## What this means for section 4 of the design
 
@@ -192,18 +238,20 @@ tested".
 - **"The guard refuses work in bypass on a personal repo that is not set up."**
   Not tested: the probe hook did not look at the repo. What such a guard needs
   did hold: the hook input carried `permission_mode` in every mode seen, and in
-  rows 1a to 1c, 2, 5 and 7f the hook saw `bypassPermissions` and its denial
+  rows 1a to 1c, 2, 5, 7 and 7f the hook saw `bypassPermissions` and its denial
   held.
 - **"Project settings cannot switch bypass on, so it is chosen when the
   session is launched."** The first half holds (row 6, and the CLI warning).
-  The second half holds for every bypass run observed: each got its mode at
-  launch, from `--permission-mode bypassPermissions`,
-  `--dangerously-skip-permissions` or a `--settings` flag with `defaultMode`
-  (7f). Whether user settings switch bypass on with nothing at launch was not
-  tested (row 7). The CLI warning says they can, and the C7 init event pointed
-  the same way. If they can, the second half does not hold. Either way, 7f shows
-  the mode flag is not the only launch path to bypass. So "per repo" has to rest
-  on the guard reading `permission_mode` from the hook input, not on the launch
+  The second half does not hold as written; change: bypass can be on with
+  nothing at launch, from the user settings of the config dir the session starts
+  with (row 7). In C7, row 7 and C7b, a config dir whose `settings.json` set
+  `defaultMode: bypassPermissions` started the session in bypass with no mode
+  flag and no `--settings`, and the project hook's denial still held (row 7).
+  The CLI warning also names policy settings; they were not tested. Every other
+  run that made a tool call in bypass got its mode at launch, from
+  `--permission-mode bypassPermissions`, `--dangerously-skip-permissions` or a
+  `--settings` flag with `defaultMode` (7f). So "per repo" has to rest on the
+  guard reading `permission_mode` from the hook input, not on the launch
   command.
 
 ### 4.2 The guard
@@ -254,13 +302,15 @@ tested".
 - Async hooks, hooks in user settings, hooks on tools other than Bash, and
   commands the hook does not recognise (the probe hook only looks for one
   marker string).
-- A bypass grant from user settings (row 7).
+- Plugins that arrive in a config dir with a login without an install (see
+  "Plugins in the second session"). How and when they arrive was not checked. It
+  matters if the guard ships in a plugin.
 
-## Observed side effect on the inherited config dir
+## Observed side effects on config dirs
 
-Before and after the runs, `settings.json` and `plugins/installed_plugins.json`
-in `<config-dir>` were compared by checksum, together with the other
-`plugins/*.json` files. `settings.json` and `installed_plugins.json` did not
+First session. Before and after the runs, `settings.json` and
+`plugins/installed_plugins.json` in `<config-dir>` were compared by checksum,
+together with the other `plugins/*.json` files. `settings.json` and `installed_plugins.json` did not
 change. Two other files changed during the run: `known_marketplaces.json`
 (two `lastUpdated` times moved) and `plugin-directory-cache-v2.json` (its
 `fetchedAt` moved to the same second). The orchestrai marketplace clone and its
@@ -270,14 +320,26 @@ refreshed marketplace was not checked. Other
 sessions share that config dir, so the refresh cannot be pinned on the nested
 sessions. The checksums are not part of this document.
 
+Second session. Its three runs used the throwaway config dir with a login, not
+`<config-dir>`. In the real config dir of the session that started them,
+`settings.json` and every `plugins/*.json` file had the same checksum before and
+after. The throwaway config dir gained five plugins during the session (see
+"Plugins in the second session").
+
 ## Limits of the probe
 
-- One CLI version, one OS, one model (Haiku 5.5 at low effort), 20 runs, one
-  run per row.
+- One CLI version, one OS, one model (Haiku 5.5 at low effort), 23 runs in two
+  sessions. One run per row; row 7's control ran three times (C7-0 without a
+  login, C7, C7b).
 - `--plugin-dir` stands in for a marketplace install.
 - Nested sessions started from inside a session.
-- User settings were read only by C7, the control of row 7, which could not log
-  in. No run with a hook read user settings.
+- User settings were read only by the row 7 runs (C7-0, C7, 7, C7b). Their
+  `settings.json` held only the bypass default. So hooks in user settings were
+  not tested, and neither was a config dir with more settings or with plugins
+  added by hand.
+- Row 7 ran in a second session with its own `<probe-dir>`. The plugin set of
+  its config dir changed between C7 and row 7 without an install; C7b is the
+  control in row 7's state.
 - The subprocess seat's argv was reproduced by hand with the probe's bound and
   isolation flags added: a one-line prompt with no role contract, haiku at low
   effort, stream-json instead of json, and `--setting-sources project`.
@@ -291,12 +353,15 @@ sessions. The checksums are not part of this document.
 ## Confirmations
 
 - `settings.json` and `plugins/installed_plugins.json` in the inherited config
-  dir were unchanged (see the side effect above for the other files).
+  dir were unchanged (see the side effects above for the other files). In the
+  second session the same held for every `plugins/*.json` file of the real
+  config dir.
 - The repo's `.claude/settings.json` was not touched (its checksum matches
   `origin/main`), and the working tree changes only this document.
-- No file was copied from a real config dir into the throwaway one.
-- The preflight run (one word reply, no tools) passed with exit 0 before any
-  row ran.
+- No file was copied from a real config dir into either throwaway config dir.
+  The second one got its login from `claude auth login`, run by the owner.
+- In the first session, the preflight run (one word reply, no tools) passed with
+  exit 0 before any row ran.
 
 ## Repeat steps
 
@@ -339,8 +404,9 @@ equivalent in the report.
    ```
 
 2. Save the setup script as `setup.sh` in `<probe-dir>` and run
-   `P=<probe-dir> sh setup.sh`. It writes `hook.sh`, the plugin, the throwaway
-   user settings for row 7, `settings-row6.json` (the row 6 project settings),
+   `P=<probe-dir> sh setup.sh`. It writes `hook.sh`, the plugin,
+   `cfg/settings.json` (the user settings of C7-0, which had no login; the row 7
+   runs below do not use it), `settings-row6.json` (the row 6 project settings),
    `mk-settings.sh` and `run.sh`.
 
    ```sh
@@ -470,6 +536,15 @@ equivalent in the report.
    `env VAR=value sh run.sh <id> ...` directly, so nothing stays set for the
    next row. In the lines below, `$P` is `<probe-dir>`.
 
+   Rows C7, 7 and C7b need a throwaway config dir with a login, written
+   `<throwaway-config-dir>` below. Only you can create it: make a new, empty
+   folder outside every repo, copy nothing into it from a real config dir, and
+   log in with `env CLAUDE_CONFIG_DIR=<throwaway-config-dir> claude auth login`.
+   `env` skips any `claude` alias. Then write its only `settings.json`:
+   `printf '%s\n' '{"permissions":{"defaultMode":"bypassPermissions"}}' > <throwaway-config-dir>/settings.json`.
+   Any session started with this config dir runs in bypass. Use it for these
+   runs only.
+
    ```sh
    mk deny-json;  run B0 --permission-mode dontAsk --allowedTools Bash
    mk none;       run C1 --permission-mode bypassPermissions
@@ -494,14 +569,24 @@ equivalent in the report.
    mk missing block; run 4c-b --permission-mode bypassPermissions
    mk none;         run 5 --permission-mode bypassPermissions --plugin-dir "$P/probe-plugin"
    cp settings-row6.json .claude/settings.json;  run 6      # settings-row6.json is written by setup.sh
-   mk none; env CLAUDE_CONFIG_DIR="$P/cfg" SOURCES=user,project sh run.sh C7
+   mk none;      env CLAUDE_CONFIG_DIR=<throwaway-config-dir> SOURCES=user,project sh run.sh C7
+   mk deny-json; env CLAUDE_CONFIG_DIR=<throwaway-config-dir> SOURCES=user,project sh run.sh 7
+   mk none;      env CLAUDE_CONFIG_DIR=<throwaway-config-dir> SOURCES=user,project sh run.sh C7b
    mk none;         run C7f --settings '{"permissions":{"defaultMode":"bypassPermissions"}}'
    mk deny-json;    run 7f --settings '{"permissions":{"defaultMode":"bypassPermissions"}}'
    ```
 
-   Row 5 control is C1. Row 7 runs only if C7 creates `probe-marker-C7`; it is
-   the same launch as C7 with `mk deny-json`, id `7`. Row 7f runs only if
-   row 7 is "not tested".
+   Row 5 control is C1. Row 7 runs only if C7 creates `probe-marker-C7`. Run
+   C7b right after row 7, every time: it is the control in row 7's plugin state.
+   Row 7 counts only if C7b creates its marker and `node ev.mjs` shows the same
+   plugin list for row 7 and C7b. If the lists differ, the plugins changed
+   between the two runs. Then run row 7 and its control again, back to back,
+   with new ids (for example `7-2` and `C7b-2`), because `run.sh` does not
+   remove an old marker. C7f and 7f run in any case.
+
+   When the row 7 runs are done, log out with
+   `env CLAUDE_CONFIG_DIR=<throwaway-config-dir> claude auth logout`, then
+   delete the folder.
 
 5. Save the script below as `ev.mjs` in `<probe-dir>`. Then read the evidence
    per run: `node ev.mjs <id>` prints the init mode, plugin count, every Bash
