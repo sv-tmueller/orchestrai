@@ -21,10 +21,9 @@ The plugin exists for five purposes:
 The plugin is the primary identity. The template-copy path is retired, not
 merely demoted: CLAUDE.md no longer frames it as a fallback identity, and its
 own leftover framing (placeholder sentinels, `(see NEW-PROJECT-SETUP)`
-pointers) is corrected by this change. The scaffolding files that implement
-that path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) still
-exist in the tree; their physical retirement is deferred to the usability
-batch. See section 3.
+pointers) is corrected by this change. The two files that implemented that
+path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) are kept,
+reframed for adopting the plugin into an existing repo; section 3 says why.
 
 **Substrate (host and model), evaluated 2026-07-08, reopened 2026-08-14.**
 Running the team on a non-Claude host or a non-Anthropic model was
@@ -74,7 +73,7 @@ side effect. Owned by `.claude/workflows/` (`tm-map-codebase.js`,
 `tm-review-changes.js`, `tm-review-codebase.js`) and the `docs/` layout in
 `CLAUDE.md`.
 
-## 3. Transition state: identity retired, scaffolding not yet removed
+## 3. Transition state: identity retired, adoption files kept
 
 This doc records the identity decision and, alongside it, CLAUDE.md now
 carries that decision through. What's done as of this change:
@@ -84,6 +83,12 @@ carries that decision through. What's done as of this change:
   style", "Useful commands") are filled with real content.
 - The `(see NEW-PROJECT-SETUP)` pointers are removed from CLAUDE.md.
 
-What's still open: `NEW-PROJECT-SETUP.md` and
-`.claude/skills/tm-new-project/` remain physically present in the tree.
-Removing them is deferred to the usability batch, not this change.
+Kept, not removed: `NEW-PROJECT-SETUP.md` and
+`.claude/skills/tm-new-project/` stay in the tree. Issue #190 chose to
+reframe them instead of deleting them. They no longer seed a new repo from
+a template. They adopt the plugin into an existing repo: the checklist
+lists the once-per-repo steps, and the skill automates what it can (labels,
+docs tree) and prints the rest. The skill is also the repo guard's entry
+point, as the autonomous-runs design names it
+(`docs/superpowers/specs/2026-11-10-autonomous-runs-design.md`, section 6).
+It prints the `/tm-repo-guard apply` command, and the owner types it.
