@@ -793,7 +793,7 @@ const MARKETPLACE_KEY = 'orchestrai'
 // home. `read` returns null for a missing file and throws on any other error.
 // `isDir` is false only when the path is not there; it throws when the path
 // cannot be looked at, or is a link with no target. `real` resolves links.
-function nodeLocal() {
+export function nodeLocal() {
   return {
     home: homedir(),
     envDir: process.env.CLAUDE_CONFIG_DIR || null,
