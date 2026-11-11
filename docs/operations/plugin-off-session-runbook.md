@@ -59,8 +59,9 @@ record shows it as `default`. Neither is a mode where nobody is asked
 (`bypassPermissions`, `auto` and `dontAsk`, design 4.2). The design puts the
 base deny list in the guard (4.2, 4.3), so with the plugin off it is expected
 to be gone too. What should remain is the GitHub rule (design 4.2), your own
-permission settings and the prompts: a command your settings already allow
-runs without a prompt, and other commands ask you first.
+permission settings and the prompts. Expect a command your settings already
+allow to run without a prompt, and other commands to ask you first. This was
+not tested here.
 
 - Name the mode because a config dir's user settings can make bypass the
   default with nothing at launch (probe row 7; that the mode came from those
