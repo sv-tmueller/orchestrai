@@ -7,7 +7,7 @@
  * a reason in the approving review closes a claim. A closed claim is listed in
  * the summary and never filed. Every other claim is open and goes into the
  * follow-up issue, as today. Fourteen clauses carry that rule. Each is pinned
- * as an exact phrase, so a clause swapped for its opposite fails. Four pins
+ * as an exact phrase, so a clause swapped for its opposite fails. Three pins
  * guard text that must not change: the not-set-up wording and the nit rules.
  *
  * Each pin is searched between a start anchor and an end anchor, so a phrase
