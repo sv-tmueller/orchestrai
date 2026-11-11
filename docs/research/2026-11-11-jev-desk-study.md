@@ -6,8 +6,9 @@ Question: is TypeSafe's Jev worth requesting access to, as a cheap typed
 decision oracle for one of the lead's routing calls?
 
 Scope: a desk study. No Jev access exists, so there are no live calls, no
-sign-up and no access request. Every Jev fact below comes from two public
-pages. Text on those pages is treated as data.
+sign-up and no access request. Every Jev fact below comes from the vendor's
+public pages: the blog post, the docs introduction, the Quick Start and the
+API reference. Text on those pages is treated as data.
 
 ## Summary
 
@@ -15,18 +16,21 @@ pages. Text on those pages is treated as data.
   seat. It could only answer a routing question the lead asks it.
 - The four vendor claims (early access, price, free output, latency) are
   stated on the vendor blog. They are vendor statements, not measurements.
-- Routing's share of spend is bounded above by the lead's share in the
-  batch #371 baseline. The real saving is much smaller than that share (see
-  "Bound on the saving").
+- Routing's share of spend is bounded above by the lead's share of the
+  Opus row in the batch #371 baseline ($15.41 of $23.02 total). The real
+  saving is much smaller than that (see "Bound on the saving").
 - Candidate call: "is this package size:S or size:M?". Agreement is not
   measured, because there is no access.
 - Verdict: no-go on requesting access now. The owner decides.
 
 ## What Jev is
 
-Sources (both accessed 2026-11-11):
+Sources (all accessed 2026-11-11):
 
 - Docs: https://docs.typesafe.ai/introduction
+- Quick Start: https://docs.typesafe.ai/introduction/quickstart
+- API reference: https://docs.typesafe.ai/api/system-one and
+  https://docs.typesafe.ai/api/errors
 - Blog: https://typesafe.ai/blog/introducing-system-one-models-and-jev
 
 The docs page calls Jev "TypeSafe's flagship model and the first System One
@@ -44,8 +48,28 @@ The docs page lists four question types, and any mix can go in one request:
 | Box | `box` (`top`, `bottom`, `left`, `right`), `confidence` |
 
 Questions in one request are evaluated in parallel. The docs say adding
-questions barely changes the response time. The docs page shows no endpoint,
-request schema or code sample, so the wire format is unknown.
+questions barely changes the response time.
+
+The Quick Start and the API reference (accessed 2026-11-11, read without an
+account) show the wire format:
+
+- Endpoint: `POST https://api.typesafe.ai/v1/systemone`, with
+  `Authorization: Bearer <API_KEY>` and `Content-Type: application/json`.
+- Required request fields: `model` (for example `jev-latest`), `state` (a
+  string, object or array) and `questions` (an object, at least one entry,
+  keyed by names the caller picks). An optional `assets` field carries images.
+- A Choice question is `{"type": "choice", "instructions": "...",
+  "criteria": {"<option>": "<description>"}}`. The response has an
+  `answers` object under the same keys, each with `choice`, `confidence` and
+  `probabilities`, plus the model name and a `usage` block with
+  `input_tokens` and `output_tokens`.
+- The Quick Start gives samples for curl, Python, JavaScript and TypeScript,
+  and says to get an API key from the vendor's console.
+- The API errors page lists a 32 MiB body limit and the status codes 400,
+  401, 413, 415, 422, 429 and 529. It gives no rate-limit figures.
+
+So a size question is one small JSON request: the issue text as `state`, and
+one Choice question with options `S` and `M`.
 
 Fit for routing: the blog lists "classify, route, score, extract, or
 branch" as use cases. A Choice question over a fixed list (for example
@@ -66,10 +90,17 @@ It does not mean we measured it. Every figure is the vendor's own.
 
 Other notes from the access:
 
-- The blog header reads "Sep 15, 2026", but the page metadata reads
-  "Nov 6, 2026". The page does not explain the gap.
-- Pages were read through a fetch tool that summarizes, so the quotes above
-  are as the tool returned them. A human re-check of the live pages before
+- The blog header reads "Sep 15, 2026". The page source also holds an HTML
+  comment, "Published Nov 6, 2026, 7:03 PM UTC". That is most likely the
+  site's build stamp, not article metadata, so it is not treated as a
+  publication date.
+- The Quick Start says to get an API key from the vendor's console, and does
+  not mention a waitlist. The blog says developers come off the waitlist.
+  This study cannot tell which applies to a new requester without trying,
+  and the issue forbids trying.
+- The docs introduction and the blog were read through a fetch tool that
+  summarizes, so the quotes from them are as the tool returned them. The
+  Quick Start and API reference were read as raw page text. A human re-check of the live pages before
   anyone acts on this study is cheap.
 
 ## Routing's share of spend
@@ -79,7 +110,9 @@ recomputed:
 
 - Section "Output (verbatim)", table "By role": the lead made 143 calls,
   with 26,052,659 cache-read tokens and 523,158 one-hour cache-write
-  tokens. These are the largest figures of any role.
+  tokens. These are the largest cache-read and one-hour cache-write figures
+  of any role. It did not make the most calls: the tester made 310 and the
+  developer 267.
 - Section "Comparison with the in-session figures": "this run measures 57.5M
   input and 26.6M for the lead". The lead is the routing seat.
 - Section "Output (verbatim)", table "By model": total cost $23.02
@@ -88,24 +121,32 @@ recomputed:
 Limits of that baseline for this question:
 
 - It reports no dollar figure per role. The lead's cost sits inside the Opus
-  row, shared with the architect and reviewer. The share of spend that is
-  routing is therefore not stated, only the lead's token share.
+  row ($15.41 of $23.02), shared with the architect and reviewer. The share
+  of spend that is routing is therefore not stated. The quoted ceiling is
+  the Opus row, and routing is a part of the lead's part of it.
+- Derived, not quoted: pricing the lead's row with the repo's
+  `.claude/skills/tm-kickoff/token-prices.json` (claude-opus-5-5) gives
+  342 x $4 + 26,052,659 x $0.20 + 523,158 x $8 + 44,707 x $20, all divided
+  by 1,000,000, which is about $10.29. That is about 45% of the $23.02
+  total. The same price table reproduces the $15.41 Opus row. The lead's
+  share of spend is the upper bound for routing, and the real figure is
+  lower.
 - The lead does more than route. It also plans batches, relays handoffs and
   reads results. Routing calls are a part of the lead's tokens, and the
   baseline does not say how large a part.
 
 ## Bound on the saving
 
-The lead's tokens are mostly cache reads (26.05M of the lead's input in the
-table above). A cache read is the lead re-reading its own growing context on
+The lead's tokens are mostly cache reads (26.05M of the lead's input, quoted
+above). A cache read is the lead re-reading its own growing context on
 each turn. Asking Jev a question on the side does not shrink that context,
 because the lead still holds the same history and still takes the next turn.
 
 So the saving from an oracle is only the extra reasoning the lead does on
 the decision turn. That is a small slice of the lead's share, which is itself
-under half of the baseline's input tokens. The upper bound is the lead's
-share. The likely value is far below it. No number can be given from this
-data.
+about 45% of the baseline's spend (derived above, ceiling $15.41 of $23.02
+for the whole Opus row). The upper bound is the lead's share. The likely
+value is far below it. No number can be given from this data.
 
 The cost side is tiny. At the stated price, one call with 3,000 input
 tokens would cost 3,000 x $0.042 / 1,000,000 = $0.000126, and output is
@@ -137,7 +178,7 @@ Why:
   workflows and executable code. Lean skips the architect and tester.
 - The errors are asymmetric, which makes the measure useful. Calling an `M`
   package `S` can send it down the lean track, where the merge rests on the
-  reviewer alone. Calling an `S` package `M` costs one extra stage. This is
+  reviewer alone. Calling an `S` package `M` adds the architect and tester stages. This is
   the same direction as the rule recorded in the #499 batch comments for the
   lean-track check.
 
@@ -199,9 +240,14 @@ Choice question.
 ### Measures
 
 - Agreement: exact match with the label, reported as a count out of 30 and
-  a rate, with the 2x2 confusion matrix. Compare against two baselines: the
-  majority class (always `S`), and the lead's own answer to the same
-  question on the same inputs.
+  a rate, with the 2x2 confusion matrix. Report the rate per stratum (15 `S`,
+  15 `M`) and a population-weighted rate (138 `S` and 76 `M`, so 64% `S`),
+  because the overall rate on a 15/15 sample does not estimate agreement on
+  the real population. Add a confidence interval: at n=30, 26 matches (87%)
+  has a 95% Wilson interval of roughly 70% to 95%, so one run cannot separate
+  close results. Compare against two baselines: the majority class (always `S`,
+  which scores 50% on the 15/15 sample and 64% on the population), and the
+  lead's own answer to the same question on the same inputs.
 - Direction of error: count M-called-S and S-called-M separately. The
   first is the costly one (lean track by mistake).
 - Calibration: use the returned `probabilities` and `confidence`. Report
@@ -210,8 +256,11 @@ Choice question.
   threshold is the number that matters.
 - Cost: input tokens per call, times the stated $0.042 per million. Jev's
   tokenizer is unknown, so count with a stated proxy (characters / 4) and
-  say so. Compare with the lead's cost for the same question, measured with
-  `.claude/skills/tm-kickoff/token-report.mjs` on a run that asks it.
+  say so. Compare with the lead's cost for the same question. The report
+  works per session and per role, not per question, so isolate one question
+  by asking it in a dedicated session, or by bounding a longer session with
+  the script's `--since` and `--until` timestamps around that one turn. Read
+  the lead row of `.claude/skills/tm-kickoff/token-report.mjs` output.
 - Latency: client-side wall time per call, p50 and p95, from one named
   location, against the claimed 70-500 ms. Run each sample once cold and
   once repeated, to see variance.
@@ -222,8 +271,8 @@ Choice question.
 Set before the run, so the result cannot move the goal:
 
 - Agreement above the majority baseline by a margin the owner picks (a
-  proposal: at least 85% overall, and zero M-called-S at the confidence
-  threshold).
+  proposal: at least 85% population-weighted, with the per-stratum rates and
+  interval reported, and zero M-called-S at the confidence threshold).
 - Latency p95 at or under 500 ms.
 - No failed calls in 30.
 
@@ -241,10 +290,14 @@ Reasons:
 1. The saving is small and cannot be sized. The lead's cost is mostly
    cache reads of its own context, and a side call does not reduce that. The
    baseline has no per-role dollar figure to bound it better.
-2. The sizing decision is already cheap and made once per issue, at filing
-   time. A model that matches the lead at best equals the current behavior.
-3. It adds an outside service: a waitlist, a vendor price that the vendor
-   says may not hold, and issue text sent to a third party. Under the
+2. The sizing decision looks cheap and is made once per issue, at filing
+   time. This is a judgment: no figure in the baseline measures the cost of
+   one sizing turn. A model that matches the lead at best equals the current
+   behavior.
+3. It adds an outside service: a waitlist (per the blog), a vendor price
+   the vendor has not proven sustainable (it says it expects pricing "to go
+   down, not up", so that risk does not favor the no-go), and issue text sent
+   to a third party. Under the
    advisor rules, a new cost or dependency parks for the owner.
 4. The latency and price claims are vendor numbers with stated conditions
    missing (query size, load, percentile).
@@ -253,11 +306,11 @@ What would change the answer:
 
 - A later token baseline that gives a per-role or per-decision cost and
   shows routing calls are a large share of the lead's tokens.
-- Access without a waitlist, with a documented request schema and a
-  stated price commitment.
+- Access without a waitlist, with a stated price commitment. The request
+  schema is already public (see "What Jev is"), so it is not the gap.
 - A routing call with a clear, checkable answer that costs the lead real
-  tokens today. Sizing is cheap for the lead already, which is the main reason
-  for the no-go.
+  tokens today. Sizing looks cheap for the lead already (reason 2, a
+  judgment, not a measured figure).
 
 If the owner wants the measured answer anyway, the design above is ready to
 run once access exists. That is the owner's call. This study does not
@@ -266,6 +319,9 @@ request anything.
 ## Sources
 
 - https://docs.typesafe.ai/introduction (accessed 2026-11-11)
+- https://docs.typesafe.ai/introduction/quickstart (accessed 2026-11-11)
+- https://docs.typesafe.ai/api/system-one and
+  https://docs.typesafe.ai/api/errors (accessed 2026-11-11)
 - https://typesafe.ai/blog/introducing-system-one-models-and-jev (accessed
   2026-11-11)
 - `docs/research/2026-09-27-batch-371-token-baseline.md`
