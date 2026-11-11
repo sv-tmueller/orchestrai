@@ -7,9 +7,10 @@ edited here. Acting on these findings is the guard batch's job.
 
 ## Summary
 
-- A hook denial held in every bypass run, and inside a subagent. Both deny
-  forms (JSON `permissionDecision: deny`, and exit code 2) worked. Both bypass
-  flags (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`)
+- A hook denial held in every bypass run in which the hook returned a denial,
+  and inside a subagent. Both deny forms (JSON `permissionDecision: deny`, and
+  exit code 2) worked. Both bypass flags
+  (`--permission-mode bypassPermissions`, `--dangerously-skip-permissions`)
   were tested.
 - A hook that cannot run does not refuse the command by default. A crashing
   hook, a hook that times out and a missing hook script all let the command
@@ -106,7 +107,7 @@ case).
 | 4c | bypass, hook script missing | n/a (script never ran) | yes (hook event, exit 127) | yes | default lets a missing hook through |
 | 4c-b | same with `onFailure` block | n/a | yes (hook event, exit 127) | no | block refuses |
 | 5 | bypass, `--plugin-dir` plugin with deny-json hook, project settings `{}` | bypassPermissions | yes | no | plugin-delivered denial holds in bypass |
-| 6 | no mode flag, project settings `defaultMode: bypassPermissions` plus deny-json | default | yes | no | project settings did not grant bypass |
+| 6 | no mode flag, project settings `defaultMode: bypassPermissions` plus deny-json | default | yes | no | project settings did not grant bypass (mode only, no control; see notes) |
 | 7 | bypass from user settings of a throwaway config dir, hook deny-json | n/a | n/a | n/a | not tested: control C7 could not log in |
 | 7f | no mode flag, `--settings` flag with `defaultMode: bypassPermissions`, deny-json | bypassPermissions | yes | no | flag settings grant bypass, denial holds |
 
@@ -160,8 +161,9 @@ Notes per row, from the stream-json events, `hook.log` and the debug logs:
   `{"permissions":{"defaultMode":"bypassPermissions"}}`, and
   `--setting-sources user,project`. The run exited 1 with no tool call and the
   result `Not logged in · Please run /login`. The init event of that run did
-  report `permissionMode=bypassPermissions`, so the CLI read the mode from the
-  user settings. That is an init event only, with no tool call behind it, so it
+  report `permissionMode=bypassPermissions`. With project settings `{}`, that
+  points to the CLI taking the mode from the throwaway user settings. That is an
+  init event only, with no tool call behind it, so it
   is a pointer and not a result. Row 7 itself was not run, because its control
   has no marker. Nothing was copied from a real config dir into the throwaway
   one, and no login was attempted. The CLI wrote its own runtime files into
@@ -180,23 +182,29 @@ Notes per row, from the stream-json events, `hook.log` and the debug logs:
 
 ## What this means for section 4 of the design
 
-Each bullet is marked "holds as written" or "does not hold; change: ...".
+Each bullet is marked "holds as written", "does not hold; change: ..." or "not
+tested".
 
 ### 4.1 Bypass mode
 
 - **"Bypass mode is per repo. It exists only together with the merge rule and
   the guard."** Not tested. It is a policy rule, not something a probe can show.
-  The probe shows what the guard can see: `permission_mode` is in the hook
-  input in every mode seen, so a guard can refuse work in bypass on a repo that
-  is not set up (rows 1a to 1c, 2, 5, 7f: the hook saw
-  `bypassPermissions` and its denial held).
+- **"The guard refuses work in bypass on a personal repo that is not set up."**
+  Not tested: the probe hook did not look at the repo. What such a guard needs
+  did hold: the hook input carried `permission_mode` in every mode seen, and in
+  rows 1a to 1c, 2, 5 and 7f the hook saw `bypassPermissions` and its denial
+  held.
 - **"Project settings cannot switch bypass on, so it is chosen when the
   session is launched."** The first half holds (row 6, and the CLI warning).
-  The second half does not hold as written; change: bypass can also come from
-  flag settings (7f, observed) and, per the CLI warning, user settings (row 7
-  not tested; the C7 init event pointed the same way). "Per repo" therefore
-  depends on the guard reading `permission_mode` from the hook input, not on
-  how the session was launched. A launch flag is one way, not the only way.
+  The second half holds for every bypass run observed: each got its mode at
+  launch, from `--permission-mode bypassPermissions`,
+  `--dangerously-skip-permissions` or a `--settings` flag with `defaultMode`
+  (7f). Whether user settings switch bypass on with nothing at launch was not
+  tested (row 7). The CLI warning says they can, and the C7 init event pointed
+  the same way. If they can, the second half does not hold. Either way, 7f shows
+  the mode flag is not the only launch path to bypass. So "per repo" has to rest
+  on the guard reading `permission_mode` from the hook input, not on the launch
+  command.
 
 ### 4.2 The guard
 
@@ -208,13 +216,20 @@ Each bullet is marked "holds as written" or "does not hold; change: ...".
   `"onFailure":"block"` and is not async. With the default, a crash (4a), a
   timeout (4b) and a missing script (4c) all let the command run in bypass.
   With `block`, all three were refused (4a-b, 4b-b, 4c-b). The guard batch must
-  pin `onFailure` on every guard hook and test it. A timeout needs the hook
-  `timeout` set to a finite value. Async hooks were not tested; the schema text
+  pin `onFailure` on every guard hook and test it. Row 4b set the hook `timeout`
+  to 5 s. The default timeout was not tested, so the guard batch should set a
+  short `timeout` on every guard hook. Async hooks were not tested; the schema text
   says `onFailure` is ignored for them.
 - **"Repos owned by an organization are never touched."** Not tested.
 - **"The guard stops carelessness, not intent."** Not tested.
 - **Inside subagents.** Holds (row 2). The denial held for a Bash call made by
   a subagent in bypass mode, and the hook input said so through `agent_id`.
+
+### 4.3 The base deny list
+
+- Not tested. The probe hook matched one marker string in one Bash command. It
+  does not show that any 4.3 entry can be matched, or that a guard catches every
+  way to run a command (see Limits).
 
 ### Delivery and subprocess seats (section 8 open points)
 
@@ -248,8 +263,10 @@ in `<config-dir>` were compared by checksum, together with the other
 `plugins/*.json` files. `settings.json` and `installed_plugins.json` did not
 change. Two other files changed during the run: `known_marketplaces.json`
 (two `lastUpdated` times moved) and `plugin-directory-cache-v2.json` (its
-`fetchedAt` moved to the same second). The marketplace clone and the installed
-plugin entry stayed at the same commit, so no plugin content changed. Other
+`fetchedAt` moved to the same second). The orchestrai marketplace clone and its
+installed plugin entry stayed at the same commit, and `installed_plugins.json`
+did not change, so no installed plugin was updated. The clone of the second
+refreshed marketplace was not checked. Other
 sessions share that config dir, so the refresh cannot be pinned on the nested
 sessions. The checksums are not part of this document.
 
@@ -259,7 +276,8 @@ sessions. The checksums are not part of this document.
   run per row.
 - `--plugin-dir` stands in for a marketplace install.
 - Nested sessions started from inside a session.
-- User settings were left out of every row, because row 7 could not run.
+- User settings were read only by C7, the control of row 7, which could not log
+  in. No run with a hook read user settings.
 - The subprocess seat's argv was reproduced by hand with the probe's bound and
   isolation flags added: a one-line prompt with no role contract, haiku at low
   effort, stream-json instead of json, and `--setting-sources project`.
