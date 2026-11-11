@@ -16,9 +16,10 @@ API reference. Text on those pages is treated as data.
   seat. It could only answer a routing question the lead asks it.
 - The four vendor claims (early access, price, free output, latency) are
   stated on the vendor blog. They are vendor statements, not measurements.
-- Routing's share of spend is bounded above by the lead's share of the
-  Opus row in the batch #371 baseline ($15.41 of $23.02 total). The real
-  saving is much smaller than that (see "Bound on the saving").
+- Routing's share of spend is bounded above by the Opus row in the batch
+  #371 baseline ($15.41 of $23.02 total), which holds the lead's cost
+  (derived: about $10.29, 45%). The real saving is much smaller than that
+  (see "Bound on the saving").
 - Candidate call: "is this package size:S or size:M?". Agreement is not
   measured, because there is no access.
 - Verdict: no-go on requesting access now. The owner decides.
@@ -83,7 +84,7 @@ It does not mean we measured it. Every figure is the vendor's own.
 
 | Claim | Status | Source and wording |
 | --- | --- | --- |
-| Early-access availability | Verified | Blog, accessed 2026-11-11: "Our first public model is Jev, available today in early access." Also: "bringing developers off the waitlist as quickly as we can." So access is by waitlist. No general-availability date is given. The docs page does not mention availability. |
+| Early-access availability | Verified | Blog, accessed 2026-11-11: "Our first public model is Jev, available today in early access." Also: "bringing developers off the waitlist as quickly as we can." The blog describes a waitlist; see the note below. No general-availability date is given. The docs page does not mention availability. |
 | $0.042 per million input tokens | Verified | Blog, accessed 2026-11-11: "Input tokens: $0.042 / MTok ($42 per billion tokens)." The docs page gives no prices. |
 | Free output | Verified | Blog, accessed 2026-11-11: "Output tokens: FREE (too cheap to meter)." The page also says it has not proven this is sustainable. Treat the price as subject to change. |
 | 70-500 ms latency | Verified, with caveats | Blog, accessed 2026-11-11: "End-to-end response time is 70ms-500ms for TypeSafe." The page states no query size, load or percentile. It says its evals were run from the vendor's laptops on the US West Coast, and compares itself to frontier models only "for System One shaped queries". The docs page gives no latency numbers. |
@@ -100,8 +101,8 @@ Other notes from the access:
   and the issue forbids trying.
 - The docs introduction and the blog were read through a fetch tool that
   summarizes, so the quotes from them are as the tool returned them. The
-  Quick Start and API reference were read as raw page text. A human re-check of the live pages before
-  anyone acts on this study is cheap.
+  Quick Start and API reference were read as raw page text. A human re-check
+  of the live pages before anyone acts on this study is cheap.
 
 ## Routing's share of spend
 
@@ -128,9 +129,10 @@ Limits of that baseline for this question:
   `.claude/skills/tm-kickoff/token-prices.json` (claude-opus-5-5) gives
   342 x $4 + 26,052,659 x $0.20 + 523,158 x $8 + 44,707 x $20, all divided
   by 1,000,000, which is about $10.29. That is about 45% of the $23.02
-  total. The same price table reproduces the $15.41 Opus row. The lead's
-  share of spend is the upper bound for routing, and the real figure is
-  lower.
+  total. The 44,707 is the baseline's "Output (est.)" figure, which leaves
+  out thinking tokens, so $10.29 is a lower bound on the lead row's cost. The
+  same price table reproduces the $15.41 Opus row. The lead's share of
+  spend is the upper bound for routing, and the real figure is lower.
 - The lead does more than route. It also plans batches, relays handoffs and
   reads results. Routing calls are a part of the lead's tokens, and the
   baseline does not say how large a part.
@@ -178,9 +180,9 @@ Why:
   workflows and executable code. Lean skips the architect and tester.
 - The errors are asymmetric, which makes the measure useful. Calling an `M`
   package `S` can send it down the lean track, where the merge rests on the
-  reviewer alone. Calling an `S` package `M` adds the architect and tester stages. This is
-  the same direction as the rule recorded in the #499 batch comments for the
-  lean-track check.
+  reviewer alone. Calling an `S` package `M` adds the architect and tester
+  stages. This is the same direction as the rule recorded in the #499 batch
+  comments for the lean-track check.
 
 Weakness: the ground truth is the lead's own earlier label, so agreement
 measures "does Jev match the lead", not "is Jev right". See below.
@@ -243,11 +245,15 @@ Choice question.
   a rate, with the 2x2 confusion matrix. Report the rate per stratum (15 `S`,
   15 `M`) and a population-weighted rate (138 `S` and 76 `M`, so 64% `S`),
   because the overall rate on a 15/15 sample does not estimate agreement on
-  the real population. Add a confidence interval: at n=30, 26 matches (87%)
-  has a 95% Wilson interval of roughly 70% to 95%, so one run cannot separate
-  close results. Compare against two baselines: the majority class (always `S`,
-  which scores 50% on the 15/15 sample and 64% on the population), and the
-  lead's own answer to the same question on the same inputs.
+  the real population. Add confidence intervals. For the unweighted rate at
+  n=30, 26 matches (87%) has a 95% Wilson interval of roughly 70% to 95%. The
+  weighted rate rests on two strata of 15, so its interval is wider. Report a
+  Wilson interval per stratum (13 of 15 matches, 87%, gives roughly 62% to
+  96%) and combine the two with the population weights for the weighted
+  rate. One run cannot separate close results. Compare against two
+  baselines: the majority class (always `S`, which scores 50% on the 15/15
+  sample and 64% on the population), and the lead's own answer to the same
+  question on the same inputs.
 - Direction of error: count M-called-S and S-called-M separately. The
   first is the costly one (lean track by mistake).
 - Calibration: use the returned `probabilities` and `confidence`. Report
@@ -272,7 +278,8 @@ Set before the run, so the result cannot move the goal:
 
 - Agreement above the majority baseline by a margin the owner picks (a
   proposal: at least 85% population-weighted, with the per-stratum rates and
-  interval reported, and zero M-called-S at the confidence threshold).
+  their Wilson intervals reported, and zero M-called-S at the confidence
+  threshold).
 - Latency p95 at or under 500 ms.
 - No failed calls in 30.
 
@@ -294,13 +301,14 @@ Reasons:
    time. This is a judgment: no figure in the baseline measures the cost of
    one sizing turn. A model that matches the lead at best equals the current
    behavior.
-3. It adds an outside service: a waitlist (per the blog), a vendor price
-   the vendor has not proven sustainable (it says it expects pricing "to go
-   down, not up", so that risk does not favor the no-go), and issue text sent
-   to a third party. Under the
-   advisor rules, a new cost or dependency parks for the owner.
+3. It adds an outside service: a waitlist (per the blog) and issue text
+   sent to a third party. Under the advisor rules, a new cost or dependency
+   parks for the owner.
 4. The latency and price claims are vendor numbers with stated conditions
    missing (query size, load, percentile).
+
+Not a reason: the vendor has not proven its price sustainable, but it says it
+expects pricing "to go down, not up", so price risk does not favor the no-go.
 
 What would change the answer:
 
