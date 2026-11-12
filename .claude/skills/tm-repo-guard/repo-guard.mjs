@@ -1237,9 +1237,14 @@ export function runApply(run, argv) {
   if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
 
-  const write = writeGuarded(run, target)
   const lines = []
-  let failed = false
+  const failed = writeOps(writeGuarded(run, target), ops, lines)
+  return rereadAndReport(call, login, target, lines, failed)
+}
+
+// Writes the ops in order and stops at the first failure. Returns whether it
+// stopped. A refusal by the fence counts as a failure, like a failed write.
+function writeOps(write, ops, lines) {
   for (const op of ops) {
     let res
     try {
@@ -1250,13 +1255,16 @@ export function runApply(run, argv) {
     if (res.code !== 0) {
       lines.push(`write failed: ${opText(op)}: ${parseError(res).message}`)
       lines.push('stopped here, no further writes were attempted')
-      failed = true
-      break
+      return true
     }
     lines.push(`wrote: ${opText(op)}`)
   }
+  return false
+}
 
-  // Re-read through the read guard so the printed state is what GitHub holds.
+// Re-reads through the read guard so the printed state is what GitHub holds.
+// The exit code is 0 only when no write failed and the repo reads as set up.
+function rereadAndReport(call, login, target, lines, failed) {
   try {
     const after = gatherFacts(call, readRepo(call, target.repo), target.repo)
     const result = evaluate(after)
