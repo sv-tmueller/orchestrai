@@ -23,6 +23,7 @@ import {
   selectRepos,
   prCheckNames,
   newestChecks,
+  ciCheckState,
   classifyProtection,
   countTestFiles,
   hasPipelineLabels,
@@ -61,7 +62,7 @@ const ACCEPTED_READS = [
   ['api', 'repos/acme/widget/branches/main/protection'],
   ['api', 'repos/acme/widget/git/trees/main?recursive=1'],
   ['api', '--paginate', '--slurp', 'repos/acme/widget/labels?per_page=100'],
-  ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup'],
+  ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,state,headRefName,statusCheckRollup'],
 ]
 
 describe('isReadOnly', () => {
@@ -318,6 +319,105 @@ describe('newestChecks', () => {
   test('names are deduplicated and sorted', () => {
     const prs = [pr(5, [done('b'), done('a'), done('b')])]
     assert.deepEqual(newestChecks(prs).names, ['a', 'b'])
+  })
+
+  describe('the CI setup PR counts only once it is merged', () => {
+    const setup = (number, state, rollup = [done('tests')]) => ({
+      number,
+      isDraft: false,
+      state,
+      headRefName: 'orchestrai/ci-setup',
+      statusCheckRollup: rollup,
+    })
+    const older = pr(4, [done('Unit tests')])
+
+    test('an open CI PR with finished red checks is skipped', () => {
+      const prs = [setup(9, 'OPEN', [done('tests', 'FAILURE')]), older]
+      assert.deepEqual(newestChecks(prs), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('an open CI PR with finished green checks is skipped too', () => {
+      assert.deepEqual(newestChecks([setup(9, 'OPEN'), older]), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('a closed CI PR is skipped', () => {
+      assert.deepEqual(newestChecks([setup(9, 'CLOSED'), older]), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('a merged CI PR counts', () => {
+      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older]), { pr: 9, names: ['tests'] })
+    })
+
+    test('a PR from another branch counts whatever its state', () => {
+      const other = { ...setup(9, 'OPEN'), headRefName: 'feat/x' }
+      assert.deepEqual(newestChecks([other, older]), { pr: 9, names: ['tests'] })
+      const noHead = { ...setup(9, 'OPEN'), headRefName: undefined, state: undefined }
+      assert.deepEqual(newestChecks([noHead, older]), { pr: 9, names: ['tests'] })
+    })
+
+    test('only the exact branch name is skipped', () => {
+      const near = { ...setup(9, 'OPEN'), headRefName: 'orchestrai/ci-setup-2' }
+      assert.deepEqual(newestChecks([near, older]), { pr: 9, names: ['tests'] })
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ciCheckState
+// ---------------------------------------------------------------------------
+describe('ciCheckState', () => {
+  const done = (name, conclusion = 'SUCCESS') => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion })
+  const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: '' })
+  const ctx = (context, state = 'SUCCESS') => ({ __typename: 'StatusContext', context, state })
+
+  test('green: tests passed and nothing else is red or pending', () => {
+    assert.equal(ciCheckState([done('tests')]), 'green')
+    assert.equal(ciCheckState([done('tests'), done('lint'), ctx('ci/legacy')]), 'green')
+  })
+
+  test('NEUTRAL and SKIPPED are passes, but a SKIPPED tests did not run', () => {
+    assert.equal(ciCheckState([done('tests'), done('lint', 'NEUTRAL'), done('e2e', 'SKIPPED')]), 'green')
+    assert.equal(ciCheckState([done('tests', 'SKIPPED')]), 'missing')
+  })
+
+  test('missing: an empty, null or undefined rollup, or no tests among the names', () => {
+    assert.equal(ciCheckState([]), 'missing')
+    assert.equal(ciCheckState(null), 'missing')
+    assert.equal(ciCheckState(undefined), 'missing')
+    assert.equal(ciCheckState([done('lint')]), 'missing')
+  })
+
+  test('a status context named tests counts as tests having run', () => {
+    assert.equal(ciCheckState([ctx('tests')]), 'green')
+  })
+
+  test('pending: a check run or a status that is not finished', () => {
+    assert.equal(ciCheckState([running('tests')]), 'pending')
+    assert.equal(ciCheckState([done('tests'), running('lint')]), 'pending')
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'PENDING')]), 'pending')
+  })
+
+  test('red: any finished item that is not a pass', () => {
+    for (const conclusion of ['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STALE', 'STARTUP_FAILURE', null]) {
+      assert.equal(ciCheckState([done('tests', conclusion)]), 'red', String(conclusion))
+    }
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'FAILURE')]), 'red')
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'ERROR')]), 'red')
+  })
+
+  test('red beats pending, and pending beats missing', () => {
+    assert.equal(ciCheckState([done('lint', 'FAILURE'), running('tests')]), 'red')
+    assert.equal(ciCheckState([done('tests', 'FAILURE'), running('lint')]), 'red')
+    assert.equal(ciCheckState([running('lint')]), 'pending')
+  })
+
+  test('orchestrai/* items are ignored, whatever their state', () => {
+    assert.equal(ciCheckState([done('tests'), ctx('orchestrai/review', 'FAILURE'), ctx('orchestrai/test', 'PENDING')]), 'green')
+    assert.equal(ciCheckState([ctx('orchestrai/review')]), 'missing')
+  })
+
+  test('returns a plain string', () => {
+    assert.equal(typeof ciCheckState([done('tests')]), 'string')
   })
 })
 
@@ -1091,7 +1191,7 @@ describe('collect', () => {
       allow_force_pushes: { enabled: false },
       enforce_admins: { enabled: true },
     }),
-    'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,statusCheckRollup': json([
+    'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([
       pr(12, [check('Unit tests')]),
       pr(11, [check('Unit tests'), check('Version bump guard')]),
     ]),
@@ -1105,7 +1205,7 @@ describe('collect', () => {
       403,
       'Upgrade to GitHub Pro or make this repository public to enable this feature.'
     ),
-    'pr list --repo octo/private-notes --state all --limit 10 --json number,isDraft,statusCheckRollup': json([
+    'pr list --repo octo/private-notes --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([
       pr(3, []),
     ]),
     'api repos/octo/private-notes/git/trees/main?recursive=1': tree(['.github/workflows/ci.yml', 'notes.md']),
@@ -1117,7 +1217,7 @@ describe('collect', () => {
     // An empty repo: no branch yet, and the tree endpoint answers 409.
     'api repos/octo/blank-repo': json({ private: false, allow_auto_merge: false, allow_squash_merge: false, default_branch: 'main' }),
     'api repos/octo/blank-repo/branches/main/protection': fail(404, 'Branch not found'),
-    'pr list --repo octo/blank-repo --state all --limit 10 --json number,isDraft,statusCheckRollup': json([]),
+    'pr list --repo octo/blank-repo --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([]),
     'api repos/octo/blank-repo/git/trees/main?recursive=1': fail(409, 'Git Repository is empty.'),
     'api --paginate --slurp repos/octo/blank-repo/labels?per_page=100': json([[]]),
   }
@@ -1125,7 +1225,7 @@ describe('collect', () => {
   const expectedPerRepo = (name) => [
     `api repos/octo/${name}`,
     `api repos/octo/${name}/branches/main/protection`,
-    `pr list --repo octo/${name} --state all --limit 10 --json number,isDraft,statusCheckRollup`,
+    `pr list --repo octo/${name} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`,
     `api repos/octo/${name}/git/trees/main?recursive=1`,
     `api --paginate --slurp repos/octo/${name}/labels?per_page=100`,
   ]
@@ -1222,7 +1322,7 @@ describe('collect', () => {
   describe('not required: only names from PRs older than the deciding PR', () => {
     const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: null })
     const widgetWith = (prs) => {
-      const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,statusCheckRollup'
+      const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup'
       const table = { ...responses, [key]: json(prs) }
       return collect(recordingRunner(table).run).entries.find((e) => e.repo === 'octo/widget-api')
     }
@@ -1237,6 +1337,21 @@ describe('collect', () => {
     test('a name only on a newer draft PR is not listed', () => {
       const widget = widgetWith([pr(13, [check('Unit tests'), check('lint')], true), pr(12, [check('Unit tests')])])
       assert.deepEqual(widget.result.notRequired, [])
+    })
+
+    describe('the CI setup PR', () => {
+      const setup = (state, rollup) => ({ ...pr(13, rollup), state, headRefName: 'orchestrai/ci-setup' })
+
+      test('an open CI PR whose tests failed still reads as needs CI first', () => {
+        const widget = widgetWith([setup('OPEN', [{ ...check('tests'), conclusion: 'FAILURE' }])])
+        assert.deepEqual(widget.facts.ciChecks, [])
+        assert.ok(evaluate(widget.facts).missing.includes('needs CI first'))
+      })
+
+      test('a merged CI PR is the deciding PR', () => {
+        const widget = widgetWith([setup('MERGED', [check('tests')])])
+        assert.deepEqual(widget.facts.ciChecks, ['tests'])
+      })
     })
 
     test('a name only on an older PR is listed', () => {
@@ -1854,6 +1969,47 @@ describe('opText', () => {
 })
 
 // ---------------------------------------------------------------------------
+// The CI setup writes (issue #561). The texts are copied here on purpose, the
+// same way LABELS is: a change to the script's constants has to fail a test.
+// ---------------------------------------------------------------------------
+const CI_BRANCH = 'orchestrai/ci-setup'
+const CI_FILE = '.github/workflows/ci.yml'
+const CI_MESSAGE = 'ci: add the tests workflow'
+const CI_TITLE = 'ci: add the tests workflow'
+const CI_BODY =
+  'Added by /tm-repo-guard apply. The guard merges this PR once the tests check passes, then makes tests a required check.'
+const CI_TEXT = 'name: tests\non: [pull_request]\njobs:\n  tests:\n    runs-on: ubuntu-latest\n'
+const BASE_SHA = 'a'.repeat(40)
+const PR_SHA = 'b'.repeat(40)
+const b64 = (text) => Buffer.from(text, 'utf8').toString('base64')
+
+const CI_NO_PR = { text: CI_TEXT, pr: null }
+const CI_WITH_PR = { text: CI_TEXT, pr: { number: 12, sha: PR_SHA } }
+
+// One accepted call per CI write: the args, the input, and the context that must accept it.
+const ciRef = {
+  args: ['api', '-X', 'POST', 'repos/octo/widget/git/refs', '--input', '-'],
+  body: { ref: `refs/heads/${CI_BRANCH}`, sha: BASE_SHA },
+}
+const ciFile = {
+  args: ['api', '-X', 'PUT', `repos/octo/widget/contents/${CI_FILE}`, '--input', '-'],
+  body: { message: CI_MESSAGE, content: b64(CI_TEXT), branch: CI_BRANCH },
+}
+const ciPull = {
+  args: ['api', '-X', 'POST', 'repos/octo/widget/pulls', '--input', '-'],
+  body: { title: CI_TITLE, head: CI_BRANCH, base: 'main', body: CI_BODY, draft: false },
+}
+const ciMerge = {
+  args: ['api', '-X', 'PUT', 'repos/octo/widget/pulls/12/merge', '--input', '-'],
+  body: { merge_method: 'squash', sha: PR_SHA },
+}
+const ciDelete = {
+  args: ['api', '-X', 'DELETE', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`],
+  body: undefined,
+}
+const CI_WRITES = { ref: ciRef, file: ciFile, pull: ciPull, merge: ciMerge, delete: ciDelete }
+
+// ---------------------------------------------------------------------------
 // Write fence
 // ---------------------------------------------------------------------------
 describe('isAllowedWrite', () => {
@@ -1916,6 +2072,12 @@ describe('isAllowedWrite', () => {
     test(`refuses ${name}`, () => {
       assert.equal(isAllowedWrite(args, put.body, TARGET), false)
       assert.equal(isAllowedWrite(args, { allow_auto_merge: true }, TARGET), false)
+    })
+
+    // The CI routes must not reopen anything the table above covers.
+    test(`refuses ${name}, with a full CI context too`, () => {
+      const bodies = [put.body, { allow_auto_merge: true }, ...Object.values(CI_WRITES).map((w) => w.body)]
+      for (const body of bodies) assert.equal(isAllowedWrite(args, body, TARGET, CI_WITH_PR), false)
     })
   }
 
@@ -2057,6 +2219,184 @@ describe('isAllowedWrite: labels', () => {
   })
 })
 
+describe('writeArgs for the CI setup writes', () => {
+  test('is the 6-argument form for a body and the 4-argument form for DELETE', () => {
+    assert.deepEqual(writeArgs({ method: 'POST', path: 'repos/octo/widget/git/refs', body: ciRef.body }), ciRef.args)
+    assert.deepEqual(writeArgs({ method: 'PUT', path: `repos/octo/widget/contents/${CI_FILE}`, body: ciFile.body }), ciFile.args)
+    assert.deepEqual(writeArgs({ method: 'DELETE', path: `repos/octo/widget/git/refs/heads/${CI_BRANCH}` }), ciDelete.args)
+  })
+})
+
+describe('isAllowedWrite: the CI setup writes', () => {
+  const ok = (w, ci) => isAllowedWrite(w.args, w.body, TARGET, ci)
+
+  test('accepts each of the five writes with a context that has a PR', () => {
+    for (const [name, w] of Object.entries(CI_WRITES)) assert.equal(ok(w, CI_WITH_PR), true, name)
+  })
+
+  test('accepts the first three while the PR is still null, and refuses merge and delete', () => {
+    assert.equal(ok(ciRef, CI_NO_PR), true)
+    assert.equal(ok(ciFile, CI_NO_PR), true)
+    assert.equal(ok(ciPull, CI_NO_PR), true)
+    assert.equal(ok(ciMerge, CI_NO_PR), false)
+    assert.equal(ok(ciDelete, CI_NO_PR), false)
+  })
+
+  test('the PR base is the target branch', () => {
+    const release = { repo: 'octo/widget', branch: 'release/1' }
+    assert.equal(isAllowedWrite(ciPull.args, { ...ciPull.body, base: 'release/1' }, release, CI_NO_PR), true)
+    assert.equal(isAllowedWrite(ciPull.args, ciPull.body, release, CI_NO_PR), false)
+  })
+
+  test('with no CI context, which is the normal path, every one of them is refused', () => {
+    for (const ci of [undefined, null]) {
+      for (const [name, w] of Object.entries(CI_WRITES)) assert.equal(ok(w, ci), false, name)
+    }
+  })
+
+  test('a malformed CI context refuses everything and never throws', () => {
+    const contexts = [
+      'text',
+      42,
+      [],
+      {},
+      { pr: { number: 12, sha: PR_SHA } },
+      { text: undefined, pr: CI_WITH_PR.pr },
+      { text: null, pr: CI_WITH_PR.pr },
+      { text: 5, pr: CI_WITH_PR.pr },
+      { text: ['a'], pr: CI_WITH_PR.pr },
+    ]
+    for (const ci of contexts) {
+      for (const [name, w] of Object.entries(CI_WRITES)) {
+        assert.doesNotThrow(() => ok(w, ci), `${name} with ${JSON.stringify(ci)}`)
+        assert.equal(ok(w, ci), false, `${name} with ${JSON.stringify(ci)}`)
+      }
+    }
+  })
+
+  const badPrs = [
+    ['a string PR number', { number: '12', sha: PR_SHA }],
+    ['a zero PR number', { number: 0, sha: PR_SHA }],
+    ['a negative PR number', { number: -12, sha: PR_SHA }],
+    ['a fractional PR number', { number: 12.5, sha: PR_SHA }],
+    ['no PR number', { sha: PR_SHA }],
+    ['a short SHA', { number: 12, sha: PR_SHA.slice(0, 39) }],
+    ['an uppercase SHA', { number: 12, sha: PR_SHA.toUpperCase() }],
+    ['a non-hex SHA', { number: 12, sha: 'g'.repeat(40) }],
+    ['no SHA', { number: 12 }],
+    ['a PR that is a string', '12'],
+    ['a PR that is an array', [12, PR_SHA]],
+  ]
+  for (const [name, pr] of badPrs) {
+    test(`merge and delete are refused with ${name}`, () => {
+      const ci = { text: CI_TEXT, pr }
+      assert.equal(isAllowedWrite(ciMerge.args, { merge_method: 'squash', sha: pr.sha }, TARGET, ci), false)
+      assert.equal(isAllowedWrite(['api', '-X', 'PUT', `repos/octo/widget/pulls/${pr.number}/merge`, '--input', '-'], ciMerge.body, TARGET, ci), false)
+      assert.equal(ok(ciMerge, ci), false)
+      assert.equal(ok(ciDelete, ci), false)
+    })
+  }
+
+  // Each row changes one thing in an otherwise accepted call.
+  const withBody = (w, over) => [w.args, { ...w.body, ...over }]
+  const without = (w, key) => [w.args, (({ [key]: _, ...rest }) => rest)(w.body)]
+  const withArgs = (w, args, body = w.body) => [args, body]
+  const refused = [
+    // create ref
+    ['ref: refs/heads/main', ...withBody(ciRef, { ref: 'refs/heads/main' })],
+    ['ref: another branch', ...withBody(ciRef, { ref: 'refs/heads/orchestrai/other' })],
+    ['ref: a tag', ...withBody(ciRef, { ref: `refs/tags/${CI_BRANCH}` })],
+    ['ref: no refs/heads prefix', ...withBody(ciRef, { ref: CI_BRANCH })],
+    ['ref: a short sha', ...withBody(ciRef, { sha: 'a'.repeat(39) })],
+    ['ref: a non-string sha', ...withBody(ciRef, { sha: 7 })],
+    ['ref: an extra key', ...withBody(ciRef, { force: true })],
+    ['ref: no sha', ...without(ciRef, 'sha')],
+    ['ref: another repo', ...withArgs(ciRef, ['api', '-X', 'POST', 'repos/octo/other/git/refs', '--input', '-'])],
+    ['ref: PUT instead of POST', ...withArgs(ciRef, ['api', '-X', 'PUT', 'repos/octo/widget/git/refs', '--input', '-'])],
+    ['ref: PATCH an existing ref', ...withArgs(ciRef, ['api', '-X', 'PATCH', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`, '--input', '-'])],
+    // put file
+    ['file: one byte off', ...withBody(ciFile, { content: b64(CI_TEXT + '\n') })],
+    ['file: the text is not base64', ...withBody(ciFile, { content: CI_TEXT })],
+    ['file: a sha key', ...withBody(ciFile, { sha: BASE_SHA })],
+    ['file: branch main', ...withBody(ciFile, { branch: 'main' })],
+    ['file: another message', ...withBody(ciFile, { message: 'chore: edit' })],
+    ['file: an extra key', ...withBody(ciFile, { committer: { name: 'x', email: 'x@y.z' } })],
+    ['file: no branch', ...without(ciFile, 'branch')],
+    ['file: another file', ...withArgs(ciFile, ['api', '-X', 'PUT', 'repos/octo/widget/contents/.github/workflows/other.yml', '--input', '-'])],
+    ['file: another repo', ...withArgs(ciFile, ['api', '-X', 'PUT', `repos/octo/other/contents/${CI_FILE}`, '--input', '-'])],
+    ['file: a query string', ...withArgs(ciFile, ['api', '-X', 'PUT', `repos/octo/widget/contents/${CI_FILE}?ref=main`, '--input', '-'])],
+    ['file: POST instead of PUT', ...withArgs(ciFile, ['api', '-X', 'POST', `repos/octo/widget/contents/${CI_FILE}`, '--input', '-'])],
+    ['file: DELETE with a body', ...withArgs(ciFile, ['api', '-X', 'DELETE', `repos/octo/widget/contents/${CI_FILE}`, '--input', '-'])],
+    // open PR
+    ['pull: draft true', ...withBody(ciPull, { draft: true })],
+    ['pull: draft as a string', ...withBody(ciPull, { draft: 'false' })],
+    ['pull: head main', ...withBody(ciPull, { head: 'main' })],
+    ['pull: a head from a fork', ...withBody(ciPull, { head: `evil:${CI_BRANCH}` })],
+    ['pull: another base', ...withBody(ciPull, { base: 'dev' })],
+    ['pull: another title', ...withBody(ciPull, { title: 'ci: other' })],
+    ['pull: another body', ...withBody(ciPull, { body: 'hello' })],
+    ['pull: an extra key', ...withBody(ciPull, { maintainer_can_modify: true })],
+    ['pull: no draft key', ...without(ciPull, 'draft')],
+    ['pull: another repo', ...withArgs(ciPull, ['api', '-X', 'POST', 'repos/octo/other/pulls', '--input', '-'])],
+    ['pull: a path under pulls', ...withArgs(ciPull, ['api', '-X', 'POST', 'repos/octo/widget/pulls/12', '--input', '-'])],
+    ['pull: PATCH on a PR', ...withArgs(ciPull, ['api', '-X', 'PATCH', 'repos/octo/widget/pulls/12', '--input', '-'], { state: 'closed' })],
+    // merge
+    ['merge: another PR number', ...withArgs(ciMerge, ['api', '-X', 'PUT', 'repos/octo/widget/pulls/13/merge', '--input', '-'])],
+    ['merge: a path with undefined', ...withArgs(ciMerge, ['api', '-X', 'PUT', 'repos/octo/widget/pulls/undefined/merge', '--input', '-'])],
+    ['merge: another repo', ...withArgs(ciMerge, ['api', '-X', 'PUT', 'repos/octo/other/pulls/12/merge', '--input', '-'])],
+    ['merge: a commit_title key', ...withBody(ciMerge, { commit_title: 'x' })],
+    ['merge: a commit_message key', ...withBody(ciMerge, { commit_message: 'x' })],
+    ['merge: merge method merge', ...withBody(ciMerge, { merge_method: 'merge' })],
+    ['merge: merge method rebase', ...withBody(ciMerge, { merge_method: 'rebase' })],
+    ['merge: another sha', ...withBody(ciMerge, { sha: 'c'.repeat(40) })],
+    ['merge: no sha', ...without(ciMerge, 'sha')],
+    ['merge: POST instead of PUT', ...withArgs(ciMerge, ['api', '-X', 'POST', 'repos/octo/widget/pulls/12/merge', '--input', '-'])],
+    ['merge: a query string', ...withArgs(ciMerge, ['api', '-X', 'PUT', 'repos/octo/widget/pulls/12/merge?x=1', '--input', '-'])],
+    // delete ref
+    ['delete: 6 arguments', ...withArgs(ciDelete, [...ciDelete.args, '--input', '-'])],
+    ['delete: 5 arguments', ...withArgs(ciDelete, [...ciDelete.args, '--paginate'])],
+    ['delete: refs/heads/main', ...withArgs(ciDelete, ['api', '-X', 'DELETE', 'repos/octo/widget/git/refs/heads/main'])],
+    ['delete: another branch', ...withArgs(ciDelete, ['api', '-X', 'DELETE', 'repos/octo/widget/git/refs/heads/orchestrai/other'])],
+    ['delete: a tag', ...withArgs(ciDelete, ['api', '-X', 'DELETE', `repos/octo/widget/git/refs/tags/${CI_BRANCH}`])],
+    ['delete: a longer path', ...withArgs(ciDelete, ['api', '-X', 'DELETE', `repos/octo/widget/git/refs/heads/${CI_BRANCH}/x`])],
+    ['delete: another repo', ...withArgs(ciDelete, ['api', '-X', 'DELETE', `repos/octo/other/git/refs/heads/${CI_BRANCH}`])],
+    ['delete: with a body', ciDelete.args, {}],
+    ['delete: the repo itself', ...withArgs(ciDelete, ['api', '-X', 'DELETE', 'repos/octo/widget'])],
+    ['delete: GET method', ...withArgs(ciDelete, ['api', '-X', 'GET', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`])],
+    ['delete: --method form', ...withArgs(ciDelete, ['api', '--method=DELETE', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`])],
+    // 4 arguments of any other kind
+    ['4 arguments: a PUT without --input', ['api', '-X', 'PUT', 'repos/octo/widget/branches/main/protection'], undefined],
+    ['4 arguments: another command', ['repo', '-X', 'DELETE', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`], undefined],
+    ['4 arguments: another method flag', ['api', '-H', 'DELETE', `repos/octo/widget/git/refs/heads/${CI_BRANCH}`], undefined],
+  ]
+  for (const [name, args, body] of refused) {
+    test(`refuses ${name}`, () => {
+      assert.equal(isAllowedWrite(args, body, TARGET, CI_WITH_PR), false)
+    })
+  }
+
+  test('a context with a PR and a context without one differ only on merge and delete', () => {
+    const changed = Object.entries(CI_WRITES)
+      .filter(([, w]) => ok(w, CI_WITH_PR) !== ok(w, CI_NO_PR))
+      .map(([name]) => name)
+    assert.deepEqual(changed, ['merge', 'delete'])
+  })
+
+  test('the text in the file body is bound to ci.text', () => {
+    assert.equal(ok(ciFile, { text: CI_TEXT + '#', pr: null }), false)
+    assert.equal(ok(ciFile, { text: CI_TEXT, pr: null }), true)
+    assert.equal(ok(ciFile, { text: '', pr: null }), false)
+  })
+
+  test('multi-byte text is encoded as utf8', () => {
+    const text = 'name: tests # caf\u00e9\n'
+    const body = { ...ciFile.body, content: Buffer.from(text, 'utf8').toString('base64') }
+    assert.equal(isAllowedWrite(ciFile.args, body, TARGET, { text, pr: null }), true)
+    const latin1 = { ...ciFile.body, content: Buffer.from(text, 'latin1').toString('base64') }
+    assert.equal(isAllowedWrite(ciFile.args, latin1, TARGET, { text, pr: null }), false)
+  })
+})
+
 describe('writeGuarded', () => {
   const [put, patch] = buildWrites(TARGET, noProtection)
 
@@ -2068,6 +2408,29 @@ describe('writeGuarded', () => {
     }, TARGET)
     w(writeArgs(put), put.body)
     assert.deepEqual(seen, [[writeArgs(put), JSON.stringify(put.body)]])
+  })
+
+  test('passes the CI context to the fence, and forwards a body-less DELETE with no input', () => {
+    const seen = []
+    const w = writeGuarded((args, input) => {
+      seen.push([args, input])
+      return { code: 0, stdout: '{}', stderr: '' }
+    }, TARGET, CI_WITH_PR)
+    w(ciFile.args, ciFile.body)
+    w(ciMerge.args, ciMerge.body)
+    w(ciDelete.args, undefined)
+    assert.deepEqual(seen, [
+      [ciFile.args, JSON.stringify(ciFile.body)],
+      [ciMerge.args, JSON.stringify(ciMerge.body)],
+      [ciDelete.args, undefined],
+    ])
+  })
+
+  test('without a CI context every CI write is refused before the runner sees it', () => {
+    const seen = []
+    const w = writeGuarded((args) => seen.push(args), TARGET)
+    for (const c of Object.values(CI_WRITES)) assert.throws(() => w(c.args, c.body), /not an allowed write/)
+    assert.deepEqual(seen, [])
   })
 
   test('refuses anything else before the runner sees it', () => {
@@ -2094,6 +2457,18 @@ describe('the read guard and the write fence stay apart', () => {
     for (const args of ACCEPTED_READS) {
       assert.equal(isAllowedWrite(args, put.body, TARGET), false, args.join(' '))
       assert.equal(isAllowedWrite(args, patch.body, TARGET), false, args.join(' '))
+    }
+  })
+
+  test('isReadOnly refuses the five CI setup writes', () => {
+    for (const [name, w] of Object.entries(CI_WRITES)) assert.equal(isReadOnly(w.args), false, name)
+  })
+
+  test('isAllowedWrite refuses every read call Check makes, with a full CI context too', () => {
+    for (const args of ACCEPTED_READS) {
+      for (const w of Object.values(CI_WRITES)) {
+        assert.equal(isAllowedWrite(args, w.body, TARGET, CI_WITH_PR), false, args.join(' '))
+      }
     }
   })
 
@@ -2167,7 +2542,7 @@ describe('runApply', () => {
         if (state.protectionError) return state.protectionError
         return state.protection ? ok(state.protection) : fail(404, 'Branch not protected')
       }
-      if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,statusCheckRollup`) {
+      if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`) {
         return ok(state.prs)
       }
       if (key === `api ${repoPath}/git/trees/main?recursive=1`) {

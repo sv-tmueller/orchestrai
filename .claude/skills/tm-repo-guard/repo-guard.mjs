@@ -14,8 +14,11 @@
  *
  * Apply changes one repo, and only after the owner confirms. Its writes go
  * through `writeGuarded()`, a separate fence that accepts exactly the branch
- * protection PUT, the repo PATCH and the create or update of the six workflow
- * labels, with bodies it validates. The read guard is never loosened for them.
+ * protection PUT, the repo PATCH, the create or update of the six workflow
+ * labels and, on a repo that needs CI, the five CI setup writes (create the
+ * `orchestrai/ci-setup` branch, put the workflow file, open the PR, merge it,
+ * delete the branch), with bodies it validates. The read guard is never
+ * loosened for them.
  *
  * Statuses (issue #501) prints the commands that record both verdict statuses
  * on a PR head and queue its merge, for the owner to run in their own shell.
@@ -157,6 +160,17 @@ const LABELS = [
   { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
 ]
 
+// The CI setup PR (issue #561, spec sections 3.3 and 6). The commit message,
+// the PR title and the PR body are fixed texts, so the fence can match them.
+const CI_BRANCH = 'orchestrai/ci-setup'
+const CI_FILE = '.github/workflows/ci.yml'
+const CI_CHECK = 'tests'
+const CI_MESSAGE = 'ci: add the tests workflow'
+const CI_TITLE = 'ci: add the tests workflow'
+const CI_BODY =
+  'Added by /tm-repo-guard apply. The guard merges this PR once the tests check passes, then makes tests a required check.'
+const HEAD_SHA = /^[0-9a-f]{40}$/
+
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const hasExactKeys = (obj, keys) => {
   const have = Object.keys(obj).sort()
@@ -219,28 +233,108 @@ function validRepoPatch(b) {
   return keys.length > 0 && keys.every((k) => PATCH_KEYS.includes(k) && b[k] === true)
 }
 
+// The CI setup context: `{ text, pr }`. Apply builds it on the CI path only;
+// the normal path passes none, so every CI write is refused there. The fence
+// checks the shape itself and never throws on a bad one.
+const ciValid = (ci) => isObject(ci) && typeof ci.text === 'string'
+const ciPrValid = (ci) =>
+  ciValid(ci) &&
+  isObject(ci.pr) &&
+  Number.isSafeInteger(ci.pr.number) &&
+  ci.pr.number > 0 &&
+  typeof ci.pr.sha === 'string' &&
+  HEAD_SHA.test(ci.pr.sha)
+
+const ciRefsPath = (target) => `repos/${target.repo}/git/refs`
+const ciBranchRefPath = (target) => `${ciRefsPath(target)}/heads/${CI_BRANCH}`
+const ciFilePath = (target) => `repos/${target.repo}/contents/${CI_FILE}`
+const pullsPath = (target) => `repos/${target.repo}/pulls`
+
+function validCiRef(b) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['ref', 'sha']) &&
+    b.ref === `refs/heads/${CI_BRANCH}` &&
+    typeof b.sha === 'string' &&
+    HEAD_SHA.test(b.sha)
+  )
+}
+
+// No `sha` key, so an existing file can never be overwritten.
+function validCiFile(b, ci) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['message', 'content', 'branch']) &&
+    b.message === CI_MESSAGE &&
+    b.branch === CI_BRANCH &&
+    b.content === Buffer.from(ci.text, 'utf8').toString('base64')
+  )
+}
+
+function validCiPull(b, target) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['title', 'head', 'base', 'body', 'draft']) &&
+    b.title === CI_TITLE &&
+    b.head === CI_BRANCH &&
+    b.base === target.branch &&
+    b.body === CI_BODY &&
+    b.draft === false
+  )
+}
+
+function validCiMerge(b, ci) {
+  return isObject(b) && hasExactKeys(b, ['merge_method', 'sha']) && b.merge_method === 'squash' && b.sha === ci.pr.sha
+}
+
 export function writeArgs(op) {
+  // A DELETE has no body, so it uses the 4-argument form with no --input.
+  if (op.method === 'DELETE') return ['api', '-X', 'DELETE', op.path]
   return ['api', '-X', op.method, op.path, '--input', '-']
 }
 
-// An allowlist: the protection PUT, the repo PATCH, and the label create and
-// update. Everything else is refused.
-export function isAllowedWrite(args, input, target) {
-  if (!Array.isArray(args) || args.length !== 6) return false
+// An allowlist: the protection PUT, the repo PATCH, the label create and
+// update, and the five CI setup writes (ref, file, PR, merge, ref delete).
+// Everything else is refused.
+export function isAllowedWrite(args, input, target, ci) {
+  if (!Array.isArray(args)) return false
+  // Only the CI branch delete has no body.
+  if (args.length === 4) {
+    const [cmd, flag, method, path] = args
+    return (
+      cmd === 'api' &&
+      flag === '-X' &&
+      method === 'DELETE' &&
+      input === undefined &&
+      ciPrValid(ci) &&
+      path === ciBranchRefPath(target)
+    )
+  }
+  if (args.length !== 6) return false
   const [cmd, flag, method, path, inputFlag, dash] = args
   if (cmd !== 'api' || flag !== '-X' || inputFlag !== '--input' || dash !== '-') return false
-  if (method === 'PUT') return path === protectionPath(target) && validProtectionBody(input)
+  if (method === 'PUT') {
+    if (path === protectionPath(target)) return validProtectionBody(input)
+    if (ciValid(ci) && path === ciFilePath(target)) return validCiFile(input, ci)
+    if (ciPrValid(ci) && path === `${pullsPath(target)}/${ci.pr.number}/merge`) return validCiMerge(input, ci)
+    return false
+  }
   if (method === 'PATCH') {
     if (path === `repos/${target.repo}`) return validRepoPatch(input)
     return validLabelUpdate(input, target, path)
   }
-  if (method === 'POST') return path === labelsPath(target) && validLabelCreate(input)
+  if (method === 'POST') {
+    if (path === labelsPath(target)) return validLabelCreate(input)
+    if (ciValid(ci) && path === ciRefsPath(target)) return validCiRef(input)
+    if (ciValid(ci) && path === pullsPath(target)) return validCiPull(input, target)
+    return false
+  }
   return false
 }
 
-export function writeGuarded(run, target) {
+export function writeGuarded(run, target, ci) {
   return (args, input) => {
-    if (!isAllowedWrite(args, input, target)) {
+    if (!isAllowedWrite(args, input, target, ci)) {
       throw new Error(`refusing a call that is not an allowed write: gh ${args.join(' ')}`)
     }
     return run(args, JSON.stringify(input))
@@ -280,20 +374,41 @@ function isCompleted(item) {
   return item.status === 'COMPLETED'
 }
 
+// The names of the checks that ran: skipped ones did not, and a check that
+// shows up twice counts once. Shared so the two readers cannot drift apart.
+function ranNames(items) {
+  return [...new Set(items.filter((i) => i.conclusion !== 'SKIPPED').map((i) => (isStatusContext(i) ? i.context : i.name)))].sort()
+}
+
 // The checks the newest finished PR ran. That PR, not the last ten together,
 // says what runs today, so a retired check does not stay required for good.
 export function newestChecks(prs) {
   const byNumber = [...prs].sort((a, b) => b.number - a.number)
   for (const pr of byNumber) {
     if (pr.isDraft === true) continue
+    // The CI setup PR says what runs only once its workflow file is on the
+    // default branch. Before that, a finished run on it must not read as CI.
+    if (pr.headRefName === CI_BRANCH && pr.state !== 'MERGED') continue
     const ci = (pr.statusCheckRollup ?? []).filter((item) => !isVerdict(item))
     if (ci.length === 0 || !ci.every(isCompleted)) continue
-    const names = [
-      ...new Set(ci.filter((i) => i.conclusion !== 'SKIPPED').map((i) => (isStatusContext(i) ? i.context : i.name))),
-    ].sort()
+    const names = ranNames(ci)
     if (names.length > 0) return { pr: pr.number, names }
   }
   return { pr: null, names: [] }
+}
+
+const PASSING_CONCLUSIONS = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
+
+// Where the CI setup PR's checks stand: 'red' (a finished check failed),
+// 'pending' (one has not finished), 'missing' (`tests` has not run) or 'green'.
+// Pending comes before missing because both mean wait.
+export function ciCheckState(rollup) {
+  const ci = (rollup ?? []).filter((item) => !isVerdict(item))
+  const passed = (i) => (isStatusContext(i) ? i.state === 'SUCCESS' : PASSING_CONCLUSIONS.includes(i.conclusion))
+  if (ci.some((i) => isCompleted(i) && !passed(i))) return 'red'
+  if (ci.some((i) => !isCompleted(i))) return 'pending'
+  if (!ranNames(ci).includes(CI_CHECK)) return 'missing'
+  return 'green'
 }
 
 // gh exits 1 on an HTTP error but still writes the JSON body to stdout.
@@ -668,7 +783,7 @@ function gatherFacts(call, info, requested) {
   if (protection.kind === 'error') throw new Error(`branch protection: ${protection.message}`)
 
   const prs = parseOk(
-    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup']),
+    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'number,isDraft,state,headRefName,statusCheckRollup']),
     'pull requests'
   )
 
@@ -1040,7 +1155,6 @@ export function runApply(run, argv) {
 
 const STATUSES_USAGE = 'usage: repo-guard.mjs statuses <repo> <pr>'
 const PR_NUMBER = /^[1-9][0-9]*$/
-const HEAD_SHA = /^[0-9a-f]{40}$/
 
 // Start with "by hand: " so a status the owner posted is plain on the commit.
 // None of them matches a description the pipeline writes.
