@@ -1137,7 +1137,8 @@ function ciStepOps(target, existing) {
 
 // The plan for a repo with test files and no finished PR check. Reads only
 // until --confirm has a token that matches.
-function planCiSetup(call, args, facts, target) {
+function planCiSetup(env, args, facts, target) {
+  const { call } = env
   if (facts.testFilesTruncated) {
     return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
   }
@@ -1186,14 +1187,162 @@ function planCiSetup(call, args, facts, target) {
   const ci = { install: found.install, test: found.test, text, check: CI_CHECK, existing: resume.existing }
   const token = confirmToken(target, ops, ci)
   if (args.confirm !== null) {
-    return refusal('setting up CI is not written yet (issue #554), so --confirm does nothing here')
+    if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
+    return runCiSetup(env, target, ops, ci)
   }
   const { before, after } = splitCiOps(target, ops)
   const runOrder = [...before, ...ciStepOps(target, ci.existing), ...after]
   return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), runOrder, token, ci) }
 }
 
-export function runApply(run, argv) {
+const CI_POLL_MS = 30 * 1000
+const CI_WAIT_MS = 20 * 60 * 1000
+
+function readDefaultBranchHead(call, target) {
+  const body = parseOk(call(['api', `repos/${target.repo}/branches/${encodeURIComponent(target.branch)}`]), `head of the default branch ${target.branch}`)
+  return body.commit?.sha
+}
+
+// The CI setup run (spec section 3.2, deltas D2 to D4). The token matched, so
+// `ops` and `ci` are the plan the owner saw. The order: everything but the
+// protection PUT, the branch, the file, the PR, then wait for `tests`, check the
+// PR, merge, delete the branch, and last the PUT. Nothing is written after a stop.
+function runCiSetup({ run, call, clock, login }, target, ops, ci) {
+  const { existing } = ci
+  const { before, after: plannedAfter } = splitCiOps(target, ops)
+  const lines = []
+  const output = (code) => ({ code, text: lines.join('\n') + '\n' })
+  // Only a stop before the first write may say nothing was written.
+  const stop = (code, ...why) => {
+    lines.push(...why)
+    lines.push(lines.some((l) => l.startsWith('wrote: ')) ? 'stopped here, no further writes were attempted' : 'nothing written')
+    return output(code)
+  }
+  const prName = (n) => `PR #${n} (https://github.com/${target.repo}/pull/${n})`
+
+  // The fence context is its own object. `pr` stays null until the PR passed
+  // the check below, so the merge and the delete cannot be sent before that.
+  const earlyWrite = writeGuarded(run, target, { text: ci.text, pr: null })
+  if (writeOps(earlyWrite, before, lines)) return output(1)
+
+  const creates = []
+  if (!existing.branch) {
+    let head
+    try {
+      head = readDefaultBranchHead(call, target)
+    } catch (err) {
+      return stop(1, `could not read: ${err.message}`)
+    }
+    creates.push({ method: 'POST', path: ciRefsPath(target), body: { ref: `refs/heads/${CI_BRANCH}`, sha: head } })
+  }
+  if (!existing.file) {
+    creates.push({
+      method: 'PUT',
+      path: ciFilePath(target),
+      body: { message: CI_MESSAGE, content: Buffer.from(ci.text, 'utf8').toString('base64'), branch: CI_BRANCH },
+    })
+  }
+  if (existing.pr === null) {
+    creates.push({
+      method: 'POST',
+      path: pullsPath(target),
+      body: { title: CI_TITLE, head: CI_BRANCH, base: target.branch, body: CI_BODY, draft: false },
+    })
+  }
+  if (writeOps(earlyWrite, creates, lines)) return output(1)
+
+  // Poll until `tests` is green. The sha the merge pins and the contents check
+  // both come from the poll that read green, so a push after that poll makes
+  // the merge fail instead of landing a commit whose checks never ran.
+  const deadline = clock.now() + CI_WAIT_MS
+  let pr
+  for (;;) {
+    let open
+    try {
+      open = readOpenCiPrs(call, target)
+    } catch (err) {
+      return stop(1, `could not read: ${err.message}`, `the PR from ${CI_BRANCH} may still be open`)
+    }
+    if (open.length === 0) return stop(1, `the PR from ${CI_BRANCH} is no longer open`)
+    if (open.length > 1) return stop(2, `refusing: more than one open PR from ${CI_BRANCH}: ${open.map((p) => `#${p.number}`).join(', ')}`)
+    pr = open[0]
+    const problem = ciPrProblem(pr, target)
+    if (problem !== null) return stop(2, `refusing: ${problem}. The PR stays open`)
+    const state = ciCheckState(pr.statusCheckRollup)
+    if (state === 'green') break
+    if (state === 'red') {
+      return stop(1, `a check failed on ${prName(pr.number)}. The PR stays open; fix it or close it, then run apply again`)
+    }
+    const now = clock.now()
+    if (now >= deadline) {
+      const why = state === 'missing' ? 'the tests check has not run' : 'a check is still running'
+      return stop(1, `no result after 20 minutes: ${why} on ${prName(pr.number)}. The PR stays open; run apply again to keep waiting`)
+    }
+    clock.sleep(Math.min(CI_POLL_MS, deadline - now))
+  }
+
+  const stays = `${prName(pr.number)} stays open`
+  let problem
+  try {
+    problem = ciPrContentsProblem(call, target, ci.text, pr.number, pr.headRefOid)
+  } catch (err) {
+    return stop(1, `could not read: ${err.message}`, stays)
+  }
+  if (problem !== null) return stop(2, `refusing: ${problem}`, stays)
+
+  const lateWrite = writeGuarded(run, target, { text: ci.text, pr: { number: pr.number, sha: pr.headRefOid } })
+  const merge = { method: 'PUT', path: `${pullsPath(target)}/${pr.number}/merge`, body: { merge_method: 'squash', sha: pr.headRefOid } }
+  if (writeOps(lateWrite, [merge], lines)) {
+    lines.push(stays)
+    return output(1)
+  }
+  if (writeOps(lateWrite, [{ method: 'DELETE', path: ciBranchRefPath(target) }], lines)) {
+    lines.push(`${prName(pr.number)} is merged; the next apply takes the normal path`)
+    return output(1)
+  }
+
+  // The PR is merged, so the facts now include its checks. Plan the protection
+  // from them and write it only when it is what the owner was shown.
+  let facts
+  try {
+    facts = gatherFacts(call, readRepo(call, target.repo), target.repo)
+  } catch (err) {
+    return stop(1, `could not re-read the repo: ${err.message}`)
+  }
+  if (planChanges(facts).needsCi) {
+    return stop(1, `the repo still needs CI: no finished check on the merged ${prName(pr.number)}`)
+  }
+  const left = buildWrites(target, facts)
+  if (canonical(left) !== canonical(plannedAfter)) {
+    const ran = facts.ciChecks
+    const why =
+      canonical(ran) !== canonical([CI_CHECK])
+        ? `checks that ran on PR #${pr.number}: ${ran.join(', ') || 'none'}; the plan expected: ${CI_CHECK}`
+        : 'the repo changed during the wait'
+    if (left.length === 0) {
+      lines.push(`${why}; nothing is left to write`)
+      return rereadAndReport(call, login, target, lines, false)
+    }
+    // A plan for the normal path, with its own token: the owner decides again.
+    lines.push(`refusing: ${why}`, 'stopped here, no further writes were attempted')
+    lines.push(planText(target, planChanges(facts), left, confirmToken(target, left)).trimEnd())
+    return output(2)
+  }
+
+  const failed = writeOps(lateWrite, plannedAfter, lines)
+  return rereadAndReport(call, login, target, lines, failed)
+}
+
+// The CI run waits for a check. A synchronous sleep keeps `runApply`
+// synchronous, and tests pass a fake clock so none of them waits.
+export const SYSTEM_CLOCK = {
+  now: () => Date.now(),
+  sleep: (ms) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  },
+}
+
+export function runApply(run, argv, clock = SYSTEM_CLOCK) {
   const args = parseApplyArgs(argv)
   if (args.error) return { code: 2, text: `${args.error}\n` }
 
@@ -1224,7 +1373,7 @@ export function runApply(run, argv) {
   const target = { repo: facts.fullName, branch: facts.defaultBranch }
   const plan = planChanges(facts)
   if (plan.blocked) return refusal(`${target.repo} is blocked: ${plan.blocked}`)
-  if (plan.needsCi) return planCiSetup(call, args, facts, target)
+  if (plan.needsCi) return planCiSetup({ run, call, clock, login }, args, facts, target)
   if (args.install !== null) {
     return { code: 2, text: `${USAGE} (--install and --test apply only to a repo that needs CI)\n` }
   }
