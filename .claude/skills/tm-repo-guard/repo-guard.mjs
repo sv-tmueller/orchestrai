@@ -24,6 +24,8 @@
  * Usage: node repo-guard.mjs                           Check
  *        node repo-guard.mjs apply <repo>              plan: prints changes and a token
  *        node repo-guard.mjs apply <repo> --confirm T  writes, when T matches the plan
+ *        node repo-guard.mjs apply <repo> --install C --test C
+ *                                                      plan with given CI commands (repo needs CI)
  *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
  * Exit:  Check: 0 when every repo and config dir was read, 1 when any could not be.
  *        Apply: 0 done or nothing to change, 1 read or write failed,
@@ -594,9 +596,11 @@ function gatherFacts(call, info, requested) {
   const treeRes = call(['api', `repos/${fullName}/git/trees/${branch}?recursive=1`])
   let testFileCount = 0
   let testFilesTruncated = false
+  let treePaths = []
   if (treeRes.code === 0) {
     const tree = JSON.parse(treeRes.stdout)
-    testFileCount = countTestFiles((tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path))
+    treePaths = (tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path)
+    testFileCount = countTestFiles(treePaths)
     testFilesTruncated = tree.truncated === true
   } else if (parseError(treeRes).status !== 409) {
     // 409 is an empty repo, which has no files to count.
@@ -624,6 +628,7 @@ function gatherFacts(call, info, requested) {
     ciChecks: deciding.names,
     testFileCount,
     testFilesTruncated,
+    treePaths,
     pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),
   }
 }
@@ -705,10 +710,15 @@ export function render({ login, entries }) {
 const NAME_PART = /^[A-Za-z0-9_.-]+$/
 const validPart = (p) => NAME_PART.test(p) && !p.startsWith('-') && !p.startsWith('.')
 
-const USAGE = 'usage: repo-guard.mjs apply <repo> [--confirm <token>]'
+const USAGE = 'usage: repo-guard.mjs apply <repo> [--install <cmd> --test <cmd>] [--confirm <token>]'
+
+// Line breaks and other control characters would break the one-line `run:`
+// value in the generated YAML.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/
 
 function parseApplyArgs(argv) {
   let confirm = null
+  const commands = { '--install': null, '--test': null }
   const repos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -717,6 +727,14 @@ function parseApplyArgs(argv) {
       if (confirm !== null || value === undefined || value.startsWith('-')) return { error: `${USAGE} (--confirm needs one token)` }
       confirm = value
       i++
+    } else if (a in commands) {
+      const value = argv[i + 1]
+      if (commands[a] !== null || value === undefined || value.startsWith('-') || value.trim() === '') {
+        return { error: `${USAGE} (${a} needs one command)` }
+      }
+      if (CONTROL_CHARS.test(value)) return { error: `${USAGE} (${a} must not contain a control character or line break)` }
+      commands[a] = value
+      i++
     } else if (a.startsWith('-')) {
       return { error: `${USAGE} (unknown option ${a})` }
     } else {
@@ -724,17 +742,41 @@ function parseApplyArgs(argv) {
     }
   }
   if (repos.length !== 1) return { error: `${USAGE} (name exactly one repo)` }
+  if ((commands['--install'] === null) !== (commands['--test'] === null)) {
+    return { error: `${USAGE} (give --install and --test together, or neither)` }
+  }
 
   const parts = repos[0].split('/')
   if (parts.length > 2 || !parts.every(validPart)) return { error: `refusing: invalid repo name: ${repos[0]}` }
-  return { confirm, owner: parts.length === 2 ? parts[0] : null, name: parts[parts.length - 1] }
+  return {
+    confirm,
+    install: commands['--install'],
+    test: commands['--test'],
+    owner: parts.length === 2 ? parts[0] : null,
+    name: parts[parts.length - 1],
+  }
 }
 
 const refusal = (message) => ({ code: 2, text: `refusing: ${message}\nnothing written\n` })
 const readFailure = (message) => ({ code: 1, text: `could not read: ${message}\nnothing written\n` })
 
-function planText(target, plan, ops, token) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`, 'changes:']
+function ciText(ci) {
+  const lines = [
+    'CI setup: no finished, non-draft PR has run a check, so apply would add a CI workflow',
+    `  install: ${ci.install ?? 'none'}`,
+    `  test: ${ci.test}`,
+    `  expected check: ${ci.check}`,
+    '  file: .github/workflows/ci.yml',
+  ]
+  for (const line of ci.text.trimEnd().split('\n')) lines.push(line === '' ? '' : `    ${line}`)
+  lines.push('  note: --confirm does not write CI setup yet (issue #554)')
+  return lines
+}
+
+function planText(target, plan, ops, token, ci) {
+  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  if (ci) lines.push(...ciText(ci))
+  lines.push('changes:')
   for (const c of plan.changes) lines.push(`  ${c}`)
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
@@ -742,6 +784,68 @@ function planText(target, plan, ops, token) {
   for (const op of ops) lines.push(`  ${op.method} ${op.path}`)
   lines.push(`confirm token: ${token}`)
   return lines.join('\n') + '\n'
+}
+
+// The contents API answers with the file as base64 in `content`.
+function decodeJsonFile(stdout) {
+  try {
+    return JSON.parse(Buffer.from(JSON.parse(stdout).content, 'base64').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+const signedCommitsRefusal = (target, facts, ops) =>
+  facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')
+    ? refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
+    : null
+
+// The plan for a repo with test files and no finished PR check. Reads only; the
+// writes that would set CI up are not here yet (issue #554), so --confirm refuses.
+function planCiSetup(call, args, facts, target) {
+  if (facts.testFilesTruncated) {
+    return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
+  }
+  if (facts.treePaths.some((p) => p.startsWith('.github/workflows/'))) {
+    return refusal(
+      `${target.repo} already has a workflow under .github/workflows/ but no finished, non-draft PR has run it. ` +
+        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
+    )
+  }
+
+  const undetected = (why) =>
+    refusal(
+      `${target.repo} needs CI, but the guard could not detect the install and test commands: ${why}. ` +
+        'Give them with --install "<cmd>" --test "<cmd>"'
+    )
+
+  let found = { ok: true, install: args.install, test: args.test, runtime: [] }
+  if (args.install === null) {
+    let pkg = null
+    if (facts.treePaths.includes('package.json')) {
+      const res = call(['api', `repos/${facts.fullName}/contents/package.json?ref=${encodeURIComponent(target.branch)}`])
+      if (res.code !== 0) return readFailure(`package.json: ${parseError(res).message}`)
+      pkg = decodeJsonFile(res.stdout)
+      if (!isObject(pkg)) return undetected('package.json is not valid JSON')
+    }
+    found = detectStack(facts.treePaths, pkg)
+    if (!found.ok) return undetected(found.found)
+  }
+
+  const ci = {
+    install: found.install,
+    test: found.test,
+    text: buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime }),
+    check: 'tests',
+  }
+  const ops = buildWrites(target, facts)
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
+  const token = confirmToken(target, ops, ci)
+  if (args.confirm !== null) {
+    return refusal('setting up CI is not written yet (issue #554), so --confirm does nothing here')
+  }
+  return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), ops, token, ci) }
 }
 
 export function runApply(run, argv) {
@@ -774,13 +878,15 @@ export function runApply(run, argv) {
   const target = { repo: facts.fullName, branch: facts.defaultBranch }
   const plan = planChanges(facts)
   if (plan.blocked) return refusal(`${target.repo} is blocked: ${plan.blocked}`)
-  if (plan.needsCi) return refusal(`${target.repo} needs CI first: it has test files but no finished, non-draft PR has run a check`)
+  if (plan.needsCi) return planCiSetup(call, args, facts, target)
+  if (args.install !== null) {
+    return { code: 2, text: `${USAGE} (--install and --test apply only to a repo that needs CI)\n` }
+  }
   if (plan.changes.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
 
   const ops = buildWrites(target, facts)
-  if (facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')) {
-    return refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
-  }
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
   const token = confirmToken(target, ops)
   if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
