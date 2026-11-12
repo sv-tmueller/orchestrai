@@ -49,6 +49,7 @@ import { decide } from '../../skills/tm-kickoff/ship-decision.mjs'
 // ---------------------------------------------------------------------------
 // Every read call Check makes. The write fence is tested against the same list.
 const ACCEPTED_READS = [
+  ['--version'],
   ['api', 'user'],
   ['api', '--paginate', '--slurp', 'user/repos?affiliation=owner&per_page=100'],
   ['api', 'repos/acme/widget'],
@@ -86,6 +87,9 @@ describe('isReadOnly', () => {
     ['repo', 'edit', 'acme/widget', '--enable-auto-merge'],
     ['label', 'create', 'x'],
     ['issue', 'list'],
+    ['--version', 'extra'],
+    ['version'],
+    ['api', '--version'],
     [],
   ]
   for (const args of rejected) {
@@ -93,6 +97,103 @@ describe('isReadOnly', () => {
       assert.equal(isReadOnly(args), false)
     })
   }
+})
+
+// ---------------------------------------------------------------------------
+// gh version (issue #553)
+// ---------------------------------------------------------------------------
+// Check and Apply read the labels with `gh api --slurp`, which needs gh 2.48.
+// On an older gh they now fail first with one line that names the version.
+describe('gh version', () => {
+  const ubuntu245 = 'gh version 2.45.0 (2025-07-18 Ubuntu 2.45.0-1ubuntu0.3)\nhttps://github.com/cli/cli/releases/tag/v2.45.0\n'
+  const out = (stdout, code = 0) => ({ code, stdout, stderr: '' })
+
+  // Answers --version with `version` and every other call with an error, and
+  // records what it was asked.
+  function runnerFor(version) {
+    const calls = []
+    const run = (args) => {
+      calls.push(args)
+      if (args.join(' ') === '--version') return version
+      return { code: 1, stdout: '', stderr: 'gh: stop here' }
+    }
+    return { run, calls }
+  }
+  const keys = (calls) => calls.map((a) => a.join(' '))
+
+  const tooOld = [
+    ['2.45.0 from Ubuntu', ubuntu245, 'gh 2.45.0 found, gh 2.48 or newer needed'],
+    ['2.47.9', out('gh version 2.47.9 (2024-04-10)\n'), 'gh 2.47.9 found, gh 2.48 or newer needed'],
+    ['1.99.0', out('gh version 1.99.0 (2022-01-01)\n'), 'gh 1.99.0 found, gh 2.48 or newer needed'],
+  ]
+  for (const [name, answer, line] of tooOld) {
+    const version = typeof answer === 'string' ? out(answer) : answer
+    test(`${name}: Check throws one line and makes no other call`, () => {
+      const { run, calls } = runnerFor(version)
+      assert.throws(() => collect(run), (err) => err.message === line)
+      assert.deepEqual(keys(calls), ['--version'])
+    })
+    test(`${name}: Apply exits 1 with the line and makes no other call`, () => {
+      const { run, calls } = runnerFor(version)
+      const { code, text } = runApply(run, ['widget'])
+      assert.equal(code, 1)
+      assert.equal(text, `could not read: ${line}\nnothing written\n`)
+      assert.deepEqual(keys(calls), ['--version'])
+    })
+  }
+
+  const newEnough = [
+    ['2.48.0', 'gh version 2.48.0 (2024-04-24)\n'],
+    ['2.103.3, where a float compare would refuse', 'gh version 2.103.3 (2026-10-26)\n'],
+    ['3.0.0', 'gh version 3.0.0 (2027-01-01)\n'],
+  ]
+  for (const [name, stdout] of newEnough) {
+    test(`${name}: Check goes on to api user`, () => {
+      const { run, calls } = runnerFor(out(stdout))
+      assert.throws(() => collect(run), /user/)
+      assert.deepEqual(keys(calls), ['--version', 'api user'])
+    })
+    test(`${name}: Apply goes on to api user`, () => {
+      const { run, calls } = runnerFor(out(stdout))
+      runApply(run, ['widget'])
+      assert.deepEqual(keys(calls), ['--version', 'api user'])
+    })
+  }
+
+  const unreadable = [
+    ['a non-zero exit', out('gh version 2.60.0 (2025-01-01)\n', 1)],
+    ['empty output', out('')],
+    ['a dev build', out('gh version DEV (unknown)\n')],
+    ['text that is not a version line', out('something else\n')],
+    ['a version line on the second line only', out('\ngh version 2.60.0 (2025-01-01)\n')],
+  ]
+  for (const [name, version] of unreadable) {
+    const line = 'gh version unknown, gh 2.48 or newer needed'
+    test(`${name}: Check fails closed with the unknown line`, () => {
+      const { run, calls } = runnerFor(version)
+      assert.throws(() => collect(run), (err) => err.message === line)
+      assert.deepEqual(keys(calls), ['--version'])
+    })
+    test(`${name}: Apply fails closed with the unknown line`, () => {
+      const { run, calls } = runnerFor(version)
+      const { code, text } = runApply(run, ['widget'])
+      assert.equal(code, 1)
+      assert.equal(text, `could not read: ${line}\nnothing written\n`)
+      assert.deepEqual(keys(calls), ['--version'])
+    })
+  }
+
+  test('a usage error in Apply still exits 2 with no gh call', () => {
+    const { run, calls } = runnerFor(out(ubuntu245))
+    assert.equal(runApply(run, []).code, 2)
+    assert.deepEqual(calls, [])
+  })
+
+  test('Statuses makes no version call', () => {
+    const { run, calls } = runnerFor(out(ubuntu245))
+    runStatuses(run, ['widget', '42'])
+    assert.equal(keys(calls).includes('--version'), false)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -760,6 +861,7 @@ describe('collect', () => {
 
   // Keyed by the joined args, so any call outside this set fails loudly.
   const responses = {
+    '--version': { code: 0, stdout: 'gh version 2.103.3 (2026-10-26)\n', stderr: '' },
     'api user': json({ login: 'octo' }),
     'api --paginate --slurp user/repos?affiliation=owner&per_page=100': json([
       [repo('octo', 'widget-api'), repo('octo', 'private-notes')],
@@ -834,6 +936,7 @@ describe('collect', () => {
     assert.deepEqual(
       calls.map((a) => a.join(' ')).sort(),
       [
+        '--version',
         'api user',
         'api --paginate --slurp user/repos?affiliation=owner&per_page=100',
         ...expectedPerRepo('widget-api'),
@@ -1499,6 +1602,7 @@ describe('runApply', () => {
         allow_squash_merge: false,
         ...over.repo,
       },
+      version: over.version ?? { code: 0, stdout: 'gh version 2.103.3 (2026-10-26)\n', stderr: '' },
       protection: over.protection ?? null,
       protectionError: over.protectionError ?? null,
       prs: over.prs ?? [pr(12, [done('Unit tests')])],
@@ -1514,6 +1618,7 @@ describe('runApply', () => {
     function run(args, input) {
       state.calls.push({ args, input })
       const key = args.join(' ')
+      if (key === '--version') return state.version
       if (key === 'api user') return ok({ login: state.login })
       if (/^api repos\/[^/]+\/[^/]+$/i.test(key)) {
         if (key.toLowerCase() === `api ${repoPath}`) return ok(state.repo)
@@ -1946,7 +2051,7 @@ describe('runApply', () => {
       runApply(fake.run, ['some-org/x'])
       assert.deepEqual(
         fake.state.calls.map((c) => c.args.join(' ')),
-        ['api user']
+        ['--version', 'api user']
       )
     })
 
