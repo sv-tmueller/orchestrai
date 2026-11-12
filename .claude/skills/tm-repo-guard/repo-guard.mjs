@@ -320,6 +320,129 @@ export function hasPipelineLabels(names) {
   return names.includes('in-progress') && names.includes('needs-human')
 }
 
+// ---------------------------------------------------------------------------
+// CI setup (issue #551): detect the stack, build the ci.yml
+// ---------------------------------------------------------------------------
+
+const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod']
+const NODE_LOCKFILES = [
+  ['package-lock.json', 'npm ci'],
+  ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
+  ['yarn.lock', 'yarn install --frozen-lockfile'],
+]
+
+// npm's default script is `echo "Error: no test specified" && exit 1`.
+function hasRealTestScript(pkg) {
+  const script = pkg?.scripts?.test
+  return typeof script === 'string' && script.trim() !== '' && !/no test specified/i.test(script)
+}
+
+// A test file whose nearest manifest is in a subfolder is not run by a command
+// at the root. Only when every test file is like that is detection unsafe.
+function subfolderOnlyTests(paths) {
+  const manifestDirs = paths
+    .filter((p) => p.includes('/') && MANIFESTS.includes(p.slice(p.lastIndexOf('/') + 1)))
+    .map((p) => p.slice(0, p.lastIndexOf('/')))
+  const tests = paths.filter((p) => countTestFiles([p]) === 1)
+  if (tests.length === 0) return []
+  const owners = tests.map((t) => manifestDirs.filter((d) => t.startsWith(`${d}/`)).sort((a, b) => a.length - b.length)[0])
+  return owners.every((o) => o !== undefined) ? [...new Set(owners)].sort() : []
+}
+
+const setup = (uses, withInputs) => ({ uses, with: withInputs })
+
+// Reads the root of the tree (`paths`, every blob path) and the parsed root
+// package.json (or null). The runtime comes from the repo's own version file
+// when there is one, so the YAML copies no text out of the repo.
+export function detectStack(paths, pkg) {
+  const root = new Set(paths.filter((p) => !p.includes('/')))
+  const subfolders = subfolderOnlyTests(paths)
+  if (subfolders.length > 0) {
+    return { ok: false, found: `test files only under subfolders with their own manifest: ${subfolders.map((d) => `${d}/`).join(', ')}` }
+  }
+
+  const rows = []
+  if (root.has('package.json') && hasRealTestScript(pkg)) rows.push('node')
+  if (root.has('requirements.txt') || root.has('pyproject.toml')) rows.push('python')
+  if (root.has('go.mod')) rows.push('go')
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      found: root.has('package.json')
+        ? 'package.json has no real test script, and no requirements.txt, pyproject.toml or go.mod at the root'
+        : 'no package.json with a test script, requirements.txt, pyproject.toml or go.mod at the root',
+    }
+  }
+  if (rows.length > 1) {
+    const names = { node: 'package.json', python: root.has('requirements.txt') ? 'requirements.txt' : 'pyproject.toml', go: 'go.mod' }
+    return { ok: false, found: `more than one stack at the root: ${rows.map((r) => names[r]).join(', ')}` }
+  }
+
+  if (rows[0] === 'go') {
+    return { ok: true, install: null, test: 'go test ./...', runtime: [setup('actions/setup-go@v7', { 'go-version-file': 'go.mod' })] }
+  }
+  if (rows[0] === 'python') {
+    const pip = root.has('requirements.txt') ? 'pip install -r requirements.txt' : 'pip install -e .'
+    const version = root.has('.python-version') ? { 'python-version-file': '.python-version' } : { 'python-version': '3.12' }
+    return { ok: true, install: pip, test: 'pytest', runtime: [setup('actions/setup-python@v7', version)] }
+  }
+
+  const locks = NODE_LOCKFILES.filter(([file]) => root.has(file))
+  if (locks.length > 1) return { ok: false, found: `more than one lockfile: ${locks.map(([f]) => f).join(', ')}` }
+  const lock = locks[0]?.[0]
+  const manager = lock === 'pnpm-lock.yaml' ? 'pnpm' : lock === 'yarn.lock' ? 'yarn' : 'npm'
+  const node = setup('actions/setup-node@v7', root.has('.nvmrc') ? { 'node-version-file': '.nvmrc' } : { 'node-version': 'lts/*' })
+  // pnpm is not preinstalled on ubuntu-latest. The action needs a version unless package.json pins one.
+  const pinned = typeof pkg?.packageManager === 'string' && pkg.packageManager.startsWith('pnpm@')
+  const runtime = manager === 'pnpm' ? [setup('pnpm/action-setup@v6', pinned ? {} : { version: 'latest' }), node] : [node]
+  return {
+    ok: true,
+    install: locks[0]?.[1] ?? 'npm install',
+    test: `${manager} test`,
+    runtime,
+  }
+}
+
+const yamlString = (value) => JSON.stringify(value)
+
+// The job id is `tests` and it has no `name:`, so the required check is called
+// `tests`. No paths-ignore: a required check it skips never completes. Every
+// value from outside is JSON-quoted, which is valid YAML.
+export function buildCiYaml({ branch, install, test, runtime }) {
+  const lines = [
+    'name: CI',
+    '',
+    'on:',
+    '  pull_request:',
+    '    types: [opened, synchronize, reopened, ready_for_review]',
+    '  push:',
+    `    branches: [${yamlString(branch)}]`,
+    '',
+    'concurrency:',
+    '  group: ${{ github.workflow }}-${{ github.ref }}',
+    '  cancel-in-progress: true',
+    '',
+    'jobs:',
+    '  tests:',
+    '    runs-on: ubuntu-latest',
+    '    timeout-minutes: 10',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+  ]
+  for (const step of runtime) {
+    lines.push(`      - uses: ${step.uses}`)
+    const inputs = Object.entries(step.with)
+    if (inputs.length > 0) {
+      lines.push('        with:')
+      for (const [key, value] of inputs) lines.push(`          ${key}: ${yamlString(value)}`)
+    }
+  }
+  if (install !== null) lines.push('      - name: Install dependencies', `        run: ${yamlString(install)}`)
+  lines.push('      - name: Test', `        run: ${yamlString(test)}`)
+  return lines.join('\n') + '\n'
+}
+
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
@@ -376,11 +499,18 @@ export function evaluate(facts) {
 const CARRY_OFF = Object.fromEntries([...CARRIED, 'dismiss_stale_reviews'].map((k) => [k, false]))
 const REPO_CHANGES = ['auto merge on', 'squash merge allowed']
 
+// On the CI setup path Apply adds the pipeline labels and the tests check in
+// the same run, so the protection is built as if both already exist.
+export function factsAfterApply(facts) {
+  if (!planChanges(facts).needsCi) return facts
+  return { ...facts, ciChecks: ['tests'], pipelineLabels: true }
+}
+
 // The writes that bring a repo to the plan: 0, 1 or 2, protection first. If the
 // PATCH fails the repo is protected with auto merge still off, which the ship
 // decision already treats as not set up.
 export function buildWrites(target, facts) {
-  const plan = planChanges(facts)
+  const plan = planChanges(factsAfterApply(facts))
   const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
   const ops = []
 
@@ -427,8 +557,11 @@ function canonical(value) {
 
 // Covers the exact bodies, so a confirm run can only write the plan that was
 // shown. Any change in between (a new PR, a setting flipped by hand) changes it.
-export function confirmToken(target, ops) {
-  const text = canonical({ repo: target.repo, branch: target.branch, ops })
+export function confirmToken(target, ops, ci) {
+  // Left out when absent: canonical(undefined) is the string "undefined", which
+  // would change every token for a plan without CI.
+  const body = { repo: target.repo, branch: target.branch, ops, ...(ci ? { ci } : {}) }
+  const text = canonical(body)
   return createHash('sha256').update(text).digest('hex').slice(0, 12)
 }
 

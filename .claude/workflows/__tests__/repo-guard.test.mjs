@@ -26,6 +26,9 @@ import {
   classifyProtection,
   countTestFiles,
   hasPipelineLabels,
+  detectStack,
+  buildCiYaml,
+  factsAfterApply,
   planChanges,
   evaluate,
   collect,
@@ -399,6 +402,215 @@ describe('hasPipelineLabels', () => {
     assert.equal(hasPipelineLabels(['in-progress', 'phase:developer']), false)
     assert.equal(hasPipelineLabels(['needs-human']), false)
     assert.equal(hasPipelineLabels([]), false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectStack / buildCiYaml (issue #551)
+// ---------------------------------------------------------------------------
+describe('detectStack', () => {
+  const REAL = { scripts: { test: 'vitest run' } }
+  const NODE_SETUP = { uses: 'actions/setup-node@v7', with: { 'node-version-file': '.nvmrc' } }
+  const NODE_LTS = { uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }
+
+  const rows = [
+    ['package-lock.json', ['package.json', 'package-lock.json', 'a.test.js'], 'npm ci', 'npm test'],
+    ['pnpm-lock.yaml', ['package.json', 'pnpm-lock.yaml', 'a.test.js'], 'pnpm install --frozen-lockfile', 'pnpm test'],
+    ['yarn.lock', ['package.json', 'yarn.lock', 'a.test.js'], 'yarn install --frozen-lockfile', 'yarn test'],
+    ['no lockfile', ['package.json', 'a.test.js'], 'npm install', 'npm test'],
+  ]
+  for (const [name, paths, install, test_] of rows) {
+    test(`a package.json with a real test script and ${name}: ${install}, then ${test_}`, () => {
+      const got = detectStack(paths, REAL)
+      assert.equal(got.ok, true)
+      assert.equal(got.install, install)
+      assert.equal(got.test, test_)
+    })
+  }
+
+  test('requirements.txt: pip install -r requirements.txt, then pytest', () => {
+    const got = detectStack(['requirements.txt', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, 'pip install -r requirements.txt', 'pytest'])
+  })
+
+  test('pyproject.toml without requirements.txt: pip install -e ., then pytest', () => {
+    const got = detectStack(['pyproject.toml', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, 'pip install -e .', 'pytest'])
+  })
+
+  test('both requirements.txt and pyproject.toml fit only the requirements row', () => {
+    const got = detectStack(['requirements.txt', 'pyproject.toml', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install], [true, 'pip install -r requirements.txt'])
+  })
+
+  test('go.mod: no install, go test ./...', () => {
+    const got = detectStack(['go.mod', 'a_test.go'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, null, 'go test ./...'])
+  })
+
+  test('the node runtime follows .nvmrc when it is at the root, else the current LTS', () => {
+    assert.deepEqual(detectStack(['package.json', 'a.test.js', '.nvmrc'], REAL).runtime, [NODE_SETUP])
+    assert.deepEqual(detectStack(['package.json', 'a.test.js'], REAL).runtime, [NODE_LTS])
+    assert.deepEqual(detectStack(['package.json', 'a.test.js', 'app/.nvmrc'], REAL).runtime, [NODE_LTS])
+  })
+
+  test('the python runtime follows .python-version, else 3.12 as a string', () => {
+    const withFile = detectStack(['requirements.txt', 'test_a.py', '.python-version'], null).runtime
+    assert.deepEqual(withFile, [{ uses: 'actions/setup-python@v7', with: { 'python-version-file': '.python-version' } }])
+    const without = detectStack(['requirements.txt', 'test_a.py'], null).runtime
+    assert.deepEqual(without, [{ uses: 'actions/setup-python@v7', with: { 'python-version': '3.12' } }])
+  })
+
+  test('the go runtime follows go.mod', () => {
+    const got = detectStack(['go.mod', 'a_test.go'], null).runtime
+    assert.deepEqual(got, [{ uses: 'actions/setup-go@v7', with: { 'go-version-file': 'go.mod' } }])
+  })
+
+  test('pnpm is not on ubuntu-latest, so its runtime installs pnpm first', () => {
+    const paths = ['package.json', 'pnpm-lock.yaml', 'a.test.js']
+    const pinned = detectStack(paths, { ...REAL, packageManager: 'pnpm@9.1.0' }).runtime
+    assert.deepEqual(pinned, [{ uses: 'pnpm/action-setup@v6', with: {} }, NODE_LTS])
+    const unpinned = detectStack(paths, REAL).runtime
+    assert.deepEqual(unpinned, [{ uses: 'pnpm/action-setup@v6', with: { version: 'latest' } }, NODE_LTS])
+  })
+
+  test('npm and yarn need no extra install step for the package manager', () => {
+    assert.deepEqual(detectStack(['package.json', 'yarn.lock', 'a.test.js'], REAL).runtime, [NODE_LTS])
+    assert.deepEqual(detectStack(['package.json', 'package-lock.json', 'a.test.js'], REAL).runtime, [NODE_LTS])
+  })
+
+  const fails = (name, paths, pkg, pattern) => {
+    test(`fails on ${name} and names what it found`, () => {
+      const got = detectStack(paths, pkg)
+      assert.equal(got.ok, false)
+      assert.match(got.found, pattern)
+    })
+  }
+  fails('no file that fits a row', ['src/a.test.js'], null, /no package\.json with a test script, requirements\.txt, pyproject\.toml or go\.mod at the root/)
+  fails('npm\'s default test script', ['package.json', 'a.test.js'], { scripts: { test: 'echo "Error: no test specified" && exit 1' } }, /package\.json has no real test script/)
+  fails('a package.json with no scripts', ['package.json', 'a.test.js'], {}, /package\.json has no real test script/)
+  fails('a blank test script', ['package.json', 'a.test.js'], { scripts: { test: '  ' } }, /no real test script/)
+  fails('two stacks at the root', ['package.json', 'requirements.txt', 'a.test.js'], REAL, /more than one.*package\.json.*requirements\.txt/)
+  fails('node and go at the root', ['package.json', 'go.mod', 'a.test.js'], REAL, /more than one/)
+  fails('two lockfiles', ['package.json', 'package-lock.json', 'yarn.lock', 'a.test.js'], REAL, /more than one lockfile: package-lock\.json, yarn\.lock/)
+  fails(
+    'test files only under a subfolder with its own manifest',
+    ['package.json', 'package-lock.json', 'dashboard/package.json', 'dashboard/a.test.js'],
+    REAL,
+    /only under.*dashboard\//
+  )
+  fails(
+    'test files only under a nested folder below a subfolder manifest',
+    ['go.mod', 'svc/pyproject.toml', 'svc/tests/test_a.py'],
+    null,
+    /only under.*svc\//
+  )
+
+  test('test files in a subfolder with a manifest do not matter when others sit outside one', () => {
+    const paths = ['package.json', 'a.test.js', 'dashboard/package.json', 'dashboard/b.test.js']
+    assert.equal(detectStack(paths, REAL).ok, true)
+  })
+
+  test('test files in a subfolder with no manifest of its own are fine', () => {
+    assert.equal(detectStack(['package.json', 'src/a.test.js'], REAL).ok, true)
+  })
+})
+
+describe('buildCiYaml', () => {
+  const NPM = {
+    branch: 'main',
+    install: 'npm ci',
+    test: 'npm test',
+    runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version-file': '.nvmrc' } }],
+  }
+
+  test('writes the whole workflow for a detected npm repo', () => {
+    assert.equal(
+      buildCiYaml(NPM),
+      [
+        'name: CI',
+        '',
+        'on:',
+        '  pull_request:',
+        '    types: [opened, synchronize, reopened, ready_for_review]',
+        '  push:',
+        '    branches: ["main"]',
+        '',
+        'concurrency:',
+        '  group: ${{ github.workflow }}-${{ github.ref }}',
+        '  cancel-in-progress: true',
+        '',
+        'jobs:',
+        '  tests:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 10',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/setup-node@v7',
+        '        with:',
+        '          node-version-file: ".nvmrc"',
+        '      - name: Install dependencies',
+        '        run: "npm ci"',
+        '      - name: Test',
+        '        run: "npm test"',
+        '',
+      ].join('\n')
+    )
+  })
+
+  test('the one job has the id tests and no name, so the check is called tests', () => {
+    const text = buildCiYaml(NPM)
+    assert.match(text, /^jobs:\n {2}tests:\n/m)
+    assert.equal((text.match(/^ {2}[A-Za-z_-]+:$/gm) ?? []).length, 3, 'pull_request, push and the one job')
+    assert.doesNotMatch(text, /^ {4}name:/m)
+    assert.doesNotMatch(text, /matrix|strategy/)
+  })
+
+  test('keeps the cost rules: timeout, concurrency, no paths-ignore, no placeholders', () => {
+    const text = buildCiYaml(NPM)
+    assert.match(text, /^ {4}timeout-minutes: 10$/m)
+    assert.match(text, /^ {2}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m)
+    assert.match(text, /^ {2}cancel-in-progress: true$/m)
+    assert.doesNotMatch(text, /paths-ignore|echo|\bif:/)
+  })
+
+  test('quotes the default branch, so an odd name stays one YAML string', () => {
+    assert.match(buildCiYaml({ ...NPM, branch: 'release/1.0' }), /^ {4}branches: \["release\/1\.0"\]$/m)
+    assert.match(buildCiYaml({ ...NPM, branch: 'a"b' }), /^ {4}branches: \["a\\"b"\]$/m)
+  })
+
+  test('quotes version strings, so 3.10 does not read as 3.1', () => {
+    const runtime = [{ uses: 'actions/setup-python@v7', with: { 'python-version': '3.10' } }]
+    assert.match(buildCiYaml({ ...NPM, runtime }), /^ {10}python-version: "3\.10"$/m)
+  })
+
+  test('quotes given commands with JSON quoting', () => {
+    const text = buildCiYaml({ branch: 'main', install: 'npm run "setup": all', test: 'make test # fast', runtime: [] })
+    assert.match(text, /^ {8}run: "npm run \\"setup\\": all"$/m)
+    assert.match(text, /^ {8}run: "make test # fast"$/m)
+  })
+
+  test('given commands have no runtime setup step and rely on ubuntu-latest', () => {
+    const text = buildCiYaml({ branch: 'main', install: 'make deps', test: 'make test', runtime: [] })
+    assert.doesNotMatch(text, /setup-/)
+    assert.match(text, /- uses: actions\/checkout@v4\n {6}- name: Install dependencies\n/)
+  })
+
+  test('a null install leaves out the install step', () => {
+    const runtime = [{ uses: 'actions/setup-go@v7', with: { 'go-version-file': 'go.mod' } }]
+    const text = buildCiYaml({ branch: 'main', install: null, test: 'go test ./...', runtime })
+    assert.doesNotMatch(text, /Install dependencies/)
+    assert.match(text, /^ {8}run: "go test \.\/\.\.\."$/m)
+  })
+
+  test('a setup action with no inputs has no with key', () => {
+    const runtime = [{ uses: 'pnpm/action-setup@v6', with: {} }]
+    const text = buildCiYaml({ ...NPM, runtime })
+    assert.match(text, /- uses: pnpm\/action-setup@v6\n {6}- name: Install dependencies/)
+  })
+
+  test('uses no em dashes', () => {
+    assert.equal(buildCiYaml(NPM).includes('—'), false)
   })
 })
 
@@ -1262,9 +1474,9 @@ describe('buildWrites', () => {
     assert.equal(put.path, 'repos/octo/widget/branches/release%2F1/protection')
   })
 
-  test('returns no writes exactly when there is nothing to change', () => {
+  test('returns no writes exactly when there is nothing to change, as the repo will be after CI setup', () => {
     for (const [name, facts] of Object.entries(FIXTURES)) {
-      assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(facts).changes.length === 0, name)
+      assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(factsAfterApply(facts)).changes.length === 0, name)
     }
   })
 
@@ -1301,6 +1513,55 @@ describe('confirmToken', () => {
     assert.notEqual(confirmToken({ ...TARGET, branch: 'dev' }, ops), base)
     const more = buildWrites(TARGET, { ...noProtection, ciChecks: ['Unit tests', 'lint'] })
     assert.notEqual(confirmToken(TARGET, more), base)
+  })
+
+  test('a token for a plan without CI is the same as before the ci argument existed', () => {
+    // Pinned from the code as it stood before #551, so a change here breaks every shown token.
+    assert.equal(confirmToken(TARGET, ops), '1b334b7c4fd6')
+    assert.equal(confirmToken(TARGET, ops, undefined), '1b334b7c4fd6')
+    assert.equal(confirmToken(TARGET, ops, null), '1b334b7c4fd6')
+  })
+
+  test('covers the ci object, the file text included', () => {
+    const ci = { install: 'npm ci', test: 'npm test', text: 'name: CI\n', check: 'tests' }
+    const base = confirmToken(TARGET, ops)
+    const withCi = confirmToken(TARGET, ops, ci)
+    assert.notEqual(withCi, base)
+    assert.equal(withCi, confirmToken(TARGET, ops, { ...ci }))
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, text: 'name: CI \n' }), withCi)
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, test: 'npm run t' }), withCi)
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, install: null }), withCi)
+  })
+})
+
+describe('factsAfterApply', () => {
+  const needsCi = baseFacts({ ...NO_CI, protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
+
+  test('returns the same facts when the repo does not need CI', () => {
+    assert.equal(factsAfterApply(noProtection), noProtection)
+  })
+
+  test('adds the tests check and the pipeline labels when the repo needs CI', () => {
+    const got = factsAfterApply(needsCi)
+    assert.deepEqual(got.ciChecks, ['tests'])
+    assert.equal(got.pipelineLabels, true)
+    assert.equal(got.protection, needsCi.protection)
+    assert.equal(planChanges(got).needsCi, false)
+  })
+
+  test('does not change the facts it was given', () => {
+    const before = JSON.stringify(needsCi)
+    factsAfterApply(needsCi)
+    assert.equal(JSON.stringify(needsCi), before)
+    assert.equal(planChanges(needsCi).needsCi, true)
+  })
+
+  test('buildWrites on a repo that needs CI requires tests and both verdict checks', () => {
+    const [put] = buildWrites(TARGET, needsCi)
+    assert.deepEqual(put.body.required_status_checks, {
+      strict: true,
+      contexts: ['orchestrai/review', 'orchestrai/test', 'tests'],
+    })
   })
 })
 
