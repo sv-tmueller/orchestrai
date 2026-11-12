@@ -119,10 +119,10 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
   and a sync test asserts alignment.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup),
-  `/tm-review-changes` (diff review), `/tm-review-codebase` (repo review),
-  `/tm-map-codebase` (architecture map), `/tm-repo-guard` (guard check and apply
-  for your repos). Hermes variants ship as
+  `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
+  `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
+  `/tm-repo-guard` (guard check and apply, CI setup included, for your repos).
+  Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
   the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
   on Hermes.
@@ -186,7 +186,7 @@ state per repo. It never writes.
 - `set up`: nothing to change.
 - `not set up`: the `missing` line lists what is off. It also says `needs CI
   first` when the repo has test files but no finished, non-draft PR has run a
-  check. Add CI and merge a PR through it, then check again.
+  check. Run `/tm-repo-guard apply <repo>`: it adds the CI first.
 - `blocked`: branch protection is not available on the current plan. Private
   repos need a paid GitHub plan for it.
 - `could not read`: GitHub refused a read. The command exits 1 and does not
@@ -225,6 +225,8 @@ protection write could reset that).
 1. It first prints a plan: the changes, the required checks after apply, the
    GitHub writes it will make (branch protection, then repo settings, only
    those that are needed), and a confirm token that covers those exact writes.
+   When it cannot tell which install and test commands the CI should run, it
+   asks you for them first.
 2. It asks you in the session whether to apply. Only your own yes to that
    question counts.
 3. On yes, it runs the same command with the token. If anything changed since

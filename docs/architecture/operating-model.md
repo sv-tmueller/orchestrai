@@ -22,8 +22,9 @@ The plugin is the primary identity. The template-copy path is retired, not
 merely demoted: CLAUDE.md no longer frames it as a fallback identity, and its
 own leftover framing (placeholder sentinels, `(see NEW-PROJECT-SETUP)`
 pointers) is corrected by this change. The two files that implemented that
-path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) are kept,
+path (`NEW-PROJECT-SETUP.md`, `.claude/skills/tm-new-project/`) were kept,
 reframed for adopting the plugin into an existing repo; section 3 says why.
+The checklist is still kept. The skill was removed on 2026-11-12 (#555).
 
 **Substrate (host and model), evaluated 2026-07-08, reopened 2026-08-14.**
 Running the team on a non-Claude host or a non-Anthropic model was
@@ -73,7 +74,7 @@ side effect. Owned by `.claude/workflows/` (`tm-map-codebase.js`,
 `tm-review-changes.js`, `tm-review-codebase.js`) and the `docs/` layout in
 `CLAUDE.md`.
 
-## 3. Transition state: identity retired, adoption files kept
+## 3. Transition state: identity retired, adoption checklist kept
 
 This doc records the identity decision and, alongside it, CLAUDE.md now
 carries that decision through. What's done as of this change:
@@ -84,11 +85,21 @@ carries that decision through. What's done as of this change:
 - The `(see NEW-PROJECT-SETUP)` pointers are removed from CLAUDE.md.
 
 Kept, not removed: `NEW-PROJECT-SETUP.md` and
-`.claude/skills/tm-new-project/` stay in the tree. Issue #190 chose to
+`.claude/skills/tm-new-project/` stayed in the tree. Issue #190 chose to
 reframe them instead of deleting them. They no longer seed a new repo from
 a template. They adopt the plugin into an existing repo: the checklist
-lists the once-per-repo steps, and the skill automates what it can (labels,
-docs tree) and prints the rest. The skill is also the repo guard's entry
+lists the once-per-repo steps, and the skill automated what it could (labels,
+docs tree) and printed the rest. The skill was also the repo guard's entry
 point, as the autonomous-runs design names it
 (`docs/superpowers/specs/2026-11-10-autonomous-runs-design.md`, section 6).
-It prints the `/tm-repo-guard apply` command, and the owner types it.
+It printed the `/tm-repo-guard apply` command, and the owner typed it.
+
+**Reopened 2026-11-12 (#555).** The owner reopened this decision and removed
+the skill. The guard refused a repo with tests but no CI and sent the owner to
+`/tm-new-project` and a hand-written `ci.yml`. The owner never ran the skill on
+newer repos, so the refusal was a dead end. Apply now adds the CI itself, in
+one `tests` job, then protects the branch, on the same yes
+(`docs/superpowers/specs/2026-11-12-repo-guard-ci-setup-design.md`). It also
+creates the six labels. The docs-tree step is dropped. The checklist
+(`NEW-PROJECT-SETUP.md`) stays. The reference CI template moved to
+`.claude/skills/tm-repo-guard/templates/ci.yml`.

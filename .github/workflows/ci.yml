@@ -1,4 +1,4 @@
-# Adapted from .claude/skills/tm-new-project/templates/ci.yml.
+# Adapted from .claude/skills/tm-repo-guard/templates/ci.yml.
 #
 # This repo has no install, typecheck, lint, build, or e2e step: no
 # dependencies, no lockfile, no application runtime (see CLAUDE.md's

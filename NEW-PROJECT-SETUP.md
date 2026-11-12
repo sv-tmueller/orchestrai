@@ -1,8 +1,5 @@
 # New-project setup
 
-Prefer a guided flow? Run `/tm-new-project` to automate what it can here and
-print exact commands for the rest.
-
 Run once when adopting the orchestrai plugin into an existing repo.
 
 ## 1. Labels
@@ -13,7 +10,10 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `/tm-kickoff` and `/tm-advisor` create these six automatically on first
       run, including `/tm-advisor` (file only). Create them before the merge
       rule (section 5): Apply requires the two verdict statuses only on a repo
-      that has `in-progress` and `needs-human`.
+      that has `in-progress` and `needs-human`. On a repo that needs CI,
+      `/tm-repo-guard apply` creates the six labels itself. A repo that
+      already has CI gets them from `/tm-kickoff` or `/tm-advisor` on first
+      run, not from Apply.
 - [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
       `type:feat`, `type:fix`.
 
@@ -31,7 +31,7 @@ Run once when adopting the orchestrai plugin into an existing repo.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
       developer, tester, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, and tm-new-project.
+      tm-kickoff, tm-grill-me, and tm-repo-guard.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so adoption stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and
@@ -67,18 +67,16 @@ Run once when adopting the orchestrai plugin into an existing repo.
 ## 4. Tests and CI/CD
 
 - [ ] Decide the e2e approach for this app and scaffold `e2e/`.
-- [ ] Copy `.claude/skills/tm-new-project/templates/ci.yml` to
-      `.github/workflows/ci.yml` and fill in the real commands. Keep its cost
+- [ ] Where the repo has tests but no CI, section 5's Apply adds it (one
+      `tests` job), on the same yes. For a fuller pipeline, start from
+      `.claude/skills/tm-repo-guard/templates/ci.yml` and keep its cost
       controls: pinned `timeout-minutes` on every job, a `concurrency` group
       with `cancel-in-progress: true`, and e2e/build skipped on draft PRs.
 - [ ] If you deploy, make e2e a pre-deploy gate.
-- [ ] Where the repo has tests, land CI before section 5: merge the PR that
-      adds it, so its checks have run on a finished, non-draft PR. The guard
-      refuses the repo until then ("needs CI first").
 
 ## 5. Merge rule
 
-- [ ] After the labels (section 1) and CI (section 4), type
+- [ ] After the labels (section 1), type
       `/tm-repo-guard apply <owner>/<name>` with this repo's full name. It
       shows the changes and asks before it writes. It requires every check
       that ran on the newest finished PR, plus `orchestrai/review` and
