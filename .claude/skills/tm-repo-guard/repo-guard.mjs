@@ -412,13 +412,42 @@ export function evaluate(facts) {
 const CARRY_OFF = Object.fromEntries([...CARRIED, 'dismiss_stale_reviews'].map((k) => [k, false]))
 const REPO_CHANGES = ['auto merge on', 'squash merge allowed']
 
-// The writes that bring a repo to the plan: 0, 1 or 2, protection first. If the
-// PATCH fails the repo is protected with auto merge still off, which the ship
-// decision already treats as not set up.
-export function buildWrites(target, facts) {
-  const plan = planChanges(facts)
-  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+// GitHub keeps the color in the case it was given, and a missing description
+// comes back as null.
+const sameLabel = (have, want) =>
+  have.color.toLowerCase() === want.color.toLowerCase() && (have.description ?? '') === want.description
+
+// The label writes: a create for a label that is absent, an update for one that
+// differs, nothing for one that matches. POST on an existing label fails with
+// 422 and PATCH on a missing one with 404, so the choice cannot be left to GitHub.
+function labelWrites(target, facts) {
   const ops = []
+  for (const want of LABELS) {
+    const have = facts.labels.find((l) => l.name === want.name)
+    if (!have) {
+      ops.push({ method: 'POST', path: labelsPath(target), body: { name: want.name, color: want.color, description: want.description } })
+    } else if (!sameLabel(have, want)) {
+      ops.push({ method: 'PATCH', path: labelPath(target, want.name), body: { color: want.color, description: want.description } })
+    }
+  }
+  return ops
+}
+
+// On the CI setup path Apply adds the pipeline labels and the tests check in
+// the same run, so the protection is built as if both already exist.
+export function factsAfterApply(facts) {
+  if (!planChanges(facts).needsCi) return facts
+  return { ...facts, ciChecks: ['tests'], pipelineLabels: true }
+}
+
+// The writes that bring a repo to the plan: the labels (CI setup path only),
+// then protection, then the repo settings. If the PATCH fails the repo is
+// protected with auto merge still off, which the ship decision already treats as
+// not set up. Always takes the facts as read, before anything is written.
+export function buildWrites(target, facts) {
+  const plan = planChanges(factsAfterApply(facts))
+  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+  const ops = planChanges(facts).needsCi ? labelWrites(target, facts) : []
 
   if (protectionChanges.length > 0) {
     const carry = (facts.protection.kind === 'present' && facts.protection.carry) || CARRY_OFF
@@ -511,6 +540,8 @@ function gatherFacts(call, info, requested) {
     'labels'
   )
 
+  const labels = labelPages.flat()
+
   const deciding = newestChecks(prs)
   const older = deciding.pr === null ? [] : prs.filter((p) => p.number < deciding.pr)
 
@@ -527,7 +558,11 @@ function gatherFacts(call, info, requested) {
     ciChecks: deciding.names,
     testFileCount,
     testFilesTruncated,
-    pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),
+    pipelineLabels: hasPipelineLabels(labels.map((l) => l.name)),
+    // Only the six workflow labels, with the fields Apply compares.
+    labels: labels
+      .filter((l) => LABELS.some((w) => w.name === l.name))
+      .map((l) => ({ name: l.name, color: l.color, description: l.description })),
   }
 }
 
