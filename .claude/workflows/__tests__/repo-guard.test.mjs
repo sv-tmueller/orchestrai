@@ -33,6 +33,8 @@ import {
   render,
   buildWrites,
   confirmToken,
+  planText,
+  opText,
   isAllowedWrite,
   writeGuarded,
   writeArgs,
@@ -1439,6 +1441,71 @@ describe('confirmToken', () => {
     assert.notEqual(confirmToken({ ...TARGET, branch: 'dev' }, ops), base)
     const more = buildWrites(TARGET, { ...noProtection, ciChecks: ['Unit tests', 'lint'] })
     assert.notEqual(confirmToken(TARGET, more), base)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// planText and opText
+// ---------------------------------------------------------------------------
+describe('planText', () => {
+  const ciFacts = baseFacts({ ...NO_CI, protection: { kind: 'none' }, allowAutoMerge: false })
+  const plan = planChanges(factsAfterApply(ciFacts))
+  const ops = buildWrites(TARGET, ciFacts)
+  const text = planText(TARGET, plan, ops, confirmToken(TARGET, ops))
+  const lines = text.trimEnd().split('\n')
+
+  test('prints a labels block straight after the header line', () => {
+    assert.match(lines[0], /^octo\/widget: not set up/)
+    assert.equal(lines[1], 'labels:')
+    assert.equal(lines[2], '  create size:S, color c2e0c6: Under 1 hour. One focused change.')
+    assert.equal(lines[7], '  create needs-human, color B60205: Agent loop exhausted or blocked; human decision needed.')
+    assert.equal(lines[8], 'changes:')
+  })
+
+  test('prints an update line for a label that differs', () => {
+    const labels = LABELS.map((l) => ({ ...l, color: l.name === 'size:M' ? '000000' : l.color }))
+    const withUpdate = buildWrites(TARGET, { ...ciFacts, labels })
+    const got = planText(TARGET, plan, withUpdate, 'abc').split('\n')
+    assert.equal(got[1], 'labels:')
+    assert.equal(got[2], '  update size:M, color BFD4F2: 1 to 3 hours. Write a sub-plan first.')
+    assert.equal(got[3], 'changes:')
+  })
+
+  test('names the label on each write line, because the six creates share one path', () => {
+    assert.ok(lines.includes('  POST repos/octo/widget/labels (size:S)'))
+    assert.ok(lines.includes('  POST repos/octo/widget/labels (needs-human)'))
+    assert.ok(lines.includes('  PUT repos/octo/widget/branches/main/protection'))
+    assert.ok(lines.includes('  PATCH repos/octo/widget'))
+  })
+
+  test('prints no labels block when no label is written', () => {
+    const noLabels = buildWrites(TARGET, noProtection)
+    const got = planText(TARGET, planChanges(noProtection), noLabels, 'abc')
+    assert.equal(got.includes('labels:'), false)
+    assert.match(got, /^octo\/widget: not set up \(default branch main\)\nchanges:\n/)
+  })
+
+  test('the token is the last line and the required checks include the verdicts', () => {
+    assert.match(lines.at(-1), /^confirm token: [0-9a-f]{12}$/)
+    assert.ok(lines.includes('required checks after apply: orchestrai/review, orchestrai/test, tests'))
+  })
+
+  test('the token changes when a label body changes', () => {
+    const other = ops.map((o) => (o.path.endsWith('/labels') && o.body.name === 'size:S' ? { ...o, body: { ...o.body, color: '000000' } } : o))
+    assert.notEqual(confirmToken(TARGET, other), confirmToken(TARGET, ops))
+  })
+})
+
+describe('opText', () => {
+  test('is the method and path, plus the label name for a label write', () => {
+    assert.equal(opText({ method: 'PUT', path: 'repos/octo/widget/branches/main/protection', body: {} }), 'PUT repos/octo/widget/branches/main/protection')
+    assert.equal(opText({ method: 'PATCH', path: 'repos/octo/widget', body: {} }), 'PATCH repos/octo/widget')
+    assert.equal(opText(labelPost(LABELS[0])), 'POST repos/octo/widget/labels (size:S)')
+    assert.equal(opText(labelPatch(LABELS[0])), 'PATCH repos/octo/widget/labels/size%3AS (size:S)')
+  })
+
+  test('a repo whose owner is named labels is still a plain repo write', () => {
+    assert.equal(opText({ method: 'PATCH', path: 'repos/labels/widget', body: {} }), 'PATCH repos/labels/widget')
   })
 })
 

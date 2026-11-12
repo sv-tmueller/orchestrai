@@ -671,13 +671,37 @@ function parseApplyArgs(argv) {
 const refusal = (message) => ({ code: 2, text: `refusing: ${message}\nnothing written\n` })
 const readFailure = (message) => ({ code: 1, text: `could not read: ${message}\nnothing written\n` })
 
-function planText(target, plan, ops, token) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`, 'changes:']
+const LABEL_POST_PATH = /^repos\/[^/]+\/[^/]+\/labels$/
+const LABEL_PATCH_PATH = /^repos\/[^/]+\/[^/]+\/labels\/([^/]+)$/
+
+// The label a write is about, or null. All six creates share one path, so the
+// plan and the output name the label as well.
+function labelOpName(op) {
+  if (op.method === 'POST' && LABEL_POST_PATH.test(op.path)) return op.body.name
+  const m = op.method === 'PATCH' ? LABEL_PATCH_PATH.exec(op.path) : null
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+export function opText(op) {
+  const name = labelOpName(op)
+  return `${op.method} ${op.path}${name === null ? '' : ` (${name})`}`
+}
+
+export function planText(target, plan, ops, token) {
+  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  const labelOps = ops.filter((op) => labelOpName(op) !== null)
+  if (labelOps.length > 0) {
+    lines.push('labels:')
+    for (const op of labelOps) {
+      lines.push(`  ${op.method === 'POST' ? 'create' : 'update'} ${labelOpName(op)}, color ${op.body.color}: ${op.body.description}`)
+    }
+  }
+  lines.push('changes:')
   for (const c of plan.changes) lines.push(`  ${c}`)
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
   lines.push('writes:')
-  for (const op of ops) lines.push(`  ${op.method} ${op.path}`)
+  for (const op of ops) lines.push(`  ${opText(op)}`)
   lines.push(`confirm token: ${token}`)
   return lines.join('\n') + '\n'
 }
@@ -734,12 +758,12 @@ export function runApply(run, argv) {
       res = { code: 1, stdout: '', stderr: err.message }
     }
     if (res.code !== 0) {
-      lines.push(`write failed: ${op.method} ${op.path}: ${parseError(res).message}`)
+      lines.push(`write failed: ${opText(op)}: ${parseError(res).message}`)
       lines.push('stopped here, no further writes were attempted')
       failed = true
       break
     }
-    lines.push(`wrote: ${op.method} ${op.path}`)
+    lines.push(`wrote: ${opText(op)}`)
   }
 
   // Re-read through the read guard so the printed state is what GitHub holds.
