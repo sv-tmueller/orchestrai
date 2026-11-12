@@ -89,6 +89,10 @@ The run stops at the first of these and writes nothing after it:
 - During the wait, before the merge, the open PR turns into a draft, its base
   changes, or a second open PR from `orchestrai/ci-setup` appears. The PR
   stays open. Exit 2.
+- After the merge, `ci.yml` is not on the default branch, for example because
+  the PR was retargeted just before the merge. No protection is written, since
+  it would require `tests` where no workflow exists. The run says "stopped
+  here". Exit 1.
 - After the merge, the repo now requires signed commits and a protection write
   is left. The protection PUT can reset that setting and `required_signatures`
   is not part of the PUT body, so the comparison below cannot see it. The run
@@ -99,7 +103,10 @@ The run stops at the first of these and writes nothing after it:
   protection write the plan showed with the one the merged state calls for, so
   a plan that had no protection write is compared the same way.
 - Any write fails, or a read after the first write fails. Exit 1. The output
-  says "stopped here" and lists what was written.
+  says "stopped here" and lists what was written. One exception: a delete of
+  the `orchestrai/ci-setup` branch that GitHub answers with 422 "Reference
+  does not exist" counts as done, because "Automatically delete head
+  branches" may have removed it first. A 404 still stops.
 
 A PR from `orchestrai/ci-setup` counts as CI only once it is merged. Without
 that rule a red or timed-out CI PR would make the repo read as having CI, and

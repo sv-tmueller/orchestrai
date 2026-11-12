@@ -239,9 +239,12 @@ CI first. The plan shows the generated `ci.yml`. On yes, Apply creates the
 labels, turns on auto merge and squash merge, opens a PR from
 `orchestrai/ci-setup`, waits up to 20 minutes for the `tests` check, merges the
 PR and only then writes the protection. If a check fails or the wait runs out,
-the PR stays open; run Apply again and it resumes from the open PR. The same
-holds, with exit 2, if the PR turns into a draft, changes its base, or a second
-open PR from `orchestrai/ci-setup` appears during the wait. An exit 2 with a
+the PR stays open; run Apply again and it resumes from the open PR. If the PR
+turns into a draft, changes its base, or a second open PR from
+`orchestrai/ci-setup` appears during the wait, Apply stops with exit 2 and the
+PR stays open. The next Apply refuses until the PR is ready for review, its
+base is the default branch again, and it is the only open PR from
+`orchestrai/ci-setup`; then it resumes. An exit 2 with a
 new confirm token means the merged PR ran other checks than the plan expected,
 or the repo changed during the wait. Ask again with the new token. If the repo
 starts requiring signed commits during the wait, Apply stops after the merge

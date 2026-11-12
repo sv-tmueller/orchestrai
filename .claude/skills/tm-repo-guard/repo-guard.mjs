@@ -1311,7 +1311,14 @@ function runCiSetup({ run, call, clock, login }, target, ops, ci) {
     lines.push(stays)
     return output(1)
   }
-  if (writeOps(lateWrite, [{ method: 'DELETE', path: ciBranchRefPath(target) }], lines)) {
+  // GitHub's "Automatically delete head branches" can remove the branch first.
+  // Only a 422 with this exact message counts: a 404 may mean no access.
+  const branchGone = (op, res) =>
+    op.method === 'DELETE' &&
+    op.path === ciBranchRefPath(target) &&
+    parseError(res).status === 422 &&
+    parseError(res).message === 'Reference does not exist'
+  if (writeOps(lateWrite, [{ method: 'DELETE', path: ciBranchRefPath(target) }], lines, branchGone)) {
     lines.push(`${prName(pr.number)} is merged; the next apply takes the normal path`)
     return output(1)
   }
@@ -1323,6 +1330,14 @@ function runCiSetup({ run, call, clock, login }, target, ops, ci) {
     facts = gatherFacts(call, readRepo(call, target.repo), target.repo)
   } catch (err) {
     return stop(1, `could not re-read the repo: ${err.message}`)
+  }
+  // A merge into another base leaves the file off the default branch, and a
+  // protection that requires `tests` would then block every PR.
+  if (!facts.treePaths.includes(CI_FILE)) {
+    return stop(
+      1,
+      `could not find ${CI_FILE} on ${target.branch} after the merge of ${prName(pr.number)}; its base may have changed. Put ${CI_FILE} on ${target.branch} before you run apply again`
+    )
   }
   if (planChanges(facts).needsCi) {
     return stop(1, `the repo still needs CI: no finished check on the merged ${prName(pr.number)}`)
@@ -1413,13 +1428,19 @@ export function runApply(run, argv, clock = SYSTEM_CLOCK) {
 
 // Writes the ops in order and stops at the first failure. Returns whether it
 // stopped. A refusal by the fence counts as a failure, like a failed write.
-function writeOps(write, ops, lines) {
+// `alreadyDone(op, res)` may accept a failed answer as done; the fence still
+// runs first, and a refusal carries no status, so it never matches.
+function writeOps(write, ops, lines, alreadyDone = () => false) {
   for (const op of ops) {
     let res
     try {
       res = write(writeArgs(op), op.body)
     } catch (err) {
       res = { code: 1, stdout: '', stderr: err.message }
+    }
+    if (res.code !== 0 && alreadyDone(op, res)) {
+      lines.push(`already deleted: ${opText(op)}`)
+      continue
     }
     if (res.code !== 0) {
       lines.push(`write failed: ${opText(op)}: ${parseError(res).message}`)
