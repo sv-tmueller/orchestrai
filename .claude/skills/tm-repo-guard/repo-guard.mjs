@@ -972,8 +972,17 @@ function ciText(ci) {
     '  file: .github/workflows/ci.yml',
   ]
   for (const line of ci.text.trimEnd().split('\n')) lines.push(line === '' ? '' : `    ${line}`)
-  lines.push('  note: --confirm does not write CI setup yet (issue #554)')
+  const resume = resumeLine(ci.existing)
+  if (resume !== null) lines.push(`  ${resume}`)
   return lines
+}
+
+// What a leftover from an earlier run changes. A fresh run says nothing.
+function resumeLine(existing) {
+  if (existing.pr !== null) return `resume: PR #${existing.pr} is open and holds the planned workflow file`
+  if (existing.file) return `resume: branch ${CI_BRANCH} holds the planned workflow file`
+  if (existing.branch) return `resume: branch ${CI_BRANCH} exists without the workflow file`
+  return null
 }
 
 const LABEL_POST_PATH = /^repos\/[^/]+\/[^/]+\/labels$/
@@ -1021,13 +1030,113 @@ function decodeJsonFile(stdout) {
   }
 }
 
+function decodeTextFile(stdout) {
+  try {
+    return Buffer.from(JSON.parse(stdout).content, 'base64').toString('utf8')
+  } catch {
+    return null
+  }
+}
+
 const signedCommitsRefusal = (target, facts, ops) =>
   facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')
     ? refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
     : null
 
-// The plan for a repo with test files and no finished PR check. Reads only; the
-// writes that would set CI up are not here yet (issue #554), so --confirm refuses.
+// ---------------------------------------------------------------------------
+// CI setup: resume and the PR check (issue #554)
+// ---------------------------------------------------------------------------
+
+const OPEN_PR_FIELDS = 'number,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,statusCheckRollup'
+
+// The open PRs from the CI branch of this repo. A fork's PR with the same head
+// name is not ours. `--head` is not on the read allowlist, so this filters.
+function readOpenCiPrs(call, target) {
+  const prs = parseOk(
+    call(['pr', 'list', '--repo', target.repo, '--state', 'open', '--limit', '100', '--json', OPEN_PR_FIELDS]),
+    'open pull requests'
+  )
+  return prs.filter((p) => p.headRefName === CI_BRANCH && p.isCrossRepository !== true)
+}
+
+const ciPrProblem = (pr, target) =>
+  pr.isDraft === true
+    ? `PR #${pr.number} is a draft`
+    : pr.baseRefName !== target.branch
+      ? `PR #${pr.number} has base ${pr.baseRefName}, not ${target.branch}`
+      : null
+
+// What the owner said yes to is one new file with the planned text. The branch
+// may hold more than that on a resume, so look before the merge. Returns the
+// problem, or null. A failed read throws.
+function ciPrContentsProblem(call, target, text, number, sha) {
+  const files = parseOk(call(['api', `${pullsPath(target)}/${number}/files`]), `files of PR #${number}`)
+  if (!Array.isArray(files) || files.length !== 1 || files[0].filename !== CI_FILE) {
+    return `PR #${number} does not change exactly one file, ${CI_FILE}`
+  }
+  if (files[0].status !== 'added') return `PR #${number} does not add ${CI_FILE} (status: ${files[0].status})`
+  const res = call(['api', `${ciFilePath(target)}?ref=${encodeURIComponent(sha)}`])
+  if (res.code !== 0) throw new Error(`${CI_FILE} at the head of PR #${number}: ${parseError(res).message}`)
+  if (decodeTextFile(res.stdout) !== text) return `the ${CI_FILE} at the head of PR #${number} is not the planned file`
+  return null
+}
+
+const noCiLeftover = { branch: false, file: false, pr: null }
+
+// What an earlier run left: an open PR, or the branch with or without the file.
+// Returns `{ existing }` or `{ refuse }`; a failed read throws.
+function findCiResume(call, target, text) {
+  const open = readOpenCiPrs(call, target)
+  if (open.length > 1) {
+    return { refuse: `more than one open PR from ${CI_BRANCH}: ${open.map((p) => `#${p.number}`).join(', ')}. Close the extra ones and run apply again` }
+  }
+  if (open.length === 1) {
+    const pr = open[0]
+    const problem = ciPrProblem(pr, target) ?? ciPrContentsProblem(call, target, text, pr.number, pr.headRefOid)
+    if (problem !== null) return { refuse: `${problem}. Close the PR, delete the ${CI_BRANCH} branch, then run apply again` }
+    return { existing: { branch: true, file: true, pr: pr.number } }
+  }
+
+  const ref = call(['api', `repos/${target.repo}/git/ref/heads/${CI_BRANCH}`])
+  if (ref.code !== 0) {
+    if (parseError(ref).status === 404) return { existing: noCiLeftover }
+    throw new Error(`branch ${CI_BRANCH}: ${parseError(ref).message}`)
+  }
+  const file = call(['api', `${ciFilePath(target)}?ref=${encodeURIComponent(CI_BRANCH)}`])
+  if (file.code !== 0) {
+    if (parseError(file).status === 404) return { existing: { branch: true, file: false, pr: null } }
+    throw new Error(`${CI_FILE} on ${CI_BRANCH}: ${parseError(file).message}`)
+  }
+  if (decodeTextFile(file.stdout) !== text) {
+    return { refuse: `the ${CI_BRANCH} branch already holds a different ${CI_FILE}. Delete the branch and run apply again` }
+  }
+  return { existing: { branch: true, file: true, pr: null } }
+}
+
+// The order the CI run writes in (spec section 3.2): everything but the
+// protection PUT first, then the CI PR, then the PUT. The PUT waits because it
+// requires `tests`, which no PR can pass until the workflow is on the default
+// branch. The PATCH goes first because GitHub refuses a squash merge while
+// that setting is off.
+function splitCiOps(target, ops) {
+  const isPut = (op) => op.path === protectionPath(target)
+  return { before: ops.filter((op) => !isPut(op)), after: ops.filter(isPut) }
+}
+
+// The CI writes a run still has to make, for the plan to list. The merge line
+// has no PR number until the PR exists.
+function ciStepOps(target, existing) {
+  const steps = []
+  if (!existing.branch) steps.push({ method: 'POST', path: ciRefsPath(target) })
+  if (!existing.file) steps.push({ method: 'PUT', path: ciFilePath(target) })
+  if (existing.pr === null) steps.push({ method: 'POST', path: pullsPath(target) })
+  steps.push({ method: 'PUT', path: `${pullsPath(target)}/${existing.pr ?? '<new PR>'}/merge` })
+  steps.push({ method: 'DELETE', path: ciBranchRefPath(target) })
+  return steps
+}
+
+// The plan for a repo with test files and no finished PR check. Reads only
+// until --confirm has a token that matches.
 function planCiSetup(call, args, facts, target) {
   if (facts.testFilesTruncated) {
     return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
@@ -1058,20 +1167,30 @@ function planCiSetup(call, args, facts, target) {
     if (!found.ok) return undetected(found.found)
   }
 
-  const ci = {
-    install: found.install,
-    test: found.test,
-    text: buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime }),
-    check: 'tests',
-  }
+  const text = buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime })
   const ops = buildWrites(target, facts)
   const signed = signedCommitsRefusal(target, facts, ops)
   if (signed) return signed
+
+  let resume
+  try {
+    resume = findCiResume(call, target, text)
+  } catch (err) {
+    return readFailure(err.message)
+  }
+  if (resume.refuse) return refusal(resume.refuse)
+
+  // `existing` is in the token: a PR opened or closed between plan and confirm
+  // changes what the run writes, so it must change the token. The PR head sha
+  // is left out, so a push alone does not make a token stale.
+  const ci = { install: found.install, test: found.test, text, check: CI_CHECK, existing: resume.existing }
   const token = confirmToken(target, ops, ci)
   if (args.confirm !== null) {
     return refusal('setting up CI is not written yet (issue #554), so --confirm does nothing here')
   }
-  return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), ops, token, ci) }
+  const { before, after } = splitCiOps(target, ops)
+  const runOrder = [...before, ...ciStepOps(target, ci.existing), ...after]
+  return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), runOrder, token, ci) }
 }
 
 export function runApply(run, argv) {

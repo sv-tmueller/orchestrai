@@ -2985,17 +2985,46 @@ describe('runApply', () => {
     })
   })
 
+  const NPM_TREE = ['package.json', 'package-lock.json', 'src/a.js', 'src/a.test.js']
+  const PKG = JSON.stringify({ name: 'widget', scripts: { test: 'vitest run' } })
+  // No finished PR has run a check, so the repo needs CI.
+  const ciFake = (over = {}) => makeFake({ prs: [], tree: NPM_TREE, files: { 'package.json': PKG }, ...over })
+  const NPM_YAML = buildCiYaml({
+    branch: 'main',
+    install: 'npm ci',
+    test: 'npm test',
+    runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }],
+  })
+  // The CI setup PR as `gh pr list --state open` shows it.
+  const ciPr = (over = {}) => ({
+    number: 20,
+    headRefName: CI_BRANCH,
+    headRefOid: PR_SHA,
+    baseRefName: 'main',
+    isDraft: false,
+    isCrossRepository: false,
+    state: 'OPEN',
+    ...over,
+  })
+  // The writes of a fresh CI run, in the order the run makes them.
+  const LABEL_CREATES = LABELS.map((l) => `POST repos/octo/widget/labels (${l.name})`)
+  const FRESH_WRITES = [
+    ...LABEL_CREATES,
+    'PATCH repos/octo/widget',
+    'POST repos/octo/widget/git/refs',
+    `PUT repos/octo/widget/contents/${CI_FILE}`,
+    'POST repos/octo/widget/pulls',
+    'PUT repos/octo/widget/pulls/<new PR>/merge',
+    `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+    'PUT repos/octo/widget/branches/main/protection',
+  ]
+  const writesBlock = (text) => {
+    const lines = text.trimEnd().split('\n')
+    const at = lines.indexOf('writes:')
+    return lines.slice(at + 1, lines.length - 1).map((l) => l.replace(/^ {2}/, ''))
+  }
+
   describe('CI setup plan (issue #551)', () => {
-    const NPM_TREE = ['package.json', 'package-lock.json', 'src/a.js', 'src/a.test.js']
-    const PKG = JSON.stringify({ name: 'widget', scripts: { test: 'vitest run' } })
-    // No finished PR has run a check, so the repo needs CI.
-    const ciFake = (over = {}) => makeFake({ prs: [], tree: NPM_TREE, files: { 'package.json': PKG }, ...over })
-    const NPM_YAML = buildCiYaml({
-      branch: 'main',
-      install: 'npm ci',
-      test: 'npm test',
-      runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }],
-    })
     const contentsCalls = (fake) => fake.state.calls.filter((c) => c.args[1]?.includes('/contents/'))
 
     test('prints the detected commands, the expected check, the file and the writes, then a token', () => {
@@ -3019,10 +3048,12 @@ describe('runApply', () => {
       assert.ok(at > 0, text)
       assert.equal(lines.slice(at + 1, at + 7).every((l) => /^ {2}create \S+, color [0-9a-fA-F]{6}: /.test(l)), true, text)
       assert.equal(lines[at + 7], 'changes:')
-      // The six creates come first in the writes, each named, then the protection.
+      // The writes follow the run order: the six creates, each named, then the
+      // repo PATCH, the CI writes, and the protection PUT last.
       const writes = lines.slice(lines.indexOf('writes:') + 1, lines.indexOf('writes:') + 9)
       assert.equal(writes.slice(0, 6).every((l, i) => l === `  POST repos/octo/widget/labels (${LABELS[i].name})`), true, text)
-      assert.equal(writes[6], '  PUT repos/octo/widget/branches/main/protection')
+      assert.equal(writes[6], '  PATCH repos/octo/widget')
+      assert.equal(writes[7], '  POST repos/octo/widget/git/refs')
       assert.deepEqual(fake.state.writes, [])
     })
 
@@ -3041,7 +3072,7 @@ describe('runApply', () => {
         .map((l) => (l === '' ? '' : `    ${l}`))
         .join('\n')
       assert.ok(text.includes(`  file: .github/workflows/ci.yml\n${indented}\n`), text)
-      assert.match(text, /^ {2}note: --confirm does not write CI setup yet \(issue #554\)$/m)
+      assert.doesNotMatch(text, /note: --confirm|resume:/)
     })
 
     test('computes the protection as if tests and both verdict checks were seen', () => {
@@ -3107,7 +3138,7 @@ describe('runApply', () => {
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
       assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
-      assert.doesNotMatch(text, /^ {2}PUT /m)
+      assert.doesNotMatch(text, /^ {2}PUT \S*\/protection$/m)
       assert.ok(tokenOf(text), 'no token line')
     })
 
@@ -3254,6 +3285,159 @@ describe('runApply', () => {
       const { text } = apply(makeFake(), 'widget')
       assert.doesNotMatch(text, /expected check|ci\.yml/)
     })
+  })
+
+  describe('CI setup plan: run order and resume (issue #554)', () => {
+    const sawCalls = (fake, key) => fake.state.calls.filter((c) => c.args.join(' ').includes(key))
+
+    test('a fresh plan lists the writes in the order the run makes them, with no resume line', () => {
+      const { code, text } = apply(ciFake(), 'widget')
+      assert.equal(code, 0)
+      assert.deepEqual(writesBlock(text), FRESH_WRITES)
+      assert.doesNotMatch(text, /resume:/)
+    })
+
+    test('a leftover branch with no file is named and its ref create is left out', () => {
+      const fake = ciFake({ ci: { branch: true } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, new RegExp(`^ {2}resume: branch ${CI_BRANCH} exists without the workflow file$`, 'm'))
+      assert.deepEqual(writesBlock(text), FRESH_WRITES.filter((w) => w !== 'POST repos/octo/widget/git/refs'))
+    })
+
+    test('a leftover branch that holds the planned file also skips the file put', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, new RegExp(`^ {2}resume: branch ${CI_BRANCH} holds the planned workflow file$`, 'm'))
+      assert.deepEqual(
+        writesBlock(text),
+        FRESH_WRITES.filter((w) => w !== 'POST repos/octo/widget/git/refs' && !w.startsWith('PUT repos/octo/widget/contents'))
+      )
+    })
+
+    test('an open CI PR that holds only the planned file skips the PR open and names the PR in the merge line', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}resume: PR #20 is open and holds the planned workflow file$/m)
+      assert.deepEqual(writesBlock(text), [
+        ...LABEL_CREATES,
+        'PATCH repos/octo/widget',
+        'PUT repos/octo/widget/pulls/20/merge',
+        `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+        'PUT repos/octo/widget/branches/main/protection',
+      ])
+      assert.ok(tokenOf(text))
+    })
+
+    test('the PR check reads the changed files, then the file at the PR head sha', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } })
+      apply(fake, 'widget')
+      assert.equal(sawCalls(fake, 'pulls/20/files').length, 1)
+      assert.equal(sawCalls(fake, `contents/${CI_FILE}?ref=${PR_SHA}`).length, 1)
+      assert.equal(sawCalls(fake, 'git/ref/heads').length, 0, 'the ref is not read when a PR is found')
+    })
+
+    test('plan mode on a resume still only reads', () => {
+      for (const ci of [{ branch: true }, { branch: true, file: NPM_YAML }, { branch: true, file: NPM_YAML, pr: ciPr() }]) {
+        const fake = ciFake({ ci })
+        apply(fake, 'widget')
+        for (const c of fake.state.calls) {
+          assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+          assert.equal(c.input, undefined)
+        }
+        assert.deepEqual(fake.state.writes, [])
+      }
+    })
+
+    test('a PR for another head, or from a fork with the same head name, is not the CI PR', () => {
+      const others = [ciPr({ headRefName: 'feat/x' }), ciPr({ number: 21, isCrossRepository: true })]
+      const fake = ciFake({ ci: { openOthers: others } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.deepEqual(writesBlock(text), FRESH_WRITES)
+    })
+
+    test('the token changes when the resume state changes', () => {
+      const tokens = [
+        {},
+        { branch: true },
+        { branch: true, file: NPM_YAML },
+        { branch: true, file: NPM_YAML, pr: ciPr() },
+        { branch: true, file: NPM_YAML, pr: ciPr({ number: 21 }) },
+      ].map((ci) => tokenOf(apply(ciFake({ ci }), 'widget').text))
+      assert.equal(new Set(tokens).size, tokens.length, tokens.join(' '))
+    })
+
+    test('the token does not cover the PR head sha, so a push alone does not make it stale', () => {
+      const a = tokenOf(apply(ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } }), 'widget').text)
+      const other = 'c'.repeat(40)
+      const b = tokenOf(apply(ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr({ headRefOid: other }) } }), 'widget').text)
+      assert.equal(a, b)
+    })
+
+    const refuses = (name, over, pattern, code = 2) => {
+      test(`${name}: exit ${code}, no token, nothing written`, () => {
+        const fake = ciFake(over)
+        const out = apply(fake, 'widget')
+        assert.equal(out.code, code)
+        assert.match(out.text, pattern)
+        assert.equal(tokenOf(out.text), undefined)
+        assert.match(out.text, /nothing written/)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+    }
+
+    refuses('a branch that holds a different file', { ci: { branch: true, file: 'name: other\n' } }, /different.*delete the branch/is)
+    refuses('an open CI PR that is a draft', { ci: { branch: true, file: NPM_YAML, pr: ciPr({ isDraft: true }) } }, /PR #20.*draft/is)
+    refuses('an open CI PR against another base', { ci: { branch: true, file: NPM_YAML, pr: ciPr({ baseRefName: 'dev' }) } }, /PR #20.*base dev/is)
+    refuses(
+      'two open PRs from the CI branch',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), openOthers: [ciPr({ number: 21 })] } },
+      /more than one open PR.*#20.*#21/is
+    )
+    refuses(
+      'an open CI PR that changes more than one file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: CI_FILE, status: 'added' }, { filename: 'x.js', status: 'added' }] } },
+      /PR #20.*exactly one file/is
+    )
+    refuses(
+      'an open CI PR that changes another file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: 'x.js', status: 'added' }] } },
+      /PR #20.*exactly one file/is
+    )
+    refuses(
+      'an open CI PR that modifies the file instead of adding it',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: CI_FILE, status: 'modified' }] } },
+      /PR #20 does not add .*modified/is
+    )
+    refuses(
+      'an open CI PR whose head holds a different file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), shaFiles: { [PR_SHA]: 'name: other\n' } } },
+      /PR #20.*not the planned file/is
+    )
+    refuses('a failed read of the open PRs', { ci: { fail: { openList: fail(500, 'Server Error') } } }, /could not read: .*Server Error/, 1)
+    refuses('a failed read of the CI branch', { ci: { fail: { refRead: fail(500, 'Server Error') } } }, /could not read: .*Server Error/, 1)
+    refuses(
+      'a failed read of the file on the CI branch',
+      { ci: { branch: true, fail: { branchFile: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
+    refuses(
+      'a failed read of the PR files',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), fail: { prFiles: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
+    refuses(
+      'a failed read of the file at the PR head',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), fail: { shaFile: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
   })
 
   describe('refusals', () => {
