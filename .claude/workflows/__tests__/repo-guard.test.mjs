@@ -2800,6 +2800,20 @@ describe('runApply', () => {
     refused('a name with a space', makeFake, ['wid get'], /repo name/i)
     refused('a name with a slash too many', makeFake, ['octo/widget/extra'], /repo name/i)
     refused('an owner that is not the user', makeFake, ['some-org/x'], /not your own|owner/i)
+
+    // The names of Object.prototype members are valid repo names. The fake answers
+    // each one as octo/widget, so the plan runs on the answer.
+    for (const name of ['constructor', 'toString', 'valueOf']) {
+      test(`accepts a repo named ${name} and writes nothing`, () => {
+        const fake = makeFake()
+        const run = (args, input) => fake.run(args.map((a) => (a === `repos/octo/${name}` ? 'repos/octo/widget' : a)), input)
+        const { code, text } = runApply(run, [name])
+        assert.equal(code, 0, text)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.deepEqual(fake.state.writes, [])
+      })
+    }
+
     refused('an archived repo', () => makeFake({ repo: { archived: true } }), ['widget'], /archived/)
     refused('an organization owner', () => makeFake({ repo: { owner: { login: 'octo', type: 'Organization' } } }), ['widget'], /organization|not a user/i)
     refused(

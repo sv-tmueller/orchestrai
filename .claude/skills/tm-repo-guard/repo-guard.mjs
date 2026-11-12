@@ -815,7 +815,7 @@ function parseApplyArgs(argv) {
       if (confirm !== null || value === undefined || value.startsWith('-')) return { error: `${USAGE} (--confirm needs one token)` }
       confirm = value
       i++
-    } else if (a in commands) {
+    } else if (Object.hasOwn(commands, a)) {
       const value = argv[i + 1]
       if (commands[a] !== null || value === undefined || value.startsWith('-') || value.trim() === '') {
         return { error: `${USAGE} (${a} needs one command)` }
