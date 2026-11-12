@@ -35,9 +35,12 @@
  *        CI path a check failed or 20 minutes passed without a result,
  *        2 usage error, refusal or token mismatch, or on the CI path a stop
  *        after writes that needs the owner to look again (the PR holds more
- *        than the planned file, or the merged PR ran other checks than the
- *        plan expected; the output then names what happened and, when there
- *        is something left to write, carries a new token).
+ *        than the planned file, the PR turned draft, changed base or got a
+ *        second open PR from the CI branch during the wait, the repo started
+ *        requiring signed commits during the wait, or the merged PR ran
+ *        other checks than the plan expected; the output then names what
+ *        happened and, when there is something left to write and signed
+ *        commits are not the cause, carries a new token).
  *        Statuses: 0 commands printed, 1 a read failed, 2 usage error or refusal.
  */
 
@@ -1045,10 +1048,15 @@ function decodeTextFile(stdout) {
   }
 }
 
-const signedCommitsRefusal = (target, facts, ops) =>
+const signedCommitsProblem = (target, facts, ops) =>
   facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')
-    ? refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
+    ? `${target.repo} requires signed commits, and the protection PUT may reset that`
     : null
+
+const signedCommitsRefusal = (target, facts, ops) => {
+  const problem = signedCommitsProblem(target, facts, ops)
+  return problem === null ? null : refusal(problem)
+}
 
 // ---------------------------------------------------------------------------
 // CI setup: resume and the PR check (issue #554)
@@ -1320,6 +1328,11 @@ function runCiSetup({ run, call, clock, login }, target, ops, ci) {
     return stop(1, `the repo still needs CI: no finished check on the merged ${prName(pr.number)}`)
   }
   const left = buildWrites(target, facts)
+  // The plan refused this case; the PUT can reset signed commits, so the wait
+  // must not let one through. `required_signatures` is not in the PUT body, so
+  // the comparison below cannot see it.
+  const signed = signedCommitsProblem(target, facts, left)
+  if (signed !== null) return stop(2, `refusing: ${signed}`)
   if (canonical(left) !== canonical(plannedAfter)) {
     const ran = facts.ciChecks
     const why =

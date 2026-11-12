@@ -86,6 +86,13 @@ The run stops at the first of these and writes nothing after it:
   Exit 1.
 - Before the merge, the PR holds more than the planned file, or the file
   differs. The PR stays open. Exit 2.
+- During the wait, before the merge, the open PR turns into a draft, its base
+  changes, or a second open PR from `orchestrai/ci-setup` appears. The PR
+  stays open. Exit 2.
+- After the merge, the repo now requires signed commits and a protection write
+  is left. The protection PUT can reset that setting and `required_signatures`
+  is not part of the PUT body, so the comparison below cannot see it. The run
+  refuses, as the plan does, and says "stopped here". No new token. Exit 2.
 - After the merge, the check names that ran differ from the expected ones, or
   the repo changed during the wait. The run prints a new plan with a new token
   and the owner confirms again. Exit 2. The check is a comparison of the

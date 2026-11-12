@@ -3736,6 +3736,34 @@ describe('runApply', () => {
         assert.equal(wrote(fake).includes(MERGE), false)
       })
 
+      test('a base change during the wait is not merged: exit 2, stopped here', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.ci.pr) fake.state.ci.pr.baseRefName = 'dev'
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2)
+        assert.match(text, /PR #20 has base dev, not main/)
+        assert.match(text, /stopped here/)
+        assert.equal(wrote(fake).includes(MERGE), false)
+      })
+
+      test('a second open PR from the CI branch during the wait stops: exit 2, nothing written after it', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.ci.pr) fake.state.ci.openOthers = [ciPr({ number: 21 })]
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2, text)
+        assert.match(text, /more than one open PR.*#20.*#21/s)
+        assert.match(text, /stopped here/)
+        assert.deepEqual(wrote(fake), upToOpen)
+      })
+
       test('a stop before the first write may say nothing was written', () => {
         // Labels and settings are right and an open PR is found, so the poll is the first call that can fail.
         const labels = LABELS.map((l) => ({ ...l }))
@@ -3829,6 +3857,27 @@ describe('runApply', () => {
         assert.match(text, /the repo changed during the wait; nothing is left to write/)
         assert.equal(wrote(fake).includes(PUT), false)
         assert.match(text, /^octo\/widget: set up$/m)
+      })
+
+      test('signed commits turned on during the wait stop before the PUT: exit 2, stopped here, nothing more written', () => {
+        const fake = ciFake({
+          ci: {
+            rollup: (t, ci) => {
+              if (t >= 30000 && fake.state.protection === null) {
+                fake.state.protection = { ...SET_UP_PROTECTION, required_signatures: { enabled: true } }
+              }
+              return withMergedRollup([done('tests')])(t, ci)
+            },
+          },
+        })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 2, text)
+        assert.match(text, /refusing: octo\/widget requires signed commits/)
+        assert.match(text, /stopped here/)
+        assert.doesNotMatch(text, /nothing written/)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.equal(tokenOf(text), undefined, 'a token would invite the same PUT')
+        assert.equal(fake.state.protection.required_signatures.enabled, true)
       })
 
       test('a merged PR that still does not count as CI stops with exit 1', () => {
