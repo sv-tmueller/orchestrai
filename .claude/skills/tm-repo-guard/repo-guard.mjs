@@ -31,8 +31,13 @@
  *                                                      plan with given CI commands (repo needs CI)
  *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
  * Exit:  Check: 0 when every repo and config dir was read, 1 when any could not be.
- *        Apply: 0 done or nothing to change, 1 read or write failed,
- *        2 usage error, refusal or token mismatch.
+ *        Apply: 0 done or nothing to change, 1 read or write failed, or on the
+ *        CI path a check failed or 20 minutes passed without a result,
+ *        2 usage error, refusal or token mismatch, or on the CI path a stop
+ *        after writes that needs the owner to look again (the PR holds more
+ *        than the planned file, or the merged PR ran other checks than the
+ *        plan expected; the output then names what happened and, when there
+ *        is something left to write, carries a new token).
  *        Statuses: 0 commands printed, 1 a read failed, 2 usage error or refusal.
  */
 
@@ -705,6 +710,8 @@ export function factsAfterApply(facts) {
 // then protection, then the repo settings. If the PATCH fails the repo is
 // protected with auto merge still off, which the ship decision already treats as
 // not set up. Always takes the facts as read, before anything is written.
+// The CI path writes in another order: it moves the PATCH before the CI PR and
+// the PUT after its merge (see `splitCiOps`). The ops here do not change.
 export function buildWrites(target, facts) {
   const plan = planChanges(factsAfterApply(facts))
   const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
