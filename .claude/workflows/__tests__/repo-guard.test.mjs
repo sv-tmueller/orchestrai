@@ -345,8 +345,25 @@ describe('newestChecks', () => {
       assert.deepEqual(newestChecks([setup(9, 'CLOSED'), older]), { pr: 4, names: ['Unit tests'] })
     })
 
-    test('a merged CI PR counts', () => {
-      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older]), { pr: 9, names: ['tests'] })
+    test('a merged CI PR counts when ci.yml is on the default branch', () => {
+      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older], true), { pr: 9, names: ['tests'] })
+    })
+
+    test('a merged CI PR is skipped when ci.yml is not on the default branch', () => {
+      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older], false), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('a merged CI PR is skipped when the flag is omitted', () => {
+      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older]), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('the flag does not let an open CI PR count', () => {
+      assert.deepEqual(newestChecks([setup(9, 'OPEN'), older], true), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('the flag changes nothing for a PR from another branch', () => {
+      const other = { ...setup(9, 'MERGED'), headRefName: 'feat/x' }
+      assert.deepEqual(newestChecks([other, older], false), { pr: 9, names: ['tests'] })
     })
 
     test('a PR from another branch counts whatever its state', () => {
@@ -1322,9 +1339,9 @@ describe('collect', () => {
 
   describe('not required: only names from PRs older than the deciding PR', () => {
     const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: null })
-    const widgetWith = (prs) => {
+    const widgetWith = (prs, treeOverride) => {
       const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup'
-      const table = { ...responses, [key]: json(prs) }
+      const table = { ...responses, [key]: json(prs), ...treeOverride }
       return collect(recordingRunner(table).run).entries.find((e) => e.repo === 'octo/widget-api')
     }
 
@@ -1349,9 +1366,27 @@ describe('collect', () => {
         assert.ok(evaluate(widget.facts).missing.includes('needs CI first'))
       })
 
+      const widgetTree = (paths, opts) => ({ 'api repos/octo/widget-api/git/trees/main?recursive=1': tree(paths, opts) })
+      const CI_YML = '.github/workflows/ci.yml'
+
       test('a merged CI PR is the deciding PR', () => {
-        const widget = widgetWith([setup('MERGED', [check('tests')])])
+        const widget = widgetWith([setup('MERGED', [check('tests')])], widgetTree(['src/a.js', 'src/a.test.js', CI_YML]))
         assert.deepEqual(widget.facts.ciChecks, ['tests'])
+      })
+
+      test('a merged CI PR with no ci.yml on the default branch reads as needs CI first', () => {
+        const widget = widgetWith([setup('MERGED', [check('tests')])])
+        assert.deepEqual(widget.facts.ciChecks, [])
+        assert.ok(evaluate(widget.facts).missing.includes('needs CI first'))
+        assert.equal(widget.result.state, 'not set up')
+      })
+
+      test('a merged CI PR is not counted when the tree is truncated, even with ci.yml listed', () => {
+        const widget = widgetWith(
+          [setup('MERGED', [check('tests')])],
+          widgetTree(['src/a.test.js', CI_YML], { truncated: true })
+        )
+        assert.deepEqual(widget.facts.ciChecks, [])
       })
     })
 
@@ -3250,6 +3285,39 @@ describe('runApply', () => {
       /could not read: package\.json: Server Error/,
       1
     )
+    describe('a merged CI PR counts only while ci.yml is on the default branch (issue #569)', () => {
+      const mergedElsewhere = (over = {}) =>
+        ciFake({ ci: { pr: ciPr({ state: 'MERGED', baseRefName: 'dev' }), rollup: () => [done('tests')] }, ...over })
+
+      test('merged into another base, ci.yml is not on main: the CI path, nothing written', () => {
+        const fake = mergedElsewhere()
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0)
+        assert.match(text, /^ {2}expected check: tests$/m)
+        assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
+        assert.match(text, /^ {2}required check: tests$/m)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('with ci.yml on main, the normal path requires tests and has no CI block', () => {
+        const fake = mergedElsewhere({ tree: [...NPM_TREE, CI_FILE] })
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0)
+        assert.match(text, /^ {2}required check: tests$/m)
+        assert.doesNotMatch(text, /expected check|file: \.github\/workflows\/ci\.yml/)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('with ci.yml listed but the tree truncated, the PR does not count and the plan is refused', () => {
+        const fake = mergedElsewhere({ tree: [...NPM_TREE, CI_FILE], treeTruncated: true })
+        const out = apply(fake, 'widget')
+        assert.equal(out.code, 2)
+        assert.match(out.text, /file tree of octo\/widget is truncated/)
+        assert.equal(tokenOf(out.text), undefined)
+        assert.deepEqual(fake.state.writes, [])
+      })
+    })
+
     refusesCi('a truncated tree is not trusted', () => ciFake({ treeTruncated: true }), ['widget'], /file tree of octo\/widget is truncated/)
     refusesCi(
       'a plan without branch protection comes first, before the truncated tree',

@@ -390,13 +390,14 @@ function ranNames(items) {
 
 // The checks the newest finished PR ran. That PR, not the last ten together,
 // says what runs today, so a retired check does not stay required for good.
-export function newestChecks(prs) {
+export function newestChecks(prs, ciFileOnDefault) {
   const byNumber = [...prs].sort((a, b) => b.number - a.number)
   for (const pr of byNumber) {
     if (pr.isDraft === true) continue
-    // The CI setup PR says what runs only once its workflow file is on the
-    // default branch. Before that, a finished run on it must not read as CI.
-    if (pr.headRefName === CI_BRANCH && pr.state !== 'MERGED') continue
+    // The CI setup PR says what runs only once it is merged and its workflow
+    // file is on the default branch (a merge into another base leaves the file
+    // off it). Before that, a finished run on it must not read as CI.
+    if (pr.headRefName === CI_BRANCH && !(pr.state === 'MERGED' && ciFileOnDefault === true)) continue
     const ci = (pr.statusCheckRollup ?? []).filter((item) => !isVerdict(item))
     if (ci.length === 0 || !ci.every(isCompleted)) continue
     const names = ranNames(ci)
@@ -818,7 +819,9 @@ function gatherFacts(call, info, requested) {
 
   const labels = labelPages.flat()
 
-  const deciding = newestChecks(prs)
+  // A truncated listing cannot prove the file is there, so it does not count.
+  const ciFileOnDefault = !testFilesTruncated && treePaths.includes(CI_FILE)
+  const deciding = newestChecks(prs, ciFileOnDefault)
   const older = deciding.pr === null ? [] : prs.filter((p) => p.number < deciding.pr)
 
   return {
