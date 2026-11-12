@@ -50,6 +50,9 @@ const PR_LIST_FLAGS = new Set(['--repo', '--state', '--limit', '--json'])
 export function isReadOnly(args) {
   if (!Array.isArray(args)) return false
 
+  // A local call: no network, no login, so it gives no extra GitHub access.
+  if (args.length === 1 && args[0] === '--version') return true
+
   if (args[0] === 'api') {
     const rest = args.slice(1)
     const positional = rest.filter((a) => !a.startsWith('-'))
@@ -78,6 +81,24 @@ export function guarded(run) {
   return (args) => {
     if (!isReadOnly(args)) throw new Error(`refusing a call that is not read-only: gh ${args.join(' ')}`)
     return run(args)
+  }
+}
+
+// `gh api --slurp` came in gh 2.48, and the labels read uses it. Raise this
+// if a read ever needs a newer flag.
+const MIN_GH = { major: 2, minor: 48 }
+
+// Check and Apply call this first, so an old gh fails with one line instead
+// of a usage dump from the first read that needs a newer flag.
+export function requireGh(call) {
+  const res = call(['--version'])
+  const m = res.code === 0 ? /^gh version (\d+)\.(\d+)\.(\d+)/.exec(res.stdout.split('\n')[0]) : null
+  const need = `gh ${MIN_GH.major}.${MIN_GH.minor} or newer needed`
+  if (m === null) throw new Error(`gh version unknown, ${need}`)
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  if (major < MIN_GH.major || (major === MIN_GH.major && minor < MIN_GH.minor)) {
+    throw new Error(`gh ${m[1]}.${m[2]}.${m[3]} found, ${need}`)
   }
 }
 
@@ -568,6 +589,7 @@ function gatherFacts(call, info, requested) {
 
 export function collect(run) {
   const call = guarded(run)
+  requireGh(call)
 
   const login = parseOk(call(['api', 'user']), 'user').login
   const pages = parseOk(
@@ -713,6 +735,7 @@ export function runApply(run, argv) {
   const call = guarded(run)
   let login
   try {
+    requireGh(call)
     login = parseOk(call(['api', 'user']), 'user').login
   } catch (err) {
     return readFailure(err.message)
