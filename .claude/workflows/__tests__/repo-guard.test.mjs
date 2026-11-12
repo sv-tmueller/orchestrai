@@ -26,8 +26,10 @@ import {
   classifyProtection,
   countTestFiles,
   hasPipelineLabels,
-  planChanges,
+  detectStack,
+  buildCiYaml,
   factsAfterApply,
+  planChanges,
   evaluate,
   collect,
   render,
@@ -503,6 +505,215 @@ describe('hasPipelineLabels', () => {
     assert.equal(hasPipelineLabels(['in-progress', 'phase:developer']), false)
     assert.equal(hasPipelineLabels(['needs-human']), false)
     assert.equal(hasPipelineLabels([]), false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectStack / buildCiYaml (issue #551)
+// ---------------------------------------------------------------------------
+describe('detectStack', () => {
+  const REAL = { scripts: { test: 'vitest run' } }
+  const NODE_SETUP = { uses: 'actions/setup-node@v7', with: { 'node-version-file': '.nvmrc' } }
+  const NODE_LTS = { uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }
+
+  const rows = [
+    ['package-lock.json', ['package.json', 'package-lock.json', 'a.test.js'], 'npm ci', 'npm test'],
+    ['pnpm-lock.yaml', ['package.json', 'pnpm-lock.yaml', 'a.test.js'], 'pnpm install --frozen-lockfile', 'pnpm test'],
+    ['yarn.lock', ['package.json', 'yarn.lock', 'a.test.js'], 'yarn install --frozen-lockfile', 'yarn test'],
+    ['no lockfile', ['package.json', 'a.test.js'], 'npm install', 'npm test'],
+  ]
+  for (const [name, paths, install, test_] of rows) {
+    test(`a package.json with a real test script and ${name}: ${install}, then ${test_}`, () => {
+      const got = detectStack(paths, REAL)
+      assert.equal(got.ok, true)
+      assert.equal(got.install, install)
+      assert.equal(got.test, test_)
+    })
+  }
+
+  test('requirements.txt: pip install -r requirements.txt, then pytest', () => {
+    const got = detectStack(['requirements.txt', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, 'pip install -r requirements.txt', 'pytest'])
+  })
+
+  test('pyproject.toml without requirements.txt: pip install -e ., then pytest', () => {
+    const got = detectStack(['pyproject.toml', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, 'pip install -e .', 'pytest'])
+  })
+
+  test('both requirements.txt and pyproject.toml fit only the requirements row', () => {
+    const got = detectStack(['requirements.txt', 'pyproject.toml', 'test_a.py'], null)
+    assert.deepEqual([got.ok, got.install], [true, 'pip install -r requirements.txt'])
+  })
+
+  test('go.mod: no install, go test ./...', () => {
+    const got = detectStack(['go.mod', 'a_test.go'], null)
+    assert.deepEqual([got.ok, got.install, got.test], [true, null, 'go test ./...'])
+  })
+
+  test('the node runtime follows .nvmrc when it is at the root, else the current LTS', () => {
+    assert.deepEqual(detectStack(['package.json', 'a.test.js', '.nvmrc'], REAL).runtime, [NODE_SETUP])
+    assert.deepEqual(detectStack(['package.json', 'a.test.js'], REAL).runtime, [NODE_LTS])
+    assert.deepEqual(detectStack(['package.json', 'a.test.js', 'app/.nvmrc'], REAL).runtime, [NODE_LTS])
+  })
+
+  test('the python runtime follows .python-version, else 3.12 as a string', () => {
+    const withFile = detectStack(['requirements.txt', 'test_a.py', '.python-version'], null).runtime
+    assert.deepEqual(withFile, [{ uses: 'actions/setup-python@v7', with: { 'python-version-file': '.python-version' } }])
+    const without = detectStack(['requirements.txt', 'test_a.py'], null).runtime
+    assert.deepEqual(without, [{ uses: 'actions/setup-python@v7', with: { 'python-version': '3.12' } }])
+  })
+
+  test('the go runtime follows go.mod', () => {
+    const got = detectStack(['go.mod', 'a_test.go'], null).runtime
+    assert.deepEqual(got, [{ uses: 'actions/setup-go@v7', with: { 'go-version-file': 'go.mod' } }])
+  })
+
+  test('pnpm is not on ubuntu-latest, so its runtime installs pnpm first', () => {
+    const paths = ['package.json', 'pnpm-lock.yaml', 'a.test.js']
+    const pinned = detectStack(paths, { ...REAL, packageManager: 'pnpm@9.1.0' }).runtime
+    assert.deepEqual(pinned, [{ uses: 'pnpm/action-setup@v6', with: {} }, NODE_LTS])
+    const unpinned = detectStack(paths, REAL).runtime
+    assert.deepEqual(unpinned, [{ uses: 'pnpm/action-setup@v6', with: { version: 'latest' } }, NODE_LTS])
+  })
+
+  test('npm and yarn need no extra install step for the package manager', () => {
+    assert.deepEqual(detectStack(['package.json', 'yarn.lock', 'a.test.js'], REAL).runtime, [NODE_LTS])
+    assert.deepEqual(detectStack(['package.json', 'package-lock.json', 'a.test.js'], REAL).runtime, [NODE_LTS])
+  })
+
+  const fails = (name, paths, pkg, pattern) => {
+    test(`fails on ${name} and names what it found`, () => {
+      const got = detectStack(paths, pkg)
+      assert.equal(got.ok, false)
+      assert.match(got.found, pattern)
+    })
+  }
+  fails('no file that fits a row', ['src/a.test.js'], null, /no package\.json with a test script, requirements\.txt, pyproject\.toml or go\.mod at the root/)
+  fails('npm\'s default test script', ['package.json', 'a.test.js'], { scripts: { test: 'echo "Error: no test specified" && exit 1' } }, /package\.json has no real test script/)
+  fails('a package.json with no scripts', ['package.json', 'a.test.js'], {}, /package\.json has no real test script/)
+  fails('a blank test script', ['package.json', 'a.test.js'], { scripts: { test: '  ' } }, /no real test script/)
+  fails('two stacks at the root', ['package.json', 'requirements.txt', 'a.test.js'], REAL, /more than one.*package\.json.*requirements\.txt/)
+  fails('node and go at the root', ['package.json', 'go.mod', 'a.test.js'], REAL, /more than one/)
+  fails('two lockfiles', ['package.json', 'package-lock.json', 'yarn.lock', 'a.test.js'], REAL, /more than one lockfile: package-lock\.json, yarn\.lock/)
+  fails(
+    'test files only under a subfolder with its own manifest',
+    ['package.json', 'package-lock.json', 'dashboard/package.json', 'dashboard/a.test.js'],
+    REAL,
+    /only under.*dashboard\//
+  )
+  fails(
+    'test files only under a nested folder below a subfolder manifest',
+    ['go.mod', 'svc/pyproject.toml', 'svc/tests/test_a.py'],
+    null,
+    /only under.*svc\//
+  )
+
+  test('test files in a subfolder with a manifest do not matter when others sit outside one', () => {
+    const paths = ['package.json', 'a.test.js', 'dashboard/package.json', 'dashboard/b.test.js']
+    assert.equal(detectStack(paths, REAL).ok, true)
+  })
+
+  test('test files in a subfolder with no manifest of its own are fine', () => {
+    assert.equal(detectStack(['package.json', 'src/a.test.js'], REAL).ok, true)
+  })
+})
+
+describe('buildCiYaml', () => {
+  const NPM = {
+    branch: 'main',
+    install: 'npm ci',
+    test: 'npm test',
+    runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version-file': '.nvmrc' } }],
+  }
+
+  test('writes the whole workflow for a detected npm repo', () => {
+    assert.equal(
+      buildCiYaml(NPM),
+      [
+        'name: CI',
+        '',
+        'on:',
+        '  pull_request:',
+        '    types: [opened, synchronize, reopened, ready_for_review]',
+        '  push:',
+        '    branches: ["main"]',
+        '',
+        'concurrency:',
+        '  group: ${{ github.workflow }}-${{ github.ref }}',
+        '  cancel-in-progress: true',
+        '',
+        'jobs:',
+        '  tests:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 10',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/setup-node@v7',
+        '        with:',
+        '          node-version-file: ".nvmrc"',
+        '      - name: Install dependencies',
+        '        run: "npm ci"',
+        '      - name: Test',
+        '        run: "npm test"',
+        '',
+      ].join('\n')
+    )
+  })
+
+  test('the one job has the id tests and no name, so the check is called tests', () => {
+    const text = buildCiYaml(NPM)
+    assert.match(text, /^jobs:\n {2}tests:\n/m)
+    assert.equal((text.match(/^ {2}[A-Za-z_-]+:$/gm) ?? []).length, 3, 'pull_request, push and the one job')
+    assert.doesNotMatch(text, /^ {4}name:/m)
+    assert.doesNotMatch(text, /matrix|strategy/)
+  })
+
+  test('keeps the cost rules: timeout, concurrency, no paths-ignore, no placeholders', () => {
+    const text = buildCiYaml(NPM)
+    assert.match(text, /^ {4}timeout-minutes: 10$/m)
+    assert.match(text, /^ {2}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m)
+    assert.match(text, /^ {2}cancel-in-progress: true$/m)
+    assert.doesNotMatch(text, /paths-ignore|echo|\bif:/)
+  })
+
+  test('quotes the default branch, so an odd name stays one YAML string', () => {
+    assert.match(buildCiYaml({ ...NPM, branch: 'release/1.0' }), /^ {4}branches: \["release\/1\.0"\]$/m)
+    assert.match(buildCiYaml({ ...NPM, branch: 'a"b' }), /^ {4}branches: \["a\\"b"\]$/m)
+  })
+
+  test('quotes version strings, so 3.10 does not read as 3.1', () => {
+    const runtime = [{ uses: 'actions/setup-python@v7', with: { 'python-version': '3.10' } }]
+    assert.match(buildCiYaml({ ...NPM, runtime }), /^ {10}python-version: "3\.10"$/m)
+  })
+
+  test('quotes given commands with JSON quoting', () => {
+    const text = buildCiYaml({ branch: 'main', install: 'npm run "setup": all', test: 'make test # fast', runtime: [] })
+    assert.match(text, /^ {8}run: "npm run \\"setup\\": all"$/m)
+    assert.match(text, /^ {8}run: "make test # fast"$/m)
+  })
+
+  test('given commands have no runtime setup step and rely on ubuntu-latest', () => {
+    const text = buildCiYaml({ branch: 'main', install: 'make deps', test: 'make test', runtime: [] })
+    assert.doesNotMatch(text, /setup-/)
+    assert.match(text, /- uses: actions\/checkout@v4\n {6}- name: Install dependencies\n/)
+  })
+
+  test('a null install leaves out the install step', () => {
+    const runtime = [{ uses: 'actions/setup-go@v7', with: { 'go-version-file': 'go.mod' } }]
+    const text = buildCiYaml({ branch: 'main', install: null, test: 'go test ./...', runtime })
+    assert.doesNotMatch(text, /Install dependencies/)
+    assert.match(text, /^ {8}run: "go test \.\/\.\.\."$/m)
+  })
+
+  test('a setup action with no inputs has no with key', () => {
+    const runtime = [{ uses: 'pnpm/action-setup@v6', with: {} }]
+    const text = buildCiYaml({ ...NPM, runtime })
+    assert.match(text, /- uses: pnpm\/action-setup@v6\n {6}- name: Install dependencies/)
+  })
+
+  test('uses no em dashes', () => {
+    assert.equal(buildCiYaml(NPM).includes('—'), false)
   })
 })
 
@@ -1545,6 +1756,36 @@ describe('confirmToken', () => {
     const more = buildWrites(TARGET, { ...noProtection, ciChecks: ['Unit tests', 'lint'] })
     assert.notEqual(confirmToken(TARGET, more), base)
   })
+
+  test('a token for a plan without CI is the same as before the ci argument existed', () => {
+    // Pinned from the code as it stood before #551, so a change here breaks every shown token.
+    assert.equal(confirmToken(TARGET, ops), '1b334b7c4fd6')
+    assert.equal(confirmToken(TARGET, ops, undefined), '1b334b7c4fd6')
+    assert.equal(confirmToken(TARGET, ops, null), '1b334b7c4fd6')
+  })
+
+  test('covers the ci object, the file text included', () => {
+    const ci = { install: 'npm ci', test: 'npm test', text: 'name: CI\n', check: 'tests' }
+    const base = confirmToken(TARGET, ops)
+    const withCi = confirmToken(TARGET, ops, ci)
+    assert.notEqual(withCi, base)
+    assert.equal(withCi, confirmToken(TARGET, ops, { ...ci }))
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, text: 'name: CI \n' }), withCi)
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, test: 'npm run t' }), withCi)
+    assert.notEqual(confirmToken(TARGET, ops, { ...ci, install: null }), withCi)
+  })
+})
+
+describe('buildWrites on the CI setup path', () => {
+  const needsCi = baseFacts({ ...NO_CI, protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
+
+  test('buildWrites on a repo that needs CI requires tests and both verdict checks', () => {
+    const put = buildWrites(TARGET, needsCi).find((op) => op.method === 'PUT')
+    assert.deepEqual(put.body.required_status_checks, {
+      strict: true,
+      contexts: ['orchestrai/review', 'orchestrai/test', 'tests'],
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1899,7 +2140,12 @@ describe('runApply', () => {
       protection: over.protection ?? null,
       protectionError: over.protectionError ?? null,
       prs: over.prs ?? [pr(12, [done('Unit tests')])],
+      labels: over.labels ?? [{ name: 'bug' }],
       tree: over.tree ?? ['src/a.js', 'src/a.test.js'],
+      treeTruncated: over.treeTruncated ?? false,
+      // File contents by repo path, read through the contents API.
+      files: over.files ?? {},
+      contentsError: over.contentsError ?? null,
       failPut: over.failPut ?? null,
       failPatch: over.failPatch ?? null,
       calls: [],
@@ -1925,9 +2171,16 @@ describe('runApply', () => {
         return ok(state.prs)
       }
       if (key === `api ${repoPath}/git/trees/main?recursive=1`) {
-        return ok({ tree: state.tree.map((path) => ({ path, type: 'blob' })) })
+        return ok({ tree: state.tree.map((path) => ({ path, type: 'blob' })), truncated: state.treeTruncated })
       }
-      if (key === `api --paginate --slurp ${repoPath}/labels?per_page=100`) return ok([[{ name: 'bug' }]])
+      const contents = key.match(/^api repos\/octo\/widget\/contents\/(.+)\?ref=main$/)
+      if (contents) {
+        if (state.contentsError) return state.contentsError
+        const text = state.files[contents[1]]
+        if (text === undefined) return fail(404, 'Not Found')
+        return ok({ type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') })
+      }
+      if (key === `api --paginate --slurp ${repoPath}/labels?per_page=100`) return ok([state.labels])
       if (key === `api -X PUT ${protPath} --input -`) {
         state.writes.push({ method: 'PUT', body: JSON.parse(input) })
         if (state.failPut) return state.failPut
@@ -2236,6 +2489,277 @@ describe('runApply', () => {
     })
   })
 
+  describe('CI setup plan (issue #551)', () => {
+    const NPM_TREE = ['package.json', 'package-lock.json', 'src/a.js', 'src/a.test.js']
+    const PKG = JSON.stringify({ name: 'widget', scripts: { test: 'vitest run' } })
+    // No finished PR has run a check, so the repo needs CI.
+    const ciFake = (over = {}) => makeFake({ prs: [], tree: NPM_TREE, files: { 'package.json': PKG }, ...over })
+    const NPM_YAML = buildCiYaml({
+      branch: 'main',
+      install: 'npm ci',
+      test: 'npm test',
+      runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }],
+    })
+    const contentsCalls = (fake) => fake.state.calls.filter((c) => c.args[1]?.includes('/contents/'))
+
+    test('prints the detected commands, the expected check, the file and the writes, then a token', () => {
+      const fake = ciFake()
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}install: npm ci$/m)
+      assert.match(text, /^ {2}test: npm test$/m)
+      assert.match(text, /^ {2}expected check: tests$/m)
+      assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
+      assert.match(text, /^ {2}PUT repos\/octo\/widget\/branches\/main\/protection$/m)
+      assert.ok(text.trimEnd().split('\n').pop().startsWith('confirm token: '), 'the token is the last line')
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('shows the label writes of the CI path: the labels block and the (name) suffixes', () => {
+      const fake = ciFake()
+      const { text } = apply(fake, 'widget')
+      const lines = text.trimEnd().split('\n')
+      const at = lines.indexOf('labels:')
+      assert.ok(at > 0, text)
+      assert.equal(lines.slice(at + 1, at + 7).every((l) => /^ {2}create \S+, color [0-9a-fA-F]{6}: /.test(l)), true, text)
+      assert.equal(lines[at + 7], 'changes:')
+      // The six creates come first in the writes, each named, then the protection.
+      const writes = lines.slice(lines.indexOf('writes:') + 1, lines.indexOf('writes:') + 9)
+      assert.equal(writes.slice(0, 6).every((l, i) => l === `  POST repos/octo/widget/labels (${LABELS[i].name})`), true, text)
+      assert.equal(writes[6], '  PUT repos/octo/widget/branches/main/protection')
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('a repo with some of the labels already gets only the missing creates in the CI plan', () => {
+      const fake = ciFake({ labels: [{ name: 'size:S', color: LABELS[0].color, description: LABELS[0].description }] })
+      const { text } = apply(fake, 'widget')
+      assert.doesNotMatch(text, /create size:S,/)
+      assert.match(text, /^ {2}create size:M, color /m)
+      assert.doesNotMatch(text, /POST repos\/octo\/widget\/labels \(size:S\)/)
+    })
+
+    test('prints the whole ci.yml, indented, in one block', () => {
+      const { text } = apply(ciFake(), 'widget')
+      const indented = NPM_YAML.trimEnd()
+        .split('\n')
+        .map((l) => (l === '' ? '' : `    ${l}`))
+        .join('\n')
+      assert.ok(text.includes(`  file: .github/workflows/ci.yml\n${indented}\n`), text)
+      assert.match(text, /^ {2}note: --confirm does not write CI setup yet \(issue #554\)$/m)
+    })
+
+    test('computes the protection as if tests and both verdict checks were seen', () => {
+      const { text } = apply(ciFake(), 'widget')
+      assert.match(text, /^required checks after apply: orchestrai\/review, orchestrai\/test, tests$/m)
+      assert.match(text, /^ {2}required check: tests$/m)
+      assert.match(text, /^ {2}required check: orchestrai\/review$/m)
+      assert.doesNotMatch(text, /needs CI first/)
+    })
+
+    test('reads only: every call passes the read guard and carries no input', () => {
+      const fake = ciFake()
+      apply(fake, 'widget')
+      for (const c of fake.state.calls) {
+        assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+        assert.equal(c.input, undefined)
+      }
+    })
+
+    test('reads the root package.json once, as a plain path on the default branch', () => {
+      const fake = ciFake()
+      apply(fake, 'widget')
+      assert.deepEqual(
+        contentsCalls(fake).map((c) => c.args),
+        [['api', 'repos/octo/widget/contents/package.json?ref=main']]
+      )
+    })
+
+    test('the CI plan prints the same text and token every time', () => {
+      assert.equal(apply(ciFake(), 'widget').text, apply(ciFake(), 'widget').text)
+    })
+
+    test('the token changes when the generated ci.yml changes', () => {
+      const base = tokenOf(apply(ciFake(), 'widget').text)
+      const yarn = ciFake({ tree: ['package.json', 'yarn.lock', 'src/a.test.js'] })
+      assert.notEqual(tokenOf(apply(yarn, 'widget').text), base)
+      const nvm = ciFake({ tree: [...NPM_TREE, '.nvmrc'] })
+      assert.notEqual(tokenOf(apply(nvm, 'widget').text), base)
+    })
+
+    test('--confirm with the shown token writes nothing yet, and says why', () => {
+      const fake = ciFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 2)
+      assert.match(text, /^refusing: setting up CI is not written yet \(issue #554\)/m)
+      assert.match(text, /nothing written/)
+      assert.deepEqual(fake.state.writes, [])
+      assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+    })
+
+    test('--confirm with a wrong token writes nothing either', () => {
+      const fake = ciFake()
+      const { code } = apply(fake, 'widget', '--confirm', 'abcdefabcdef')
+      assert.equal(code, 2)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('still prints the plan when protection already needs nothing, because the file is still needed', () => {
+      const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+      const fake = ciFake({ protection, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
+      assert.doesNotMatch(text, /^ {2}PUT /m)
+      assert.ok(tokenOf(text), 'no token line')
+    })
+
+    test('given commands skip detection: no package.json read, no runtime setup, quoted run lines', () => {
+      const fake = makeFake({ prs: [] })
+      const { code, text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test "fast"')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}install: make deps$/m)
+      assert.match(text, /^ {2}test: make test "fast"$/m)
+      assert.match(text, /^ {12}run: "make test \\"fast\\""$/m)
+      assert.doesNotMatch(text, /setup-/)
+      assert.equal(contentsCalls(fake).length, 0)
+      assert.ok(tokenOf(text), 'no token line')
+    })
+
+    test('given commands may hold characters YAML allows: an emoji and a byte order mark', () => {
+      const { code, text } = apply(makeFake({ prs: [] }), 'widget', '--install', 'make \u{1F600}', '--test', 'make\ufeff test')
+      assert.equal(code, 0)
+      assert.ok(tokenOf(text), 'no token line')
+    })
+
+    test('given commands are part of the token', () => {
+      const a = tokenOf(apply(makeFake({ prs: [] }), 'widget', '--install', 'make deps', '--test', 'make test').text)
+      const b = tokenOf(apply(makeFake({ prs: [] }), 'widget', '--install', 'make deps', '--test', 'make check').text)
+      const c = tokenOf(apply(makeFake({ prs: [] }), 'widget', '--test', 'make test', '--install', 'make deps').text)
+      assert.notEqual(a, b)
+      assert.equal(a, c, 'flag order does not change the plan')
+    })
+
+    test('given commands win over what detection would have found', () => {
+      const { text } = apply(ciFake(), 'widget', '--install', 'make deps', '--test', 'make test')
+      assert.match(text, /^ {2}install: make deps$/m)
+      assert.doesNotMatch(text, /npm ci/)
+    })
+
+    test('a go repo has no install line and no install step', () => {
+      const fake = makeFake({ prs: [], tree: ['go.mod', 'a_test.go'] })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}install: none$/m)
+      assert.match(text, /^ {2}test: go test \.\/\.\.\.$/m)
+      assert.doesNotMatch(text, /Install dependencies/)
+      assert.equal(contentsCalls(fake).length, 0, 'go.mod is not read')
+    })
+
+    const refusesCi = (name, make, argv, pattern, code = 2) => {
+      test(`${name}: exit ${code}, no token, nothing written`, () => {
+        const fake = make()
+        const out = apply(fake, ...argv)
+        assert.equal(out.code, code)
+        assert.match(out.text, pattern)
+        assert.equal(tokenOf(out.text), undefined)
+        assert.doesNotMatch(out.text, /confirm token/)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+    }
+
+    refusesCi(
+      'two stacks at the root fail detection and name both',
+      () => ciFake({ tree: [...NPM_TREE, 'requirements.txt'] }),
+      ['widget'],
+      /could not detect the install and test commands: more than one stack at the root: package\.json, requirements\.txt.*--install.*--test/s
+    )
+    refusesCi(
+      'a default test script fails detection',
+      () => ciFake({ files: { 'package.json': JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }) } }),
+      ['widget'],
+      /package\.json has no real test script/
+    )
+    refusesCi(
+      'tests only under a subfolder with its own manifest fail detection',
+      () => makeFake({ prs: [], tree: ['package.json', 'dashboard/package.json', 'dashboard/a.test.js'], files: { 'package.json': PKG } }),
+      ['widget'],
+      /only under subfolders.*dashboard\//
+    )
+    refusesCi(
+      'a package.json that is not JSON fails detection and names the file',
+      () => ciFake({ files: { 'package.json': '{ not json' } }),
+      ['widget'],
+      /package\.json is not valid JSON/
+    )
+    refusesCi(
+      'a package.json that is not an object fails detection',
+      () => ciFake({ files: { 'package.json': '[1]' } }),
+      ['widget'],
+      /package\.json is not valid JSON/
+    )
+    refusesCi(
+      'a failed package.json read is a read failure',
+      () => ciFake({ contentsError: fail(500, 'Server Error') }),
+      ['widget'],
+      /could not read: package\.json: Server Error/,
+      1
+    )
+    refusesCi('a truncated tree is not trusted', () => ciFake({ treeTruncated: true }), ['widget'], /file tree of octo\/widget is truncated/)
+    refusesCi(
+      'a plan without branch protection comes first, before the truncated tree',
+      () => ciFake({ treeTruncated: true, protectionError: fail(403, 'Upgrade to GitHub Pro or make this repository public to enable this feature.') }),
+      ['widget'],
+      /blocked/
+    )
+    refusesCi(
+      'an existing workflow that no PR has run is not joined by a second one',
+      () => ciFake({ tree: [...NPM_TREE, '.github/workflows/build.yml'] }),
+      ['widget'],
+      /already has a workflow under \.github\/workflows\/.*no finished, non-draft PR has run it.*open or finish a PR so the existing workflow runs/is
+    )
+    refusesCi(
+      'an existing workflow is refused with given commands too',
+      () => makeFake({ prs: [], tree: ['src/a.test.js', '.github/workflows/build.yml'] }),
+      ['widget', '--install', 'make deps', '--test', 'make test'],
+      /already has a workflow under \.github\/workflows\//
+    )
+    refusesCi(
+      'a repo that requires signed commits when the plan has a PUT',
+      () => ciFake({ protection: { ...SET_UP_PROTECTION, required_signatures: { enabled: true } } }),
+      ['widget'],
+      /requires signed commits/
+    )
+
+    test('detection reads no package.json that is not at the root', () => {
+      const fake = makeFake({ prs: [], tree: ['app/package.json', 'app/a.js', 'src/a.test.js'] })
+      const { code } = apply(fake, 'widget')
+      assert.equal(code, 2)
+      assert.equal(contentsCalls(fake).length, 0)
+    })
+
+    test('--install and --test on a repo that does not need CI are refused, not ignored', () => {
+      const fake = makeFake()
+      const { code, text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+      assert.equal(code, 2)
+      assert.match(text, /usage.*only .*needs CI/is)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('--install and --test on a repo that is set up are refused too', () => {
+      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+      assert.equal(code, 2)
+    })
+
+    test('the plan for a repo that does not need CI has no CI block', () => {
+      const { text } = apply(makeFake(), 'widget')
+      assert.doesNotMatch(text, /expected check|ci\.yml/)
+    })
+  })
+
   describe('refusals', () => {
     const refused = (name, make, argv, pattern) => {
       test(`refuses ${name} and writes nothing`, () => {
@@ -2253,6 +2777,23 @@ describe('runApply', () => {
     refused('a flag it does not know', makeFake, ['widget', '--force'], /usage|unknown/i)
     refused('--confirm without a token', makeFake, ['widget', '--confirm'], /usage|token/i)
     refused('a repeated --confirm', makeFake, ['widget', '--confirm', 'a', '--confirm', 'b'], /usage|token/i)
+    refused('--install without --test', makeFake, ['widget', '--install', 'make deps'], /usage.*--install and --test/i)
+    refused('--test without --install', makeFake, ['widget', '--test', 'make test'], /usage.*--install and --test/i)
+    refused('a repeated --install', makeFake, ['widget', '--install', 'a', '--install', 'b', '--test', 't'], /usage.*--install/i)
+    refused('a repeated --test', makeFake, ['widget', '--install', 'a', '--test', 't', '--test', 'u'], /usage.*--test/i)
+    refused('--install without a value', makeFake, ['widget', '--test', 't', '--install'], /usage.*--install needs one command/i)
+    refused('--test followed by another flag', makeFake, ['widget', '--install', 'a', '--test', '--confirm', 'x'], /usage.*--test needs one command/i)
+    refused('an empty command', makeFake, ['widget', '--install', ' ', '--test', 't'], /usage.*--install needs one command/i)
+    refused('a command with a newline', makeFake, ['widget', '--install', 'a\nb', '--test', 't'], /usage.*control character/i)
+    refused('a command with a carriage return', makeFake, ['widget', '--install', 'a', '--test', 't\r'], /usage.*control character/i)
+    refused('a command with a unicode line separator', makeFake, ['widget', '--install', 'a', '--test', 't\u2028u'], /usage.*control character/i)
+    // YAML does not allow these characters at all, so the generated ci.yml would not parse.
+    refused('a command with a C1 control character', makeFake, ['widget', '--install', 'a', '--test', 'c\u0090d'], /usage.*control character/i)
+    refused('a command with the first C1 control character', makeFake, ['widget', '--install', '\u0080', '--test', 't'], /usage.*control character/i)
+    refused('a command with the last C1 control character', makeFake, ['widget', '--install', 'a', '--test', 't\u009f'], /usage.*control character/i)
+    refused('a command with U+FFFE', makeFake, ['widget', '--install', 'a', '--test', 't\ufffeu'], /usage.*control character/i)
+    refused('a command with U+FFFF', makeFake, ['widget', '--install', 'a\uffff', '--test', 't'], /usage.*control character/i)
+    refused('a command with a lone surrogate', makeFake, ['widget', '--install', 'a', '--test', 't\ud800u'], /usage.*control character/i)
     refused('a name starting with a dash', makeFake, ['--web'], /usage|unknown|repo/i)
     refused('a name starting with a dot', makeFake, ['.hidden'], /repo name/i)
     refused('an owner/name part starting with a dash', makeFake, ['octo/--web'], /repo name/i)
@@ -2273,7 +2814,14 @@ describe('runApply', () => {
       ['widget'],
       /blocked|not available on the current plan/i
     )
-    refused('a repo that needs CI first', () => makeFake({ prs: [] }), ['widget'], /needs CI first: it has test files but no finished, non-draft PR has run a check/)
+    // Before #551 this repo was refused with "needs CI first". Its tree has no
+    // root manifest, so it now reaches stack detection and fails there.
+    refused(
+      'a repo that needs CI when no stack can be detected',
+      () => makeFake({ prs: [] }),
+      ['widget'],
+      /could not detect the install and test commands: no package\.json with a test script, requirements\.txt, pyproject\.toml or go\.mod at the root/
+    )
 
     describe('signed commits and the protection PUT', () => {
       // The PUT replaces the whole rule and cannot carry required_signatures, so a

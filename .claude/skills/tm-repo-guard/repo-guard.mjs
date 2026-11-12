@@ -24,6 +24,8 @@
  * Usage: node repo-guard.mjs                           Check
  *        node repo-guard.mjs apply <repo>              plan: prints changes and a token
  *        node repo-guard.mjs apply <repo> --confirm T  writes, when T matches the plan
+ *        node repo-guard.mjs apply <repo> --install C --test C
+ *                                                      plan with given CI commands (repo needs CI)
  *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
  * Exit:  Check: 0 when every repo and config dir was read, 1 when any could not be.
  *        Apply: 0 done or nothing to change, 1 read or write failed,
@@ -377,6 +379,129 @@ export function hasPipelineLabels(names) {
   return names.includes('in-progress') && names.includes('needs-human')
 }
 
+// ---------------------------------------------------------------------------
+// CI setup (issue #551): detect the stack, build the ci.yml
+// ---------------------------------------------------------------------------
+
+const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod']
+const NODE_LOCKFILES = [
+  ['package-lock.json', 'npm ci'],
+  ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
+  ['yarn.lock', 'yarn install --frozen-lockfile'],
+]
+
+// npm's default script is `echo "Error: no test specified" && exit 1`.
+function hasRealTestScript(pkg) {
+  const script = pkg?.scripts?.test
+  return typeof script === 'string' && script.trim() !== '' && !/no test specified/i.test(script)
+}
+
+// A test file whose nearest manifest is in a subfolder is not run by a command
+// at the root. Only when every test file is like that is detection unsafe.
+function subfolderOnlyTests(paths) {
+  const manifestDirs = paths
+    .filter((p) => p.includes('/') && MANIFESTS.includes(p.slice(p.lastIndexOf('/') + 1)))
+    .map((p) => p.slice(0, p.lastIndexOf('/')))
+  const tests = paths.filter((p) => countTestFiles([p]) === 1)
+  if (tests.length === 0) return []
+  const owners = tests.map((t) => manifestDirs.filter((d) => t.startsWith(`${d}/`)).sort((a, b) => a.length - b.length)[0])
+  return owners.every((o) => o !== undefined) ? [...new Set(owners)].sort() : []
+}
+
+const setup = (uses, withInputs) => ({ uses, with: withInputs })
+
+// Reads the root of the tree (`paths`, every blob path) and the parsed root
+// package.json (or null). The runtime comes from the repo's own version file
+// when there is one, so the YAML copies no text out of the repo.
+export function detectStack(paths, pkg) {
+  const root = new Set(paths.filter((p) => !p.includes('/')))
+  const subfolders = subfolderOnlyTests(paths)
+  if (subfolders.length > 0) {
+    return { ok: false, found: `test files only under subfolders with their own manifest: ${subfolders.map((d) => `${d}/`).join(', ')}` }
+  }
+
+  const rows = []
+  if (root.has('package.json') && hasRealTestScript(pkg)) rows.push('node')
+  if (root.has('requirements.txt') || root.has('pyproject.toml')) rows.push('python')
+  if (root.has('go.mod')) rows.push('go')
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      found: root.has('package.json')
+        ? 'package.json has no real test script, and no requirements.txt, pyproject.toml or go.mod at the root'
+        : 'no package.json with a test script, requirements.txt, pyproject.toml or go.mod at the root',
+    }
+  }
+  if (rows.length > 1) {
+    const names = { node: 'package.json', python: root.has('requirements.txt') ? 'requirements.txt' : 'pyproject.toml', go: 'go.mod' }
+    return { ok: false, found: `more than one stack at the root: ${rows.map((r) => names[r]).join(', ')}` }
+  }
+
+  if (rows[0] === 'go') {
+    return { ok: true, install: null, test: 'go test ./...', runtime: [setup('actions/setup-go@v7', { 'go-version-file': 'go.mod' })] }
+  }
+  if (rows[0] === 'python') {
+    const pip = root.has('requirements.txt') ? 'pip install -r requirements.txt' : 'pip install -e .'
+    const version = root.has('.python-version') ? { 'python-version-file': '.python-version' } : { 'python-version': '3.12' }
+    return { ok: true, install: pip, test: 'pytest', runtime: [setup('actions/setup-python@v7', version)] }
+  }
+
+  const locks = NODE_LOCKFILES.filter(([file]) => root.has(file))
+  if (locks.length > 1) return { ok: false, found: `more than one lockfile: ${locks.map(([f]) => f).join(', ')}` }
+  const lock = locks[0]?.[0]
+  const manager = lock === 'pnpm-lock.yaml' ? 'pnpm' : lock === 'yarn.lock' ? 'yarn' : 'npm'
+  const node = setup('actions/setup-node@v7', root.has('.nvmrc') ? { 'node-version-file': '.nvmrc' } : { 'node-version': 'lts/*' })
+  // pnpm is not preinstalled on ubuntu-latest. The action needs a version unless package.json pins one.
+  const pinned = typeof pkg?.packageManager === 'string' && pkg.packageManager.startsWith('pnpm@')
+  const runtime = manager === 'pnpm' ? [setup('pnpm/action-setup@v6', pinned ? {} : { version: 'latest' }), node] : [node]
+  return {
+    ok: true,
+    install: locks[0]?.[1] ?? 'npm install',
+    test: `${manager} test`,
+    runtime,
+  }
+}
+
+const yamlString = (value) => JSON.stringify(value)
+
+// The job id is `tests` and it has no `name:`, so the required check is called
+// `tests`. No paths-ignore: a required check it skips never completes. Every
+// value from outside is JSON-quoted, which is valid YAML.
+export function buildCiYaml({ branch, install, test, runtime }) {
+  const lines = [
+    'name: CI',
+    '',
+    'on:',
+    '  pull_request:',
+    '    types: [opened, synchronize, reopened, ready_for_review]',
+    '  push:',
+    `    branches: [${yamlString(branch)}]`,
+    '',
+    'concurrency:',
+    '  group: ${{ github.workflow }}-${{ github.ref }}',
+    '  cancel-in-progress: true',
+    '',
+    'jobs:',
+    '  tests:',
+    '    runs-on: ubuntu-latest',
+    '    timeout-minutes: 10',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+  ]
+  for (const step of runtime) {
+    lines.push(`      - uses: ${step.uses}`)
+    const inputs = Object.entries(step.with)
+    if (inputs.length > 0) {
+      lines.push('        with:')
+      for (const [key, value] of inputs) lines.push(`          ${key}: ${yamlString(value)}`)
+    }
+  }
+  if (install !== null) lines.push('      - name: Install dependencies', `        run: ${yamlString(install)}`)
+  lines.push('      - name: Test', `        run: ${yamlString(test)}`)
+  return lines.join('\n') + '\n'
+}
+
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
@@ -513,8 +638,11 @@ function canonical(value) {
 
 // Covers the exact bodies, so a confirm run can only write the plan that was
 // shown. Any change in between (a new PR, a setting flipped by hand) changes it.
-export function confirmToken(target, ops) {
-  const text = canonical({ repo: target.repo, branch: target.branch, ops })
+export function confirmToken(target, ops, ci) {
+  // Left out when absent: canonical(undefined) is the string "undefined", which
+  // would change every token for a plan without CI.
+  const body = { repo: target.repo, branch: target.branch, ops, ...(ci ? { ci } : {}) }
+  const text = canonical(body)
   return createHash('sha256').update(text).digest('hex').slice(0, 12)
 }
 
@@ -547,9 +675,11 @@ function gatherFacts(call, info, requested) {
   const treeRes = call(['api', `repos/${fullName}/git/trees/${branch}?recursive=1`])
   let testFileCount = 0
   let testFilesTruncated = false
+  let treePaths = []
   if (treeRes.code === 0) {
     const tree = JSON.parse(treeRes.stdout)
-    testFileCount = countTestFiles((tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path))
+    treePaths = (tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path)
+    testFileCount = countTestFiles(treePaths)
     testFilesTruncated = tree.truncated === true
   } else if (parseError(treeRes).status !== 409) {
     // 409 is an empty repo, which has no files to count.
@@ -579,6 +709,7 @@ function gatherFacts(call, info, requested) {
     ciChecks: deciding.names,
     testFileCount,
     testFilesTruncated,
+    treePaths,
     pipelineLabels: hasPipelineLabels(labels.map((l) => l.name)),
     // Only the six workflow labels, with the fields Apply compares.
     labels: labels
@@ -665,10 +796,17 @@ export function render({ login, entries }) {
 const NAME_PART = /^[A-Za-z0-9_.-]+$/
 const validPart = (p) => NAME_PART.test(p) && !p.startsWith('-') && !p.startsWith('.')
 
-const USAGE = 'usage: repo-guard.mjs apply <repo> [--confirm <token>]'
+const USAGE = 'usage: repo-guard.mjs apply <repo> [--install <cmd> --test <cmd>] [--confirm <token>]'
+
+// Line breaks and the characters YAML does not allow at all (the C0 and C1
+// controls, U+FFFE, U+FFFF, a lone surrogate) would break the one-line `run:`
+// value in the generated YAML. The u flag makes a surrogate pair one character,
+// so only a lone surrogate matches.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\ufffe\uffff\ud800-\udfff]/u
 
 function parseApplyArgs(argv) {
   let confirm = null
+  const commands = { '--install': null, '--test': null }
   const repos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -677,6 +815,14 @@ function parseApplyArgs(argv) {
       if (confirm !== null || value === undefined || value.startsWith('-')) return { error: `${USAGE} (--confirm needs one token)` }
       confirm = value
       i++
+    } else if (a in commands) {
+      const value = argv[i + 1]
+      if (commands[a] !== null || value === undefined || value.startsWith('-') || value.trim() === '') {
+        return { error: `${USAGE} (${a} needs one command)` }
+      }
+      if (CONTROL_CHARS.test(value)) return { error: `${USAGE} (${a} must not contain a control character or line break)` }
+      commands[a] = value
+      i++
     } else if (a.startsWith('-')) {
       return { error: `${USAGE} (unknown option ${a})` }
     } else {
@@ -684,14 +830,36 @@ function parseApplyArgs(argv) {
     }
   }
   if (repos.length !== 1) return { error: `${USAGE} (name exactly one repo)` }
+  if ((commands['--install'] === null) !== (commands['--test'] === null)) {
+    return { error: `${USAGE} (give --install and --test together, or neither)` }
+  }
 
   const parts = repos[0].split('/')
   if (parts.length > 2 || !parts.every(validPart)) return { error: `refusing: invalid repo name: ${repos[0]}` }
-  return { confirm, owner: parts.length === 2 ? parts[0] : null, name: parts[parts.length - 1] }
+  return {
+    confirm,
+    install: commands['--install'],
+    test: commands['--test'],
+    owner: parts.length === 2 ? parts[0] : null,
+    name: parts[parts.length - 1],
+  }
 }
 
 const refusal = (message) => ({ code: 2, text: `refusing: ${message}\nnothing written\n` })
 const readFailure = (message) => ({ code: 1, text: `could not read: ${message}\nnothing written\n` })
+
+function ciText(ci) {
+  const lines = [
+    'CI setup: no finished, non-draft PR has run a check, so apply would add a CI workflow',
+    `  install: ${ci.install ?? 'none'}`,
+    `  test: ${ci.test}`,
+    `  expected check: ${ci.check}`,
+    '  file: .github/workflows/ci.yml',
+  ]
+  for (const line of ci.text.trimEnd().split('\n')) lines.push(line === '' ? '' : `    ${line}`)
+  lines.push('  note: --confirm does not write CI setup yet (issue #554)')
+  return lines
+}
 
 const LABEL_POST_PATH = /^repos\/[^/]+\/[^/]+\/labels$/
 const LABEL_PATCH_PATH = /^repos\/[^/]+\/[^/]+\/labels\/([^/]+)$/
@@ -709,8 +877,9 @@ export function opText(op) {
   return `${op.method} ${op.path}${name === null ? '' : ` (${name})`}`
 }
 
-export function planText(target, plan, ops, token) {
+export function planText(target, plan, ops, token, ci) {
   const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  if (ci) lines.push(...ciText(ci))
   const labelOps = ops.filter((op) => labelOpName(op) !== null)
   if (labelOps.length > 0) {
     lines.push('labels:')
@@ -726,6 +895,68 @@ export function planText(target, plan, ops, token) {
   for (const op of ops) lines.push(`  ${opText(op)}`)
   lines.push(`confirm token: ${token}`)
   return lines.join('\n') + '\n'
+}
+
+// The contents API answers with the file as base64 in `content`.
+function decodeJsonFile(stdout) {
+  try {
+    return JSON.parse(Buffer.from(JSON.parse(stdout).content, 'base64').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+const signedCommitsRefusal = (target, facts, ops) =>
+  facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')
+    ? refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
+    : null
+
+// The plan for a repo with test files and no finished PR check. Reads only; the
+// writes that would set CI up are not here yet (issue #554), so --confirm refuses.
+function planCiSetup(call, args, facts, target) {
+  if (facts.testFilesTruncated) {
+    return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
+  }
+  if (facts.treePaths.some((p) => p.startsWith('.github/workflows/'))) {
+    return refusal(
+      `${target.repo} already has a workflow under .github/workflows/ but no finished, non-draft PR has run it. ` +
+        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
+    )
+  }
+
+  const undetected = (why) =>
+    refusal(
+      `${target.repo} needs CI, but the guard could not detect the install and test commands: ${why}. ` +
+        'Give them with --install "<cmd>" --test "<cmd>"'
+    )
+
+  let found = { ok: true, install: args.install, test: args.test, runtime: [] }
+  if (args.install === null) {
+    let pkg = null
+    if (facts.treePaths.includes('package.json')) {
+      const res = call(['api', `repos/${facts.fullName}/contents/package.json?ref=${encodeURIComponent(target.branch)}`])
+      if (res.code !== 0) return readFailure(`package.json: ${parseError(res).message}`)
+      pkg = decodeJsonFile(res.stdout)
+      if (!isObject(pkg)) return undetected('package.json is not valid JSON')
+    }
+    found = detectStack(facts.treePaths, pkg)
+    if (!found.ok) return undetected(found.found)
+  }
+
+  const ci = {
+    install: found.install,
+    test: found.test,
+    text: buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime }),
+    check: 'tests',
+  }
+  const ops = buildWrites(target, facts)
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
+  const token = confirmToken(target, ops, ci)
+  if (args.confirm !== null) {
+    return refusal('setting up CI is not written yet (issue #554), so --confirm does nothing here')
+  }
+  return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), ops, token, ci) }
 }
 
 export function runApply(run, argv) {
@@ -759,13 +990,15 @@ export function runApply(run, argv) {
   const target = { repo: facts.fullName, branch: facts.defaultBranch }
   const plan = planChanges(facts)
   if (plan.blocked) return refusal(`${target.repo} is blocked: ${plan.blocked}`)
-  if (plan.needsCi) return refusal(`${target.repo} needs CI first: it has test files but no finished, non-draft PR has run a check`)
+  if (plan.needsCi) return planCiSetup(call, args, facts, target)
+  if (args.install !== null) {
+    return { code: 2, text: `${USAGE} (--install and --test apply only to a repo that needs CI)\n` }
+  }
   if (plan.changes.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
 
   const ops = buildWrites(target, facts)
-  if (facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')) {
-    return refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
-  }
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
   const token = confirmToken(target, ops)
   if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
