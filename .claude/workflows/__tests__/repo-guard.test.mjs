@@ -2661,7 +2661,8 @@ describe('runApply', () => {
         if (!ci.pr || b.sha !== ci.pr.headRefOid) return fail(409, 'Head branch was modified. Review and try the merge again.')
         if (!state.repo.allow_squash_merge) return fail(405, 'Squash merges are not allowed on this repository.')
         ci.pr = { ...ci.pr, state: 'MERGED' }
-        state.tree = [...state.tree, CI_FILE]
+        // A merge into another base does not put the file on the default branch.
+        if (ci.pr.baseRefName === 'main') state.tree = [...state.tree, CI_FILE]
         return ok({ merged: true })
       }
       if (key === `api -X DELETE ${repoPath}/git/refs/heads/${CI_BRANCH}`) {
@@ -3651,6 +3652,24 @@ describe('runApply', () => {
         branch: true,
       })
 
+      test('the branch delete answers 422 Reference does not exist: it counts as done and the protection is written', () => {
+        const fake = ciFake({ ci: { fail: { refDelete: fail(422, 'Reference does not exist') } } })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 0, text)
+        assert.deepEqual(wrote(fake), [...upToOpen, MERGE, DELETE, PUT])
+        assert.match(text, /already deleted: DELETE .*git\/refs\/heads/)
+        assert.doesNotMatch(text, /write failed/)
+      })
+
+      test('the branch delete answers 404: it still stops, with no protection write', () => {
+        const fake = ciFake({ ci: { fail: { refDelete: fail(404, 'Not Found') } } })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 1, text)
+        assert.deepEqual(wrote(fake), [...upToOpen, MERGE, DELETE])
+        assert.match(text, /write failed: DELETE .*Not Found/)
+        assert.match(text, /stopped here/)
+      })
+
       test('the protection PUT fails: the CI PR stays merged and the run exits 1', () => {
         const fake = ciFake({ failPut: bad })
         const { code, text } = confirmCi(fake)
@@ -3878,6 +3897,22 @@ describe('runApply', () => {
         assert.deepEqual(wrote(fake), upToDelete)
         assert.equal(tokenOf(text), undefined, 'a token would invite the same PUT')
         assert.equal(fake.state.protection.required_signatures.enabled, true)
+      })
+
+      test('a PR retargeted before the merge leaves ci.yml off the default branch: exit 1, stopped here, no token, no PUT', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ') === 'api repos/octo/widget/pulls/20/files') fake.state.ci.pr.baseRefName = 'dev'
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1, text)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.match(text, /could not find .*ci\.yml on main/)
+        assert.match(text, /stopped here/)
+        assert.equal(tokenOf(text), undefined)
+        assert.equal(wrote(fake).includes(PUT), false)
       })
 
       test('a merged PR that still does not count as CI stops with exit 1', () => {
