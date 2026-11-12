@@ -48,7 +48,7 @@ Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`,
 .claude/
   agents/            role agents: architect, developer, tester, reviewer,
                        fact-checker, docs-writer, perf-investigator
-  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-new-project
+  skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-repo-guard
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
   adapters/          adapter tables: tier-to-model mapping per host (claude-code.json)
   settings.json      project settings; enables the superpowers plugin

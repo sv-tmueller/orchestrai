@@ -749,7 +749,7 @@ describe('buildCiYaml', () => {
         '    runs-on: ubuntu-latest',
         '    timeout-minutes: 10',
         '    steps:',
-        '      - uses: actions/checkout@v4',
+        '      - uses: actions/checkout@v7',
         '      - uses: actions/setup-node@v7',
         '        with:',
         '          node-version-file: ".nvmrc"',
@@ -797,7 +797,7 @@ describe('buildCiYaml', () => {
   test('given commands have no runtime setup step and rely on ubuntu-latest', () => {
     const text = buildCiYaml({ branch: 'main', install: 'make deps', test: 'make test', runtime: [] })
     assert.doesNotMatch(text, /setup-/)
-    assert.match(text, /- uses: actions\/checkout@v4\n {6}- name: Install dependencies\n/)
+    assert.match(text, /- uses: actions\/checkout@v7\n {6}- name: Install dependencies\n/)
   })
 
   test('a null install leaves out the install step', () => {
@@ -1618,7 +1618,7 @@ describe('render', () => {
 
 const TARGET = { repo: 'octo/widget', branch: 'main' }
 
-// The six labels tm-new-project used to create. The values are copied here on
+// The six labels tm-kickoff and tm-advisor also create. The values are copied here on
 // purpose: a change to the script's table has to show up as a test failure.
 const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },

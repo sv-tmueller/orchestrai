@@ -1,8 +1,8 @@
 # Repo guard sets up CI
 
 Date: 2026-11-12
-Status: draft, for owner review. Decisions settled with the owner on
-2026-11-12 in a brainstorming session.
+Status: approved by the owner on 2026-11-12 (PR #550).
+Decisions settled with the owner on 2026-11-12 in a brainstorming session.
 Reopens the `tm-new-project` decision in
 `docs/architecture/operating-model.md` (issue #190) and changes section 6 of
 `docs/superpowers/specs/2026-11-10-autonomous-runs-design.md`.
