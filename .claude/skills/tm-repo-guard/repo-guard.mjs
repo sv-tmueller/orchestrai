@@ -157,7 +157,7 @@ const REVIEW_KEYS = [
 ]
 const PATCH_KEYS = ['allow_auto_merge', 'allow_squash_merge']
 
-// The six workflow labels, with the values tm-new-project used. The fence
+// The six workflow labels, with the values tm-kickoff and tm-advisor also create. The fence
 // accepts exactly these names, colors and descriptions, nothing else.
 const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
@@ -610,7 +610,7 @@ export function buildCiYaml({ branch, install, test, runtime }) {
     '    runs-on: ubuntu-latest',
     '    timeout-minutes: 10',
     '    steps:',
-    '      - uses: actions/checkout@v4',
+    '      - uses: actions/checkout@v7',
   ]
   for (const step of runtime) {
     lines.push(`      - uses: ${step.uses}`)
