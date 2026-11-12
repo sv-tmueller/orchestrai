@@ -2483,12 +2483,20 @@ describe('the read guard and the write fence stay apart', () => {
   })
 })
 
+// A clock that moves only when the code under test sleeps, so no test waits.
+function fakeClock() {
+  const clock = { t: 0, sleeps: [], now: () => clock.t, sleep: (ms) => { clock.sleeps.push(ms); clock.t += ms } }
+  return clock
+}
+const OPEN_PR_FIELDS = 'number,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,statusCheckRollup'
+
 // ---------------------------------------------------------------------------
 // runApply: plan mode and confirm mode against a stateful fake
 // ---------------------------------------------------------------------------
 describe('runApply', () => {
   const done = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS' })
-  const pr = (number, rollup, isDraft = false) => ({ number, isDraft, statusCheckRollup: rollup })
+  const pr = (number, rollup, isDraft = false, extra = {}) => ({ number, isDraft, statusCheckRollup: rollup, ...extra })
+  const pending = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: '' })
   const ok = (value) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' })
   const fail = (status, message) => ({
     code: 1,
@@ -2523,9 +2531,31 @@ describe('runApply', () => {
       contentsError: over.contentsError ?? null,
       failPut: over.failPut ?? null,
       failPatch: over.failPatch ?? null,
+      // The CI setup PR's side of the repo (issue #554). `rollup` is a function
+      // of the fake time, so a check can start pending and turn green after a
+      // sleep. `fail` maps a route name to the response that route answers with.
+      ci: {
+        branchSha: over.ci?.branchSha ?? BASE_SHA,
+        branch: over.ci?.branch ?? false,
+        file: over.ci?.file ?? null,
+        pr: over.ci?.pr ?? null,
+        rollup: over.ci?.rollup ?? ((t) => (t >= 60000 ? [done('tests')] : [pending('tests')])),
+        prFiles: over.ci?.prFiles ?? null,
+        shaFiles: over.ci?.shaFiles ?? {},
+        openOthers: over.ci?.openOthers ?? [],
+        listOverride: over.ci?.listOverride ?? null,
+        nextPr: 20,
+        fail: over.ci?.fail ?? {},
+      },
+      clock: over.clock ?? fakeClock(),
       calls: [],
       writes: [],
     }
+    const ci = state.ci
+    // The CI PR as `gh pr list` shows it, at the fake's current time.
+    const listedCiPr = () => (ci.pr ? { ...ci.pr, statusCheckRollup: ci.rollup(state.clock.now()) } : null)
+    const ciFileText = (ref) => (ci.shaFiles[ref] !== undefined ? ci.shaFiles[ref] : ci.file)
+    const contentsOk = (text) => ok({ type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') })
     const repoPath = 'repos/octo/widget'
     const protPath = `${repoPath}/branches/main/protection`
 
@@ -2543,7 +2573,98 @@ describe('runApply', () => {
         return state.protection ? ok(state.protection) : fail(404, 'Branch not protected')
       }
       if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`) {
-        return ok(state.prs)
+        return ok(ci.pr ? [...state.prs, listedCiPr()] : state.prs)
+      }
+      if (key === `pr list --repo ${repoPath.slice(6)} --state open --limit 100 --json ${OPEN_PR_FIELDS}`) {
+        if (ci.fail.openList) return ci.fail.openList
+        if (ci.listOverride) return ok(ci.listOverride(state.clock.now()))
+        const open = ci.pr && ci.pr.state === 'OPEN' ? [listedCiPr()] : []
+        return ok([...open, ...ci.openOthers])
+      }
+      if (key === `api ${repoPath}/branches/main`) {
+        return ci.fail.branchRead ?? ok({ name: 'main', commit: { sha: ci.branchSha } })
+      }
+      if (key === `api ${repoPath}/git/ref/heads/${CI_BRANCH}`) {
+        if (ci.fail.refRead) return ci.fail.refRead
+        return ci.branch ? ok({ ref: `refs/heads/${CI_BRANCH}`, object: { sha: ci.branchSha } }) : fail(404, 'Not Found')
+      }
+      if (key === `api ${repoPath}/contents/${CI_FILE}?ref=${encodeURIComponent(CI_BRANCH)}`) {
+        if (ci.fail.branchFile) return ci.fail.branchFile
+        return ci.branch && ci.file !== null ? contentsOk(ci.file) : fail(404, 'Not Found')
+      }
+      const byRef = key.match(new RegExp(`^api ${repoPath}/contents/${CI_FILE.replaceAll('.', '\\.')}\\?ref=([0-9a-f]{40})$`))
+      if (byRef) {
+        if (ci.fail.shaFile) return ci.fail.shaFile
+        const text = ciFileText(byRef[1])
+        return text === null ? fail(404, 'Not Found') : contentsOk(text)
+      }
+      const prFiles = key.match(/^api repos\/octo\/widget\/pulls\/(\d+)\/files$/)
+      if (prFiles) {
+        if (ci.fail.prFiles) return ci.fail.prFiles
+        return ok(ci.prFiles ?? [{ filename: CI_FILE, status: 'added' }])
+      }
+      if (key === `api -X POST ${repoPath}/labels --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'POST', path: `${repoPath}/labels`, body: b })
+        if (ci.fail.label) return ci.fail.label
+        state.labels = [...state.labels, b]
+        return ok(b)
+      }
+      const labelPatch = key.match(/^api -X PATCH repos\/octo\/widget\/labels\/(.+) --input -$/)
+      if (labelPatch) {
+        const b = JSON.parse(input)
+        const name = decodeURIComponent(labelPatch[1])
+        state.writes.push({ method: 'PATCH', path: `${repoPath}/labels/${labelPatch[1]}`, body: b })
+        if (ci.fail.label) return ci.fail.label
+        state.labels = state.labels.map((l) => (l.name === name ? { ...l, ...b } : l))
+        return ok(b)
+      }
+      if (key === `api -X POST ${repoPath}/git/refs --input -`) {
+        state.writes.push({ method: 'POST', path: `${repoPath}/git/refs`, body: JSON.parse(input) })
+        if (ci.fail.refCreate) return ci.fail.refCreate
+        ci.branch = true
+        return ok({ ref: JSON.parse(input).ref })
+      }
+      if (key === `api -X PUT ${repoPath}/contents/${CI_FILE} --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'PUT', path: `${repoPath}/contents/${CI_FILE}`, body: b })
+        if (ci.fail.filePut) return ci.fail.filePut
+        ci.file = Buffer.from(b.content, 'base64').toString('utf8')
+        return ok({ content: { path: CI_FILE } })
+      }
+      if (key === `api -X POST ${repoPath}/pulls --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'POST', path: `${repoPath}/pulls`, body: b })
+        if (ci.fail.prOpen) return ci.fail.prOpen
+        ci.pr = {
+          number: ci.nextPr,
+          headRefName: CI_BRANCH,
+          headRefOid: PR_SHA,
+          baseRefName: b.base,
+          isDraft: b.draft,
+          isCrossRepository: false,
+          state: 'OPEN',
+        }
+        return ok({ number: ci.pr.number, state: 'open', head: { sha: PR_SHA } })
+      }
+      const merge = key.match(/^api -X PUT repos\/octo\/widget\/pulls\/(\d+)\/merge --input -$/)
+      if (merge) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'PUT', path: `${repoPath}/pulls/${merge[1]}/merge`, body: b })
+        if (ci.fail.merge) return ci.fail.merge
+        // GitHub refuses a merge whose pinned sha is not the head, and a squash
+        // merge while the setting is off.
+        if (!ci.pr || b.sha !== ci.pr.headRefOid) return fail(409, 'Head branch was modified. Review and try the merge again.')
+        if (!state.repo.allow_squash_merge) return fail(405, 'Squash merges are not allowed on this repository.')
+        ci.pr = { ...ci.pr, state: 'MERGED' }
+        state.tree = [...state.tree, CI_FILE]
+        return ok({ merged: true })
+      }
+      if (key === `api -X DELETE ${repoPath}/git/refs/heads/${CI_BRANCH}`) {
+        state.writes.push({ method: 'DELETE', path: `${repoPath}/git/refs/heads/${CI_BRANCH}` })
+        if (ci.fail.refDelete) return ci.fail.refDelete
+        ci.branch = false
+        return { code: 0, stdout: '', stderr: '' }
       }
       if (key === `api ${repoPath}/git/trees/main?recursive=1`) {
         return ok({ tree: state.tree.map((path) => ({ path, type: 'blob' })), truncated: state.treeTruncated })
@@ -2591,7 +2712,7 @@ describe('runApply', () => {
   }
 
   const tokenOf = (text) => text.match(/^confirm token: ([0-9a-f]{12})$/m)?.[1]
-  const apply = (fake, ...argv) => runApply(fake.run, argv)
+  const apply = (fake, ...argv) => runApply(fake.run, argv, fake.clock)
 
   // A fully set up repo, as the fake reports it.
   const SET_UP_PROTECTION = {
