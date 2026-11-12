@@ -1,4 +1,4 @@
-# Reference CI workflow for repos generated from this template.
+# Reference CI workflow: the worked example of the CI cost policy.
 #
 # Copy this file to `.github/workflows/ci.yml`, then replace every
 # placeholder `run:` command with this repo's real install, typecheck,
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: echo "replace with this repo's real install command"
       - name: Typecheck
@@ -54,7 +54,7 @@ jobs:
     # build exists only to serve e2e, so it shares e2e's draft-PR skip.
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: echo "replace with this repo's real build command"
 
@@ -66,6 +66,6 @@ jobs:
     # Skip on draft PRs; run on ready-for-review PRs and pushes to main.
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: e2e
         run: echo "replace with this repo's real e2e command"

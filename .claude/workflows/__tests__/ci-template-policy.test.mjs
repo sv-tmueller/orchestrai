@@ -1,5 +1,5 @@
 /**
- * Policy-lock test for the tm-new-project CI template (issue #155).
+ * Policy-lock test for the reference CI template (issue #155).
  *
  * The template is the worked example for the cost policy decided in #153:
  * staged jobs, pinned timeouts, concurrency cancellation, and a draft-PR
@@ -20,12 +20,12 @@ const templatePath = join(
   '..',
   '..',
   'skills',
-  'tm-new-project',
+  'tm-repo-guard',
   'templates',
   'ci.yml'
 )
 
-describe('tm-new-project CI template', () => {
+describe('reference CI template', () => {
   test('the template file exists', () => {
     assert.ok(existsSync(templatePath), `expected a template at ${templatePath}`)
   })
