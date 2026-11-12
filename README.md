@@ -162,7 +162,9 @@ finished PR becomes required, whoever runs it: the repo's own CI or an outside
 service. The `orchestrai/*` verdict statuses are left out of this rule; the
 label rule below covers them. The same rule holds on every repo. The newest finished PR is the
 highest-numbered non-draft PR among the last ten (open, merged or closed)
-whose checks have all finished. Skipped checks do not count. A check that only
+whose checks have all finished. A PR from the `orchestrai/ci-setup` branch (the
+one Apply opens to add the CI workflow) counts only once it is merged. Skipped
+checks do not count. A check that only
 older PRs ran is no longer required, and the report lists it as "not required:
 no longer runs".
 

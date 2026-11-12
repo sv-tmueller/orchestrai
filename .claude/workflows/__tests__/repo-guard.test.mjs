@@ -23,6 +23,7 @@ import {
   selectRepos,
   prCheckNames,
   newestChecks,
+  ciCheckState,
   classifyProtection,
   countTestFiles,
   hasPipelineLabels,
@@ -61,7 +62,7 @@ const ACCEPTED_READS = [
   ['api', 'repos/acme/widget/branches/main/protection'],
   ['api', 'repos/acme/widget/git/trees/main?recursive=1'],
   ['api', '--paginate', '--slurp', 'repos/acme/widget/labels?per_page=100'],
-  ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup'],
+  ['pr', 'list', '--repo', 'acme/widget', '--state', 'all', '--limit', '10', '--json', 'number,isDraft,state,headRefName,statusCheckRollup'],
 ]
 
 describe('isReadOnly', () => {
@@ -318,6 +319,105 @@ describe('newestChecks', () => {
   test('names are deduplicated and sorted', () => {
     const prs = [pr(5, [done('b'), done('a'), done('b')])]
     assert.deepEqual(newestChecks(prs).names, ['a', 'b'])
+  })
+
+  describe('the CI setup PR counts only once it is merged', () => {
+    const setup = (number, state, rollup = [done('tests')]) => ({
+      number,
+      isDraft: false,
+      state,
+      headRefName: 'orchestrai/ci-setup',
+      statusCheckRollup: rollup,
+    })
+    const older = pr(4, [done('Unit tests')])
+
+    test('an open CI PR with finished red checks is skipped', () => {
+      const prs = [setup(9, 'OPEN', [done('tests', 'FAILURE')]), older]
+      assert.deepEqual(newestChecks(prs), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('an open CI PR with finished green checks is skipped too', () => {
+      assert.deepEqual(newestChecks([setup(9, 'OPEN'), older]), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('a closed CI PR is skipped', () => {
+      assert.deepEqual(newestChecks([setup(9, 'CLOSED'), older]), { pr: 4, names: ['Unit tests'] })
+    })
+
+    test('a merged CI PR counts', () => {
+      assert.deepEqual(newestChecks([setup(9, 'MERGED'), older]), { pr: 9, names: ['tests'] })
+    })
+
+    test('a PR from another branch counts whatever its state', () => {
+      const other = { ...setup(9, 'OPEN'), headRefName: 'feat/x' }
+      assert.deepEqual(newestChecks([other, older]), { pr: 9, names: ['tests'] })
+      const noHead = { ...setup(9, 'OPEN'), headRefName: undefined, state: undefined }
+      assert.deepEqual(newestChecks([noHead, older]), { pr: 9, names: ['tests'] })
+    })
+
+    test('only the exact branch name is skipped', () => {
+      const near = { ...setup(9, 'OPEN'), headRefName: 'orchestrai/ci-setup-2' }
+      assert.deepEqual(newestChecks([near, older]), { pr: 9, names: ['tests'] })
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ciCheckState
+// ---------------------------------------------------------------------------
+describe('ciCheckState', () => {
+  const done = (name, conclusion = 'SUCCESS') => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion })
+  const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: '' })
+  const ctx = (context, state = 'SUCCESS') => ({ __typename: 'StatusContext', context, state })
+
+  test('green: tests passed and nothing else is red or pending', () => {
+    assert.equal(ciCheckState([done('tests')]), 'green')
+    assert.equal(ciCheckState([done('tests'), done('lint'), ctx('ci/legacy')]), 'green')
+  })
+
+  test('NEUTRAL and SKIPPED are passes, but a SKIPPED tests did not run', () => {
+    assert.equal(ciCheckState([done('tests'), done('lint', 'NEUTRAL'), done('e2e', 'SKIPPED')]), 'green')
+    assert.equal(ciCheckState([done('tests', 'SKIPPED')]), 'missing')
+  })
+
+  test('missing: an empty, null or undefined rollup, or no tests among the names', () => {
+    assert.equal(ciCheckState([]), 'missing')
+    assert.equal(ciCheckState(null), 'missing')
+    assert.equal(ciCheckState(undefined), 'missing')
+    assert.equal(ciCheckState([done('lint')]), 'missing')
+  })
+
+  test('a status context named tests counts as tests having run', () => {
+    assert.equal(ciCheckState([ctx('tests')]), 'green')
+  })
+
+  test('pending: a check run or a status that is not finished', () => {
+    assert.equal(ciCheckState([running('tests')]), 'pending')
+    assert.equal(ciCheckState([done('tests'), running('lint')]), 'pending')
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'PENDING')]), 'pending')
+  })
+
+  test('red: any finished item that is not a pass', () => {
+    for (const conclusion of ['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STALE', 'STARTUP_FAILURE', null]) {
+      assert.equal(ciCheckState([done('tests', conclusion)]), 'red', String(conclusion))
+    }
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'FAILURE')]), 'red')
+    assert.equal(ciCheckState([done('tests'), ctx('ci/legacy', 'ERROR')]), 'red')
+  })
+
+  test('red beats pending, and pending beats missing', () => {
+    assert.equal(ciCheckState([done('lint', 'FAILURE'), running('tests')]), 'red')
+    assert.equal(ciCheckState([done('tests', 'FAILURE'), running('lint')]), 'red')
+    assert.equal(ciCheckState([running('lint')]), 'pending')
+  })
+
+  test('orchestrai/* items are ignored, whatever their state', () => {
+    assert.equal(ciCheckState([done('tests'), ctx('orchestrai/review', 'FAILURE'), ctx('orchestrai/test', 'PENDING')]), 'green')
+    assert.equal(ciCheckState([ctx('orchestrai/review')]), 'missing')
+  })
+
+  test('returns a plain string', () => {
+    assert.equal(typeof ciCheckState([done('tests')]), 'string')
   })
 })
 
@@ -1091,7 +1191,7 @@ describe('collect', () => {
       allow_force_pushes: { enabled: false },
       enforce_admins: { enabled: true },
     }),
-    'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,statusCheckRollup': json([
+    'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([
       pr(12, [check('Unit tests')]),
       pr(11, [check('Unit tests'), check('Version bump guard')]),
     ]),
@@ -1105,7 +1205,7 @@ describe('collect', () => {
       403,
       'Upgrade to GitHub Pro or make this repository public to enable this feature.'
     ),
-    'pr list --repo octo/private-notes --state all --limit 10 --json number,isDraft,statusCheckRollup': json([
+    'pr list --repo octo/private-notes --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([
       pr(3, []),
     ]),
     'api repos/octo/private-notes/git/trees/main?recursive=1': tree(['.github/workflows/ci.yml', 'notes.md']),
@@ -1117,7 +1217,7 @@ describe('collect', () => {
     // An empty repo: no branch yet, and the tree endpoint answers 409.
     'api repos/octo/blank-repo': json({ private: false, allow_auto_merge: false, allow_squash_merge: false, default_branch: 'main' }),
     'api repos/octo/blank-repo/branches/main/protection': fail(404, 'Branch not found'),
-    'pr list --repo octo/blank-repo --state all --limit 10 --json number,isDraft,statusCheckRollup': json([]),
+    'pr list --repo octo/blank-repo --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup': json([]),
     'api repos/octo/blank-repo/git/trees/main?recursive=1': fail(409, 'Git Repository is empty.'),
     'api --paginate --slurp repos/octo/blank-repo/labels?per_page=100': json([[]]),
   }
@@ -1125,7 +1225,7 @@ describe('collect', () => {
   const expectedPerRepo = (name) => [
     `api repos/octo/${name}`,
     `api repos/octo/${name}/branches/main/protection`,
-    `pr list --repo octo/${name} --state all --limit 10 --json number,isDraft,statusCheckRollup`,
+    `pr list --repo octo/${name} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`,
     `api repos/octo/${name}/git/trees/main?recursive=1`,
     `api --paginate --slurp repos/octo/${name}/labels?per_page=100`,
   ]
@@ -1222,7 +1322,7 @@ describe('collect', () => {
   describe('not required: only names from PRs older than the deciding PR', () => {
     const running = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: null })
     const widgetWith = (prs) => {
-      const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,statusCheckRollup'
+      const key = 'pr list --repo octo/widget-api --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup'
       const table = { ...responses, [key]: json(prs) }
       return collect(recordingRunner(table).run).entries.find((e) => e.repo === 'octo/widget-api')
     }
@@ -1237,6 +1337,21 @@ describe('collect', () => {
     test('a name only on a newer draft PR is not listed', () => {
       const widget = widgetWith([pr(13, [check('Unit tests'), check('lint')], true), pr(12, [check('Unit tests')])])
       assert.deepEqual(widget.result.notRequired, [])
+    })
+
+    describe('the CI setup PR', () => {
+      const setup = (state, rollup) => ({ ...pr(13, rollup), state, headRefName: 'orchestrai/ci-setup' })
+
+      test('an open CI PR whose tests failed still reads as needs CI first', () => {
+        const widget = widgetWith([setup('OPEN', [{ ...check('tests'), conclusion: 'FAILURE' }])])
+        assert.deepEqual(widget.facts.ciChecks, [])
+        assert.ok(evaluate(widget.facts).missing.includes('needs CI first'))
+      })
+
+      test('a merged CI PR is the deciding PR', () => {
+        const widget = widgetWith([setup('MERGED', [check('tests')])])
+        assert.deepEqual(widget.facts.ciChecks, ['tests'])
+      })
     })
 
     test('a name only on an older PR is listed', () => {
@@ -2167,7 +2282,7 @@ describe('runApply', () => {
         if (state.protectionError) return state.protectionError
         return state.protection ? ok(state.protection) : fail(404, 'Branch not protected')
       }
-      if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,statusCheckRollup`) {
+      if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`) {
         return ok(state.prs)
       }
       if (key === `api ${repoPath}/git/trees/main?recursive=1`) {
