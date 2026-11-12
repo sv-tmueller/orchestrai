@@ -108,10 +108,13 @@ The run stops at the first of these and writes nothing after it:
   does not exist" counts as done, because "Automatically delete head
   branches" may have removed it first. A 404 still stops.
 
-A PR from `orchestrai/ci-setup` counts as CI only once it is merged. Without
-that rule a red or timed-out CI PR would make the repo read as having CI, and
-the next Apply would require `tests` while the workflow exists only on the
-unmerged branch (#561).
+A PR from `orchestrai/ci-setup` counts as CI only once it is merged and
+`.github/workflows/ci.yml` is on the default branch. Without that rule a red or
+timed-out CI PR would make the repo read as having CI, and the next Apply would
+require `tests` while the workflow exists only on the unmerged branch (#561). A
+merged PR whose file is not on the default branch does not count either: it was
+merged into another base, or the tree listing is truncated and cannot show the
+file. Check then says "needs CI first" and Apply takes the CI path (#569).
 
 A later `apply` on the same repo resumes where the last run stopped, and the
 plan says so. It finds an open PR from `orchestrai/ci-setup`, or else the
