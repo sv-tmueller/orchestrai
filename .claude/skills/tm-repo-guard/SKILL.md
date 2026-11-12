@@ -52,7 +52,10 @@ That is the owner's step, in `/plugin` in that dir.
    ```
 
    If the owner gives neither or only one, stop. If the user's command already
-   carried `--install` and `--test`, pass both on to the first plan run.
+   carried `--install` and `--test`, pass both on to the first plan run, each
+   single-quoted the same way (with `'` written as `'\''`), even when the
+   command or a refusal message showed them in double quotes: in double quotes
+   the local shell would run `$(...)`, backticks and `$VAR` before any yes.
 2. Only when the output ends with a `confirm token: <12 hex>` line, ask the
    owner in this session whether to apply those changes. When there is no
    token line (for example "set up, nothing to change"), ask nothing.
