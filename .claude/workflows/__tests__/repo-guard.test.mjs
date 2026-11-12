@@ -3730,11 +3730,11 @@ describe('runApply', () => {
       })
 
       test('the branch delete answers 404: it still stops, with no protection write', () => {
-        const fake = ciFake({ ci: { fail: { refDelete: fail(404, 'Not Found') } } })
+        const fake = ciFake({ ci: { fail: { refDelete: fail(404, 'Reference does not exist') } } })
         const { code, text } = confirmCi(fake)
         assert.equal(code, 1, text)
         assert.deepEqual(wrote(fake), [...upToOpen, MERGE, DELETE])
-        assert.match(text, /write failed: DELETE .*Not Found/)
+        assert.match(text, /write failed: DELETE .*Reference does not exist/)
         assert.match(text, /stopped here/)
       })
 
@@ -3965,6 +3965,25 @@ describe('runApply', () => {
         assert.deepEqual(wrote(fake), upToDelete)
         assert.equal(tokenOf(text), undefined, 'a token would invite the same PUT')
         assert.equal(fake.state.protection.required_signatures.enabled, true)
+      })
+
+      test('a newer non-CI PR decides the checks and a retarget still stops at the missing ci.yml: exit 1, stopped here, no token', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ') === 'api repos/octo/widget/pulls/20/files') {
+            fake.state.ci.pr.baseRefName = 'dev'
+            // The newest PR decides the checks, so the safety stop must not depend on the merged CI PR.
+            fake.state.prs = [pr(21, [done('tests'), done('lint')], false, { headRefName: 'feat/other', state: 'OPEN' })]
+          }
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1, text)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.match(text, /could not find .*ci\.yml on main/)
+        assert.match(text, /stopped here/)
+        assert.equal(tokenOf(text), undefined)
       })
 
       test('a PR retargeted before the merge leaves ci.yml off the default branch: exit 1, stopped here, no token, no PUT', () => {
