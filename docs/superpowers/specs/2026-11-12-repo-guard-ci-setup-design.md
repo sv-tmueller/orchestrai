@@ -182,13 +182,14 @@ All filed in orchestrai.
 | 2 | Apply: create the six labels, fence for label writes | S | none |
 | 3 | Apply: CI PR write path (branch, file, PR, wait, merge, protect, resume, stops) and its fence | M | 1, 2 |
 | 4 | Remove `tm-new-project`: skill, template move, docs, tests | M | 3 |
+| 5 | Check the `gh` version up front: print "gh 2.48 or newer needed" instead of a usage dump | S | none |
 
 ## 9. Open points
 
 - The script reads labels with `gh api --paginate --slurp`, which needs `gh`
   2.48 or newer. On older `gh` every Apply fails to read
-  (seen 2026-11-12 with Ubuntu's `gh` 2.45). Not part of this design, worth
-  its own small issue: a clear version message instead of a usage dump.
+  (seen 2026-11-12 with Ubuntu's `gh` 2.45). Package 5 turns that into a
+  clear version message. The owner approved it as its own package.
 - Monorepos with tests in more than one stack (for example rainmaker-bot's
   `dashboard/` and Python) fall back to owner-given commands in one job. A
-  job per stack is not in scope.
+  job per stack is not in scope (owner confirmed 2026-11-12).
