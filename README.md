@@ -219,8 +219,8 @@ package runs the full track (see "Pipeline rules").
 
 `/tm-repo-guard apply <repo>` changes one repo at a time. Give the name or
 `owner/name`. It refuses a repo that is not owned by your own account, an
-archived repo, a blocked repo, a repo that needs CI first, and a repo that
-requires signed commits (the protection write could reset that).
+archived repo, a blocked repo, and a repo that requires signed commits (the
+protection write could reset that).
 
 1. It first prints a plan: the changes, the required checks after apply, the
    GitHub writes it will make (branch protection, then repo settings, only
@@ -231,6 +231,20 @@ requires signed commits (the protection write could reset that).
    the plan was shown (a new PR, a setting flipped by hand), the token no
    longer matches and nothing is written. Run the plan again to get a new one.
 4. It prints the repo's state as GitHub holds it afterwards.
+
+On a repo that has test files but no finished CI run, the same steps add the
+CI first. The plan shows the generated `ci.yml`. On yes, Apply creates the
+labels, turns on auto merge and squash merge, opens a PR from
+`orchestrai/ci-setup`, waits up to 20 minutes for the `tests` check, merges the
+PR and only then writes the protection. If a check fails or the wait runs out,
+the PR stays open; run Apply again and it resumes from the open PR. The same
+holds, with exit 2, if the PR turns into a draft, changes its base, or a second
+open PR from `orchestrai/ci-setup` appears during the wait. An exit 2 with a
+new confirm token means the merged PR ran other checks than the plan expected,
+or the repo changed during the wait. Ask again with the new token. If the repo
+starts requiring signed commits during the wait, Apply stops after the merge
+without a token and writes no protection, because the write could reset that
+setting.
 
 A repo that is already set up prints "set up, nothing to change" and asks
 nothing. Protection settings the guard does not manage are carried over, not

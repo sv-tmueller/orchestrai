@@ -42,6 +42,7 @@ import {
   writeGuarded,
   writeArgs,
   runApply,
+  SYSTEM_CLOCK,
   runStatuses,
   findConfigDirs,
   collectConfigDirs,
@@ -1981,6 +1982,7 @@ const CI_BODY =
 const CI_TEXT = 'name: tests\non: [pull_request]\njobs:\n  tests:\n    runs-on: ubuntu-latest\n'
 const BASE_SHA = 'a'.repeat(40)
 const PR_SHA = 'b'.repeat(40)
+const STALE_SHA = '1'.repeat(40)
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64')
 
 const CI_NO_PR = { text: CI_TEXT, pr: null }
@@ -2483,12 +2485,20 @@ describe('the read guard and the write fence stay apart', () => {
   })
 })
 
+// A clock that moves only when the code under test sleeps, so no test waits.
+function fakeClock() {
+  const clock = { t: 0, sleeps: [], now: () => clock.t, sleep: (ms) => { clock.sleeps.push(ms); clock.t += ms } }
+  return clock
+}
+const OPEN_PR_FIELDS = 'number,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,statusCheckRollup'
+
 // ---------------------------------------------------------------------------
 // runApply: plan mode and confirm mode against a stateful fake
 // ---------------------------------------------------------------------------
 describe('runApply', () => {
   const done = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS' })
-  const pr = (number, rollup, isDraft = false) => ({ number, isDraft, statusCheckRollup: rollup })
+  const pr = (number, rollup, isDraft = false, extra = {}) => ({ number, isDraft, statusCheckRollup: rollup, ...extra })
+  const pending = (name) => ({ __typename: 'CheckRun', name, status: 'IN_PROGRESS', conclusion: '' })
   const ok = (value) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' })
   const fail = (status, message) => ({
     code: 1,
@@ -2523,9 +2533,32 @@ describe('runApply', () => {
       contentsError: over.contentsError ?? null,
       failPut: over.failPut ?? null,
       failPatch: over.failPatch ?? null,
+      // The CI setup PR's side of the repo (issue #554). `rollup` is a function
+      // of the fake time, so a check can start pending and turn green after a
+      // sleep. `fail` maps a route name to the response that route answers with.
+      ci: {
+        branchSha: over.ci?.branchSha ?? BASE_SHA,
+        branch: over.ci?.branch ?? false,
+        file: over.ci?.file ?? null,
+        pr: over.ci?.pr ?? null,
+        rollup: over.ci?.rollup ?? ((t) => (t >= 60000 ? [done('tests')] : [pending('tests')])),
+        prFiles: over.ci?.prFiles ?? null,
+        shaFiles: over.ci?.shaFiles ?? {},
+        openOthers: over.ci?.openOthers ?? [],
+        listOverride: over.ci?.listOverride ?? null,
+        nextPr: 20,
+        openSha: over.ci?.openSha ?? PR_SHA,
+        fail: over.ci?.fail ?? {},
+      },
+      clock: over.clock ?? fakeClock(),
       calls: [],
       writes: [],
     }
+    const ci = state.ci
+    // The CI PR as `gh pr list` shows it, at the fake's current time.
+    const listedCiPr = () => (ci.pr ? { ...ci.pr, statusCheckRollup: ci.rollup(state.clock.now(), ci) } : null)
+    const ciFileText = (ref) => (ci.shaFiles[ref] !== undefined ? ci.shaFiles[ref] : ci.file)
+    const contentsOk = (text) => ok({ type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') })
     const repoPath = 'repos/octo/widget'
     const protPath = `${repoPath}/branches/main/protection`
 
@@ -2543,7 +2576,99 @@ describe('runApply', () => {
         return state.protection ? ok(state.protection) : fail(404, 'Branch not protected')
       }
       if (key === `pr list --repo ${repoPath.slice(6)} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`) {
-        return ok(state.prs)
+        return ok(ci.pr ? [...state.prs, listedCiPr()] : state.prs)
+      }
+      if (key === `pr list --repo ${repoPath.slice(6)} --state open --limit 100 --json ${OPEN_PR_FIELDS}`) {
+        if (ci.fail.openList) return ci.fail.openList
+        if (ci.listOverride) return ok(ci.listOverride(state.clock.now()))
+        const open = ci.pr && ci.pr.state === 'OPEN' ? [listedCiPr()] : []
+        return ok([...open, ...ci.openOthers])
+      }
+      if (key === `api ${repoPath}/branches/main`) {
+        return ci.fail.branchRead ?? ok({ name: 'main', commit: { sha: ci.branchSha } })
+      }
+      if (key === `api ${repoPath}/git/ref/heads/${CI_BRANCH}`) {
+        if (ci.fail.refRead) return ci.fail.refRead
+        return ci.branch ? ok({ ref: `refs/heads/${CI_BRANCH}`, object: { sha: ci.branchSha } }) : fail(404, 'Not Found')
+      }
+      if (key === `api ${repoPath}/contents/${CI_FILE}?ref=${encodeURIComponent(CI_BRANCH)}`) {
+        if (ci.fail.branchFile) return ci.fail.branchFile
+        return ci.branch && ci.file !== null ? contentsOk(ci.file) : fail(404, 'Not Found')
+      }
+      const byRef = key.match(new RegExp(`^api ${repoPath}/contents/${CI_FILE.replaceAll('.', '\\.')}\\?ref=([0-9a-f]{40})$`))
+      if (byRef) {
+        if (ci.fail.shaFile) return ci.fail.shaFile
+        const text = ciFileText(byRef[1])
+        return text === null ? fail(404, 'Not Found') : contentsOk(text)
+      }
+      const prFiles = key.match(/^api repos\/octo\/widget\/pulls\/(\d+)\/files$/)
+      if (prFiles) {
+        if (ci.fail.prFiles) return ci.fail.prFiles
+        return ok(ci.prFiles ?? [{ filename: CI_FILE, status: 'added' }])
+      }
+      if (key === `api -X POST ${repoPath}/labels --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'POST', path: `${repoPath}/labels`, body: b })
+        if (ci.fail.label) return ci.fail.label
+        state.labels = [...state.labels, b]
+        return ok(b)
+      }
+      const labelPatch = key.match(/^api -X PATCH repos\/octo\/widget\/labels\/(.+) --input -$/)
+      if (labelPatch) {
+        const b = JSON.parse(input)
+        const name = decodeURIComponent(labelPatch[1])
+        state.writes.push({ method: 'PATCH', path: `${repoPath}/labels/${labelPatch[1]}`, body: b })
+        if (ci.fail.label) return ci.fail.label
+        state.labels = state.labels.map((l) => (l.name === name ? { ...l, ...b } : l))
+        return ok(b)
+      }
+      if (key === `api -X POST ${repoPath}/git/refs --input -`) {
+        state.writes.push({ method: 'POST', path: `${repoPath}/git/refs`, body: JSON.parse(input) })
+        if (ci.fail.refCreate) return ci.fail.refCreate
+        ci.branch = true
+        return ok({ ref: JSON.parse(input).ref })
+      }
+      if (key === `api -X PUT ${repoPath}/contents/${CI_FILE} --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'PUT', path: `${repoPath}/contents/${CI_FILE}`, body: b })
+        if (ci.fail.filePut) return ci.fail.filePut
+        ci.file = Buffer.from(b.content, 'base64').toString('utf8')
+        return ok({ content: { path: CI_FILE } })
+      }
+      if (key === `api -X POST ${repoPath}/pulls --input -`) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'POST', path: `${repoPath}/pulls`, body: b })
+        if (ci.fail.prOpen) return ci.fail.prOpen
+        ci.pr = {
+          number: ci.nextPr,
+          headRefName: CI_BRANCH,
+          headRefOid: ci.openSha,
+          baseRefName: b.base,
+          isDraft: b.draft,
+          isCrossRepository: false,
+          state: 'OPEN',
+        }
+        // The sha in the open response is deliberately not the head the polls report.
+        return ok({ number: ci.pr.number, state: 'open', head: { sha: STALE_SHA } })
+      }
+      const merge = key.match(/^api -X PUT repos\/octo\/widget\/pulls\/(\d+)\/merge --input -$/)
+      if (merge) {
+        const b = JSON.parse(input)
+        state.writes.push({ method: 'PUT', path: `${repoPath}/pulls/${merge[1]}/merge`, body: b })
+        if (ci.fail.merge) return ci.fail.merge
+        // GitHub refuses a merge whose pinned sha is not the head, and a squash
+        // merge while the setting is off.
+        if (!ci.pr || b.sha !== ci.pr.headRefOid) return fail(409, 'Head branch was modified. Review and try the merge again.')
+        if (!state.repo.allow_squash_merge) return fail(405, 'Squash merges are not allowed on this repository.')
+        ci.pr = { ...ci.pr, state: 'MERGED' }
+        state.tree = [...state.tree, CI_FILE]
+        return ok({ merged: true })
+      }
+      if (key === `api -X DELETE ${repoPath}/git/refs/heads/${CI_BRANCH}`) {
+        state.writes.push({ method: 'DELETE', path: `${repoPath}/git/refs/heads/${CI_BRANCH}` })
+        if (ci.fail.refDelete) return ci.fail.refDelete
+        ci.branch = false
+        return { code: 0, stdout: '', stderr: '' }
       }
       if (key === `api ${repoPath}/git/trees/main?recursive=1`) {
         return ok({ tree: state.tree.map((path) => ({ path, type: 'blob' })), truncated: state.treeTruncated })
@@ -2557,7 +2682,7 @@ describe('runApply', () => {
       }
       if (key === `api --paginate --slurp ${repoPath}/labels?per_page=100`) return ok([state.labels])
       if (key === `api -X PUT ${protPath} --input -`) {
-        state.writes.push({ method: 'PUT', body: JSON.parse(input) })
+        state.writes.push({ method: 'PUT', path: protPath, body: JSON.parse(input) })
         if (state.failPut) return state.failPut
         const b = JSON.parse(input)
         const on = (v) => ({ enabled: v })
@@ -2580,18 +2705,18 @@ describe('runApply', () => {
         return ok(state.protection)
       }
       if (key === `api -X PATCH ${repoPath} --input -`) {
-        state.writes.push({ method: 'PATCH', body: JSON.parse(input) })
+        state.writes.push({ method: 'PATCH', path: repoPath, body: JSON.parse(input) })
         if (state.failPatch) return state.failPatch
         Object.assign(state.repo, JSON.parse(input))
         return ok(state.repo)
       }
       throw new Error(`unexpected gh call: ${key}`)
     }
-    return { run, state }
+    return { run, state, clock: state.clock }
   }
 
   const tokenOf = (text) => text.match(/^confirm token: ([0-9a-f]{12})$/m)?.[1]
-  const apply = (fake, ...argv) => runApply(fake.run, argv)
+  const apply = (fake, ...argv) => runApply(fake.run, argv, fake.clock)
 
   // A fully set up repo, as the fake reports it.
   const SET_UP_PROTECTION = {
@@ -2864,17 +2989,46 @@ describe('runApply', () => {
     })
   })
 
+  const NPM_TREE = ['package.json', 'package-lock.json', 'src/a.js', 'src/a.test.js']
+  const PKG = JSON.stringify({ name: 'widget', scripts: { test: 'vitest run' } })
+  // No finished PR has run a check, so the repo needs CI.
+  const ciFake = (over = {}) => makeFake({ prs: [], tree: NPM_TREE, files: { 'package.json': PKG }, ...over })
+  const NPM_YAML = buildCiYaml({
+    branch: 'main',
+    install: 'npm ci',
+    test: 'npm test',
+    runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }],
+  })
+  // The CI setup PR as `gh pr list --state open` shows it.
+  const ciPr = (over = {}) => ({
+    number: 20,
+    headRefName: CI_BRANCH,
+    headRefOid: PR_SHA,
+    baseRefName: 'main',
+    isDraft: false,
+    isCrossRepository: false,
+    state: 'OPEN',
+    ...over,
+  })
+  // The writes of a fresh CI run, in the order the run makes them.
+  const LABEL_CREATES = LABELS.map((l) => `POST repos/octo/widget/labels (${l.name})`)
+  const FRESH_WRITES = [
+    ...LABEL_CREATES,
+    'PATCH repos/octo/widget',
+    'POST repos/octo/widget/git/refs',
+    `PUT repos/octo/widget/contents/${CI_FILE}`,
+    'POST repos/octo/widget/pulls',
+    'PUT repos/octo/widget/pulls/<new PR>/merge',
+    `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+    'PUT repos/octo/widget/branches/main/protection',
+  ]
+  const writesBlock = (text) => {
+    const lines = text.trimEnd().split('\n')
+    const at = lines.indexOf('writes:')
+    return lines.slice(at + 1, lines.length - 1).map((l) => l.replace(/^ {2}/, ''))
+  }
+
   describe('CI setup plan (issue #551)', () => {
-    const NPM_TREE = ['package.json', 'package-lock.json', 'src/a.js', 'src/a.test.js']
-    const PKG = JSON.stringify({ name: 'widget', scripts: { test: 'vitest run' } })
-    // No finished PR has run a check, so the repo needs CI.
-    const ciFake = (over = {}) => makeFake({ prs: [], tree: NPM_TREE, files: { 'package.json': PKG }, ...over })
-    const NPM_YAML = buildCiYaml({
-      branch: 'main',
-      install: 'npm ci',
-      test: 'npm test',
-      runtime: [{ uses: 'actions/setup-node@v7', with: { 'node-version': 'lts/*' } }],
-    })
     const contentsCalls = (fake) => fake.state.calls.filter((c) => c.args[1]?.includes('/contents/'))
 
     test('prints the detected commands, the expected check, the file and the writes, then a token', () => {
@@ -2898,10 +3052,12 @@ describe('runApply', () => {
       assert.ok(at > 0, text)
       assert.equal(lines.slice(at + 1, at + 7).every((l) => /^ {2}create \S+, color [0-9a-fA-F]{6}: /.test(l)), true, text)
       assert.equal(lines[at + 7], 'changes:')
-      // The six creates come first in the writes, each named, then the protection.
+      // The writes follow the run order: the six creates, each named, then the
+      // repo PATCH, the CI writes, and the protection PUT last.
       const writes = lines.slice(lines.indexOf('writes:') + 1, lines.indexOf('writes:') + 9)
       assert.equal(writes.slice(0, 6).every((l, i) => l === `  POST repos/octo/widget/labels (${LABELS[i].name})`), true, text)
-      assert.equal(writes[6], '  PUT repos/octo/widget/branches/main/protection')
+      assert.equal(writes[6], '  PATCH repos/octo/widget')
+      assert.equal(writes[7], '  POST repos/octo/widget/git/refs')
       assert.deepEqual(fake.state.writes, [])
     })
 
@@ -2920,7 +3076,7 @@ describe('runApply', () => {
         .map((l) => (l === '' ? '' : `    ${l}`))
         .join('\n')
       assert.ok(text.includes(`  file: .github/workflows/ci.yml\n${indented}\n`), text)
-      assert.match(text, /^ {2}note: --confirm does not write CI setup yet \(issue #554\)$/m)
+      assert.doesNotMatch(text, /note: --confirm|resume:/)
     })
 
     test('computes the protection as if tests and both verdict checks were seen', () => {
@@ -2961,15 +3117,26 @@ describe('runApply', () => {
       assert.notEqual(tokenOf(apply(nvm, 'widget').text), base)
     })
 
-    test('--confirm with the shown token writes nothing yet, and says why', () => {
+    test('--confirm with the shown token sets CI up: labels, PATCH, branch, file, PR, merge, delete, then the protection', () => {
       const fake = ciFake()
       const token = tokenOf(apply(fake, 'widget').text)
       const { code, text } = apply(fake, 'widget', '--confirm', token)
-      assert.equal(code, 2)
-      assert.match(text, /^refusing: setting up CI is not written yet \(issue #554\)/m)
-      assert.match(text, /nothing written/)
-      assert.deepEqual(fake.state.writes, [])
-      assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      assert.equal(code, 0, text)
+      assert.deepEqual(
+        fake.state.writes.map((w) => `${w.method} ${w.path}`),
+        [
+          ...LABELS.map(() => 'POST repos/octo/widget/labels'),
+          'PATCH repos/octo/widget',
+          'POST repos/octo/widget/git/refs',
+          `PUT repos/octo/widget/contents/${CI_FILE}`,
+          'POST repos/octo/widget/pulls',
+          'PUT repos/octo/widget/pulls/20/merge',
+          `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+          'PUT repos/octo/widget/branches/main/protection',
+        ]
+      )
+      assert.match(text, /^octo\/widget: set up$/m)
+      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
     })
 
     test('--confirm with a wrong token writes nothing either', () => {
@@ -2986,7 +3153,7 @@ describe('runApply', () => {
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
       assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
-      assert.doesNotMatch(text, /^ {2}PUT /m)
+      assert.doesNotMatch(text, /^ {2}PUT \S*\/protection$/m)
       assert.ok(tokenOf(text), 'no token line')
     })
 
@@ -3132,6 +3299,625 @@ describe('runApply', () => {
     test('the plan for a repo that does not need CI has no CI block', () => {
       const { text } = apply(makeFake(), 'widget')
       assert.doesNotMatch(text, /expected check|ci\.yml/)
+    })
+  })
+
+  describe('CI setup plan: run order and resume (issue #554)', () => {
+    const sawCalls = (fake, key) => fake.state.calls.filter((c) => c.args.join(' ').includes(key))
+
+    test('a fresh plan lists the writes in the order the run makes them, with no resume line', () => {
+      const { code, text } = apply(ciFake(), 'widget')
+      assert.equal(code, 0)
+      assert.deepEqual(writesBlock(text), FRESH_WRITES)
+      assert.doesNotMatch(text, /resume:/)
+    })
+
+    test('a leftover branch with no file is named and its ref create is left out', () => {
+      const fake = ciFake({ ci: { branch: true } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, new RegExp(`^ {2}resume: branch ${CI_BRANCH} exists without the workflow file$`, 'm'))
+      assert.deepEqual(writesBlock(text), FRESH_WRITES.filter((w) => w !== 'POST repos/octo/widget/git/refs'))
+    })
+
+    test('a leftover branch that holds the planned file also skips the file put', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, new RegExp(`^ {2}resume: branch ${CI_BRANCH} holds the planned workflow file$`, 'm'))
+      assert.deepEqual(
+        writesBlock(text),
+        FRESH_WRITES.filter((w) => w !== 'POST repos/octo/widget/git/refs' && !w.startsWith('PUT repos/octo/widget/contents'))
+      )
+    })
+
+    test('an open CI PR that holds only the planned file skips the PR open and names the PR in the merge line', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.match(text, /^ {2}resume: PR #20 is open and holds the planned workflow file$/m)
+      assert.deepEqual(writesBlock(text), [
+        ...LABEL_CREATES,
+        'PATCH repos/octo/widget',
+        'PUT repos/octo/widget/pulls/20/merge',
+        `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+        'PUT repos/octo/widget/branches/main/protection',
+      ])
+      assert.ok(tokenOf(text))
+    })
+
+    test('the PR check reads the changed files, then the file at the PR head sha', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } })
+      apply(fake, 'widget')
+      assert.equal(sawCalls(fake, 'pulls/20/files').length, 1)
+      assert.equal(sawCalls(fake, `contents/${CI_FILE}?ref=${PR_SHA}`).length, 1)
+      assert.equal(sawCalls(fake, 'git/ref/heads').length, 0, 'the ref is not read when a PR is found')
+    })
+
+    test('plan mode on a resume still only reads', () => {
+      for (const ci of [{ branch: true }, { branch: true, file: NPM_YAML }, { branch: true, file: NPM_YAML, pr: ciPr() }]) {
+        const fake = ciFake({ ci })
+        apply(fake, 'widget')
+        for (const c of fake.state.calls) {
+          assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+          assert.equal(c.input, undefined)
+        }
+        assert.deepEqual(fake.state.writes, [])
+      }
+    })
+
+    test('a PR for another head, or from a fork with the same head name, is not the CI PR', () => {
+      const others = [ciPr({ headRefName: 'feat/x' }), ciPr({ number: 21, isCrossRepository: true })]
+      const fake = ciFake({ ci: { openOthers: others } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.deepEqual(writesBlock(text), FRESH_WRITES)
+    })
+
+    test('the token changes when the resume state changes', () => {
+      const tokens = [
+        {},
+        { branch: true },
+        { branch: true, file: NPM_YAML },
+        { branch: true, file: NPM_YAML, pr: ciPr() },
+        { branch: true, file: NPM_YAML, pr: ciPr({ number: 21 }) },
+      ].map((ci) => tokenOf(apply(ciFake({ ci }), 'widget').text))
+      assert.equal(new Set(tokens).size, tokens.length, tokens.join(' '))
+    })
+
+    test('the token does not cover the PR head sha, so a push alone does not make it stale', () => {
+      const a = tokenOf(apply(ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr() } }), 'widget').text)
+      const other = 'c'.repeat(40)
+      const b = tokenOf(apply(ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr({ headRefOid: other }) } }), 'widget').text)
+      assert.equal(a, b)
+    })
+
+    const refuses = (name, over, pattern, code = 2) => {
+      test(`${name}: exit ${code}, no token, nothing written`, () => {
+        const fake = ciFake(over)
+        const out = apply(fake, 'widget')
+        assert.equal(out.code, code)
+        assert.match(out.text, pattern)
+        assert.equal(tokenOf(out.text), undefined)
+        assert.match(out.text, /nothing written/)
+        assert.deepEqual(fake.state.writes, [])
+        assert.equal(fake.state.calls.some((c) => !isReadOnly(c.args)), false)
+      })
+    }
+
+    refuses('a branch that holds a different file', { ci: { branch: true, file: 'name: other\n' } }, /different.*delete the branch/is)
+    refuses('an open CI PR that is a draft', { ci: { branch: true, file: NPM_YAML, pr: ciPr({ isDraft: true }) } }, /PR #20.*draft/is)
+    refuses('an open CI PR against another base', { ci: { branch: true, file: NPM_YAML, pr: ciPr({ baseRefName: 'dev' }) } }, /PR #20.*base dev/is)
+    refuses(
+      'two open PRs from the CI branch',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), openOthers: [ciPr({ number: 21 })] } },
+      /more than one open PR.*#20.*#21/is
+    )
+    refuses(
+      'an open CI PR that changes more than one file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: CI_FILE, status: 'added' }, { filename: 'x.js', status: 'added' }] } },
+      /PR #20.*exactly one file/is
+    )
+    refuses(
+      'an open CI PR that changes another file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: 'x.js', status: 'added' }] } },
+      /PR #20.*exactly one file/is
+    )
+    refuses(
+      'an open CI PR that modifies the file instead of adding it',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), prFiles: [{ filename: CI_FILE, status: 'modified' }] } },
+      /PR #20 does not add .*modified/is
+    )
+    refuses(
+      'an open CI PR whose head holds a different file',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), shaFiles: { [PR_SHA]: 'name: other\n' } } },
+      /PR #20.*not the planned file/is
+    )
+    refuses('a failed read of the open PRs', { ci: { fail: { openList: fail(500, 'Server Error') } } }, /could not read: .*Server Error/, 1)
+    refuses('a failed read of the CI branch', { ci: { fail: { refRead: fail(500, 'Server Error') } } }, /could not read: .*Server Error/, 1)
+    refuses(
+      'a failed read of the file on the CI branch',
+      { ci: { branch: true, fail: { branchFile: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
+    refuses(
+      'a failed read of the PR files',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), fail: { prFiles: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
+    refuses(
+      'a failed read of the file at the PR head',
+      { ci: { branch: true, file: NPM_YAML, pr: ciPr(), fail: { shaFile: fail(500, 'Server Error') } } },
+      /could not read: .*Server Error/,
+      1
+    )
+  })
+
+  describe('CI setup confirm (issue #554)', () => {
+    const wrote = (fake) => fake.state.writes.map((w) => `${w.method} ${w.path.replace('repos/octo/widget', '')}`)
+    const LABEL_WRITES = LABELS.map(() => 'POST /labels')
+    const BEFORE = [...LABEL_WRITES, 'PATCH ']
+    const REF = 'POST /git/refs'
+    const FILE = `PUT /contents/${CI_FILE}`
+    const OPEN = 'POST /pulls'
+    const MERGE = 'PUT /pulls/20/merge'
+    const DELETE = `DELETE /git/refs/heads/${CI_BRANCH}`
+    const PUT = 'PUT /branches/main/protection'
+    const pollsOf = (fake) => fake.state.calls.filter((c) => c.args.join(' ').includes('--state open'))
+    const green = () => [done('tests')]
+
+    // Plan, then confirm with the shown token. Returns the confirm result.
+    const confirmCi = (fake, ...extra) => {
+      const token = tokenOf(apply(fake, 'widget', ...extra).text)
+      assert.ok(token, 'the plan printed no token')
+      return apply(fake, 'widget', ...extra, '--confirm', token)
+    }
+
+    test('every call of a confirm run passes the read guard or the fence, and the merge is refused without a PR', () => {
+      const fake = ciFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      fake.state.calls.length = 0
+      assert.equal(apply(fake, 'widget', '--confirm', token).code, 0)
+      const ctx = { text: NPM_YAML, pr: { number: 20, sha: PR_SHA } }
+      for (const c of fake.state.calls) {
+        const input = c.input === undefined ? undefined : JSON.parse(c.input)
+        assert.equal(isReadOnly(c.args) || isAllowedWrite(c.args, input, TARGET, ctx), true, c.args.join(' '))
+      }
+      const merge = fake.state.calls.find((c) => c.args.join(' ').endsWith('/merge --input -'))
+      assert.equal(isAllowedWrite(merge.args, JSON.parse(merge.input), TARGET, { text: NPM_YAML, pr: null }), false)
+    })
+
+    test('the branch starts at the default branch head, and the file and the PR are the planned ones', () => {
+      const fake = ciFake()
+      confirmCi(fake)
+      const body = (suffix) => fake.state.writes.find((w) => w.path.endsWith(suffix)).body
+      assert.deepEqual(body('/git/refs'), { ref: `refs/heads/${CI_BRANCH}`, sha: BASE_SHA })
+      assert.deepEqual(body(`/contents/${CI_FILE}`), { message: CI_MESSAGE, content: b64(NPM_YAML), branch: CI_BRANCH })
+      assert.deepEqual(body('/pulls'), { title: CI_TITLE, head: CI_BRANCH, base: 'main', body: CI_BODY, draft: false })
+    })
+
+    test('waits on a clock: polls 30 s apart until tests is green, then merges', () => {
+      const fake = ciFake()
+      const token = tokenOf(apply(fake, 'widget').text)
+      const before = pollsOf(fake).length
+      const { code } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 0)
+      assert.deepEqual(fake.clock.sleeps, [30000, 30000])
+      assert.equal(fake.clock.t, 60000)
+      // One read to find an earlier PR, then three polls: pending, pending, green.
+      assert.equal(pollsOf(fake).length - before, 1 + 3)
+    })
+
+    test('the merge pins the head sha from the poll that read green, not the sha in the PR open response', () => {
+      const head = 'c'.repeat(40)
+      const fake = ciFake({ ci: { openSha: head } })
+      assert.equal(confirmCi(fake).code, 0)
+      const merge = fake.state.writes.find((w) => w.path.endsWith('/merge')).body
+      assert.deepEqual(merge, { merge_method: 'squash', sha: head })
+      assert.notEqual(merge.sha, STALE_SHA)
+    })
+
+    test('the PR check runs on the green poll head sha', () => {
+      const head = 'c'.repeat(40)
+      const fake = ciFake({ ci: { openSha: head } })
+      confirmCi(fake)
+      const reads = fake.state.calls.map((c) => c.args.join(' '))
+      assert.ok(reads.includes(`api repos/octo/widget/contents/${CI_FILE}?ref=${head}`))
+      assert.equal(reads.some((r) => r.includes(STALE_SHA)), false)
+    })
+
+    test('a push after the green poll makes the merge fail on the pinned sha, and nothing is deleted or protected', () => {
+      // The poll reads green on commit A while GitHub already holds commit B.
+      const A = 'c'.repeat(40)
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr({ headRefOid: PR_SHA }) } })
+      const run = (args, input) =>
+        args.join(' ').includes('--state open')
+          ? { code: 0, stdout: JSON.stringify([{ ...ciPr({ headRefOid: A }), statusCheckRollup: green() }]), stderr: '' }
+          : fake.run(args, input)
+      const token = tokenOf(runApply(run, ['widget'], fake.clock).text)
+      const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+      assert.equal(code, 1)
+      assert.deepEqual(wrote(fake).slice(-1), [MERGE])
+      assert.equal(fake.state.writes.at(-1).body.sha, A)
+      assert.match(text, /Head branch was modified/)
+      assert.match(text, /PR #20/)
+      assert.equal(fake.state.ci.branch, true)
+    })
+
+    test('waits for tests to exist: no checks right after the PR opens is not green', () => {
+      const fake = ciFake({ ci: { rollup: (t) => (t >= 60000 ? green() : []) } })
+      assert.equal(confirmCi(fake).code, 0)
+      assert.equal(fake.clock.t, 60000)
+    })
+
+    test('a green check that is not tests does not count', () => {
+      const fake = ciFake({ ci: { rollup: (t, ci) => (ci.pr.state === 'MERGED' ? green() : [done('lint'), ...(t >= 90000 ? green() : [])]) } })
+      assert.equal(confirmCi(fake).code, 0)
+      assert.equal(fake.clock.t, 90000)
+    })
+
+    test('a resume with an open CI PR writes no ref, file or PR, and finishes', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML, pr: ciPr({ number: 20 }), rollup: green } })
+      const { code, text } = confirmCi(fake)
+      assert.equal(code, 0, text)
+      assert.deepEqual(wrote(fake), [...BEFORE, MERGE, DELETE, PUT])
+    })
+
+    test('a resume with the branch and the file opens the PR only', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML } })
+      assert.equal(confirmCi(fake).code, 0)
+      assert.deepEqual(wrote(fake), [...BEFORE, OPEN, MERGE, DELETE, PUT])
+    })
+
+    test('a resume with the branch and no file puts the file and opens the PR, with no ref create', () => {
+      const fake = ciFake({ ci: { branch: true } })
+      assert.equal(confirmCi(fake).code, 0)
+      assert.deepEqual(wrote(fake), [...BEFORE, FILE, OPEN, MERGE, DELETE, PUT])
+    })
+
+    test('labels that exist and settings that are on are not written again', () => {
+      const labels = LABELS.map((l) => ({ name: l.name, color: l.color, description: l.description }))
+      const fake = ciFake({ labels, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      assert.equal(confirmCi(fake).code, 0)
+      assert.deepEqual(wrote(fake), [REF, FILE, OPEN, MERGE, DELETE, PUT])
+    })
+
+    test('a plan with no protection PUT completes the CI setup, writes no PUT and exits 0', () => {
+      const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+      const labels = LABELS.map((l) => ({ ...l }))
+      const fake = ciFake({ protection, labels, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code, text } = confirmCi(fake)
+      assert.equal(code, 0, text)
+      assert.deepEqual(wrote(fake), [REF, FILE, OPEN, MERGE, DELETE])
+    })
+
+    test('a token from a plan with no PR is stale once a PR is open: nothing is written', () => {
+      const fake = ciFake({ ci: { branch: true, file: NPM_YAML } })
+      const token = tokenOf(apply(fake, 'widget').text)
+      fake.state.ci.pr = ciPr()
+      const { code, text } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 2)
+      assert.match(text, /plan changed since it was shown, nothing written/)
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    describe('stops', () => {
+      const stops = (name, over, exit, written, pattern, still = {}) => {
+        test(`${name}: exit ${exit}, then no more writes`, () => {
+          const fake = ciFake(over)
+          const { code, text } = confirmCi(fake)
+          assert.equal(code, exit, text)
+          assert.deepEqual(wrote(fake), written)
+          assert.match(text, pattern)
+          assert.match(text, /stopped here/)
+          assert.doesNotMatch(text, /nothing written/)
+          for (const [key, want] of Object.entries(still)) assert.equal(fake.state.ci[key], want, key)
+        })
+      }
+      const bad = fail(422, 'Validation Failed')
+      const upToOpen = [...BEFORE, REF, FILE, OPEN]
+
+      stops('a label write fails', { ci: { fail: { label: bad } } }, 1, ['POST /labels'], /write failed: POST repos\/octo\/widget\/labels .*Validation Failed/)
+      stops('the repo PATCH fails', { failPatch: bad }, 1, BEFORE, /write failed: PATCH repos\/octo\/widget: Validation Failed/)
+      stops('the default branch head cannot be read', { ci: { fail: { branchRead: fail(500, 'Server Error') } } }, 1, BEFORE, /default branch main.*Server Error/s)
+      stops('the branch create fails', { ci: { fail: { refCreate: bad } } }, 1, [...BEFORE, REF], /write failed: POST repos\/octo\/widget\/git\/refs/)
+      stops('the file put fails', { ci: { fail: { filePut: bad } } }, 1, [...BEFORE, REF, FILE], /write failed: PUT .*contents/, { branch: true })
+      stops('the PR open fails', { ci: { fail: { prOpen: bad } } }, 1, upToOpen, /write failed: POST repos\/octo\/widget\/pulls/)
+      stops(
+        'a check is red',
+        { ci: { rollup: (t) => (t >= 30000 ? [{ ...done('tests'), conclusion: 'FAILURE' }] : [pending('tests')]) } },
+        1,
+        upToOpen,
+        /a check failed on PR #20.*stays open/s
+      )
+      stops(
+        'one check is red while another is still running',
+        { ci: { rollup: () => [pending('tests'), { ...done('lint'), conclusion: 'FAILURE' }] } },
+        1,
+        upToOpen,
+        /a check failed on PR #20.*stays open/s
+      )
+      stops(
+        'the merge fails',
+        { ci: { fail: { merge: fail(405, 'Required status check is expected') } } },
+        1,
+        [...upToOpen, MERGE],
+        /write failed: PUT .*merge: Required status check is expected.*PR #20/s
+      )
+      stops('the branch delete fails', { ci: { fail: { refDelete: bad } } }, 1, [...upToOpen, MERGE, DELETE], /write failed: DELETE .*git\/refs\/heads/, {
+        branch: true,
+      })
+
+      test('the protection PUT fails: the CI PR stays merged and the run exits 1', () => {
+        const fake = ciFake({ failPut: bad })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 1)
+        assert.deepEqual(wrote(fake), [...upToOpen, MERGE, DELETE, PUT])
+        assert.match(text, /write failed: PUT .*protection.*Validation Failed/)
+        assert.match(text, /^octo\/widget: not set up$/m)
+      })
+
+      test('waiting 20 minutes without a result stops with the PR named: 41 polls, 30 s apart, no merge', () => {
+        const fake = ciFake({ ci: { rollup: () => [pending('tests')] } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const before = pollsOf(fake).length
+        const { code, text } = apply(fake, 'widget', '--confirm', token)
+        assert.equal(code, 1)
+        assert.deepEqual(wrote(fake), upToOpen)
+        assert.equal(fake.clock.sleeps.length, 40)
+        assert.ok(fake.clock.sleeps.every((ms) => ms === 30000))
+        assert.equal(fake.clock.t, 20 * 60 * 1000)
+        assert.equal(pollsOf(fake).length - before, 1 + 41, 'one read for an earlier PR and 41 polls')
+        assert.match(text, /after 20 minutes.*PR #20 .*stays open/s)
+        assert.match(text, /stopped here/)
+      })
+
+      test('timing out while tests has not run says so', () => {
+        const fake = ciFake({ ci: { rollup: () => [done('lint')] } })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 1)
+        assert.match(text, /the tests check has not run/)
+      })
+
+      test('a poll that takes time shortens the last sleep, so the wait never passes the deadline', () => {
+        const fake = ciFake({ ci: { rollup: () => [pending('tests')] } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.writes.length > 0) fake.clock.t += 7000
+          return fake.run(args, input)
+        }
+        const start = fake.clock.t
+        const { code } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1)
+        assert.ok(fake.clock.sleeps.every((ms) => ms <= 30000))
+        assert.ok(fake.clock.sleeps.at(-1) < 30000, 'the last sleep is cut short')
+        assert.ok(fake.clock.t - start >= 20 * 60 * 1000)
+        assert.ok(fake.clock.t - start <= 20 * 60 * 1000 + 7000)
+      })
+
+      const afterOpen = (fake) => fake.state.writes.some((w) => w.path.endsWith('/pulls'))
+
+      test('a failed poll read stops with the PR named', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) =>
+          args.join(' ').includes('--state open') && afterOpen(fake) ? fail(502, 'Bad Gateway') : fake.run(args, input)
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1)
+        assert.match(text, /Bad Gateway/)
+        assert.match(text, /stopped here/)
+        assert.deepEqual(wrote(fake), upToOpen)
+      })
+
+      test('a PR that is no longer open stops the wait', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) =>
+          args.join(' ').includes('--state open') && afterOpen(fake) ? { code: 0, stdout: '[]', stderr: '' } : fake.run(args, input)
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1)
+        assert.match(text, /no longer open/)
+        assert.deepEqual(wrote(fake), upToOpen)
+      })
+
+      test('a PR that turned into a draft during the wait is not merged: exit 2', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.ci.pr) fake.state.ci.pr.isDraft = true
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2)
+        assert.match(text, /PR #20 is a draft/)
+        assert.equal(wrote(fake).includes(MERGE), false)
+      })
+
+      test('a base change during the wait is not merged: exit 2, stopped here', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.ci.pr) fake.state.ci.pr.baseRefName = 'dev'
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2)
+        assert.match(text, /PR #20 has base dev, not main/)
+        assert.match(text, /stopped here/)
+        assert.equal(wrote(fake).includes(MERGE), false)
+      })
+
+      test('a second open PR from the CI branch during the wait stops: exit 2, nothing written after it', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ').includes('--state open') && fake.state.ci.pr) fake.state.ci.openOthers = [ciPr({ number: 21 })]
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2, text)
+        assert.match(text, /more than one open PR.*#20.*#21/s)
+        assert.match(text, /stopped here/)
+        assert.deepEqual(wrote(fake), upToOpen)
+      })
+
+      test('a stop before the first write may say nothing was written', () => {
+        // Labels and settings are right and an open PR is found, so the poll is the first call that can fail.
+        const labels = LABELS.map((l) => ({ ...l }))
+        const fake = ciFake({ labels, repo: { allow_auto_merge: true, allow_squash_merge: true }, ci: { branch: true, file: NPM_YAML, pr: ciPr() } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        let polls = 0
+        const run = (args, input) => (args.join(' ').includes('--state open') && ++polls === 2 ? fail(502, 'Bad Gateway') : fake.run(args, input))
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1)
+        assert.match(text, /Bad Gateway/)
+        assert.match(text, /nothing written/)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      const beforeMerge = (name, over, pattern, exit = 2) => {
+        test(`the check before the merge: ${name}: exit ${exit}, no merge`, () => {
+          const fake = ciFake({ ci: over })
+          const { code, text } = confirmCi(fake)
+          assert.equal(code, exit, text)
+          assert.deepEqual(wrote(fake), upToOpen)
+          assert.match(text, pattern)
+          assert.match(text, /PR #20/)
+          assert.match(text, /stopped here/)
+          assert.doesNotMatch(text, /nothing written/)
+        })
+      }
+      beforeMerge('a second file on the branch', { prFiles: [{ filename: CI_FILE, status: 'added' }, { filename: 'x.js', status: 'added' }] }, /exactly one file/)
+      beforeMerge('a different file at the head', { shaFiles: { [PR_SHA]: 'name: other\n' } }, /not the planned file/)
+      beforeMerge('the PR files cannot be read', { fail: { prFiles: fail(500, 'Server Error') } }, /Server Error/, 1)
+    })
+
+    describe('the safety stop after the merge', () => {
+      const withMergedRollup = (merged) => (t, ci) => (ci.pr.state === 'MERGED' ? merged : t >= 60000 ? green() : [pending('tests')])
+      const upToDelete = [...BEFORE, REF, FILE, OPEN, MERGE, DELETE]
+
+      test('another check name on the merged PR stops before the PUT: exit 2, a normal-path plan and a new token', () => {
+        const fake = ciFake({ ci: { rollup: withMergedRollup([done('tests'), done('lint')]) } })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 2, text)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.match(text, /checks that ran on PR #20: lint, tests; the plan expected: tests/)
+        assert.match(text, /stopped here/)
+        assert.doesNotMatch(text, /nothing written/)
+        assert.match(text, /^ {2}required check: lint$/m)
+        assert.match(text, /^ {2}PUT repos\/octo\/widget\/branches\/main\/protection$/m)
+        assert.ok(tokenOf(text), 'no new token')
+
+        // The new token is the normal path's: a confirm with it writes the PUT.
+        const again = apply(fake, 'widget', '--confirm', tokenOf(text))
+        assert.equal(again.code, 0, again.text)
+        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['lint', 'orchestrai/review', 'orchestrai/test', 'tests'])
+      })
+
+      test('a change to the repo during the wait stops before the PUT too', () => {
+        const fake = ciFake({
+          ci: {
+            rollup: (t, ci) => {
+              // Someone turns on dismiss stale reviews by hand while the run waits.
+              if (t >= 30000 && fake.state.protection === null) {
+                fake.state.protection = {
+                  ...SET_UP_PROTECTION,
+                  required_status_checks: { strict: true, contexts: ['x'] },
+                  required_pull_request_reviews: { required_approving_review_count: 0, dismiss_stale_reviews: true },
+                }
+              }
+              return withMergedRollup([done('tests')])(t, ci)
+            },
+          },
+        })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 2, text)
+        assert.match(text, /the repo changed during the wait/)
+        assert.equal(wrote(fake).includes(PUT), false)
+        assert.ok(tokenOf(text))
+      })
+
+      test('a repo that someone finished during the wait needs no PUT: the run reports the state and writes none', () => {
+        const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+        const fake = ciFake({
+          ci: {
+            rollup: (t, ci) => {
+              if (t >= 30000 && fake.state.protection === null) {
+                fake.state.protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+              }
+              return withMergedRollup([done('tests')])(t, ci)
+            },
+          },
+        })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 0, text)
+        assert.match(text, /the repo changed during the wait; nothing is left to write/)
+        assert.equal(wrote(fake).includes(PUT), false)
+        assert.match(text, /^octo\/widget: set up$/m)
+      })
+
+      test('signed commits turned on during the wait stop before the PUT: exit 2, stopped here, nothing more written', () => {
+        const fake = ciFake({
+          ci: {
+            rollup: (t, ci) => {
+              if (t >= 30000 && fake.state.protection === null) {
+                fake.state.protection = { ...SET_UP_PROTECTION, required_signatures: { enabled: true } }
+              }
+              return withMergedRollup([done('tests')])(t, ci)
+            },
+          },
+        })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 2, text)
+        assert.match(text, /refusing: octo\/widget requires signed commits/)
+        assert.match(text, /stopped here/)
+        assert.doesNotMatch(text, /nothing written/)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.equal(tokenOf(text), undefined, 'a token would invite the same PUT')
+        assert.equal(fake.state.protection.required_signatures.enabled, true)
+      })
+
+      test('a merged PR that still does not count as CI stops with exit 1', () => {
+        const fake = ciFake({ ci: { rollup: withMergedRollup([]) } })
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 1, text)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.match(text, /still needs CI/)
+        assert.match(text, /stopped here/)
+      })
+
+      test('a failed re-read after the merge stops with exit 1 and does not say nothing was written', () => {
+        const fake = ciFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) =>
+          args.join(' ') === 'api repos/octo/widget' && fake.state.writes.some((w) => w.path.endsWith('/merge'))
+            ? fail(502, 'Bad Gateway')
+            : fake.run(args, input)
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 1)
+        assert.match(text, /Bad Gateway/)
+        assert.match(text, /stopped here/)
+        assert.doesNotMatch(text, /nothing written/)
+        assert.equal(wrote(fake).includes(PUT), false)
+      })
+    })
+
+    describe('the clock', () => {
+      test('SYSTEM_CLOCK sleeps for real: sleep(5) moves now() forward by at least 5 ms', () => {
+        const before = SYSTEM_CLOCK.now()
+        SYSTEM_CLOCK.sleep(5)
+        assert.ok(SYSTEM_CLOCK.now() - before >= 5)
+      })
+
+      test('runApply without a clock uses SYSTEM_CLOCK, which a run that finds green at once never sleeps on', () => {
+        const fake = ciFake({ ci: { rollup: green } })
+        const token = tokenOf(runApply(fake.run, ['widget']).text)
+        assert.equal(runApply(fake.run, ['widget', '--confirm', token]).code, 0)
+        assert.deepEqual(fake.clock.sleeps, [])
+      })
     })
   })
 
