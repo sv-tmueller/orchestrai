@@ -78,8 +78,8 @@ That is the owner's step, in `/plugin` in that dir.
    session ends first, the next `apply` resumes from what the run left.
 
    - Exit 0: done.
-   - Exit 1: report it and stop. A new attempt starts again at step 1, which
-     resumes from the open CI PR.
+   - Exit 1: report it and stop. A new attempt starts again at step 1, after
+     doing what the output asks. It resumes from what the run left.
    - Exit 2 whose output ends with a `confirm token: <12 hex>` line: the CI PR
      is merged, but what the run found after the merge differs from the plan,
      and the output is a new plan. Ask the owner again (step 2). Run this step
