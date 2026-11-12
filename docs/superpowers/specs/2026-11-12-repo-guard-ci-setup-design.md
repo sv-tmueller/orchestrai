@@ -176,13 +176,13 @@ only its settings. The owner accepted that on 2026-11-12.
 
 All filed in orchestrai.
 
-| # | Package | Size | Blocked by |
-|---|---------|------|------------|
-| 1 | Plan: stack detection, generated `ci.yml`, `--install`/`--test`, expected check name. Reads only. | M | none |
-| 2 | Apply: create the six labels, fence for label writes | S | none |
-| 3 | Apply: CI PR write path (branch, file, PR, wait, merge, protect, resume, stops) and its fence | M | 1, 2 |
-| 4 | Remove `tm-new-project`: skill, template move, docs, tests | M | 3 |
-| 5 | Check the `gh` version up front: print "gh 2.48 or newer needed" instead of a usage dump | S | none |
+| # | Package | Issue | Size | Blocked by |
+|---|---------|-------|------|------------|
+| 1 | Plan: stack detection, generated `ci.yml`, `--install`/`--test`, expected check name. Reads only. | #551 | M | none |
+| 2 | Apply: create the six labels, fence for label writes | #552 | S | none |
+| 3 | Apply: CI PR write path (branch, file, PR, wait, merge, protect, resume, stops) and its fence | #554 | M | #551, #552 |
+| 4 | Remove `tm-new-project`: skill, template move, docs, tests | #555 | M | #554 |
+| 5 | Check the `gh` version up front: print "gh 2.48 or newer needed" instead of a usage dump | #553 | S | none |
 
 ## 9. Open points
 
