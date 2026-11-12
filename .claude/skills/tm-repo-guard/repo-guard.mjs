@@ -12,10 +12,10 @@
  * copy is the newest commit. The dir facts come from each dir's plugin files;
  * the newest commit is one more read through `guarded()`. Nothing is written.
  *
- * Apply changes one repo, and only after the owner confirms. Its two writes
- * go through `writeGuarded()`, a separate fence that accepts exactly the
- * branch protection PUT and the repo PATCH, with bodies it validates. The read
- * guard is never loosened for them.
+ * Apply changes one repo, and only after the owner confirms. Its writes go
+ * through `writeGuarded()`, a separate fence that accepts exactly the branch
+ * protection PUT, the repo PATCH and the create or update of the six workflow
+ * labels, with bodies it validates. The read guard is never loosened for them.
  *
  * Statuses (issue #501) prints the commands that record both verdict statuses
  * on a PR head and queue its merge, for the owner to run in their own shell.
@@ -144,6 +144,17 @@ const REVIEW_KEYS = [
 ]
 const PATCH_KEYS = ['allow_auto_merge', 'allow_squash_merge']
 
+// The six workflow labels, with the values tm-new-project used. The fence
+// accepts exactly these names, colors and descriptions, nothing else.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const hasExactKeys = (obj, keys) => {
   const have = Object.keys(obj).sort()
@@ -152,6 +163,26 @@ const hasExactKeys = (obj, keys) => {
 
 function protectionPath(target) {
   return `repos/${target.repo}/branches/${encodeURIComponent(target.branch)}/protection`
+}
+
+const labelsPath = (target) => `repos/${target.repo}/labels`
+const labelPath = (target, name) => `${labelsPath(target)}/${encodeURIComponent(name)}`
+
+function validLabelCreate(b) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['name', 'color', 'description']) &&
+    LABELS.some((l) => l.name === b.name && l.color === b.color && l.description === b.description)
+  )
+}
+
+// No `new_name` key, so an update can never rename a label.
+function validLabelUpdate(b, target, path) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['color', 'description']) &&
+    LABELS.some((l) => path === labelPath(target, l.name) && l.color === b.color && l.description === b.description)
+  )
 }
 
 function validProtectionBody(b) {
@@ -190,13 +221,18 @@ export function writeArgs(op) {
   return ['api', '-X', op.method, op.path, '--input', '-']
 }
 
-// An allowlist of exactly two calls. Everything else is refused.
+// An allowlist: the protection PUT, the repo PATCH, and the label create and
+// update. Everything else is refused.
 export function isAllowedWrite(args, input, target) {
   if (!Array.isArray(args) || args.length !== 6) return false
   const [cmd, flag, method, path, inputFlag, dash] = args
   if (cmd !== 'api' || flag !== '-X' || inputFlag !== '--input' || dash !== '-') return false
   if (method === 'PUT') return path === protectionPath(target) && validProtectionBody(input)
-  if (method === 'PATCH') return path === `repos/${target.repo}` && validRepoPatch(input)
+  if (method === 'PATCH') {
+    if (path === `repos/${target.repo}`) return validRepoPatch(input)
+    return validLabelUpdate(input, target, path)
+  }
+  if (method === 'POST') return path === labelsPath(target) && validLabelCreate(input)
   return false
 }
 
@@ -397,13 +433,42 @@ export function evaluate(facts) {
 const CARRY_OFF = Object.fromEntries([...CARRIED, 'dismiss_stale_reviews'].map((k) => [k, false]))
 const REPO_CHANGES = ['auto merge on', 'squash merge allowed']
 
-// The writes that bring a repo to the plan: 0, 1 or 2, protection first. If the
-// PATCH fails the repo is protected with auto merge still off, which the ship
-// decision already treats as not set up.
-export function buildWrites(target, facts) {
-  const plan = planChanges(facts)
-  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+// GitHub keeps the color in the case it was given, and a missing description
+// comes back as null.
+const sameLabel = (have, want) =>
+  have.color.toLowerCase() === want.color.toLowerCase() && (have.description ?? '') === want.description
+
+// The label writes: a create for a label that is absent, an update for one that
+// differs, nothing for one that matches. POST on an existing label fails with
+// 422 and PATCH on a missing one with 404, so the choice cannot be left to GitHub.
+function labelWrites(target, facts) {
   const ops = []
+  for (const want of LABELS) {
+    const have = facts.labels.find((l) => l.name === want.name)
+    if (!have) {
+      ops.push({ method: 'POST', path: labelsPath(target), body: { name: want.name, color: want.color, description: want.description } })
+    } else if (!sameLabel(have, want)) {
+      ops.push({ method: 'PATCH', path: labelPath(target, want.name), body: { color: want.color, description: want.description } })
+    }
+  }
+  return ops
+}
+
+// On the CI setup path Apply adds the pipeline labels and the tests check in
+// the same run, so the protection is built as if both already exist.
+export function factsAfterApply(facts) {
+  if (!planChanges(facts).needsCi) return facts
+  return { ...facts, ciChecks: ['tests'], pipelineLabels: true }
+}
+
+// The writes that bring a repo to the plan: the labels (CI setup path only),
+// then protection, then the repo settings. If the PATCH fails the repo is
+// protected with auto merge still off, which the ship decision already treats as
+// not set up. Always takes the facts as read, before anything is written.
+export function buildWrites(target, facts) {
+  const plan = planChanges(factsAfterApply(facts))
+  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+  const ops = planChanges(facts).needsCi ? labelWrites(target, facts) : []
 
   if (protectionChanges.length > 0) {
     const carry = (facts.protection.kind === 'present' && facts.protection.carry) || CARRY_OFF
@@ -496,6 +561,8 @@ function gatherFacts(call, info, requested) {
     'labels'
   )
 
+  const labels = labelPages.flat()
+
   const deciding = newestChecks(prs)
   const older = deciding.pr === null ? [] : prs.filter((p) => p.number < deciding.pr)
 
@@ -512,7 +579,11 @@ function gatherFacts(call, info, requested) {
     ciChecks: deciding.names,
     testFileCount,
     testFilesTruncated,
-    pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),
+    pipelineLabels: hasPipelineLabels(labels.map((l) => l.name)),
+    // Only the six workflow labels, with the fields Apply compares.
+    labels: labels
+      .filter((l) => LABELS.some((w) => w.name === l.name))
+      .map((l) => ({ name: l.name, color: l.color, description: l.description })),
   }
 }
 
@@ -622,13 +693,37 @@ function parseApplyArgs(argv) {
 const refusal = (message) => ({ code: 2, text: `refusing: ${message}\nnothing written\n` })
 const readFailure = (message) => ({ code: 1, text: `could not read: ${message}\nnothing written\n` })
 
-function planText(target, plan, ops, token) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`, 'changes:']
+const LABEL_POST_PATH = /^repos\/[^/]+\/[^/]+\/labels$/
+const LABEL_PATCH_PATH = /^repos\/[^/]+\/[^/]+\/labels\/([^/]+)$/
+
+// The label a write is about, or null. All six creates share one path, so the
+// plan and the output name the label as well.
+function labelOpName(op) {
+  if (op.method === 'POST' && LABEL_POST_PATH.test(op.path)) return op.body.name
+  const m = op.method === 'PATCH' ? LABEL_PATCH_PATH.exec(op.path) : null
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+export function opText(op) {
+  const name = labelOpName(op)
+  return `${op.method} ${op.path}${name === null ? '' : ` (${name})`}`
+}
+
+export function planText(target, plan, ops, token) {
+  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  const labelOps = ops.filter((op) => labelOpName(op) !== null)
+  if (labelOps.length > 0) {
+    lines.push('labels:')
+    for (const op of labelOps) {
+      lines.push(`  ${op.method === 'POST' ? 'create' : 'update'} ${labelOpName(op)}, color ${op.body.color}: ${op.body.description}`)
+    }
+  }
+  lines.push('changes:')
   for (const c of plan.changes) lines.push(`  ${c}`)
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
   lines.push('writes:')
-  for (const op of ops) lines.push(`  ${op.method} ${op.path}`)
+  for (const op of ops) lines.push(`  ${opText(op)}`)
   lines.push(`confirm token: ${token}`)
   return lines.join('\n') + '\n'
 }
@@ -686,12 +781,12 @@ export function runApply(run, argv) {
       res = { code: 1, stdout: '', stderr: err.message }
     }
     if (res.code !== 0) {
-      lines.push(`write failed: ${op.method} ${op.path}: ${parseError(res).message}`)
+      lines.push(`write failed: ${opText(op)}: ${parseError(res).message}`)
       lines.push('stopped here, no further writes were attempted')
       failed = true
       break
     }
-    lines.push(`wrote: ${op.method} ${op.path}`)
+    lines.push(`wrote: ${opText(op)}`)
   }
 
   // Re-read through the read guard so the printed state is what GitHub holds.

@@ -27,11 +27,14 @@ import {
   countTestFiles,
   hasPipelineLabels,
   planChanges,
+  factsAfterApply,
   evaluate,
   collect,
   render,
   buildWrites,
   confirmToken,
+  planText,
+  opText,
   isAllowedWrite,
   writeGuarded,
   writeArgs,
@@ -535,6 +538,7 @@ const baseFacts = (over = {}) => ({
   ciChecks: ['Unit tests'],
   testFileCount: 5,
   pipelineLabels: false,
+  labels: [],
   ...over,
 })
 const NO_CI = { ciChecks: [], prCheckNames: [], olderCheckNames: [], protection: { ...PROTECTED, requiredChecks: [] } }
@@ -1073,6 +1077,26 @@ describe('collect', () => {
     assert.equal(widget.facts.testFilesTruncated, true)
   })
 
+  test('facts.labels keeps only the six workflow labels, as name, color and description', () => {
+    const table = {
+      ...responses,
+      'api --paginate --slurp repos/octo/widget-api/labels?per_page=100': json([
+        [{ id: 1, name: 'bug', color: 'd73a4a', description: 'Something is broken' }],
+        [
+          { id: 2, name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.', default: false },
+          { id: 3, name: 'in-progress', color: 'FBCA04', description: null },
+          { id: 4, name: 'SIZE:M', color: '000000', description: '' },
+        ],
+      ]),
+    }
+    const widget = collect(recordingRunner(table).run).entries.find((e) => e.repo === 'octo/widget-api')
+    assert.deepEqual(widget.facts.labels, [
+      { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+      { name: 'in-progress', color: 'FBCA04', description: null },
+    ])
+    assert.equal(widget.facts.pipelineLabels, false)
+  })
+
   test('an unreadable protection response becomes an error entry, not a state', () => {
     const table = {
       ...responses,
@@ -1267,6 +1291,23 @@ describe('render', () => {
 
 const TARGET = { repo: 'octo/widget', branch: 'main' }
 
+// The six labels tm-new-project used to create. The values are copied here on
+// purpose: a change to the script's table has to show up as a test failure.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+const labelPost = (l) => ({ method: 'POST', path: 'repos/octo/widget/labels', body: { name: l.name, color: l.color, description: l.description } })
+const labelPatch = (l) => ({
+  method: 'PATCH',
+  path: `repos/octo/widget/labels/${encodeURIComponent(l.name)}`,
+  body: { color: l.color, description: l.description },
+})
+
 // The PUT body Apply sends for a repo with no protection and one current check.
 const noProtection = baseFacts({ protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
 
@@ -1366,9 +1407,108 @@ describe('buildWrites', () => {
   })
 
   test('returns no writes exactly when there is nothing to change', () => {
+    // The CI setup path writes the labels and the tests check, so what is left
+    // to change is judged on the facts after Apply, as buildWrites does.
     for (const [name, facts] of Object.entries(FIXTURES)) {
-      assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(facts).changes.length === 0, name)
+      assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(factsAfterApply(facts)).changes.length === 0, name)
     }
+  })
+
+  describe('labels on the CI setup path', () => {
+    // Test files and no finished PR check: where Apply refuses today.
+    const ciPath = (over = {}) => baseFacts({ ...NO_CI, ...over })
+    const labelOps = (ops) => ops.filter((o) => o.path.includes('/labels'))
+    const have = (l, over = {}) => ({ name: l.name, color: l.color, description: l.description, ...over })
+
+    test('no labels yet: six creates in table order, then the PUT, then the repo PATCH', () => {
+      const ops = buildWrites(TARGET, ciPath({ protection: { kind: 'none' }, allowAutoMerge: false }))
+      assert.deepEqual(ops.slice(0, 6), LABELS.map(labelPost))
+      assert.deepEqual(
+        ops.slice(6).map((o) => o.method),
+        ['PUT', 'PATCH']
+      )
+      assert.equal(ops.length, 8)
+    })
+
+    test('the PUT requires the tests check and both verdict checks', () => {
+      const ops = buildWrites(TARGET, ciPath())
+      const put = ops.find((o) => o.method === 'PUT')
+      assert.deepEqual(put.body.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+    })
+
+    test('labels that already match are not written, and the PUT still requires the verdicts', () => {
+      const ops = buildWrites(TARGET, ciPath({ labels: LABELS.map((l) => have(l)), pipelineLabels: true }))
+      assert.deepEqual(labelOps(ops), [])
+      assert.deepEqual(ops[0].body.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+    })
+
+    test('a color that differs only in case is not a difference', () => {
+      const labels = LABELS.map((l) => have(l, { color: l.color.toLowerCase() === l.color ? l.color.toUpperCase() : l.color.toLowerCase() }))
+      assert.deepEqual(labelOps(buildWrites(TARGET, ciPath({ labels }))), [])
+    })
+
+    test('one label with another color: one PATCH on its encoded path, the other five are not written', () => {
+      const labels = LABELS.map((l) => have(l, l.name === 'size:S' ? { color: '000000' } : {}))
+      const ops = labelOps(buildWrites(TARGET, ciPath({ labels })))
+      assert.deepEqual(ops, [
+        { method: 'PATCH', path: 'repos/octo/widget/labels/size%3AS', body: { color: 'c2e0c6', description: 'Under 1 hour. One focused change.' } },
+      ])
+    })
+
+    test('a missing description counts as an empty one, so the label is updated', () => {
+      const labels = LABELS.map((l) => have(l, l.name === 'needs-human' ? { description: null } : {}))
+      const ops = labelOps(buildWrites(TARGET, ciPath({ labels })))
+      assert.deepEqual(ops.map((o) => [o.method, o.path]), [['PATCH', 'repos/octo/widget/labels/needs-human']])
+    })
+
+    test('a label with the same name in another case is created, not updated', () => {
+      const labels = [have(LABELS[0], { name: 'SIZE:S' })]
+      const ops = labelOps(buildWrites(TARGET, ciPath({ labels })))
+      assert.deepEqual(ops, LABELS.map(labelPost))
+    })
+
+    test('a repo that already has CI gets no label writes', () => {
+      assert.deepEqual(labelOps(buildWrites(TARGET, baseFacts({ protection: { kind: 'none' } }))), [])
+    })
+
+    test('a repo with no test files gets no label writes', () => {
+      assert.deepEqual(labelOps(buildWrites(TARGET, ciPath({ testFileCount: 0, protection: { kind: 'none' } }))), [])
+    })
+
+    test('every label write passes the write fence and fails the read guard', () => {
+      const labels = LABELS.map((l, i) => (i === 0 ? have(l, { color: '000000' }) : i === 1 ? have(l) : null)).filter(Boolean)
+      const ops = labelOps(buildWrites(TARGET, ciPath({ labels })))
+      assert.equal(ops.length, 5)
+      for (const op of ops) {
+        assert.equal(isAllowedWrite(writeArgs(op), op.body, TARGET), true, op.path)
+        assert.equal(isReadOnly(writeArgs(op)), false, op.path)
+      }
+    })
+  })
+
+  describe('factsAfterApply', () => {
+    test('on the CI setup path it adds the tests check and the pipeline labels', () => {
+      const facts = baseFacts(NO_CI)
+      const after = factsAfterApply(facts)
+      assert.deepEqual(after.ciChecks, ['tests'])
+      assert.equal(after.pipelineLabels, true)
+      assert.equal(after.testFileCount, facts.testFileCount)
+      assert.deepEqual(facts.ciChecks, [], 'the input is not changed')
+      assert.equal(facts.pipelineLabels, false)
+    })
+
+    test('anywhere else it returns the facts as they are', () => {
+      const withCi = baseFacts()
+      const noTests = baseFacts({ ...NO_CI, testFileCount: 0 })
+      assert.equal(factsAfterApply(withCi), withCi)
+      assert.equal(factsAfterApply(noTests), noTests)
+    })
+
+    test('the plan after Apply is one the read after the writes calls set up', () => {
+      const after = factsAfterApply(baseFacts({ ...NO_CI, protection: { kind: 'none' } }))
+      assert.equal(planChanges(after).needsCi, false)
+      assert.deepEqual(planChanges(after).requiredChecks, ['orchestrai/review', 'orchestrai/test', 'tests'])
+    })
   })
 
   test('every write passes the write fence and fails the read guard', () => {
@@ -1404,6 +1544,71 @@ describe('confirmToken', () => {
     assert.notEqual(confirmToken({ ...TARGET, branch: 'dev' }, ops), base)
     const more = buildWrites(TARGET, { ...noProtection, ciChecks: ['Unit tests', 'lint'] })
     assert.notEqual(confirmToken(TARGET, more), base)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// planText and opText
+// ---------------------------------------------------------------------------
+describe('planText', () => {
+  const ciFacts = baseFacts({ ...NO_CI, protection: { kind: 'none' }, allowAutoMerge: false })
+  const plan = planChanges(factsAfterApply(ciFacts))
+  const ops = buildWrites(TARGET, ciFacts)
+  const text = planText(TARGET, plan, ops, confirmToken(TARGET, ops))
+  const lines = text.trimEnd().split('\n')
+
+  test('prints a labels block straight after the header line', () => {
+    assert.match(lines[0], /^octo\/widget: not set up/)
+    assert.equal(lines[1], 'labels:')
+    assert.equal(lines[2], '  create size:S, color c2e0c6: Under 1 hour. One focused change.')
+    assert.equal(lines[7], '  create needs-human, color B60205: Agent loop exhausted or blocked; human decision needed.')
+    assert.equal(lines[8], 'changes:')
+  })
+
+  test('prints an update line for a label that differs', () => {
+    const labels = LABELS.map((l) => ({ ...l, color: l.name === 'size:M' ? '000000' : l.color }))
+    const withUpdate = buildWrites(TARGET, { ...ciFacts, labels })
+    const got = planText(TARGET, plan, withUpdate, 'abc').split('\n')
+    assert.equal(got[1], 'labels:')
+    assert.equal(got[2], '  update size:M, color BFD4F2: 1 to 3 hours. Write a sub-plan first.')
+    assert.equal(got[3], 'changes:')
+  })
+
+  test('names the label on each write line, because the six creates share one path', () => {
+    assert.ok(lines.includes('  POST repos/octo/widget/labels (size:S)'))
+    assert.ok(lines.includes('  POST repos/octo/widget/labels (needs-human)'))
+    assert.ok(lines.includes('  PUT repos/octo/widget/branches/main/protection'))
+    assert.ok(lines.includes('  PATCH repos/octo/widget'))
+  })
+
+  test('prints no labels block when no label is written', () => {
+    const noLabels = buildWrites(TARGET, noProtection)
+    const got = planText(TARGET, planChanges(noProtection), noLabels, 'abc')
+    assert.equal(got.includes('labels:'), false)
+    assert.match(got, /^octo\/widget: not set up \(default branch main\)\nchanges:\n/)
+  })
+
+  test('the token is the last line and the required checks include the verdicts', () => {
+    assert.match(lines.at(-1), /^confirm token: [0-9a-f]{12}$/)
+    assert.ok(lines.includes('required checks after apply: orchestrai/review, orchestrai/test, tests'))
+  })
+
+  test('the token changes when a label body changes', () => {
+    const other = ops.map((o) => (o.path.endsWith('/labels') && o.body.name === 'size:S' ? { ...o, body: { ...o.body, color: '000000' } } : o))
+    assert.notEqual(confirmToken(TARGET, other), confirmToken(TARGET, ops))
+  })
+})
+
+describe('opText', () => {
+  test('is the method and path, plus the label name for a label write', () => {
+    assert.equal(opText({ method: 'PUT', path: 'repos/octo/widget/branches/main/protection', body: {} }), 'PUT repos/octo/widget/branches/main/protection')
+    assert.equal(opText({ method: 'PATCH', path: 'repos/octo/widget', body: {} }), 'PATCH repos/octo/widget')
+    assert.equal(opText(labelPost(LABELS[0])), 'POST repos/octo/widget/labels (size:S)')
+    assert.equal(opText(labelPatch(LABELS[0])), 'PATCH repos/octo/widget/labels/size%3AS (size:S)')
+  })
+
+  test('a repo whose owner is named labels is still a plain repo write', () => {
+    assert.equal(opText({ method: 'PATCH', path: 'repos/labels/widget', body: {} }), 'PATCH repos/labels/widget')
   })
 })
 
@@ -1521,6 +1726,94 @@ describe('isAllowedWrite', () => {
       assert.equal(isAllowedWrite(patchArgs, body, TARGET), false)
     })
   }
+})
+
+describe('isAllowedWrite: labels', () => {
+  for (const l of LABELS) {
+    test(`accepts the create for ${l.name}`, () => {
+      const op = labelPost(l)
+      assert.equal(isAllowedWrite(writeArgs(op), op.body, TARGET), true)
+    })
+    test(`accepts the update for ${l.name} on its own encoded path`, () => {
+      const op = labelPatch(l)
+      assert.equal(isAllowedWrite(writeArgs(op), op.body, TARGET), true)
+    })
+  }
+
+  const [s, m] = LABELS
+  const postArgs = writeArgs(labelPost(s))
+  const patchArgs = writeArgs(labelPatch(s))
+  const post = (body) => isAllowedWrite(postArgs, body, TARGET)
+  const patch = (body) => isAllowedWrite(patchArgs, body, TARGET)
+
+  const badCreate = [
+    ['a seventh name', { ...labelPost(s).body, name: 'size:XXL' }],
+    ['a name in another case', { ...labelPost(s).body, name: 'SIZE:S' }],
+    ['a wrong color', { ...labelPost(s).body, color: '000000' }],
+    ['the right color in another case', { ...labelPost(s).body, color: 'C2E0C6' }],
+    ['a wrong description', { ...labelPost(s).body, description: 'Something else.' }],
+    ['no description', { name: s.name, color: s.color }],
+    ['an extra key', { ...labelPost(s).body, new_name: 'size:Z' }],
+    ['the color and description of another label', { name: s.name, color: m.color, description: m.description }],
+    ['a null body', null],
+    ['an array body', [labelPost(s).body]],
+    ['a string body', '{}'],
+  ]
+  for (const [name, body] of badCreate) {
+    test(`refuses a create with ${name}`, () => assert.equal(post(body), false))
+  }
+
+  const badUpdate = [
+    ['a name key', { name: s.name, color: s.color, description: s.description }],
+    ['an extra new_name key', { ...labelPatch(s).body, new_name: 'size:Z' }],
+    ['a missing description', { color: s.color }],
+    ['a missing color', { description: s.description }],
+    ['a wrong color', { ...labelPatch(s).body, color: '000000' }],
+    ['the right color in another case', { ...labelPatch(s).body, color: 'C2E0C6' }],
+    ['a wrong description', { ...labelPatch(s).body, description: 'Something else.' }],
+    ["another label's body on this path", labelPatch(m).body],
+    ['a null body', null],
+    ['an array body', [labelPatch(s).body]],
+    ['a string body', '{}'],
+  ]
+  for (const [name, body] of badUpdate) {
+    test(`refuses an update with ${name}`, () => assert.equal(patch(body), false))
+  }
+
+  const refused = [
+    ['an update on a path that is not encoded', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/size:S', '--input', '-'], labelPatch(s).body],
+    ['an update on a seventh name', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/bug', '--input', '-'], labelPatch(s).body],
+    ['an update on a name in another case', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/SIZE%3AS', '--input', '-'], labelPatch(s).body],
+    ['an update on a path with a query string', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/size%3AS?x=1', '--input', '-'], labelPatch(s).body],
+    ['a create on another repo', ['api', '-X', 'POST', 'repos/octo/other/labels', '--input', '-'], labelPost(s).body],
+    ['an update on another repo', ['api', '-X', 'PATCH', 'repos/octo/other/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a create on a longer path', ['api', '-X', 'POST', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPost(s).body],
+    ['a delete on the labels path', ['api', '-X', 'DELETE', 'repos/octo/widget/labels', '--input', '-'], labelPost(s).body],
+    ['a delete on a label path', ['api', '-X', 'DELETE', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a PUT on a label path', ['api', '-X', 'PUT', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a POST on the repo path', ['api', '-X', 'POST', 'repos/octo/widget', '--input', '-'], labelPost(s).body],
+    ['a create with -f fields', ['api', '-X', 'POST', 'repos/octo/widget/labels', '-f', 'name=size:S'], labelPost(s).body],
+  ]
+  for (const [name, args, body] of refused) {
+    test(`refuses ${name}`, () => assert.equal(isAllowedWrite(args, body, TARGET), false))
+  }
+
+  test('refuses the label read when given a label body', () => {
+    const read = ['api', '--paginate', '--slurp', 'repos/octo/widget/labels?per_page=100']
+    assert.equal(isAllowedWrite(read, labelPost(s).body, TARGET), false)
+    assert.equal(isAllowedWrite(['api', 'repos/octo/widget/labels'], labelPost(s).body, TARGET), false)
+  })
+
+  test('the read guard refuses every label write', () => {
+    for (const l of LABELS) {
+      assert.equal(isReadOnly(writeArgs(labelPost(l))), false)
+      assert.equal(isReadOnly(writeArgs(labelPatch(l))), false)
+    }
+  })
+
+  test('a label path encodes the colon, so the fence and the path builder agree', () => {
+    assert.equal(labelPatch(s).path, 'repos/octo/widget/labels/size%3AS')
+  })
 })
 
 describe('writeGuarded', () => {
