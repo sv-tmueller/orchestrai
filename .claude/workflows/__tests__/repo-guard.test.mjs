@@ -1420,6 +1420,111 @@ describe('isAllowedWrite', () => {
   }
 })
 
+// The six labels tm-new-project used to create. The values are copied here on
+// purpose: a change to the script's table has to show up as a test failure.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+const labelPost = (l) => ({ method: 'POST', path: 'repos/octo/widget/labels', body: { name: l.name, color: l.color, description: l.description } })
+const labelPatch = (l) => ({
+  method: 'PATCH',
+  path: `repos/octo/widget/labels/${encodeURIComponent(l.name)}`,
+  body: { color: l.color, description: l.description },
+})
+
+describe('isAllowedWrite: labels', () => {
+  for (const l of LABELS) {
+    test(`accepts the create for ${l.name}`, () => {
+      const op = labelPost(l)
+      assert.equal(isAllowedWrite(writeArgs(op), op.body, TARGET), true)
+    })
+    test(`accepts the update for ${l.name} on its own encoded path`, () => {
+      const op = labelPatch(l)
+      assert.equal(isAllowedWrite(writeArgs(op), op.body, TARGET), true)
+    })
+  }
+
+  const [s, m] = LABELS
+  const postArgs = writeArgs(labelPost(s))
+  const patchArgs = writeArgs(labelPatch(s))
+  const post = (body) => isAllowedWrite(postArgs, body, TARGET)
+  const patch = (body) => isAllowedWrite(patchArgs, body, TARGET)
+
+  const badCreate = [
+    ['a seventh name', { ...labelPost(s).body, name: 'size:XXL' }],
+    ['a name in another case', { ...labelPost(s).body, name: 'SIZE:S' }],
+    ['a wrong color', { ...labelPost(s).body, color: '000000' }],
+    ['the right color in another case', { ...labelPost(s).body, color: 'C2E0C6' }],
+    ['a wrong description', { ...labelPost(s).body, description: 'Something else.' }],
+    ['no description', { name: s.name, color: s.color }],
+    ['an extra key', { ...labelPost(s).body, new_name: 'size:Z' }],
+    ['the color and description of another label', { name: s.name, color: m.color, description: m.description }],
+    ['a null body', null],
+    ['an array body', [labelPost(s).body]],
+    ['a string body', '{}'],
+  ]
+  for (const [name, body] of badCreate) {
+    test(`refuses a create with ${name}`, () => assert.equal(post(body), false))
+  }
+
+  const badUpdate = [
+    ['a name key', { name: s.name, color: s.color, description: s.description }],
+    ['an extra new_name key', { ...labelPatch(s).body, new_name: 'size:Z' }],
+    ['a missing description', { color: s.color }],
+    ['a missing color', { description: s.description }],
+    ['a wrong color', { ...labelPatch(s).body, color: '000000' }],
+    ['the right color in another case', { ...labelPatch(s).body, color: 'C2E0C6' }],
+    ['a wrong description', { ...labelPatch(s).body, description: 'Something else.' }],
+    ["another label's body on this path", labelPatch(m).body],
+    ['a null body', null],
+    ['an array body', [labelPatch(s).body]],
+    ['a string body', '{}'],
+  ]
+  for (const [name, body] of badUpdate) {
+    test(`refuses an update with ${name}`, () => assert.equal(patch(body), false))
+  }
+
+  const refused = [
+    ['an update on a path that is not encoded', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/size:S', '--input', '-'], labelPatch(s).body],
+    ['an update on a seventh name', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/bug', '--input', '-'], labelPatch(s).body],
+    ['an update on a name in another case', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/SIZE%3AS', '--input', '-'], labelPatch(s).body],
+    ['an update on a path with a query string', ['api', '-X', 'PATCH', 'repos/octo/widget/labels/size%3AS?x=1', '--input', '-'], labelPatch(s).body],
+    ['a create on another repo', ['api', '-X', 'POST', 'repos/octo/other/labels', '--input', '-'], labelPost(s).body],
+    ['an update on another repo', ['api', '-X', 'PATCH', 'repos/octo/other/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a create on a longer path', ['api', '-X', 'POST', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPost(s).body],
+    ['a delete on the labels path', ['api', '-X', 'DELETE', 'repos/octo/widget/labels', '--input', '-'], labelPost(s).body],
+    ['a delete on a label path', ['api', '-X', 'DELETE', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a PUT on a label path', ['api', '-X', 'PUT', 'repos/octo/widget/labels/size%3AS', '--input', '-'], labelPatch(s).body],
+    ['a POST on the repo path', ['api', '-X', 'POST', 'repos/octo/widget', '--input', '-'], labelPost(s).body],
+    ['a create with -f fields', ['api', '-X', 'POST', 'repos/octo/widget/labels', '-f', 'name=size:S'], labelPost(s).body],
+  ]
+  for (const [name, args, body] of refused) {
+    test(`refuses ${name}`, () => assert.equal(isAllowedWrite(args, body, TARGET), false))
+  }
+
+  test('refuses the label read when given a label body', () => {
+    const read = ['api', '--paginate', '--slurp', 'repos/octo/widget/labels?per_page=100']
+    assert.equal(isAllowedWrite(read, labelPost(s).body, TARGET), false)
+    assert.equal(isAllowedWrite(['api', 'repos/octo/widget/labels'], labelPost(s).body, TARGET), false)
+  })
+
+  test('the read guard refuses every label write', () => {
+    for (const l of LABELS) {
+      assert.equal(isReadOnly(writeArgs(labelPost(l))), false)
+      assert.equal(isReadOnly(writeArgs(labelPatch(l))), false)
+    }
+  })
+
+  test('a label path encodes the colon, so the fence and the path builder agree', () => {
+    assert.equal(labelPatch(s).path, 'repos/octo/widget/labels/size%3AS')
+  })
+})
+
 describe('writeGuarded', () => {
   const [put, patch] = buildWrites(TARGET, noProtection)
 

@@ -12,10 +12,10 @@
  * copy is the newest commit. The dir facts come from each dir's plugin files;
  * the newest commit is one more read through `guarded()`. Nothing is written.
  *
- * Apply changes one repo, and only after the owner confirms. Its two writes
- * go through `writeGuarded()`, a separate fence that accepts exactly the
- * branch protection PUT and the repo PATCH, with bodies it validates. The read
- * guard is never loosened for them.
+ * Apply changes one repo, and only after the owner confirms. Its writes go
+ * through `writeGuarded()`, a separate fence that accepts exactly the branch
+ * protection PUT, the repo PATCH and the create or update of the six workflow
+ * labels, with bodies it validates. The read guard is never loosened for them.
  *
  * Statuses (issue #501) prints the commands that record both verdict statuses
  * on a PR head and queue its merge, for the owner to run in their own shell.
@@ -123,6 +123,17 @@ const REVIEW_KEYS = [
 ]
 const PATCH_KEYS = ['allow_auto_merge', 'allow_squash_merge']
 
+// The six workflow labels, with the values tm-new-project used. The fence
+// accepts exactly these names, colors and descriptions, nothing else.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const hasExactKeys = (obj, keys) => {
   const have = Object.keys(obj).sort()
@@ -131,6 +142,26 @@ const hasExactKeys = (obj, keys) => {
 
 function protectionPath(target) {
   return `repos/${target.repo}/branches/${encodeURIComponent(target.branch)}/protection`
+}
+
+const labelsPath = (target) => `repos/${target.repo}/labels`
+const labelPath = (target, name) => `${labelsPath(target)}/${encodeURIComponent(name)}`
+
+function validLabelCreate(b) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['name', 'color', 'description']) &&
+    LABELS.some((l) => l.name === b.name && l.color === b.color && l.description === b.description)
+  )
+}
+
+// No `new_name` key, so an update can never rename a label.
+function validLabelUpdate(b, target, path) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['color', 'description']) &&
+    LABELS.some((l) => path === labelPath(target, l.name) && l.color === b.color && l.description === b.description)
+  )
 }
 
 function validProtectionBody(b) {
@@ -169,13 +200,18 @@ export function writeArgs(op) {
   return ['api', '-X', op.method, op.path, '--input', '-']
 }
 
-// An allowlist of exactly two calls. Everything else is refused.
+// An allowlist: the protection PUT, the repo PATCH, and the label create and
+// update. Everything else is refused.
 export function isAllowedWrite(args, input, target) {
   if (!Array.isArray(args) || args.length !== 6) return false
   const [cmd, flag, method, path, inputFlag, dash] = args
   if (cmd !== 'api' || flag !== '-X' || inputFlag !== '--input' || dash !== '-') return false
   if (method === 'PUT') return path === protectionPath(target) && validProtectionBody(input)
-  if (method === 'PATCH') return path === `repos/${target.repo}` && validRepoPatch(input)
+  if (method === 'PATCH') {
+    if (path === `repos/${target.repo}`) return validRepoPatch(input)
+    return validLabelUpdate(input, target, path)
+  }
+  if (method === 'POST') return path === labelsPath(target) && validLabelCreate(input)
   return false
 }
 
