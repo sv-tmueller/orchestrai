@@ -424,7 +424,7 @@ export function ciCheckState(rollup) {
 }
 
 // gh exits 1 on an HTTP error but still writes the JSON body to stdout.
-function parseError({ stdout, stderr }) {
+export function parseError({ stdout, stderr }) {
   let body = null
   try {
     body = JSON.parse(stdout)
@@ -966,7 +966,7 @@ function readRepo(call, fullName) {
   return parseOk(call(['api', `repos/${fullName}`]), 'repo')
 }
 
-function gatherFacts(call, info, requested) {
+export function gatherFacts(call, info, requested) {
   // The response's own name is the one later calls and writes use.
   const fullName = info.full_name ?? requested
   const branch = encodeURIComponent(info.default_branch)
