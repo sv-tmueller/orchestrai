@@ -775,6 +775,11 @@ describe('workflowTriggers', () => {
     rejects('a second on key as an alias', 'on: issues\n*a : push\n')
     rejects('a second on key as a complex key', 'on: issues\n? on\n: push\n')
     rejects('a document that is one flow map', '{on : push, a: b,\non: issues\n}\n')
+
+    // The whole mapping is indented, so the column 0 lines after the first one are
+    // continuations of an open quote, not keys. PyYAML reads `on: push` at indent 2.
+    rejects('an indented root whose open quote hides a column 0 on key', '  name: "x\non:\n  issues: #"\n  on: push\n')
+    rejects('an indented root with a column 0 on key after its first line', lines('  name: x', 'on:', '  issues:'))
   })
 })
 

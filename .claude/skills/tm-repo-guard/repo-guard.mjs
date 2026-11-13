@@ -748,6 +748,10 @@ export function workflowTriggers(text) {
     lines.push({ indent: lead.length, text: body })
   }
 
+  // An indented root mapping puts every later column 0 line inside a continuation, so
+  // the column 0 scan below would read a key that PyYAML does not.
+  if (lines[0]?.indent > 0) return null
+
   // Count every column 0 line that PyYAML could read as an `on` key, not only the one
   // spelling this reads, so a second key in another spelling cannot go unseen.
   const onAt = []
