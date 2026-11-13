@@ -1,6 +1,6 @@
 ---
 name: tm-repo-guard
-description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state, apply them to one repo after you confirm (adding CI first where a repo has tests but none), or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
+description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state and bypass default, apply them to one repo after you confirm (adding CI first where a repo has tests but none), or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
 disable-model-invocation: true
 ---
 
@@ -19,13 +19,20 @@ node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs"
 
 Print its stdout as is. The script only reads. After the repos it prints one
 line per Claude Code config dir: is the plugin installed, is auto update on,
-and is the installed copy the newest commit. Exit 0 means every repo and
-config dir was read; exit 1 means at least one entry says "could not read",
-the repo list itself failed, a config dir could not be read, or the newest
-commit could not be read. Report that, and do not retry or work around it.
+is bypass the default mode in that dir's `settings.json` (`on`, `off`, or
+`unknown` when the file could not be read), and is the installed copy the
+newest commit. A dir with bypass on and the plugin missing or switched off
+gets a `warning:` line under it: the guard ships in the plugin, so it would
+not load there. A last `note:` line says what the bypass fact does not cover
+(launch flags, aliases, `--settings`, managed settings). A warning does not
+change the exit code. Exit 0 means every repo and config dir was read; exit 1
+means at least one entry says "could not read", the repo list itself failed, a
+config dir or its `settings.json` could not be read, or the newest commit
+could not be read. Report that, and do not retry or work around it.
 
 Never switch auto update on, install the plugin or update it from this flow.
-That is the owner's step, in `/plugin` in that dir.
+That is the owner's step, in `/plugin` in that dir. Never write any settings
+file either: the bypass default is the owner's switch.
 
 ## `apply <repo>`: change one repo
 
