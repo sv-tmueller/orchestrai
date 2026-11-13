@@ -3,10 +3,14 @@
  *
  * `parseCommandLine(text)` reads one shell line and returns
  * `{ ok: true, commands }` or `{ ok: false, reason }`. Each command is
- * `{ words: [{ text, expands }], redirects, wrapped, nested, afterCd }`:
+ * `{ words: [{ text, expands }], redirects, wrapped, nested, afterCd, env }`:
  *
- * - `words` has quotes removed. `expands` is true when the word holds `$VAR`,
- *   `${...}`, `$'...'` or a substitution, so its real value is unknown.
+ * - `words` has quotes removed, and the escapes inside `$'...'` decoded.
+ *   `expands` is true when the word holds `$VAR`, `$1`, `${...}`, `$'...'` or
+ *   a substitution, so its real value is unknown. It is the one test for
+ *   "expands" that rule groups use.
+ * - `env` lists the names assigned in front of the command (`GIT_DIR=x`, or
+ *   `env GIT_DIR=x`), also for a command run by a shell in the same prefix.
  * - `redirects` counts the redirections removed from the command, targets
  *   included. A heredoc body is skipped as data.
  * - `wrapped` is true when `env`, `sudo`, `timeout`, a `NAME=value` prefix or
@@ -15,7 +19,8 @@
  *   `bash -c` or `eval`.
  * - `afterCd` is true for every command after a `cd`, `pushd` or `popd` that
  *   appears earlier in the line. Subshell scope is ignored, which errs toward
- *   "unknown".
+ *   "unknown". It is also true for a command whose `env` or `sudo` wrapper
+ *   carries `-C`, `--chdir` or `-D`.
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
  * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting
@@ -32,18 +37,23 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish'])
 const CD_COMMANDS = new Set(['cd', 'pushd', 'popd'])
 const NO_VALUE = new Set()
 
-// Wrappers: each takes the words after the wrapper name and returns what is
-// left once the wrapper's own flags and arguments are removed.
-function skipFlags(words, valueFlags, { assignments = false } = {}) {
+const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
+
+// Wrappers: each takes the words after the wrapper name and a state object
+// ({ lines, env, chdir }), and returns what is left once the wrapper's own
+// flags and arguments are removed. `chdir` names the wrapper's own
+// change-directory flag: a short form and a long form.
+function skipFlags(words, valueFlags, state, chdir = null) {
   let i = 0
   while (i < words.length) {
     const t = words[i].text
-    if (assignments && ASSIGNMENT.test(t)) {
-      i++
-    } else if (t === '--') {
+    if (t === '--') {
       i++
       break
     } else if (t.length > 1 && t.startsWith('-')) {
+      if (chdir && (t === chdir.short || t === chdir.long || t.startsWith(`${chdir.long}=`) || (t.startsWith(chdir.short) && t.length > 2))) {
+        state.chdir = true
+      }
       i += valueFlags.has(t) ? 2 : 1
     } else {
       break
@@ -61,26 +71,28 @@ const SUDO_VALUE_FLAGS = new Set([
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 
 // `env -S` takes a whole command line as one string. Its value goes to
-// `lines` and is parsed as a line.
-function skipEnv(words, lines) {
+// `state.lines` and is parsed as a line. Assigned names go to `state.env`.
+function skipEnv(words, state) {
   let i = 0
   while (i < words.length) {
     const t = words[i].text
     if (ASSIGNMENT.test(t)) {
+      state.env.push(assignedName(t))
       i++
     } else if (t === '--') {
       i++
       break
     } else if (t === '-S' || t === '--split-string') {
-      if (words[i + 1]) lines.push(words[i + 1].text)
+      if (words[i + 1]) state.lines.push(words[i + 1].text)
       i += 2
     } else if (t.startsWith('--split-string=')) {
-      lines.push(t.slice('--split-string='.length))
+      state.lines.push(t.slice('--split-string='.length))
       i++
     } else if (t.startsWith('-S') && t.length > 2) {
-      lines.push(t.slice(2))
+      state.lines.push(t.slice(2))
       i++
     } else if (t.length > 1 && t.startsWith('-')) {
+      if (t === '-C' || t === '--chdir' || t.startsWith('--chdir=') || (t.startsWith('-C') && t.length > 2)) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
     } else {
       break
@@ -90,18 +102,18 @@ function skipEnv(words, lines) {
 }
 
 const WRAPPERS = {
-  env: (rest, lines) => skipEnv(rest, lines),
-  stdbuf: (rest) => skipFlags(rest, new Set(['-i', '-o', '-e', '--input', '--output', '--error'])),
-  setsid: (rest) => skipFlags(rest, NO_VALUE),
-  ionice: (rest) => skipFlags(rest, new Set(['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid'])),
-  doas: (rest) => skipFlags(rest, new Set(['-u', '-C'])),
-  command: (rest) => skipFlags(rest, NO_VALUE),
-  exec: (rest) => skipFlags(rest, new Set(['-a'])),
-  nohup: (rest) => skipFlags(rest, NO_VALUE),
-  time: (rest) => skipFlags(rest, new Set(['-f', '--format', '-o', '--output'])),
-  sudo: (rest) => skipFlags(rest, SUDO_VALUE_FLAGS),
-  nice: (rest) => skipFlags(rest, new Set(['-n', '--adjustment'])),
-  timeout: (rest) => skipFlags(rest, new Set(['-s', '--signal', '-k', '--kill-after'])).slice(1),
+  env: skipEnv,
+  stdbuf: (rest, state) => skipFlags(rest, new Set(['-i', '-o', '-e', '--input', '--output', '--error']), state),
+  setsid: (rest, state) => skipFlags(rest, NO_VALUE, state),
+  ionice: (rest, state) => skipFlags(rest, new Set(['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid']), state),
+  doas: (rest, state) => skipFlags(rest, new Set(['-u', '-C']), state),
+  command: (rest, state) => skipFlags(rest, NO_VALUE, state),
+  exec: (rest, state) => skipFlags(rest, new Set(['-a']), state),
+  nohup: (rest, state) => skipFlags(rest, NO_VALUE, state),
+  time: (rest, state) => skipFlags(rest, new Set(['-f', '--format', '-o', '--output']), state),
+  sudo: (rest, state) => skipFlags(rest, SUDO_VALUE_FLAGS, state, { short: '-D', long: '--chdir' }),
+  nice: (rest, state) => skipFlags(rest, new Set(['-n', '--adjustment']), state),
+  timeout: (rest, state) => skipFlags(rest, new Set(['-s', '--signal', '-k', '--kill-after']), state).slice(1),
 }
 
 export function commandName(command) {
@@ -123,20 +135,21 @@ export function parseCommandLine(text) {
 function unwrap(input) {
   let words = input
   let wrapped = false
-  const lines = []
+  const state = { lines: [], env: [], chdir: false }
   for (let guard = 0; guard < 50 && words.length > 0; guard++) {
     const head = words[0].text
     if (ASSIGNMENT.test(head) || KEYWORDS.has(head)) {
+      if (ASSIGNMENT.test(head)) state.env.push(assignedName(head))
       words = words.slice(1)
       wrapped = true
       continue
     }
     const wrapper = WRAPPERS[head.slice(head.lastIndexOf('/') + 1)]
     if (!wrapper) break
-    words = wrapper(words.slice(1), lines)
+    words = wrapper(words.slice(1), state)
     wrapped = true
   }
-  return { words, wrapped, lines }
+  return { words, wrapped, state }
 }
 
 const SHELL_VALUE_OPTIONS = new Set(['-O', '+O', '-o', '+o', '--rcfile', '--init-file'])
@@ -166,14 +179,18 @@ function scriptIndex(words) {
 }
 
 function buildCommand(rawWords, redirects, afterCd, depth) {
-  const { words, wrapped, lines } = unwrap(rawWords)
-  if (lines.length > 0) {
-    const line = [...lines, ...words.map((w) => w.text)].join(' ')
-    const inner = scan(line, 0, depth + 1, afterCd, false)
-    return { command: null, extra: inner.commands.map((c) => ({ ...c, nested: true })), sawCd: inner.sawCd }
+  const { words, wrapped, state } = unwrap(rawWords)
+  // An `env -C` or `sudo -D` moves this command, and what it runs, to another
+  // folder. The names assigned in front of it reach what it runs.
+  const here = afterCd || state.chdir
+  const nestedOf = (inner) => inner.commands.map((c) => ({ ...c, nested: true, env: [...state.env, ...c.env] }))
+  if (state.lines.length > 0) {
+    const line = [...state.lines, ...words.map((w) => w.text)].join(' ')
+    const inner = scan(line, 0, depth + 1, here, false)
+    return { command: null, extra: nestedOf(inner), sawCd: inner.sawCd }
   }
   if (words.length === 0) return { command: null, extra: [], sawCd: false }
-  const command = { words, redirects, wrapped, nested: false, afterCd }
+  const command = { words, redirects, wrapped, nested: false, afterCd: here, env: state.env }
   const name = commandName(command)
   let line = null
   // A command word that expands ($SHELL) is read as a shell only when a -c
@@ -187,11 +204,23 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
   let extra = []
   let sawCd = CD_COMMANDS.has(name)
   if (line !== null) {
-    const inner = scan(line, 0, depth + 1, afterCd, false)
-    extra = inner.commands.map((c) => ({ ...c, nested: true }))
+    const inner = scan(line, 0, depth + 1, here, false)
+    extra = nestedOf(inner)
     sawCd = sawCd || inner.sawCd
   }
   return { command, extra, sawCd }
+}
+
+const ANSI_C_SIMPLE = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"', r: '\r', a: '\x07', b: '\b', e: '\x1b', f: '\f', v: '\v' }
+
+// The text inside `$'...'` with its escapes decoded, so `$'\x72epos'` reads as
+// `repos`. An escape the parser does not know is kept as written.
+function decodeAnsiC(raw) {
+  return raw.replace(/\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|[\s\S])/g, (match, escape) => {
+    if (escape.length > 1 && escape[0] === 'x') return String.fromCharCode(parseInt(escape.slice(1), 16))
+    if (/^[0-7]+$/.test(escape)) return String.fromCharCode(parseInt(escape, 8) & 0xff)
+    return escape in ANSI_C_SIMPLE ? ANSI_C_SIMPLE[escape] : match
+  })
 }
 
 const isBlank = (ch) => ch === ' ' || ch === '\t' || ch === '\r'
@@ -278,7 +307,7 @@ function scan(text, start, depth, afterCd, closer) {
       let j = i + 2
       while (j < text.length && text[j] !== "'") j += text[j] === '\\' ? 2 : 1
       if (j >= text.length) throw new ParseError('unterminated quote')
-      word.text += text.slice(i + 2, j)
+      word.text += decodeAnsiC(text.slice(i + 2, j))
       word.expands = true
       i = j + 1
       return
