@@ -634,10 +634,50 @@ export function buildCiYaml({ branch, install, test, runtime }) {
 // keys are the events and deeper lines are ignored). It does not take a
 // one-line map, a list over several lines, an anchor, an alias, a tag, a block
 // scalar, tab indentation, a NEL or Unicode line or paragraph separator, a
-// column 0 line after the block that is not a key, or more than one document.
+// column 0 line after the block that is not a key, a flow collection or quoted
+// scalar that does not close on its own line inside the block (its column 0
+// continuation could pass for a key and end the block early), a second `on` key
+// in any spelling (a space before the colon, a case, an escape, an anchor, a
+// tag, an alias, a complex key), a document that is one flow collection, or
+// more than one document.
 const EVENT_NAME = /^[a-z_]+$/
 
 const TOP_KEY = /^(?:"[^"]*"|'[^']*'|[^\s:#]+):(?:\s|$)/
+
+// A column 0 key, quoted or plain, with room for a space before the colon.
+const KEY_AT_0 = /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#].*?))\s*:(?:\s|$)/
+
+// A column 0 line that could spell an `on` key in a way this cannot read:
+// an anchor, tag, alias or complex key before it, an escape inside it, or a
+// flow collection around it. Any of these makes the whole file unreadable.
+const AMBIGUOUS_AT_0 = /^(?:[&*!{\[]|\?(?:\s|$))/
+
+// True when a line leaves a quote or a flow bracket open, so the next line may
+// be a continuation. Quote characters inside a plain scalar count as open: that
+// costs a refusal and never a wrong answer.
+function leavesOpen(text) {
+  let quote = null
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (quote === '"' && c === '\\') i++
+      else if (c === quote) {
+        if (quote === "'" && text[i + 1] === "'") i++
+        else quote = null
+      }
+    } else if (c === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
+      break
+    } else if (c === '"' || c === "'") {
+      quote = c
+    } else if (c === '[' || c === '{') {
+      depth++
+    } else if (c === ']' || c === '}') {
+      depth--
+    }
+  }
+  return quote !== null || depth !== 0
+}
 
 // YAML 1.1 reads these as line breaks and JavaScript does not, so a file with
 // one is in a form this cannot read.
@@ -665,12 +705,14 @@ function blockTriggers(lines, from) {
   const block = []
   for (const l of lines.slice(from)) {
     // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it,
-    // but only a top-level key may end it: a flow list or quoted scalar that continues
-    // at column 0 would otherwise hide the events after it.
+    // but only a top-level key may end it. Every line before it closes its own quotes and
+    // brackets, so that line cannot be the continuation of a flow list or quoted scalar
+    // that would hide the events after it.
     if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) {
       if (!TOP_KEY.test(l.text)) return null
       break
     }
+    if (leavesOpen(l.text)) return null
     block.push(l)
   }
   if (block.length === 0) return null
@@ -706,9 +748,19 @@ export function workflowTriggers(text) {
     lines.push({ indent: lead.length, text: body })
   }
 
+  // Count every column 0 line that PyYAML could read as an `on` key, not only the one
+  // spelling this reads, so a second key in another spelling cannot go unseen.
+  const onAt = []
+  for (const [i, l] of lines.entries()) {
+    if (l.indent !== 0) continue
+    if (AMBIGUOUS_AT_0.test(l.text)) return null
+    const key = KEY_AT_0.exec(l.text)
+    if (!key) continue
+    if (key[1]?.includes('\\')) return null
+    if ((key[1] ?? key[2] ?? key[3]).toLowerCase() === 'on') onAt.push(i)
+  }
   const onLine = /^(?:on|"on"|'on'):(?:\s+(.*))?$/
-  const onAt = lines.flatMap((l, i) => (l.indent === 0 && onLine.test(l.text) ? [i] : []))
-  if (onAt.length !== 1) return null
+  if (onAt.length !== 1 || !onLine.test(lines[onAt[0]].text)) return null
 
   const inline = withoutComment(onLine.exec(lines[onAt[0]].text)[1] ?? '')
   const names = inline === '' ? blockTriggers(lines, onAt[0] + 1) : inlineTriggers(inline)

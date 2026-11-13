@@ -746,6 +746,35 @@ describe('workflowTriggers', () => {
     rejects('a flow list continued at column 0', lines('on:', '  issues:', '    types: [a,', 'b]', '  push:'))
     rejects('a quoted scalar continued at column 0', lines('on:', '  issues:', '    types: "a', 'b"', '  push:'))
     rejects('a column 0 line that is not a key after the block', lines('on:', '  issues:', 'jobs', '  push:'))
+
+    // A flow collection or quoted scalar that continues at column 0 with a `key: value` line.
+    // PyYAML reads the continuation as part of the value, so the events after it are still there.
+    const hidden = (open, rest) => ['on:', '  issues:', `    types: ${open}`, ...rest, '  push:']
+    for (const [name, text] of [
+      ['a flow list whose continuation looks like a key', hidden('[a,', ['b: c]'])],
+      ['a flow list whose continuation is a quoted key', hidden('[a,', ['"b": c]'])],
+      ['a flow list with a comment line before the continuation', hidden('[a,', ['#x', 'b: c]'])],
+      ['a flow map whose continuation looks like a key', hidden('{a: 1,', ['b: c}'])],
+      ['a double quoted scalar whose continuation looks like a key', hidden('"a', ['b: c"'])],
+      ['a single quoted scalar whose continuation looks like a key', hidden("'a", ["b: c'"])],
+    ]) {
+      rejects(name, lines(...text))
+      rejects(`${name}, CRLF`, text.join('\r\n') + '\r\n')
+      rejects(`${name}, lone CR`, text.join('\r') + '\r')
+    }
+    rejects('a block list item that opens a quote', lines('on:', '  - "issues', 'b: c"', '  - push'))
+    rejects('a block map key that opens a quote', lines('on:', '  "issues', 'b: c": {}', '  push:'))
+    rejects('the first line of a flow list that is never closed', lines('on:', '  issues:', '    types: [a,', '  push:'))
+
+    // A second `on` key in a spelling the line reader does not count. PyYAML reads the later one.
+    rejects('a second on key with a space before the colon', 'on: issues\non : push\n')
+    rejects('a second on key with an escape in its name', 'on: issues\n"\\x6fn": push\n')
+    rejects('a second on key in another case', 'on: issues\nOn: push\n')
+    rejects('a second on key behind an anchor', 'on: issues\n&a on: push\n')
+    rejects('a second on key behind a tag', 'on: issues\n!!str on: push\n')
+    rejects('a second on key as an alias', 'on: issues\n*a : push\n')
+    rejects('a second on key as a complex key', 'on: issues\n? on\n: push\n')
+    rejects('a document that is one flow map', '{on : push, a: b,\non: issues\n}\n')
   })
 })
 
