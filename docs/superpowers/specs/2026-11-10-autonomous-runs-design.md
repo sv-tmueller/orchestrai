@@ -6,6 +6,7 @@ Part of batch #470. Resolves issue #471, which records the design only. It
 changes no code, skill, agent, or workflow.
 Sections 4, 7 and 8 were revised on 2026-11-11, after the probe and the
 owner's decisions in batch #538.
+Section 6 was revised on 2026-11-12 (#555), after `tm-new-project` was removed.
 
 ## 1. Goal
 
@@ -191,7 +192,8 @@ progress.
 
 - A `tm-repo-guard` command checks and applies the setup on the owner's
   personal repos, and prints the repair commands. Only repos owned by the
-  owner's own account are in scope. `tm-new-project` calls it.
+  owner's own account are in scope. Where a repo has tests but no CI, it adds
+  the CI first (`docs/superpowers/specs/2026-11-12-repo-guard-ci-setup-design.md`).
 - Private repos can only get the rule on a paid GitHub plan. The command
   reports them as blocked until then.
 - Plugin auto update stays on, in every config dir. The owner accepted that a

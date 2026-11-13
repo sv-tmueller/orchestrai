@@ -12,10 +12,13 @@
  * copy is the newest commit. The dir facts come from each dir's plugin files;
  * the newest commit is one more read through `guarded()`. Nothing is written.
  *
- * Apply changes one repo, and only after the owner confirms. Its two writes
- * go through `writeGuarded()`, a separate fence that accepts exactly the
- * branch protection PUT and the repo PATCH, with bodies it validates. The read
- * guard is never loosened for them.
+ * Apply changes one repo, and only after the owner confirms. Its writes go
+ * through `writeGuarded()`, a separate fence that accepts exactly the branch
+ * protection PUT, the repo PATCH, the create or update of the six workflow
+ * labels and, on a repo that needs CI, the five CI setup writes (create the
+ * `orchestrai/ci-setup` branch, put the workflow file, open the PR, merge it,
+ * delete the branch), with bodies it validates. The read guard is never
+ * loosened for them.
  *
  * Statuses (issue #501) prints the commands that record both verdict statuses
  * on a PR head and queue its merge, for the owner to run in their own shell.
@@ -24,10 +27,20 @@
  * Usage: node repo-guard.mjs                           Check
  *        node repo-guard.mjs apply <repo>              plan: prints changes and a token
  *        node repo-guard.mjs apply <repo> --confirm T  writes, when T matches the plan
+ *        node repo-guard.mjs apply <repo> --install C --test C
+ *                                                      plan with given CI commands (repo needs CI)
  *        node repo-guard.mjs statuses <repo> <pr>      prints the commands
  * Exit:  Check: 0 when every repo and config dir was read, 1 when any could not be.
- *        Apply: 0 done or nothing to change, 1 read or write failed,
- *        2 usage error, refusal or token mismatch.
+ *        Apply: 0 done or nothing to change, 1 read or write failed, or on the
+ *        CI path a check failed or 20 minutes passed without a result,
+ *        2 usage error, refusal or token mismatch, or on the CI path a stop
+ *        after writes that needs the owner to look again (the PR holds more
+ *        than the planned file, the PR turned draft, changed base or got a
+ *        second open PR from the CI branch during the wait, the repo started
+ *        requiring signed commits during the wait, or the merged PR ran
+ *        other checks than the plan expected; the output then names what
+ *        happened and, when there is something left to write and signed
+ *        commits are not the cause, carries a new token).
  *        Statuses: 0 commands printed, 1 a read failed, 2 usage error or refusal.
  */
 
@@ -49,6 +62,9 @@ const PR_LIST_FLAGS = new Set(['--repo', '--state', '--limit', '--json'])
 // -f or -F, so blocking `-X` alone would miss writes.
 export function isReadOnly(args) {
   if (!Array.isArray(args)) return false
+
+  // A local call: no network, no login, so it gives no extra GitHub access.
+  if (args.length === 1 && args[0] === '--version') return true
 
   if (args[0] === 'api') {
     const rest = args.slice(1)
@@ -78,6 +94,24 @@ export function guarded(run) {
   return (args) => {
     if (!isReadOnly(args)) throw new Error(`refusing a call that is not read-only: gh ${args.join(' ')}`)
     return run(args)
+  }
+}
+
+// `gh api --slurp` came in gh 2.48, and the labels read uses it. Raise this
+// if a read ever needs a newer flag.
+const MIN_GH = { major: 2, minor: 48 }
+
+// Check and Apply call this first, so an old gh fails with one line instead
+// of a usage dump from the first read that needs a newer flag.
+export function requireGh(call) {
+  const res = call(['--version'])
+  const m = res.code === 0 ? /^gh version (\d+)\.(\d+)\.(\d+)/.exec(res.stdout.split('\n')[0]) : null
+  const need = `gh ${MIN_GH.major}.${MIN_GH.minor} or newer needed`
+  if (m === null) throw new Error(`gh version unknown, ${need}`)
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  if (major < MIN_GH.major || (major === MIN_GH.major && minor < MIN_GH.minor)) {
+    throw new Error(`gh ${m[1]}.${m[2]}.${m[3]} found, ${need}`)
   }
 }
 
@@ -123,6 +157,28 @@ const REVIEW_KEYS = [
 ]
 const PATCH_KEYS = ['allow_auto_merge', 'allow_squash_merge']
 
+// The six workflow labels, with the values tm-kickoff and tm-advisor also create. The fence
+// accepts exactly these names, colors and descriptions, nothing else.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+
+// The CI setup PR (issue #561, spec sections 3.3 and 6). The commit message,
+// the PR title and the PR body are fixed texts, so the fence can match them.
+const CI_BRANCH = 'orchestrai/ci-setup'
+const CI_FILE = '.github/workflows/ci.yml'
+const CI_CHECK = 'tests'
+const CI_MESSAGE = 'ci: add the tests workflow'
+const CI_TITLE = 'ci: add the tests workflow'
+const CI_BODY =
+  'Added by /tm-repo-guard apply. The guard merges this PR once the tests check passes, then makes tests a required check.'
+const HEAD_SHA = /^[0-9a-f]{40}$/
+
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const hasExactKeys = (obj, keys) => {
   const have = Object.keys(obj).sort()
@@ -131,6 +187,26 @@ const hasExactKeys = (obj, keys) => {
 
 function protectionPath(target) {
   return `repos/${target.repo}/branches/${encodeURIComponent(target.branch)}/protection`
+}
+
+const labelsPath = (target) => `repos/${target.repo}/labels`
+const labelPath = (target, name) => `${labelsPath(target)}/${encodeURIComponent(name)}`
+
+function validLabelCreate(b) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['name', 'color', 'description']) &&
+    LABELS.some((l) => l.name === b.name && l.color === b.color && l.description === b.description)
+  )
+}
+
+// No `new_name` key, so an update can never rename a label.
+function validLabelUpdate(b, target, path) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['color', 'description']) &&
+    LABELS.some((l) => path === labelPath(target, l.name) && l.color === b.color && l.description === b.description)
+  )
 }
 
 function validProtectionBody(b) {
@@ -165,23 +241,108 @@ function validRepoPatch(b) {
   return keys.length > 0 && keys.every((k) => PATCH_KEYS.includes(k) && b[k] === true)
 }
 
+// The CI setup context: `{ text, pr }`. Apply builds it on the CI path only;
+// the normal path passes none, so every CI write is refused there. The fence
+// checks the shape itself and never throws on a bad one.
+const ciValid = (ci) => isObject(ci) && typeof ci.text === 'string'
+const ciPrValid = (ci) =>
+  ciValid(ci) &&
+  isObject(ci.pr) &&
+  Number.isSafeInteger(ci.pr.number) &&
+  ci.pr.number > 0 &&
+  typeof ci.pr.sha === 'string' &&
+  HEAD_SHA.test(ci.pr.sha)
+
+const ciRefsPath = (target) => `repos/${target.repo}/git/refs`
+const ciBranchRefPath = (target) => `${ciRefsPath(target)}/heads/${CI_BRANCH}`
+const ciFilePath = (target) => `repos/${target.repo}/contents/${CI_FILE}`
+const pullsPath = (target) => `repos/${target.repo}/pulls`
+
+function validCiRef(b) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['ref', 'sha']) &&
+    b.ref === `refs/heads/${CI_BRANCH}` &&
+    typeof b.sha === 'string' &&
+    HEAD_SHA.test(b.sha)
+  )
+}
+
+// No `sha` key, so an existing file can never be overwritten.
+function validCiFile(b, ci) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['message', 'content', 'branch']) &&
+    b.message === CI_MESSAGE &&
+    b.branch === CI_BRANCH &&
+    b.content === Buffer.from(ci.text, 'utf8').toString('base64')
+  )
+}
+
+function validCiPull(b, target) {
+  return (
+    isObject(b) &&
+    hasExactKeys(b, ['title', 'head', 'base', 'body', 'draft']) &&
+    b.title === CI_TITLE &&
+    b.head === CI_BRANCH &&
+    b.base === target.branch &&
+    b.body === CI_BODY &&
+    b.draft === false
+  )
+}
+
+function validCiMerge(b, ci) {
+  return isObject(b) && hasExactKeys(b, ['merge_method', 'sha']) && b.merge_method === 'squash' && b.sha === ci.pr.sha
+}
+
 export function writeArgs(op) {
+  // A DELETE has no body, so it uses the 4-argument form with no --input.
+  if (op.method === 'DELETE') return ['api', '-X', 'DELETE', op.path]
   return ['api', '-X', op.method, op.path, '--input', '-']
 }
 
-// An allowlist of exactly two calls. Everything else is refused.
-export function isAllowedWrite(args, input, target) {
-  if (!Array.isArray(args) || args.length !== 6) return false
+// An allowlist: the protection PUT, the repo PATCH, the label create and
+// update, and the five CI setup writes (ref, file, PR, merge, ref delete).
+// Everything else is refused.
+export function isAllowedWrite(args, input, target, ci) {
+  if (!Array.isArray(args)) return false
+  // Only the CI branch delete has no body.
+  if (args.length === 4) {
+    const [cmd, flag, method, path] = args
+    return (
+      cmd === 'api' &&
+      flag === '-X' &&
+      method === 'DELETE' &&
+      input === undefined &&
+      ciPrValid(ci) &&
+      path === ciBranchRefPath(target)
+    )
+  }
+  if (args.length !== 6) return false
   const [cmd, flag, method, path, inputFlag, dash] = args
   if (cmd !== 'api' || flag !== '-X' || inputFlag !== '--input' || dash !== '-') return false
-  if (method === 'PUT') return path === protectionPath(target) && validProtectionBody(input)
-  if (method === 'PATCH') return path === `repos/${target.repo}` && validRepoPatch(input)
+  if (method === 'PUT') {
+    if (path === protectionPath(target)) return validProtectionBody(input)
+    if (ciValid(ci) && path === ciFilePath(target)) return validCiFile(input, ci)
+    if (ciPrValid(ci) && path === `${pullsPath(target)}/${ci.pr.number}/merge`) return validCiMerge(input, ci)
+    return false
+  }
+  if (method === 'PATCH') {
+    if (path === `repos/${target.repo}`) return validRepoPatch(input)
+    return validLabelUpdate(input, target, path)
+  }
+  if (method === 'POST') {
+    if (path === labelsPath(target)) return validLabelCreate(input)
+    if (ciValid(ci) && path === ciRefsPath(target)) return validCiRef(input)
+    if (ciValid(ci) && path === pullsPath(target)) return validCiPull(input, target)
+    return false
+  }
   return false
 }
 
-export function writeGuarded(run, target) {
+export function writeGuarded(run, target, ci) {
   return (args, input) => {
-    if (!isAllowedWrite(args, input, target)) {
+    if (!isAllowedWrite(args, input, target, ci)) {
       throw new Error(`refusing a call that is not an allowed write: gh ${args.join(' ')}`)
     }
     return run(args, JSON.stringify(input))
@@ -221,20 +382,42 @@ function isCompleted(item) {
   return item.status === 'COMPLETED'
 }
 
+// The names of the checks that ran: skipped ones did not, and a check that
+// shows up twice counts once. Shared so the two readers cannot drift apart.
+function ranNames(items) {
+  return [...new Set(items.filter((i) => i.conclusion !== 'SKIPPED').map((i) => (isStatusContext(i) ? i.context : i.name)))].sort()
+}
+
 // The checks the newest finished PR ran. That PR, not the last ten together,
 // says what runs today, so a retired check does not stay required for good.
-export function newestChecks(prs) {
+export function newestChecks(prs, ciFileOnDefault) {
   const byNumber = [...prs].sort((a, b) => b.number - a.number)
   for (const pr of byNumber) {
     if (pr.isDraft === true) continue
+    // The CI setup PR says what runs only once it is merged and its workflow
+    // file is on the default branch (a merge into another base leaves the file
+    // off it). Before that, a finished run on it must not read as CI.
+    if (pr.headRefName === CI_BRANCH && !(pr.state === 'MERGED' && ciFileOnDefault === true)) continue
     const ci = (pr.statusCheckRollup ?? []).filter((item) => !isVerdict(item))
     if (ci.length === 0 || !ci.every(isCompleted)) continue
-    const names = [
-      ...new Set(ci.filter((i) => i.conclusion !== 'SKIPPED').map((i) => (isStatusContext(i) ? i.context : i.name))),
-    ].sort()
+    const names = ranNames(ci)
     if (names.length > 0) return { pr: pr.number, names }
   }
   return { pr: null, names: [] }
+}
+
+const PASSING_CONCLUSIONS = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
+
+// Where the CI setup PR's checks stand: 'red' (a finished check failed),
+// 'pending' (one has not finished), 'missing' (`tests` has not run) or 'green'.
+// Pending comes before missing because both mean wait.
+export function ciCheckState(rollup) {
+  const ci = (rollup ?? []).filter((item) => !isVerdict(item))
+  const passed = (i) => (isStatusContext(i) ? i.state === 'SUCCESS' : PASSING_CONCLUSIONS.includes(i.conclusion))
+  if (ci.some((i) => isCompleted(i) && !passed(i))) return 'red'
+  if (ci.some((i) => !isCompleted(i))) return 'pending'
+  if (!ranNames(ci).includes(CI_CHECK)) return 'missing'
+  return 'green'
 }
 
 // gh exits 1 on an HTTP error but still writes the JSON body to stdout.
@@ -320,6 +503,307 @@ export function hasPipelineLabels(names) {
   return names.includes('in-progress') && names.includes('needs-human')
 }
 
+// ---------------------------------------------------------------------------
+// CI setup (issue #551): detect the stack, build the ci.yml
+// ---------------------------------------------------------------------------
+
+const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod', 'Package.swift']
+const NODE_LOCKFILES = [
+  ['package-lock.json', 'npm ci'],
+  ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
+  ['yarn.lock', 'yarn install --frozen-lockfile'],
+]
+
+// npm's default script is `echo "Error: no test specified" && exit 1`.
+function hasRealTestScript(pkg) {
+  const script = pkg?.scripts?.test
+  return typeof script === 'string' && script.trim() !== '' && !/no test specified/i.test(script)
+}
+
+// The outermost subfolder with a manifest that holds each test file, or
+// undefined for a test file no subfolder manifest covers. One entry per test.
+function testOwners(paths) {
+  const manifestDirs = paths
+    .filter((p) => p.includes('/') && MANIFESTS.includes(p.slice(p.lastIndexOf('/') + 1)))
+    .map((p) => p.slice(0, p.lastIndexOf('/')))
+  const tests = paths.filter((p) => countTestFiles([p]) === 1)
+  return tests.map((t) => manifestDirs.filter((d) => t.startsWith(`${d}/`)).sort((a, b) => a.length - b.length)[0])
+}
+
+// A test file whose nearest manifest is in a subfolder is not run by a command
+// at the root. Only when every test file is like that is detection unsafe.
+function subfolderOnlyTests(paths) {
+  const owners = testOwners(paths)
+  if (owners.length === 0) return []
+  return owners.every((o) => o !== undefined) ? [...new Set(owners)].sort() : []
+}
+
+// The subfolders whose tests a root command does not run. Only a repo that also
+// has root tests gets this far, so these are the ones the plan has to name.
+function uncoveredSubfolders(paths) {
+  return [...new Set(testOwners(paths).filter((o) => o !== undefined))].sort()
+}
+
+const setup = (uses, withInputs) => ({ uses, with: withInputs })
+
+// Reads the root of the tree (`paths`, every blob path) and the parsed root
+// package.json (or null). The runtime comes from the repo's own version file
+// when there is one, so the YAML copies no text out of the repo.
+export function detectStack(paths, pkg) {
+  const root = new Set(paths.filter((p) => !p.includes('/')))
+  const subfolders = subfolderOnlyTests(paths)
+  if (subfolders.length > 0) {
+    return { ok: false, found: `test files only under subfolders with their own manifest: ${subfolders.map((d) => `${d}/`).join(', ')}` }
+  }
+
+  const rows = []
+  if (root.has('package.json') && hasRealTestScript(pkg)) rows.push('node')
+  if (root.has('requirements.txt') || root.has('pyproject.toml')) rows.push('python')
+  if (root.has('go.mod')) rows.push('go')
+  if (root.has('Package.swift')) rows.push('swift')
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      found: root.has('package.json')
+        ? 'package.json has no real test script, and no requirements.txt, pyproject.toml, go.mod or Package.swift at the root'
+        : 'no package.json with a test script, requirements.txt, pyproject.toml, go.mod or Package.swift at the root',
+    }
+  }
+  if (rows.length > 1) {
+    const names = { node: 'package.json', python: root.has('requirements.txt') ? 'requirements.txt' : 'pyproject.toml', go: 'go.mod', swift: 'Package.swift' }
+    return { ok: false, found: `more than one stack at the root: ${rows.map((r) => names[r]).join(', ')}` }
+  }
+
+  if (rows[0] === 'swift') {
+    // SwiftPM resolves dependencies on build, and Xcode is on the runner image.
+    return { ok: true, install: null, test: 'swift test', runtime: [], uncovered: uncoveredSubfolders(paths) }
+  }
+  if (rows[0] === 'go') {
+    return { ok: true, install: null, test: 'go test ./...', runtime: [setup('actions/setup-go@v7', { 'go-version-file': 'go.mod' })] }
+  }
+  if (rows[0] === 'python') {
+    const pip = root.has('requirements.txt') ? 'pip install -r requirements.txt' : 'pip install -e .'
+    const version = root.has('.python-version') ? { 'python-version-file': '.python-version' } : { 'python-version': '3.12' }
+    return { ok: true, install: pip, test: 'pytest', runtime: [setup('actions/setup-python@v7', version)] }
+  }
+
+  const locks = NODE_LOCKFILES.filter(([file]) => root.has(file))
+  if (locks.length > 1) return { ok: false, found: `more than one lockfile: ${locks.map(([f]) => f).join(', ')}` }
+  const lock = locks[0]?.[0]
+  const manager = lock === 'pnpm-lock.yaml' ? 'pnpm' : lock === 'yarn.lock' ? 'yarn' : 'npm'
+  const node = setup('actions/setup-node@v7', root.has('.nvmrc') ? { 'node-version-file': '.nvmrc' } : { 'node-version': 'lts/*' })
+  // pnpm is not preinstalled on ubuntu-latest. The action needs a version unless package.json pins one.
+  const pinned = typeof pkg?.packageManager === 'string' && pkg.packageManager.startsWith('pnpm@')
+  const runtime = manager === 'pnpm' ? [setup('pnpm/action-setup@v6', pinned ? {} : { version: 'latest' }), node] : [node]
+  return {
+    ok: true,
+    install: locks[0]?.[1] ?? 'npm install',
+    test: `${manager} test`,
+    runtime,
+  }
+}
+
+const yamlString = (value) => JSON.stringify(value)
+
+const LINUX_RUNNER = { runner: 'ubuntu-latest', timeout: 10 }
+// `-latest`, not a pinned image: the file is written once and `tests` becomes a
+// required check, so a retired image label would leave every PR blocked.
+// 15 minutes: a cold SwiftPM build plus tests takes a few minutes on the
+// macOS runner, and a package with heavy dependencies can pass 10. It has to
+// stay under CI_WAIT_MS (20 minutes), or the confirm run gives up on a job that
+// is still running. On a private repo it also caps a hung job at 150 billed
+// minutes (macOS minutes count 10x).
+const MACOS_RUNNER = { runner: 'macos-latest', timeout: 15 }
+
+// A SwiftPM package may use macOS-only frameworks, so a root Package.swift
+// moves the job to macOS, whether the commands were detected or given.
+export function ciRunner(paths) {
+  return paths.includes('Package.swift') ? MACOS_RUNNER : LINUX_RUNNER
+}
+
+// The job id is `tests` and it has no `name:`, so the required check is called
+// `tests`. No paths-ignore: a required check it skips never completes. Every
+// value from outside is JSON-quoted, which is valid YAML.
+export function buildCiYaml({ branch, install, test, runtime, runner = LINUX_RUNNER.runner, timeout = LINUX_RUNNER.timeout }) {
+  const lines = [
+    'name: CI',
+    '',
+    'on:',
+    '  pull_request:',
+    '    types: [opened, synchronize, reopened, ready_for_review]',
+    '  push:',
+    `    branches: [${yamlString(branch)}]`,
+    '',
+    'concurrency:',
+    '  group: ${{ github.workflow }}-${{ github.ref }}',
+    '  cancel-in-progress: true',
+    '',
+    'jobs:',
+    '  tests:',
+    `    runs-on: ${runner}`,
+    `    timeout-minutes: ${timeout}`,
+    '    steps:',
+    '      - uses: actions/checkout@v7',
+  ]
+  for (const step of runtime) {
+    lines.push(`      - uses: ${step.uses}`)
+    const inputs = Object.entries(step.with)
+    if (inputs.length > 0) {
+      lines.push('        with:')
+      for (const [key, value] of inputs) lines.push(`          ${key}: ${yamlString(value)}`)
+    }
+  }
+  if (install !== null) lines.push('      - name: Install dependencies', `        run: ${yamlString(install)}`)
+  lines.push('      - name: Test', `        run: ${yamlString(test)}`)
+  return lines.join('\n') + '\n'
+}
+
+// The event names in the top-level `on:` of a workflow file, sorted and
+// de-duplicated, or null when the file is in any form this does not read. The
+// caller treats null as "cannot tell" and refuses, so each form left out here
+// costs a refusal and never a wrong answer. Not a YAML parser: it reads lines
+// only. It takes a string, a one-line list, a block list, and a block map (the
+// keys are the events and deeper lines are ignored). It does not take a
+// one-line map, a list over several lines, an anchor, an alias, a tag, a block
+// scalar, tab indentation, a NEL or Unicode line or paragraph separator, a
+// column 0 line after the block that is not a key, a flow collection or quoted
+// scalar that does not close on its own line inside the block (its column 0
+// continuation could pass for a key and end the block early), a second `on` key
+// in any spelling (a space before the colon, a case, an escape, an anchor, a
+// tag, an alias, a complex key), a document that is one flow collection, or
+// more than one document.
+const EVENT_NAME = /^[a-z_]+$/
+
+const TOP_KEY = /^(?:"[^"]*"|'[^']*'|[^\s:#]+):(?:\s|$)/
+
+// A column 0 key, quoted or plain, with room for a space before the colon.
+const KEY_AT_0 = /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#].*?))\s*:(?:\s|$)/
+
+// A column 0 line that could spell an `on` key in a way this cannot read:
+// an anchor, tag, alias or complex key before it, an escape inside it, or a
+// flow collection around it. Any of these makes the whole file unreadable.
+const AMBIGUOUS_AT_0 = /^(?:[&*!{\[]|\?(?:\s|$))/
+
+// True when a line leaves a quote or a flow bracket open, so the next line may
+// be a continuation. Quote characters inside a plain scalar count as open: that
+// costs a refusal and never a wrong answer.
+function leavesOpen(text) {
+  let quote = null
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (quote === '"' && c === '\\') i++
+      else if (c === quote) {
+        if (quote === "'" && text[i + 1] === "'") i++
+        else quote = null
+      }
+    } else if (c === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
+      break
+    } else if (c === '"' || c === "'") {
+      quote = c
+    } else if (c === '[' || c === '{') {
+      depth++
+    } else if (c === ']' || c === '}') {
+      depth--
+    }
+  }
+  return quote !== null || depth !== 0
+}
+
+// YAML 1.1 reads these as line breaks and JavaScript does not, so a file with
+// one is in a form this cannot read.
+const FOREIGN_BREAK = /[\u0085\u2028\u2029]/
+
+const yamlUnquote = (s) => s.match(/^(["'])(.*)\1$/)?.[2] ?? s
+
+const withoutComment = (s) => s.replace(/(^|\s+)#.*$/, '').trim()
+
+function inlineTriggers(value) {
+  const items = value.startsWith('[')
+    ? value.endsWith(']')
+      ? value.slice(1, -1).split(',')
+      : null
+    : [value]
+  const names = items?.map((s) => yamlUnquote(s.trim()))
+  return names && names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+// `lines` are the content lines, `from` the first one after the `on:` line.
+function blockTriggers(lines, from) {
+  const first = lines[from]
+  if (!first) return null
+  const isList = first.text.startsWith('-')
+  const block = []
+  for (const l of lines.slice(from)) {
+    // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it,
+    // but only a top-level key may end it. Every line before it closes its own quotes and
+    // brackets, so that line cannot be the continuation of a flow list or quoted scalar
+    // that would hide the events after it.
+    if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) {
+      if (!TOP_KEY.test(l.text)) return null
+      break
+    }
+    if (leavesOpen(l.text)) return null
+    block.push(l)
+  }
+  if (block.length === 0) return null
+
+  const names = []
+  for (const l of block) {
+    if (isList) {
+      const item = l.indent === first.indent ? withoutComment(l.text).match(/^-\s+(.+)$/) : null
+      if (!item) return null
+      names.push(yamlUnquote(item[1].trim()))
+    } else {
+      if (l.indent < first.indent) return null
+      if (l.indent > first.indent) continue
+      // A dash at the key indent is the value of the key before it, as in `schedule:` then `- cron`.
+      if (l.text === '-' || l.text.startsWith('- ')) continue
+      const key = l.text.match(/^(?:"([^"]*)"|'([^']*)'|([^\s:]*)):(?:\s|$)/)
+      if (!key) return null
+      names.push(key[1] ?? key[2] ?? key[3])
+    }
+  }
+  return names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+export function workflowTriggers(text) {
+  if (FOREIGN_BREAK.test(text)) return null
+  const lines = []
+  for (const raw of text.replace(/^﻿/, '').split(/\r\n|\r|\n/)) {
+    const lead = raw.match(/^[ \t]*/)[0]
+    const body = raw.slice(lead.length).trimEnd()
+    if (body === '' || body.startsWith('#')) continue
+    if (lead.includes('\t')) return null
+    if (lead === '' && (body.startsWith('---') || body.startsWith('...'))) return null
+    lines.push({ indent: lead.length, text: body })
+  }
+
+  // An indented root mapping puts every later column 0 line inside a continuation, so
+  // the column 0 scan below would read a key that PyYAML does not.
+  if (lines[0]?.indent > 0) return null
+
+  // Count every column 0 line that PyYAML could read as an `on` key, not only the one
+  // spelling this reads, so a second key in another spelling cannot go unseen.
+  const onAt = []
+  for (const [i, l] of lines.entries()) {
+    if (l.indent !== 0) continue
+    if (AMBIGUOUS_AT_0.test(l.text)) return null
+    const key = KEY_AT_0.exec(l.text)
+    if (!key) continue
+    if (key[1]?.includes('\\')) return null
+    if ((key[1] ?? key[2] ?? key[3]).toLowerCase() === 'on') onAt.push(i)
+  }
+  const onLine = /^(?:on|"on"|'on'):(?:\s+(.*))?$/
+  if (onAt.length !== 1 || !onLine.test(lines[onAt[0]].text)) return null
+
+  const inline = withoutComment(onLine.exec(lines[onAt[0]].text)[1] ?? '')
+  const names = inline === '' ? blockTriggers(lines, onAt[0] + 1) : inlineTriggers(inline)
+  return names === null || names.length === 0 ? null : [...new Set(names)].sort()
+}
+
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
@@ -376,13 +860,44 @@ export function evaluate(facts) {
 const CARRY_OFF = Object.fromEntries([...CARRIED, 'dismiss_stale_reviews'].map((k) => [k, false]))
 const REPO_CHANGES = ['auto merge on', 'squash merge allowed']
 
-// The writes that bring a repo to the plan: 0, 1 or 2, protection first. If the
-// PATCH fails the repo is protected with auto merge still off, which the ship
-// decision already treats as not set up.
-export function buildWrites(target, facts) {
-  const plan = planChanges(facts)
-  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+// GitHub keeps the color in the case it was given, and a missing description
+// comes back as null.
+const sameLabel = (have, want) =>
+  have.color.toLowerCase() === want.color.toLowerCase() && (have.description ?? '') === want.description
+
+// The label writes: a create for a label that is absent, an update for one that
+// differs, nothing for one that matches. POST on an existing label fails with
+// 422 and PATCH on a missing one with 404, so the choice cannot be left to GitHub.
+function labelWrites(target, facts) {
   const ops = []
+  for (const want of LABELS) {
+    const have = facts.labels.find((l) => l.name === want.name)
+    if (!have) {
+      ops.push({ method: 'POST', path: labelsPath(target), body: { name: want.name, color: want.color, description: want.description } })
+    } else if (!sameLabel(have, want)) {
+      ops.push({ method: 'PATCH', path: labelPath(target, want.name), body: { color: want.color, description: want.description } })
+    }
+  }
+  return ops
+}
+
+// On the CI setup path Apply adds the pipeline labels and the tests check in
+// the same run, so the protection is built as if both already exist.
+export function factsAfterApply(facts) {
+  if (!planChanges(facts).needsCi) return facts
+  return { ...facts, ciChecks: ['tests'], pipelineLabels: true }
+}
+
+// The writes that bring a repo to the plan: the labels (CI setup path only),
+// then protection, then the repo settings. If the PATCH fails the repo is
+// protected with auto merge still off, which the ship decision already treats as
+// not set up. Always takes the facts as read, before anything is written.
+// The CI path writes in another order: it moves the PATCH before the CI PR and
+// the PUT after its merge (see `splitCiOps`). The ops here do not change.
+export function buildWrites(target, facts) {
+  const plan = planChanges(factsAfterApply(facts))
+  const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
+  const ops = planChanges(facts).needsCi ? labelWrites(target, facts) : []
 
   if (protectionChanges.length > 0) {
     const carry = (facts.protection.kind === 'present' && facts.protection.carry) || CARRY_OFF
@@ -427,8 +942,11 @@ function canonical(value) {
 
 // Covers the exact bodies, so a confirm run can only write the plan that was
 // shown. Any change in between (a new PR, a setting flipped by hand) changes it.
-export function confirmToken(target, ops) {
-  const text = canonical({ repo: target.repo, branch: target.branch, ops })
+export function confirmToken(target, ops, ci) {
+  // Left out when absent: canonical(undefined) is the string "undefined", which
+  // would change every token for a plan without CI.
+  const body = { repo: target.repo, branch: target.branch, ops, ...(ci ? { ci } : {}) }
+  const text = canonical(body)
   return createHash('sha256').update(text).digest('hex').slice(0, 12)
 }
 
@@ -454,16 +972,18 @@ export function gatherFacts(call, info, requested) {
   if (protection.kind === 'error') throw new Error(`branch protection: ${protection.message}`)
 
   const prs = parseOk(
-    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'number,isDraft,statusCheckRollup']),
+    call(['pr', 'list', '--repo', fullName, '--state', 'all', '--limit', '10', '--json', 'number,isDraft,state,headRefName,statusCheckRollup']),
     'pull requests'
   )
 
   const treeRes = call(['api', `repos/${fullName}/git/trees/${branch}?recursive=1`])
   let testFileCount = 0
   let testFilesTruncated = false
+  let treePaths = []
   if (treeRes.code === 0) {
     const tree = JSON.parse(treeRes.stdout)
-    testFileCount = countTestFiles((tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path))
+    treePaths = (tree.tree ?? []).filter((t) => t.type === 'blob').map((t) => t.path)
+    testFileCount = countTestFiles(treePaths)
     testFilesTruncated = tree.truncated === true
   } else if (parseError(treeRes).status !== 409) {
     // 409 is an empty repo, which has no files to count.
@@ -475,7 +995,11 @@ export function gatherFacts(call, info, requested) {
     'labels'
   )
 
-  const deciding = newestChecks(prs)
+  const labels = labelPages.flat()
+
+  // A truncated listing cannot prove the file is there, so it does not count.
+  const ciFileOnDefault = !testFilesTruncated && treePaths.includes(CI_FILE)
+  const deciding = newestChecks(prs, ciFileOnDefault)
   const older = deciding.pr === null ? [] : prs.filter((p) => p.number < deciding.pr)
 
   return {
@@ -489,14 +1013,21 @@ export function gatherFacts(call, info, requested) {
     prCheckNames: prCheckNames(prs),
     olderCheckNames: prCheckNames(older),
     ciChecks: deciding.names,
+    decidingPr: deciding.pr,
     testFileCount,
     testFilesTruncated,
-    pipelineLabels: hasPipelineLabels(labelPages.flat().map((l) => l.name)),
+    treePaths,
+    pipelineLabels: hasPipelineLabels(labels.map((l) => l.name)),
+    // Only the six workflow labels, with the fields Apply compares.
+    labels: labels
+      .filter((l) => LABELS.some((w) => w.name === l.name))
+      .map((l) => ({ name: l.name, color: l.color, description: l.description })),
   }
 }
 
 export function collect(run) {
   const call = guarded(run)
+  requireGh(call)
 
   const login = parseOk(call(['api', 'user']), 'user').login
   const pages = parseOk(
@@ -572,10 +1103,17 @@ export function render({ login, entries }) {
 const NAME_PART = /^[A-Za-z0-9_.-]+$/
 const validPart = (p) => NAME_PART.test(p) && !p.startsWith('-') && !p.startsWith('.')
 
-const USAGE = 'usage: repo-guard.mjs apply <repo> [--confirm <token>]'
+const USAGE = 'usage: repo-guard.mjs apply <repo> [--install <cmd> --test <cmd>] [--confirm <token>]'
+
+// Line breaks and the characters YAML does not allow at all (the C0 and C1
+// controls, U+FFFE, U+FFFF, a lone surrogate) would break the one-line `run:`
+// value in the generated YAML. The u flag makes a surrogate pair one character,
+// so only a lone surrogate matches.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\ufffe\uffff\ud800-\udfff]/u
 
 function parseApplyArgs(argv) {
   let confirm = null
+  const commands = { '--install': null, '--test': null }
   const repos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -584,6 +1122,14 @@ function parseApplyArgs(argv) {
       if (confirm !== null || value === undefined || value.startsWith('-')) return { error: `${USAGE} (--confirm needs one token)` }
       confirm = value
       i++
+    } else if (Object.hasOwn(commands, a)) {
+      const value = argv[i + 1]
+      if (commands[a] !== null || value === undefined || value.startsWith('-') || value.trim() === '') {
+        return { error: `${USAGE} (${a} needs one command)` }
+      }
+      if (CONTROL_CHARS.test(value)) return { error: `${USAGE} (${a} must not contain a control character or line break)` }
+      commands[a] = value
+      i++
     } else if (a.startsWith('-')) {
       return { error: `${USAGE} (unknown option ${a})` }
     } else {
@@ -591,33 +1137,483 @@ function parseApplyArgs(argv) {
     }
   }
   if (repos.length !== 1) return { error: `${USAGE} (name exactly one repo)` }
+  if ((commands['--install'] === null) !== (commands['--test'] === null)) {
+    return { error: `${USAGE} (give --install and --test together, or neither)` }
+  }
 
   const parts = repos[0].split('/')
   if (parts.length > 2 || !parts.every(validPart)) return { error: `refusing: invalid repo name: ${repos[0]}` }
-  return { confirm, owner: parts.length === 2 ? parts[0] : null, name: parts[parts.length - 1] }
+  return {
+    confirm,
+    install: commands['--install'],
+    test: commands['--test'],
+    owner: parts.length === 2 ? parts[0] : null,
+    name: parts[parts.length - 1],
+  }
 }
 
 const refusal = (message) => ({ code: 2, text: `refusing: ${message}\nnothing written\n` })
 const readFailure = (message) => ({ code: 1, text: `could not read: ${message}\nnothing written\n` })
 
-function planText(target, plan, ops, token) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`, 'changes:']
+function ciText(ci) {
+  const lines = [
+    'CI setup: no finished, non-draft PR has run a check, so apply would add a CI workflow',
+    `  install: ${ci.install ?? 'none'}`,
+    `  test: ${ci.test}`,
+    ...(ci.runner ? [`  runner: ${ci.runner}`] : []),
+    ...(ci.macosCost ? ['  cost: macOS runner minutes count 10x against the free quota on a private repo'] : []),
+    ...(ci.uncovered ? [`  not run by this CI: tests in ${ci.uncovered.map((d) => `${d}/`).join(', ')} (each has its own manifest)`] : []),
+    `  expected check: ${ci.check}`,
+    '  file: .github/workflows/ci.yml',
+  ]
+  for (const line of ci.text.trimEnd().split('\n')) lines.push(line === '' ? '' : `    ${line}`)
+  const resume = resumeLine(ci.existing)
+  if (resume !== null) lines.push(`  ${resume}`)
+  return lines
+}
+
+// What a leftover from an earlier run changes. A fresh run says nothing.
+function resumeLine(existing) {
+  if (existing.pr !== null) return `resume: PR #${existing.pr} is open and holds the planned workflow file`
+  if (existing.file) return `resume: branch ${CI_BRANCH} holds the planned workflow file`
+  if (existing.branch) return `resume: branch ${CI_BRANCH} exists without the workflow file`
+  return null
+}
+
+const LABEL_POST_PATH = /^repos\/[^/]+\/[^/]+\/labels$/
+const LABEL_PATCH_PATH = /^repos\/[^/]+\/[^/]+\/labels\/([^/]+)$/
+
+// The label a write is about, or null. All six creates share one path, so the
+// plan and the output name the label as well.
+function labelOpName(op) {
+  if (op.method === 'POST' && LABEL_POST_PATH.test(op.path)) return op.body.name
+  const m = op.method === 'PATCH' ? LABEL_PATCH_PATH.exec(op.path) : null
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+export function opText(op) {
+  const name = labelOpName(op)
+  return `${op.method} ${op.path}${name === null ? '' : ` (${name})`}`
+}
+
+export function planText(target, plan, ops, token, ci) {
+  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  if (ci) lines.push(...ciText(ci))
+  const labelOps = ops.filter((op) => labelOpName(op) !== null)
+  if (labelOps.length > 0) {
+    lines.push('labels:')
+    for (const op of labelOps) {
+      lines.push(`  ${op.method === 'POST' ? 'create' : 'update'} ${labelOpName(op)}, color ${op.body.color}: ${op.body.description}`)
+    }
+  }
+  lines.push('changes:')
   for (const c of plan.changes) lines.push(`  ${c}`)
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
   lines.push('writes:')
-  for (const op of ops) lines.push(`  ${op.method} ${op.path}`)
+  for (const op of ops) lines.push(`  ${opText(op)}`)
   lines.push(`confirm token: ${token}`)
   return lines.join('\n') + '\n'
 }
 
-export function runApply(run, argv) {
+// The contents API answers with the file as base64 in `content`.
+function decodeJsonFile(stdout) {
+  try {
+    return JSON.parse(Buffer.from(JSON.parse(stdout).content, 'base64').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+function decodeTextFile(stdout) {
+  try {
+    return Buffer.from(JSON.parse(stdout).content, 'base64').toString('utf8')
+  } catch {
+    return null
+  }
+}
+
+const signedCommitsProblem = (target, facts, ops) =>
+  facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')
+    ? `${target.repo} requires signed commits, and the protection PUT may reset that`
+    : null
+
+const signedCommitsRefusal = (target, facts, ops) => {
+  const problem = signedCommitsProblem(target, facts, ops)
+  return problem === null ? null : refusal(problem)
+}
+
+// ---------------------------------------------------------------------------
+// CI setup: resume and the PR check (issue #554)
+// ---------------------------------------------------------------------------
+
+const OPEN_PR_FIELDS = 'number,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,statusCheckRollup'
+
+// The open PRs from the CI branch of this repo. A fork's PR with the same head
+// name is not ours. `--head` is not on the read allowlist, so this filters.
+function readOpenCiPrs(call, target) {
+  const prs = parseOk(
+    call(['pr', 'list', '--repo', target.repo, '--state', 'open', '--limit', '100', '--json', OPEN_PR_FIELDS]),
+    'open pull requests'
+  )
+  return prs.filter((p) => p.headRefName === CI_BRANCH && p.isCrossRepository !== true)
+}
+
+const ciPrProblem = (pr, target) =>
+  pr.isDraft === true
+    ? `PR #${pr.number} is a draft`
+    : pr.baseRefName !== target.branch
+      ? `PR #${pr.number} has base ${pr.baseRefName}, not ${target.branch}`
+      : null
+
+// What the owner said yes to is one new file with the planned text. The branch
+// may hold more than that on a resume, so look before the merge. Returns the
+// problem, or null. A failed read throws.
+function ciPrContentsProblem(call, target, text, number, sha) {
+  const files = parseOk(call(['api', `${pullsPath(target)}/${number}/files`]), `files of PR #${number}`)
+  if (!Array.isArray(files) || files.length !== 1 || files[0].filename !== CI_FILE) {
+    return `PR #${number} does not change exactly one file, ${CI_FILE}`
+  }
+  if (files[0].status !== 'added') return `PR #${number} does not add ${CI_FILE} (status: ${files[0].status})`
+  const res = call(['api', `${ciFilePath(target)}?ref=${encodeURIComponent(sha)}`])
+  if (res.code !== 0) throw new Error(`${CI_FILE} at the head of PR #${number}: ${parseError(res).message}`)
+  if (decodeTextFile(res.stdout) !== text) return `the ${CI_FILE} at the head of PR #${number} is not the planned file`
+  return null
+}
+
+const noCiLeftover = { branch: false, file: false, pr: null }
+
+// What an earlier run left: an open PR, or the branch with or without the file.
+// Returns `{ existing }` or `{ refuse }`; a failed read throws.
+function findCiResume(call, target, text) {
+  const open = readOpenCiPrs(call, target)
+  if (open.length > 1) {
+    return { refuse: `more than one open PR from ${CI_BRANCH}: ${open.map((p) => `#${p.number}`).join(', ')}. Close the extra ones and run apply again` }
+  }
+  if (open.length === 1) {
+    const pr = open[0]
+    const problem = ciPrProblem(pr, target) ?? ciPrContentsProblem(call, target, text, pr.number, pr.headRefOid)
+    if (problem !== null) return { refuse: `${problem}. Close the PR, delete the ${CI_BRANCH} branch, then run apply again` }
+    return { existing: { branch: true, file: true, pr: pr.number } }
+  }
+
+  const ref = call(['api', `repos/${target.repo}/git/ref/heads/${CI_BRANCH}`])
+  if (ref.code !== 0) {
+    if (parseError(ref).status === 404) return { existing: noCiLeftover }
+    throw new Error(`branch ${CI_BRANCH}: ${parseError(ref).message}`)
+  }
+  const file = call(['api', `${ciFilePath(target)}?ref=${encodeURIComponent(CI_BRANCH)}`])
+  if (file.code !== 0) {
+    if (parseError(file).status === 404) return { existing: { branch: true, file: false, pr: null } }
+    throw new Error(`${CI_FILE} on ${CI_BRANCH}: ${parseError(file).message}`)
+  }
+  if (decodeTextFile(file.stdout) !== text) {
+    return { refuse: `the ${CI_BRANCH} branch already holds a different ${CI_FILE}. Delete the branch and run apply again` }
+  }
+  return { existing: { branch: true, file: true, pr: null } }
+}
+
+// The order the CI run writes in (spec section 3.2): everything but the
+// protection PUT first, then the CI PR, then the PUT. The PUT waits because it
+// requires `tests`, which no PR can pass until the workflow is on the default
+// branch. The PATCH goes first because GitHub refuses a squash merge while
+// that setting is off.
+function splitCiOps(target, ops) {
+  const isPut = (op) => op.path === protectionPath(target)
+  return { before: ops.filter((op) => !isPut(op)), after: ops.filter(isPut) }
+}
+
+// The CI writes a run still has to make, for the plan to list. The merge line
+// has no PR number until the PR exists.
+function ciStepOps(target, existing) {
+  const steps = []
+  if (!existing.branch) steps.push({ method: 'POST', path: ciRefsPath(target) })
+  if (!existing.file) steps.push({ method: 'PUT', path: ciFilePath(target) })
+  if (existing.pr === null) steps.push({ method: 'POST', path: pullsPath(target) })
+  steps.push({ method: 'PUT', path: `${pullsPath(target)}/${existing.pr ?? '<new PR>'}/merge` })
+  steps.push({ method: 'DELETE', path: ciBranchRefPath(target) })
+  return steps
+}
+
+// The workflows already in the repo decide whether the guard may add its own
+// CI next to them (issue #579). A workflow that does not run on `pull_request`
+// or `push` cannot be the PR CI the guard is about to wait for, so it does not
+// block. Anything the guard cannot read or parse is a refusal, never a guess.
+// Returns the refusal text, or null when the repo may get a CI of its own.
+const BLOCKING_EVENTS = ['pull_request', 'push']
+
+function checkWorkflows(call, facts, target) {
+  if (facts.treePaths.includes(CI_FILE)) {
+    return `${target.repo} already has ${CI_FILE} on ${target.branch}, and the guard will not overwrite it. Set up CI for this repo by hand`
+  }
+  for (const path of facts.treePaths.filter((p) => p.startsWith('.github/workflows/'))) {
+    const url = `repos/${facts.fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(target.branch)}`
+    const cannotTell = 'so it cannot tell whether that workflow runs on pull requests. It does not add a CI next to a workflow it cannot read'
+    const res = call(['api', url])
+    if (res.code !== 0) return `${target.repo} has ${path}, but the guard could not read it (${parseError(res).message}), ${cannotTell}`
+    const text = decodeTextFile(res.stdout)
+    if (text === null) {
+      return `${target.repo} has ${path}, but the guard could not read it (it is not a plain file, or its content cannot be decoded), ${cannotTell}`
+    }
+    const events = workflowTriggers(text)
+    if (events === null) return `${target.repo} has ${path}, but the guard could not read the triggers in its on: key, ${cannotTell}`
+    const blocking = events.filter((e) => BLOCKING_EVENTS.includes(e))
+    if (blocking.length > 0) {
+      return (
+        `${target.repo} already has a workflow under .github/workflows/ (${path}) that runs on ${blocking.join(' and ')}, ` +
+        'but no finished, non-draft PR has run it. ' +
+        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
+      )
+    }
+  }
+  return null
+}
+
+// The plan for a repo with test files and no finished PR check. Reads only
+// until --confirm has a token that matches.
+function planCiSetup(env, args, facts, target) {
+  const { call } = env
+  if (facts.testFilesTruncated) {
+    return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
+  }
+  const workflowsProblem = checkWorkflows(call, facts, target)
+  if (workflowsProblem) return refusal(workflowsProblem)
+
+  const undetected = (why) =>
+    refusal(
+      `${target.repo} needs CI, but the guard could not detect the install and test commands: ${why}. ` +
+        'Give them with --install "<cmd>" --test "<cmd>"'
+    )
+
+  let found = { ok: true, install: args.install, test: args.test, runtime: [] }
+  if (args.install === null) {
+    let pkg = null
+    if (facts.treePaths.includes('package.json')) {
+      const res = call(['api', `repos/${facts.fullName}/contents/package.json?ref=${encodeURIComponent(target.branch)}`])
+      if (res.code !== 0) return readFailure(`package.json: ${parseError(res).message}`)
+      pkg = decodeJsonFile(res.stdout)
+      if (!isObject(pkg)) return undetected('package.json is not valid JSON')
+    }
+    found = detectStack(facts.treePaths, pkg)
+    if (!found.ok) return undetected(found.found)
+  }
+
+  const { runner, timeout } = ciRunner(facts.treePaths)
+  const text = buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime, runner, timeout })
+  const ops = buildWrites(target, facts)
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
+
+  let resume
+  try {
+    resume = findCiResume(call, target, text)
+  } catch (err) {
+    return readFailure(err.message)
+  }
+  if (resume.refuse) return refusal(resume.refuse)
+
+  // `existing` is in the token: a PR opened or closed between plan and confirm
+  // changes what the run writes, so it must change the token. The PR head sha
+  // is left out, so a push alone does not make a token stale.
+  const macos = runner !== LINUX_RUNNER.runner
+  const ci = {
+    install: found.install,
+    test: found.test,
+    text,
+    check: CI_CHECK,
+    existing: resume.existing,
+    // Only on the macOS path, so a Node, Python or Go plan keeps its token.
+    ...(macos ? { runner } : {}),
+    ...(macos && facts.visibility === 'private' ? { macosCost: true } : {}),
+    ...(found.uncovered?.length > 0 ? { uncovered: found.uncovered } : {}),
+  }
+  const token = confirmToken(target, ops, ci)
+  if (args.confirm !== null) {
+    if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
+    return runCiSetup(env, target, ops, ci)
+  }
+  const { before, after } = splitCiOps(target, ops)
+  const runOrder = [...before, ...ciStepOps(target, ci.existing), ...after]
+  return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), runOrder, token, ci) }
+}
+
+const CI_POLL_MS = 30 * 1000
+const CI_WAIT_MS = 20 * 60 * 1000
+
+function readDefaultBranchHead(call, target) {
+  const body = parseOk(call(['api', `repos/${target.repo}/branches/${encodeURIComponent(target.branch)}`]), `head of the default branch ${target.branch}`)
+  return body.commit?.sha
+}
+
+// The CI setup run (spec section 3.2, deltas D2 to D4). The token matched, so
+// `ops` and `ci` are the plan the owner saw. The order: everything but the
+// protection PUT, the branch, the file, the PR, then wait for `tests`, check the
+// PR, merge, delete the branch, and last the PUT. Nothing is written after a stop.
+function runCiSetup({ run, call, clock, login }, target, ops, ci) {
+  const { existing } = ci
+  const { before, after: plannedAfter } = splitCiOps(target, ops)
+  const lines = []
+  const output = (code) => ({ code, text: lines.join('\n') + '\n' })
+  // Only a stop before the first write may say nothing was written.
+  const stop = (code, ...why) => {
+    lines.push(...why)
+    lines.push(lines.some((l) => l.startsWith('wrote: ')) ? 'stopped here, no further writes were attempted' : 'nothing written')
+    return output(code)
+  }
+  const prName = (n) => `PR #${n} (https://github.com/${target.repo}/pull/${n})`
+
+  // The fence context is its own object. `pr` stays null until the PR passed
+  // the check below, so the merge and the delete cannot be sent before that.
+  const earlyWrite = writeGuarded(run, target, { text: ci.text, pr: null })
+  if (writeOps(earlyWrite, before, lines)) return output(1)
+
+  const creates = []
+  if (!existing.branch) {
+    let head
+    try {
+      head = readDefaultBranchHead(call, target)
+    } catch (err) {
+      return stop(1, `could not read: ${err.message}`)
+    }
+    creates.push({ method: 'POST', path: ciRefsPath(target), body: { ref: `refs/heads/${CI_BRANCH}`, sha: head } })
+  }
+  if (!existing.file) {
+    creates.push({
+      method: 'PUT',
+      path: ciFilePath(target),
+      body: { message: CI_MESSAGE, content: Buffer.from(ci.text, 'utf8').toString('base64'), branch: CI_BRANCH },
+    })
+  }
+  if (existing.pr === null) {
+    creates.push({
+      method: 'POST',
+      path: pullsPath(target),
+      body: { title: CI_TITLE, head: CI_BRANCH, base: target.branch, body: CI_BODY, draft: false },
+    })
+  }
+  if (writeOps(earlyWrite, creates, lines)) return output(1)
+
+  // Poll until `tests` is green. The sha the merge pins and the contents check
+  // both come from the poll that read green, so a push after that poll makes
+  // the merge fail instead of landing a commit whose checks never ran.
+  const deadline = clock.now() + CI_WAIT_MS
+  let pr
+  for (;;) {
+    let open
+    try {
+      open = readOpenCiPrs(call, target)
+    } catch (err) {
+      return stop(1, `could not read: ${err.message}`, `the PR from ${CI_BRANCH} may still be open`)
+    }
+    if (open.length === 0) return stop(1, `the PR from ${CI_BRANCH} is no longer open`)
+    if (open.length > 1) return stop(2, `refusing: more than one open PR from ${CI_BRANCH}: ${open.map((p) => `#${p.number}`).join(', ')}`)
+    pr = open[0]
+    const problem = ciPrProblem(pr, target)
+    if (problem !== null) return stop(2, `refusing: ${problem}. The PR stays open`)
+    const state = ciCheckState(pr.statusCheckRollup)
+    if (state === 'green') break
+    if (state === 'red') {
+      return stop(1, `a check failed on ${prName(pr.number)}. The PR stays open; fix it or close it, then run apply again`)
+    }
+    const now = clock.now()
+    if (now >= deadline) {
+      const why = state === 'missing' ? 'the tests check has not run' : 'a check is still running'
+      return stop(1, `no result after 20 minutes: ${why} on ${prName(pr.number)}. The PR stays open; run apply again to keep waiting`)
+    }
+    clock.sleep(Math.min(CI_POLL_MS, deadline - now))
+  }
+
+  const stays = `${prName(pr.number)} stays open`
+  let problem
+  try {
+    problem = ciPrContentsProblem(call, target, ci.text, pr.number, pr.headRefOid)
+  } catch (err) {
+    return stop(1, `could not read: ${err.message}`, stays)
+  }
+  if (problem !== null) return stop(2, `refusing: ${problem}`, stays)
+
+  const lateWrite = writeGuarded(run, target, { text: ci.text, pr: { number: pr.number, sha: pr.headRefOid } })
+  const merge = { method: 'PUT', path: `${pullsPath(target)}/${pr.number}/merge`, body: { merge_method: 'squash', sha: pr.headRefOid } }
+  if (writeOps(lateWrite, [merge], lines)) {
+    lines.push(stays)
+    return output(1)
+  }
+  // GitHub's "Automatically delete head branches" can remove the branch first.
+  // Only a 422 with this exact message counts: a 404 may mean no access.
+  const branchGone = (op, res) =>
+    op.method === 'DELETE' &&
+    op.path === ciBranchRefPath(target) &&
+    parseError(res).status === 422 &&
+    parseError(res).message === 'Reference does not exist'
+  if (writeOps(lateWrite, [{ method: 'DELETE', path: ciBranchRefPath(target) }], lines, branchGone)) {
+    // Name no path: the run has not read whether ci.yml reached the default branch.
+    lines.push(`${prName(pr.number)} is merged; run apply again`)
+    return output(1)
+  }
+
+  // The PR is merged, so the facts now include its checks. Plan the protection
+  // from them and write it only when it is what the owner was shown.
+  let facts
+  try {
+    facts = gatherFacts(call, readRepo(call, target.repo), target.repo)
+  } catch (err) {
+    return stop(1, `could not re-read the repo: ${err.message}`)
+  }
+  // A merge into another base leaves the file off the default branch, and a
+  // protection that requires `tests` would then block every PR.
+  if (!facts.treePaths.includes(CI_FILE)) {
+    return stop(
+      1,
+      `could not find ${CI_FILE} on ${target.branch} after the merge of ${prName(pr.number)}; its base may have changed. Put ${CI_FILE} on ${target.branch} before you run apply again`
+    )
+  }
+  if (planChanges(facts).needsCi) {
+    return stop(1, `the repo still needs CI: no finished check on the merged ${prName(pr.number)}`)
+  }
+  const left = buildWrites(target, facts)
+  // The plan refused this case; the PUT can reset signed commits, so the wait
+  // must not let one through. `required_signatures` is not in the PUT body, so
+  // the comparison below cannot see it.
+  const signed = signedCommitsProblem(target, facts, left)
+  if (signed !== null) return stop(2, `refusing: ${signed}`)
+  if (canonical(left) !== canonical(plannedAfter)) {
+    const ran = facts.ciChecks
+    const where = facts.decidingPr === null ? '' : ` on PR #${facts.decidingPr}`
+    const why =
+      canonical(ran) !== canonical([CI_CHECK])
+        ? `checks that ran${where}: ${ran.join(', ') || 'none'}; the plan expected: ${CI_CHECK}`
+        : 'the repo changed during the wait'
+    if (left.length === 0) {
+      lines.push(`${why}; nothing is left to write`)
+      return rereadAndReport(call, login, target, lines, false)
+    }
+    // A plan for the normal path, with its own token: the owner decides again.
+    lines.push(`refusing: ${why}`, 'stopped here, no further writes were attempted')
+    lines.push(planText(target, planChanges(facts), left, confirmToken(target, left)).trimEnd())
+    return output(2)
+  }
+
+  const failed = writeOps(lateWrite, plannedAfter, lines)
+  return rereadAndReport(call, login, target, lines, failed)
+}
+
+// The CI run waits for a check. A synchronous sleep keeps `runApply`
+// synchronous, and tests pass a fake clock so none of them waits.
+export const SYSTEM_CLOCK = {
+  now: () => Date.now(),
+  sleep: (ms) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  },
+}
+
+export function runApply(run, argv, clock = SYSTEM_CLOCK) {
   const args = parseApplyArgs(argv)
   if (args.error) return { code: 2, text: `${args.error}\n` }
 
   const call = guarded(run)
   let login
   try {
+    requireGh(call)
     login = parseOk(call(['api', 'user']), 'user').login
   } catch (err) {
     return readFailure(err.message)
@@ -641,20 +1637,29 @@ export function runApply(run, argv) {
   const target = { repo: facts.fullName, branch: facts.defaultBranch }
   const plan = planChanges(facts)
   if (plan.blocked) return refusal(`${target.repo} is blocked: ${plan.blocked}`)
-  if (plan.needsCi) return refusal(`${target.repo} needs CI first: it has test files but no finished, non-draft PR has run a check`)
+  if (plan.needsCi) return planCiSetup({ run, call, clock, login }, args, facts, target)
+  if (args.install !== null) {
+    return { code: 2, text: `${USAGE} (--install and --test apply only to a repo that needs CI)\n` }
+  }
   if (plan.changes.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
 
   const ops = buildWrites(target, facts)
-  if (facts.protection.signaturesRequired && ops.some((o) => o.method === 'PUT')) {
-    return refusal(`${target.repo} requires signed commits, and the protection PUT may reset that`)
-  }
+  const signed = signedCommitsRefusal(target, facts, ops)
+  if (signed) return signed
   const token = confirmToken(target, ops)
   if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
 
-  const write = writeGuarded(run, target)
   const lines = []
-  let failed = false
+  const failed = writeOps(writeGuarded(run, target), ops, lines)
+  return rereadAndReport(call, login, target, lines, failed)
+}
+
+// Writes the ops in order and stops at the first failure. Returns whether it
+// stopped. A refusal by the fence counts as a failure, like a failed write.
+// `alreadyDone(op, res)` may accept a failed answer as done; the fence still
+// runs first, and a refusal carries no status, so it never matches.
+function writeOps(write, ops, lines, alreadyDone = () => false) {
   for (const op of ops) {
     let res
     try {
@@ -662,16 +1667,23 @@ export function runApply(run, argv) {
     } catch (err) {
       res = { code: 1, stdout: '', stderr: err.message }
     }
-    if (res.code !== 0) {
-      lines.push(`write failed: ${op.method} ${op.path}: ${parseError(res).message}`)
-      lines.push('stopped here, no further writes were attempted')
-      failed = true
-      break
+    if (res.code !== 0 && alreadyDone(op, res)) {
+      lines.push(`already deleted: ${opText(op)}`)
+      continue
     }
-    lines.push(`wrote: ${op.method} ${op.path}`)
+    if (res.code !== 0) {
+      lines.push(`write failed: ${opText(op)}: ${parseError(res).message}`)
+      lines.push('stopped here, no further writes were attempted')
+      return true
+    }
+    lines.push(`wrote: ${opText(op)}`)
   }
+  return false
+}
 
-  // Re-read through the read guard so the printed state is what GitHub holds.
+// Re-reads through the read guard so the printed state is what GitHub holds.
+// The exit code is 0 only when no write failed and the repo reads as set up.
+function rereadAndReport(call, login, target, lines, failed) {
   try {
     const after = gatherFacts(call, readRepo(call, target.repo), target.repo)
     const result = evaluate(after)
@@ -689,7 +1701,6 @@ export function runApply(run, argv) {
 
 const STATUSES_USAGE = 'usage: repo-guard.mjs statuses <repo> <pr>'
 const PR_NUMBER = /^[1-9][0-9]*$/
-const HEAD_SHA = /^[0-9a-f]{40}$/
 
 // Start with "by hand: " so a status the owner posted is plain on the commit.
 // None of them matches a description the pipeline writes.

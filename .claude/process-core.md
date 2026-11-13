@@ -64,8 +64,7 @@ later (see "How to pick up a task" in .claude/team-guide.md).
   `cancel-in-progress: true` is mandatory on every workflow.
 - Making a repo public to escape the free-minutes limit is forbidden. Fix the
   workflow instead.
-- See the CI template under `.claude/skills/tm-new-project/` for the worked
-  example.
+- See `.claude/skills/tm-repo-guard/templates/ci.yml` for the worked example.
 
 ### Writing style (commits, PRs, docs, comments)
 

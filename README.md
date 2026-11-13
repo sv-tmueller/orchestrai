@@ -119,10 +119,10 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
   and a sync test asserts alignment.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-new-project` (repo setup),
-  `/tm-review-changes` (diff review), `/tm-review-codebase` (repo review),
-  `/tm-map-codebase` (architecture map), `/tm-repo-guard` (guard check and apply
-  for your repos). Hermes variants ship as
+  `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
+  `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
+  `/tm-repo-guard` (guard check and apply, CI setup included, for your repos).
+  Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
   the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
   on Hermes.
@@ -162,7 +162,10 @@ finished PR becomes required, whoever runs it: the repo's own CI or an outside
 service. The `orchestrai/*` verdict statuses are left out of this rule; the
 label rule below covers them. The same rule holds on every repo. The newest finished PR is the
 highest-numbered non-draft PR among the last ten (open, merged or closed)
-whose checks have all finished. Skipped checks do not count. A check that only
+whose checks have all finished. A PR from the `orchestrai/ci-setup` branch (the
+one Apply opens to add the CI workflow) counts only once it is merged and
+`.github/workflows/ci.yml` is on the default branch. Skipped
+checks do not count. A check that only
 older PRs ran is no longer required, and the report lists it as "not required:
 no longer runs".
 
@@ -184,7 +187,7 @@ state per repo. It never writes.
 - `set up`: nothing to change.
 - `not set up`: the `missing` line lists what is off. It also says `needs CI
   first` when the repo has test files but no finished, non-draft PR has run a
-  check. Add CI and merge a PR through it, then check again.
+  check. Run `/tm-repo-guard apply <repo>`: it adds the CI first.
 - `blocked`: branch protection is not available on the current plan. Private
   repos need a paid GitHub plan for it.
 - `could not read`: GitHub refused a read. The command exits 1 and does not
@@ -217,18 +220,37 @@ package runs the full track (see "Pipeline rules").
 
 `/tm-repo-guard apply <repo>` changes one repo at a time. Give the name or
 `owner/name`. It refuses a repo that is not owned by your own account, an
-archived repo, a blocked repo, a repo that needs CI first, and a repo that
-requires signed commits (the protection write could reset that).
+archived repo, a blocked repo, and a repo that requires signed commits (the
+protection write could reset that).
 
 1. It first prints a plan: the changes, the required checks after apply, the
    GitHub writes it will make (branch protection, then repo settings, only
    those that are needed), and a confirm token that covers those exact writes.
+   When it cannot tell which install and test commands the CI should run, it
+   asks you for them first.
 2. It asks you in the session whether to apply. Only your own yes to that
    question counts.
 3. On yes, it runs the same command with the token. If anything changed since
    the plan was shown (a new PR, a setting flipped by hand), the token no
    longer matches and nothing is written. Run the plan again to get a new one.
 4. It prints the repo's state as GitHub holds it afterwards.
+
+On a repo that has test files but no finished CI run, the same steps add the
+CI first. The plan shows the generated `ci.yml`. On yes, Apply creates the
+labels, turns on auto merge and squash merge, opens a PR from
+`orchestrai/ci-setup`, waits up to 20 minutes for the `tests` check, merges the
+PR and only then writes the protection. If a check fails or the wait runs out,
+the PR stays open; run Apply again and it resumes from the open PR. If the PR
+turns into a draft, changes its base, or a second open PR from
+`orchestrai/ci-setup` appears during the wait, Apply stops with exit 2 and the
+PR stays open. The next Apply refuses until the PR is ready for review, its
+base is the default branch again, and it is the only open PR from
+`orchestrai/ci-setup`; then it resumes. An exit 2 with a
+new confirm token means the merged PR ran other checks than the plan expected,
+or the repo changed during the wait. Ask again with the new token. If the repo
+starts requiring signed commits during the wait, Apply stops after the merge
+without a token and writes no protection, because the write could reset that
+setting.
 
 A repo that is already set up prints "set up, nothing to change" and asks
 nothing. Protection settings the guard does not manage are carried over, not
