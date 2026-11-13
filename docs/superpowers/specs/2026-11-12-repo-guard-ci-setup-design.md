@@ -44,6 +44,13 @@ The plan prints, before the confirm token:
   `in-progress`, `needs-human`, with the colors and descriptions
   `tm-new-project` uses today
 - the detected install and test commands, and the full `ci.yml` it will add
+- on a macOS job (a root `Package.swift`, see section 4), three more lines
+  between `test:` and `expected check:`: `runner: macos-latest`; on a private
+  repo, one `cost:` line saying macOS minutes count 10x against the free
+  quota (the visibility comes from the repo read every Apply already makes,
+  so there is no new read); and, for a detected swift plan only, a
+  `not run by this CI:` line naming the nested packages whose tests it does
+  not run. The Node, Python and Go plans print none of these
 - the check name it expects that file to produce (`tests`)
 - the protection changes, computed as if `tests` and the two verdict checks
   were already seen
@@ -162,17 +169,34 @@ tree to count tests.
 | `requirements.txt` | `pip install -r requirements.txt` | `pytest` |
 | `pyproject.toml` without `requirements.txt` | `pip install -e .` | `pytest` |
 | `go.mod` | none | `go test ./...` |
+| `Package.swift` | none | `swift test` |
 
 npm's default script (`echo "Error: no test specified" && exit 1`) is not a
 real test script.
 
 The runtime version comes from `.nvmrc`, `.python-version` or the `go`
 line in `go.mod`. Without one, the current LTS (Node), 3.12 (Python) or
-`stable` (Go).
+`stable` (Go). A swift plan has no setup step: Xcode and Swift come with the
+macOS runner image, and SwiftPM resolves dependencies on build.
+
+A root `Package.swift` also moves the job to `macos-latest`, for detected and
+given commands alike. A macOS-only package cannot build on Linux, and macOS is
+the only remedy the guard offers, so `--install` / `--test` on such a repo
+still get the macOS runner. A swift repo whose root has no `Package.swift`
+(tests only in nested packages) is refused, and given commands for it run on
+Linux. Every other stack runs on `ubuntu-latest`.
+
+A repo with root tests and nested packages (each with its own `Package.swift`
+and tests) is set up for the root package only. The plan names the nested
+packages, using the same outermost-owner rule as the refusal below. The line is
+printed for a detected swift plan only, because the guard cannot know what
+given commands run.
 
 Detection fails when no row fits, when more than one row fits, or when test
 files sit only under subfolders that carry their own `package.json`,
-`pyproject.toml` or `go.mod`. The plan then names what it found, prints no
+`pyproject.toml`, `go.mod` or `Package.swift`. A root `Package.swift` next to
+another root manifest counts as more than one row, except that a
+`package.json` with no real test script is not a row. The plan then names what it found, prints no
 token, and exits 2. The skill asks the owner for the two commands and runs
 the plan again with `--install "<cmd>" --test "<cmd>"`. Given commands skip
 detection. The job then has no runtime setup step and relies on the
@@ -185,8 +209,22 @@ One job, named `tests`, so the required check is `tests`.
 - `on`: `pull_request` (opened, synchronize, reopened, ready_for_review)
   and `push` to the default branch.
 - `concurrency` group per workflow and ref, `cancel-in-progress: true`.
-- `timeout-minutes: 10`.
+- `timeout-minutes: 10`, and `runs-on: ubuntu-latest`. The swift job is the
+  one exception: `runs-on: macos-latest` and `timeout-minutes: 15`.
 - Steps: checkout, runtime setup for the detected stack, install, test.
+
+Why the swift exception is what it is:
+
+- `macos-latest`, not a pinned image. The file is written once and `tests`
+  becomes a required check in the same run. A retired image label (as
+  `macos-12` and `macos-13` were) would leave the job unstarted and block every
+  PR. `-latest` can change the default Xcode on an image bump, the same trade
+  the Linux stacks make. The owner can pin a label later in a normal PR.
+- 15 minutes. A cold SwiftPM build plus tests takes a few minutes on the
+  runner, and a package that builds heavy dependencies from source can pass
+  10. It stays under the guard's own wait (20 minutes from the first poll),
+  or the confirm run would give up while the job still runs. It also caps a
+  hung job on a private repo at 150 billed minutes.
 
 Two deliberate differences from the reference template:
 
