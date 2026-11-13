@@ -5501,19 +5501,24 @@ describe('config dirs', () => {
   const marker = (dir) => `${dir}/projects`
   const installedPath = (dir) => `${dir}/plugins/installed_plugins.json`
   const marketsPath = (dir) => `${dir}/plugins/known_marketplaces.json`
+  const settingsPath = (dir) => `${dir}/settings.json`
+  const OFF = 'bypass default off (no settings.json)'
+  const NOTE =
+    "note: the bypass default is read from each dir's settings.json only; launch flags, aliases, --settings and managed settings are not read"
   const userEntry = (sha) => ({ scope: 'user', installPath: '/made/up', version: 'x', gitCommitSha: sha })
   const installedJson = (entries) => JSON.stringify({ version: 2, plugins: { [PLUGIN]: entries } })
   const marketsJson = (extra = {}, source = { source: 'github', repo: REPO }) =>
     JSON.stringify({ orchestrai: { source, ...extra } })
 
-  // One config dir: its marker plus the two plugin files that are given.
-  const configDir = (name, { installed, markets } = {}) => {
+  // One config dir: its marker plus the plugin files and settings.json that are given.
+  const configDir = (name, { installed, markets, settings } = {}) => {
     const dir = dirOf(name)
     return {
       dirs: [marker(dir)],
       files: {
         ...(installed === undefined ? {} : { [installedPath(dir)]: installed }),
         ...(markets === undefined ? {} : { [marketsPath(dir)]: markets }),
+        ...(settings === undefined ? {} : { [settingsPath(dir)]: settings }),
       },
     }
   }
@@ -5577,7 +5582,7 @@ describe('config dirs', () => {
       return { result, text: renderConfigDirs(result) }
     }
 
-    test('prints the summary and one line per dir with the three facts, in fixed order', () => {
+    test('prints the summary, one line per dir with the four facts in fixed order, and the note once', () => {
       const parts = merge(
         configDir('.claude'),
         configDir('.claude-alpha', { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }),
@@ -5588,16 +5593,17 @@ describe('config dirs', () => {
       const { result, text } = report(fakeLocal(parts))
       const lines = text.split('\n')
       assert.equal(lines[0], 'config dirs: 5 (3 with the plugin, 1 auto update on, 1 at the newest commit, 1 could not read)')
-      assert.equal(lines[1], '~/.claude: plugin not installed, auto update not recorded, no installed copy')
-      assert.equal(lines[2], '~/.claude-alpha: plugin installed, auto update on, at the newest commit')
+      assert.equal(lines[1], `~/.claude: plugin not installed, auto update not recorded, ${OFF}, no installed copy`)
+      assert.equal(lines[2], `~/.claude-alpha: plugin installed, auto update on, ${OFF}, at the newest commit`)
       assert.equal(
         lines[3],
-        '~/.claude-beta: plugin installed, auto update not recorded, not at the newest commit (installed 1a2b3c4, newest aaaaaaa)'
+        `~/.claude-beta: plugin installed, auto update not recorded, ${OFF}, not at the newest commit (installed 1a2b3c4, newest aaaaaaa)`
       )
-      assert.equal(lines[4], '~/.claude-delta: plugin installed, auto update off, commit not recorded')
+      assert.equal(lines[4], `~/.claude-delta: plugin installed, auto update off, ${OFF}, commit not recorded`)
       assert.match(lines[5], /^~\/\.claude-gamma: could not read: known_marketplaces\.json: /)
-      assert.equal(lines.length, 7)
-      assert.equal(lines[6], '')
+      assert.equal(lines[6], NOTE)
+      assert.equal(lines.length, 8)
+      assert.equal(lines[7], '')
       assert.equal(result.failed, true)
     })
 
@@ -5614,7 +5620,7 @@ describe('config dirs', () => {
 
     test('shows a path outside home in full', () => {
       const local = fakeLocal({ dirs: ['/srv/elsewhere'], envDir: '/srv/elsewhere' })
-      assert.match(report(local).text, /^\/srv\/elsewhere: plugin not installed, auto update not recorded, no installed copy$/m)
+      assert.match(report(local).text, /^\/srv\/elsewhere: plugin not installed, auto update not recorded, bypass default off \(no settings\.json\), no installed copy$/m)
     })
 
     test('when home cannot be listed it prints one line saying so and marks failed', () => {
@@ -5664,7 +5670,7 @@ describe('config dirs', () => {
 
       test('a missing installed_plugins.json and no marketplaces file is not a failure', () => {
         const { result, text } = report(fakeLocal(configDir('.claude-alpha')))
-        assert.ok(text.includes('~/.claude-alpha: plugin not installed, auto update not recorded, no installed copy'))
+        assert.ok(text.includes(`~/.claude-alpha: plugin not installed, auto update not recorded, ${OFF}, no installed copy`))
         assert.equal(result.failed, false)
       })
     })
@@ -5681,7 +5687,7 @@ describe('config dirs', () => {
           const calls = []
           const parts = configDir('.claude-alpha', { installed: installedJson([entry]), markets: marketsJson() })
           const { result, text } = report(fakeLocal(parts), calls)
-          assert.ok(text.includes('plugin installed, auto update not recorded, commit not recorded'))
+          assert.ok(text.includes('plugin installed, auto update not recorded, bypass default off (no settings.json), commit not recorded'))
           assert.deepEqual(calls, [])
           assert.equal(result.failed, false)
         })
@@ -5774,7 +5780,7 @@ describe('config dirs', () => {
         const { result, text } = report(fakeLocal(parts), [], notFound)
         assert.equal(
           lineOf(text, '~/.claude-a'),
-          '~/.claude-a: plugin installed, auto update on, newest commit unknown (could not read: Not Found)'
+          `~/.claude-a: plugin installed, auto update on, ${OFF}, newest commit unknown (could not read: Not Found)`
         )
         assert.equal(result.failed, true)
       })
@@ -5808,7 +5814,7 @@ describe('config dirs', () => {
           const calls = []
           const parts = configDir('.claude-a', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson({}, source) })
           const { result, text } = report(fakeLocal(parts), calls)
-          assert.ok(text.includes('plugin installed, auto update not recorded, newest commit unknown (no GitHub source recorded)'))
+          assert.ok(text.includes('plugin installed, auto update not recorded, bypass default off (no settings.json), newest commit unknown (no GitHub source recorded)'))
           assert.deepEqual(calls, [])
           assert.equal(result.failed, false)
         })
@@ -5820,6 +5826,287 @@ describe('config dirs', () => {
         const { text } = report(fakeLocal(parts), calls)
         assert.ok(text.includes('newest commit unknown (no GitHub source recorded)'))
         assert.deepEqual(calls, [])
+      })
+    })
+  })
+
+  // Bypass default per config dir (issue #542).
+  describe('bypass default', () => {
+    const report = (local, calls = [], answer) => {
+      const result = collectConfigDirs(runner(calls, answer), local)
+      return { result, text: renderConfigDirs(result) }
+    }
+    const current = { installed: installedJson([userEntry(NEWEST)]), markets: marketsJson({ autoUpdate: true }) }
+    const mode = (defaultMode) => JSON.stringify({ permissions: { defaultMode } })
+    const BYPASS = mode('bypassPermissions')
+    const SWITCHED_OFF = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins: { [PLUGIN]: false } })
+    const WARN_NOT_INSTALLED =
+      '  warning: bypass default on and plugin not installed: the guard would not load here (only the orchestrai@orchestrai copy is read)'
+    const WARN_SWITCHED_OFF =
+      '  warning: bypass default on and plugin switched off in settings.json: the guard would not load here (only the orchestrai@orchestrai copy is read)'
+    const line = (text, name = '.claude-alpha') => lineOf(text, `~/${name}`)
+    const lineAfter = (text, name = '.claude-alpha') => {
+      const lines = text.split('\n')
+      return lines[lines.indexOf(line(text, name)) + 1]
+    }
+
+    describe('the fact on the dir line', () => {
+      const unexpected = 'bypass default unknown (could not read settings.json: unexpected shape)'
+      const notJson = 'bypass default unknown (could not read settings.json: not valid JSON)'
+      const cases = [
+        ['no settings.json', undefined, 'bypass default off (no settings.json)', false],
+        ['an empty object', '{}', 'bypass default off', false],
+        ['permissions with no defaultMode', JSON.stringify({ permissions: {} }), 'bypass default off', false],
+        ['defaultMode bypassPermissions', BYPASS, 'bypass default on', false],
+        ['another plain mode name is named', mode('auto'), 'bypass default off (default mode auto)', false],
+        ['only the exact spelling counts as bypass', mode('BypassPermissions'), 'bypass default off (default mode BypassPermissions)', false],
+        ['a name of 32 letters is named', mode('a'.repeat(32)), `bypass default off (default mode ${'a'.repeat(32)})`, false],
+        ['invalid JSON prints a fixed text', '{ not json', notJson, true],
+        ['an empty file is invalid JSON', '', notJson, true],
+        ['a top level array', '[]', unexpected, true],
+        ['a top level null', 'null', unexpected, true],
+        ['a top level string', '"bypassPermissions"', unexpected, true],
+        ['permissions is an array', JSON.stringify({ permissions: [] }), unexpected, true],
+        ['permissions is null', JSON.stringify({ permissions: null }), unexpected, true],
+        ['defaultMode is a number', mode(5), unexpected, true],
+        ['defaultMode is null', mode(null), unexpected, true],
+        ['defaultMode is empty', mode(''), unexpected, true],
+        ['defaultMode has a space', mode('bypass permissions'), unexpected, true],
+        ['defaultMode has a digit or dash', mode('mode-2'), unexpected, true],
+        ['defaultMode is 33 letters', mode('a'.repeat(33)), unexpected, true],
+      ]
+      for (const [name, settings, fact, failed] of cases) {
+        test(`${name}: "${fact}", ${failed ? 'exit 1' : 'exit 0'}`, () => {
+          const { result, text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+          assert.equal(line(text), `~/.claude-alpha: plugin installed, auto update on, ${fact}, at the newest commit`)
+          assert.equal(result.failed, failed)
+        })
+      }
+
+      test('a read error other than a missing file is unknown, with its message on one line, and exit 1', () => {
+        const parts = configDir('.claude-alpha', current)
+        const readErrors = { [settingsPath(dirOf('.claude-alpha'))]: 'EACCES: denied\nsecond line' }
+        const { result, text } = report(fakeLocal({ ...parts, readErrors }))
+        assert.equal(
+          line(text),
+          '~/.claude-alpha: plugin installed, auto update on, bypass default unknown (could not read settings.json: EACCES: denied second line), at the newest commit'
+        )
+        assert.equal(result.failed, true)
+      })
+
+      test('an unknown fact keeps the plugin facts and does not change the could-not-read count', () => {
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: '{ not json' })))
+        assert.equal(text.split('\n')[0], 'config dirs: 1 (1 with the plugin, 1 auto update on, 1 at the newest commit, 0 could not read)')
+      })
+
+      test('one unknown dir does not stop the next one', () => {
+        const parts = merge(
+          configDir('.claude-alpha', { ...current, settings: '{ not json' }),
+          configDir('.claude-beta', { ...current, settings: BYPASS })
+        )
+        const { result, text } = report(fakeLocal(parts))
+        assert.ok(line(text, '.claude-alpha').includes('bypass default unknown'))
+        assert.ok(line(text, '.claude-beta').includes('bypass default on'))
+        assert.equal(result.failed, true)
+      })
+
+      test('settings.json is read once per dir, and no other path outside plugins/', () => {
+        const parts = merge(configDir('.claude-alpha', { ...current, settings: BYPASS }), configDir('.claude-beta', current))
+        const local = fakeLocal(parts)
+        const reads = []
+        const spy = { ...local, read: (path) => (reads.push(path), local.read(path)) }
+        report(spy)
+        const outside = reads.filter((p) => !p.includes('/plugins/')).sort()
+        assert.deepEqual(outside, [settingsPath(dirOf('.claude-alpha')), settingsPath(dirOf('.claude-beta'))])
+      })
+    })
+
+    describe('no part of settings.json beyond the mode name reaches the output', () => {
+      const SECRET = 'sk-invented-0123456789'
+      const leaks = (text) => /sk-invented|TOKEN|apiKeyHelper|env/.test(text)
+
+      test('broken JSON that holds a secret-like value prints the fixed text only', () => {
+        const broken = `{"env":{"TOKEN":"${SECRET}"},"apiKeyHelper":"${SECRET}","permissions":{"defaultMode":"bypassPermissions"`
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: broken })))
+        assert.ok(text.includes('bypass default unknown (could not read settings.json: not valid JSON)'))
+        assert.equal(leaks(text), false)
+      })
+
+      test('valid JSON with a secret in env and apiKeyHelper prints nothing of it', () => {
+        const settings = JSON.stringify({ env: { TOKEN: SECRET }, apiKeyHelper: SECRET, permissions: { defaultMode: 'bypassPermissions' } })
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+        assert.equal(leaks(text), false)
+        assert.ok(text.includes('bypass default on'))
+      })
+
+      test('a secret-like value in defaultMode is not printed, it is an unexpected shape', () => {
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: mode(SECRET) })))
+        assert.ok(text.includes('could not read settings.json: unexpected shape'))
+        assert.equal(leaks(text), false)
+      })
+
+      test('a secret-like value in enabledPlugins prints nothing of it', () => {
+        const settings = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins: { [PLUGIN]: SECRET } })
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { installed: current.installed, settings })))
+        assert.equal(leaks(text), false)
+      })
+    })
+
+    describe('the warning', () => {
+      test('bypass on and plugin not installed: a warning directly under the dir line, exit 0', () => {
+        const { result, text } = report(fakeLocal(configDir('.claude-beta', { settings: BYPASS })))
+        assert.equal(
+          line(text, '.claude-beta'),
+          '~/.claude-beta: plugin not installed, auto update not recorded, bypass default on, no installed copy'
+        )
+        assert.equal(lineAfter(text, '.claude-beta'), WARN_NOT_INSTALLED)
+        assert.equal(result.failed, false)
+      })
+
+      test('bypass on and a project-only entry: the plugin is not installed, so it warns', () => {
+        const installed = installedJson([{ scope: 'project', projectPath: '/p', gitCommitSha: NEWEST }])
+        const { text } = report(fakeLocal(configDir('.claude-beta', { installed, settings: BYPASS })))
+        assert.equal(lineAfter(text, '.claude-beta'), WARN_NOT_INSTALLED)
+      })
+
+      test('bypass on and the plugin switched off by an explicit false: a switched-off warning, exit 0', () => {
+        const { result, text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: SWITCHED_OFF })))
+        assert.equal(lineAfter(text), WARN_SWITCHED_OFF)
+        assert.equal(result.failed, false)
+      })
+
+      test('bypass on, plugin not installed and enabledPlugins false: the not-installed text', () => {
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { settings: SWITCHED_OFF })))
+        assert.equal(lineAfter(text), WARN_NOT_INSTALLED)
+      })
+
+      test('bypass on with the plugin current: no warning', () => {
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: BYPASS })))
+        assert.ok(!text.includes('warning'))
+      })
+
+      test('bypass on with a stale plugin: no warning', () => {
+        const installed = installedJson([userEntry(OLDER)])
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { installed, markets: marketsJson(), settings: BYPASS })))
+        assert.ok(line(text).includes('not at the newest commit'))
+        assert.ok(!text.includes('warning'))
+      })
+
+      test('bypass off and no plugin: no warning', () => {
+        for (const settings of [undefined, '{}', mode('auto')]) {
+          const { text } = report(fakeLocal(configDir('.claude-alpha', { settings })))
+          assert.ok(!text.includes('warning'), String(settings))
+        }
+      })
+
+      test('an unknown bypass fact and no plugin: no warning, exit 1', () => {
+        const { result, text } = report(fakeLocal(configDir('.claude-alpha', { settings: '{ not json' })))
+        assert.ok(!text.includes('warning'))
+        assert.equal(result.failed, true)
+      })
+
+      test('bypass on but the plugin files cannot be read: one could-not-read line, no bypass fact, no warning', () => {
+        const { result, text } = report(fakeLocal(configDir('.claude-alpha', { installed: '{ not json', settings: BYPASS })))
+        assert.match(line(text), /^~\/\.claude-alpha: could not read: installed_plugins\.json: /)
+        assert.ok(!text.includes('bypass default'))
+        assert.ok(!text.includes('warning'))
+        assert.equal(result.failed, true)
+      })
+
+      test('only the synced copy switched off: that is not the orchestrai@orchestrai key, so no warning', () => {
+        const settings = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins: { 'orchestrai@synced': false } })
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+        assert.ok(!text.includes('warning'))
+      })
+
+      test('a missing or malformed enabledPlugins is "not switched off"', () => {
+        const values = [undefined, null, [], 'false', { [PLUGIN]: 'false' }, { [PLUGIN]: 0 }, { [PLUGIN]: true }, { [PLUGIN]: null }]
+        for (const enabledPlugins of values) {
+          const settings = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins })
+          const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+          assert.ok(!text.includes('warning'), JSON.stringify(enabledPlugins))
+        }
+      })
+
+      test('a switched-off plugin with bypass off: no warning', () => {
+        const settings = JSON.stringify({ permissions: { defaultMode: 'auto' }, enabledPlugins: { [PLUGIN]: false } })
+        const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+        assert.ok(!text.includes('warning'))
+      })
+
+      test('a warning sits under its own dir and only that dir gets one', () => {
+        const parts = merge(configDir('.claude-a', { settings: BYPASS }), configDir('.claude-b', { settings: '{}' }))
+        const lines = report(fakeLocal(parts)).text.split('\n')
+        assert.equal(lines.filter((l) => l.startsWith('  warning:')).length, 1)
+        assert.ok(lines[1].startsWith('~/.claude-a:'))
+        assert.equal(lines[2], WARN_NOT_INSTALLED)
+        assert.ok(lines[3].startsWith('~/.claude-b:'))
+      })
+    })
+
+    describe('the note line', () => {
+      test('it is printed once, after the last dir line', () => {
+        const parts = merge(configDir('.claude-a'), configDir('.claude-b', { settings: BYPASS }), configDir('.claude-c', current))
+        const lines = report(fakeLocal(parts)).text.split('\n')
+        assert.equal(lines.filter((l) => l === NOTE).length, 1)
+        assert.equal(lines[lines.length - 2], NOTE)
+        assert.equal(lines[lines.length - 1], '')
+      })
+
+      test('it is not printed when no dir was read', () => {
+        assert.ok(!report(fakeLocal()).text.includes('note:'))
+        const bad = report(fakeLocal(configDir('.claude-a', { installed: '{ not json' }))).text
+        assert.ok(!bad.includes('note:'))
+      })
+
+      test('it is printed when only the CLAUDE_CONFIG_DIR dir was read and home could not be listed', () => {
+        const local = fakeLocal({ dirs: ['/srv/elsewhere'], envDir: '/srv/elsewhere', listError: 'EACCES: denied' })
+        const lines = report(local).text.split('\n')
+        assert.equal(lines[lines.length - 2], NOTE)
+      })
+
+      test('it is printed when one dir was read and another could not be', () => {
+        const parts = merge(configDir('.claude-a', { installed: '{ not json' }), configDir('.claude-b'))
+        assert.ok(report(fakeLocal(parts)).text.includes(NOTE))
+      })
+    })
+
+    describe('the runbook step 7 phrases stay true', () => {
+      test('a current dir line ends in "at the newest commit", with bypass on or off', () => {
+        for (const settings of [BYPASS, '{}', undefined, mode('auto')]) {
+          const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
+          assert.ok(line(text).endsWith('at the newest commit'), String(settings))
+          assert.ok(!line(text).includes('not at the newest commit'))
+        }
+      })
+
+      test('a stale dir line contains "not at the newest commit"', () => {
+        const parts = configDir('.claude-alpha', { installed: installedJson([userEntry(OLDER)]), markets: marketsJson(), settings: BYPASS })
+        assert.ok(line(report(fakeLocal(parts)).text).includes('not at the newest commit'))
+      })
+    })
+
+    describe('a full example with three invented dirs', () => {
+      test('alpha has bypass and the plugin, beta has bypass and no plugin, gamma has neither; exit 0', () => {
+        const parts = merge(
+          configDir('.claude-alpha', { ...current, settings: BYPASS }),
+          configDir('.claude-beta', { settings: BYPASS }),
+          configDir('.claude-gamma', { settings: '{}' })
+        )
+        const { result, text } = report(fakeLocal(parts))
+        assert.equal(
+          text,
+          [
+            'config dirs: 3 (1 with the plugin, 1 auto update on, 1 at the newest commit, 0 could not read)',
+            '~/.claude-alpha: plugin installed, auto update on, bypass default on, at the newest commit',
+            '~/.claude-beta: plugin not installed, auto update not recorded, bypass default on, no installed copy',
+            WARN_NOT_INSTALLED,
+            '~/.claude-gamma: plugin not installed, auto update not recorded, bypass default off, no installed copy',
+            NOTE,
+            '',
+          ].join('\n')
+        )
+        assert.equal(result.failed, false)
       })
     })
   })
@@ -5862,7 +6149,7 @@ describe('config dirs', () => {
           assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
           assert.deepEqual(
             text.split('\n').slice(1),
-            ['~/.claude-x y: plugin not installed, auto update not recorded, no installed copy', ''],
+            [`~/.claude-x y: plugin not installed, auto update not recorded, ${OFF}, no installed copy`, NOTE, ''],
             `U+${code} broke the dir line`
           )
         }
@@ -5876,7 +6163,7 @@ describe('config dirs', () => {
           assert.ok(!text.replaceAll('\n', '').includes(c), `U+${code} reached the output`)
           assert.deepEqual(
             text.split('\n').slice(1),
-            ['/srv/e lsewhere: plugin not installed, auto update not recorded, no installed copy', ''],
+            [`/srv/e lsewhere: plugin not installed, auto update not recorded, ${OFF}, no installed copy`, NOTE, ''],
             `U+${code} broke the dir line`
           )
         }
@@ -5971,7 +6258,8 @@ describe('config dirs', () => {
         assert.equal(
           text,
           'config dirs: 1 (1 with the plugin, 1 auto update on, 1 at the newest commit, 0 could not read)\n' +
-            '~/.claude-alpha: plugin installed, auto update on, at the newest commit\n'
+            `~/.claude-alpha: plugin installed, auto update on, ${OFF}, at the newest commit\n` +
+            `${NOTE}\n`
         )
         assert.equal(result.failed, false)
       })

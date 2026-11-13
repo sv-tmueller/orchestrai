@@ -89,6 +89,10 @@ const SECTIONS = [
         'Report that, and do not retry or work around it.'],
       ['the flow never touches auto update or the plugin',
         'Never switch auto update on, install the plugin or update it from this flow.'],
+      ['the flow never writes a settings file',
+        'Never write any settings file either: the bypass default is the owner\'s switch.'],
+      ['a warning does not change the exit code',
+        'A warning does not change the exit code.'],
     ],
   },
   {
