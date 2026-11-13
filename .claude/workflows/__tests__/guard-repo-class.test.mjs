@@ -241,6 +241,7 @@ describe('parseGitHubRemote', () => {
       'https://GitHub.com/octo/widget-api',
       'ssh://git@github.com/octo/widget-api.git',
       'ssh://git@github.com:22/octo/widget-api.git',
+      'ssh://git@github.com:/octo/widget-api',
       'ssh://github.com/octo/widget-api',
       'git@github.com:octo/widget-api.git',
       'git@GITHUB.COM:octo/widget-api.git',
