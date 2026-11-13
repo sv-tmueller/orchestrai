@@ -357,6 +357,45 @@ describe('parseGitHubRemote', () => {
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
   })
 
+  // git splits the port off only when the first colon in the authority is after
+  // the user part. With a colon in the user part, ssh gets "github.com:22" as the host.
+  test('in the ssh family a colon in the user part makes the remote invalid when a port follows the host, whatever the port', () => {
+    const hosts = ['github.com', 'ssh.github.com']
+    const users = ['a:b', 'a:p@ss', 'a:b:c', 'a:', 'a:22', ':b', ':', 'a@b:c']
+    const ports = ['22', '443', '0', '65535', '00022', '65536']
+    for (const scheme of ['ssh', 'git+ssh', 'ssh+git']) {
+      for (const host of hosts) {
+        for (const user of users) {
+          for (const port of ports) {
+            const url = `${scheme}://${user}@${host}:${port}/octo/widget-api`
+            assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+          }
+        }
+      }
+    }
+    assert.deepEqual(parseGitHubRemote('ssh://a:b@github.com:22/octo/widget-api.git'), { invalid: true })
+    assert.deepEqual(parseGitHubRemote('ssh://a:b@GitHub.com:22/octo/widget-api'), { invalid: true })
+  })
+
+  test('a colon in the user part without a port, and a port without a colon in the user part, stay GitHub in the ssh family', () => {
+    const urls = [
+      'ssh://x:@github.com/octo/widget-api',
+      'ssh://a:b@github.com/octo/widget-api',
+      'ssh://a:b@ssh.github.com/octo/widget-api',
+      'ssh://a@b:c@github.com/octo/widget-api',
+      'git+ssh://a:b@github.com/octo/widget-api',
+      'ssh+git://a:b@github.com/octo/widget-api',
+      'ssh://x@github.com:/octo/widget-api',
+      'ssh://x@github.com:22/octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
+  test('a colon in the user part with a port does not change for https', () => {
+    const urls = ['https://user:pw@github.com:8443/octo/widget-api', 'https://a:b@github.com:22/octo/widget-api', 'https://a:@github.com:443/octo/widget-api']
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
   test('ports up to 65535 with any leading zeros, and an empty port without a colon in the user part, are GitHub', () => {
     const urls = [
       'ssh://git@github.com:65535/octo/widget-api',
