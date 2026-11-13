@@ -633,8 +633,15 @@ export function buildCiYaml({ branch, install, test, runtime }) {
 // only. It takes a string, a one-line list, a block list, and a block map (the
 // keys are the events and deeper lines are ignored). It does not take a
 // one-line map, a list over several lines, an anchor, an alias, a tag, a block
-// scalar, tab indentation or more than one document.
+// scalar, tab indentation, a NEL or Unicode line or paragraph separator, a
+// column 0 line after the block that is not a key, or more than one document.
 const EVENT_NAME = /^[a-z_]+$/
+
+const TOP_KEY = /^(?:"[^"]*"|'[^']*'|[^\s:#]+):(?:\s|$)/
+
+// YAML 1.1 reads these as line breaks and JavaScript does not, so a file with
+// one is in a form this cannot read.
+const FOREIGN_BREAK = /[\u0085\u2028\u2029]/
 
 const yamlUnquote = (s) => s.match(/^(["'])(.*)\1$/)?.[2] ?? s
 
@@ -657,8 +664,13 @@ function blockTriggers(lines, from) {
   const isList = first.text.startsWith('-')
   const block = []
   for (const l of lines.slice(from)) {
-    // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it.
-    if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) break
+    // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it,
+    // but only a top-level key may end it: a flow list or quoted scalar that continues
+    // at column 0 would otherwise hide the events after it.
+    if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) {
+      if (!TOP_KEY.test(l.text)) return null
+      break
+    }
     block.push(l)
   }
   if (block.length === 0) return null
@@ -683,8 +695,9 @@ function blockTriggers(lines, from) {
 }
 
 export function workflowTriggers(text) {
+  if (FOREIGN_BREAK.test(text)) return null
   const lines = []
-  for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
+  for (const raw of text.replace(/^﻿/, '').split(/\r\n|\r|\n/)) {
     const lead = raw.match(/^[ \t]*/)[0]
     const body = raw.slice(lead.length).trimEnd()
     if (body === '' || body.startsWith('#')) continue

@@ -694,6 +694,10 @@ describe('workflowTriggers', () => {
     test('CRLF line endings and a byte order mark', () => {
       assert.deepEqual(triggers('﻿name: x\r\non:\r\n  issues:\r\n  push:\r\njobs: {}\r\n'), ['issues', 'push'])
     })
+    test('a lone CR is a line break, so it cannot hide an event in a mixed-ending file', () => {
+      assert.deepEqual(triggers('on:\n  issues:\r  push:\n'), ['issues', 'push'])
+      assert.deepEqual(triggers('on:\r  issues:\r  push:\r'), ['issues', 'push'])
+    })
     test('a file with no final newline', () => {
       assert.deepEqual(triggers('on:\n  push:'), ['push'])
     })
@@ -736,6 +740,12 @@ describe('workflowTriggers', () => {
     rejects('a document start marker', lines('---', 'on: push'))
     rejects('a second document', lines('on: push', '---', 'on: issues'))
     rejects('a key with a space before the colon', lines('on :', '  push:'))
+    rejects('a NEL line break', 'on:\n  issues:\u0085  push:\n')
+    rejects('a line separator (U+2028)', 'on:\n  issues:\u2028  push:\n')
+    rejects('a paragraph separator (U+2029)', 'on:\n  issues:\u2029  push:\n')
+    rejects('a flow list continued at column 0', lines('on:', '  issues:', '    types: [a,', 'b]', '  push:'))
+    rejects('a quoted scalar continued at column 0', lines('on:', '  issues:', '    types: "a', 'b"', '  push:'))
+    rejects('a column 0 line that is not a key after the block', lines('on:', '  issues:', 'jobs', '  push:'))
   })
 })
 
