@@ -29,6 +29,7 @@ import {
   hasPipelineLabels,
   detectStack,
   buildCiYaml,
+  ciRunner,
   workflowTriggers,
   factsAfterApply,
   planChanges,
@@ -864,7 +865,7 @@ describe('detectStack', () => {
       assert.match(got.found, pattern)
     })
   }
-  fails('no file that fits a row', ['src/a.test.js'], null, /no package\.json with a test script, requirements\.txt, pyproject\.toml or go\.mod at the root/)
+  fails('no file that fits a row', ['src/a.test.js'], null, /no package\.json with a test script, requirements\.txt, pyproject\.toml, go\.mod or Package\.swift at the root/)
   fails('npm\'s default test script', ['package.json', 'a.test.js'], { scripts: { test: 'echo "Error: no test specified" && exit 1' } }, /package\.json has no real test script/)
   fails('a package.json with no scripts', ['package.json', 'a.test.js'], {}, /package\.json has no real test script/)
   fails('a blank test script', ['package.json', 'a.test.js'], { scripts: { test: '  ' } }, /no real test script/)
@@ -883,6 +884,75 @@ describe('detectStack', () => {
     null,
     /only under.*svc\//
   )
+
+  describe('swift (issue #582)', () => {
+    const SWIFT = ['Package.swift', 'Sources/App/main.swift', 'Tests/AppTests/AppTests.swift']
+
+    test('a root Package.swift is a swift stack: no install, swift test, nothing to set up on the runner', () => {
+      const got = detectStack(SWIFT, null)
+      assert.equal(got.ok, true)
+      assert.equal(got.install, null)
+      assert.equal(got.test, 'swift test')
+      assert.deepEqual(got.runtime, [])
+    })
+
+    test('a swift stack with no nested package has nothing uncovered', () => {
+      assert.deepEqual(detectStack(SWIFT, null).uncovered, [])
+    })
+
+    fails('Package.swift and go.mod', [...SWIFT, 'go.mod'], null, /more than one stack at the root: go\.mod, Package\.swift/)
+    fails('Package.swift and requirements.txt', [...SWIFT, 'requirements.txt'], null, /more than one stack at the root: requirements\.txt, Package\.swift/)
+    fails('Package.swift and a package.json with a real test script', [...SWIFT, 'package.json'], REAL, /more than one stack at the root: package\.json, Package\.swift/)
+
+    test('a package.json with no real test script does not count as a second stack', () => {
+      const got = detectStack([...SWIFT, 'package.json'], { scripts: { test: 'echo "Error: no test specified" && exit 1' } })
+      assert.equal(got.ok, true)
+      assert.equal(got.test, 'swift test')
+    })
+
+    fails(
+      'test files only under nested packages, with no root Package.swift',
+      ['Packages/Core/Package.swift', 'Packages/Core/Tests/CoreTests/CoreTests.swift'],
+      null,
+      /only under subfolders.*Packages\/Core\//
+    )
+    fails(
+      'test files only under nested packages, next to a root Package.swift',
+      ['Package.swift', 'Packages/Core/Package.swift', 'Packages/Core/Tests/CoreTests/CoreTests.swift'],
+      null,
+      /only under subfolders.*Packages\/Core\//
+    )
+
+    test('the cropcast shape: root tests plus three nested packages sets up the root and names the others', () => {
+      const paths = [
+        'Package.swift',
+        'Tests/CropcastTests/AppTests.swift',
+        ...['RegionFrame', 'RegionMirror', 'VirtualDisplay'].flatMap((n) => [
+          `Packages/${n}/Package.swift`,
+          `Packages/${n}/Tests/${n}Tests/${n}Tests.swift`,
+        ]),
+      ]
+      const got = detectStack(paths, null)
+      assert.equal(got.ok, true)
+      assert.equal(got.test, 'swift test')
+      assert.deepEqual(got.uncovered, ['Packages/RegionFrame', 'Packages/RegionMirror', 'Packages/VirtualDisplay'])
+    })
+
+    test('a nested package without tests is not named', () => {
+      const got = detectStack([...SWIFT, 'Packages/Core/Package.swift', 'Packages/Core/Sources/Core/Core.swift'], null)
+      assert.deepEqual(got.uncovered, [])
+    })
+
+    test('a nested package named once even when it holds several test files', () => {
+      const paths = [...SWIFT, 'Packages/Core/Package.swift', 'Packages/Core/Tests/ATests.swift', 'Packages/Core/Tests/BTests.swift']
+      assert.deepEqual(detectStack(paths, null).uncovered, ['Packages/Core'])
+    })
+
+    test('the other stacks have no uncovered list', () => {
+      assert.equal('uncovered' in detectStack(['go.mod', 'a_test.go'], null), false)
+      assert.equal('uncovered' in detectStack(['package.json', 'a.test.js'], REAL), false)
+    })
+  })
 
   test('test files in a subfolder with a manifest do not matter when others sit outside one', () => {
     const paths = ['package.json', 'a.test.js', 'dashboard/package.json', 'dashboard/b.test.js']
@@ -989,6 +1059,69 @@ describe('buildCiYaml', () => {
 
   test('uses no em dashes', () => {
     assert.equal(buildCiYaml(NPM).includes('—'), false)
+  })
+
+  describe('swift on a macOS runner (issue #582)', () => {
+    const SWIFT = { branch: 'main', install: null, test: 'swift test', runtime: [], runner: 'macos-latest', timeout: 15 }
+
+    test('writes the whole workflow: macos-latest, 15 minutes, checkout then Test, no setup or install step', () => {
+      assert.equal(
+        buildCiYaml(SWIFT),
+        [
+          'name: CI',
+          '',
+          'on:',
+          '  pull_request:',
+          '    types: [opened, synchronize, reopened, ready_for_review]',
+          '  push:',
+          '    branches: ["main"]',
+          '',
+          'concurrency:',
+          '  group: ${{ github.workflow }}-${{ github.ref }}',
+          '  cancel-in-progress: true',
+          '',
+          'jobs:',
+          '  tests:',
+          '    runs-on: macos-latest',
+          '    timeout-minutes: 15',
+          '    steps:',
+          '      - uses: actions/checkout@v7',
+          '      - name: Test',
+          '        run: "swift test"',
+          '',
+        ].join('\n')
+      )
+    })
+
+    test('keeps the cost rules: concurrency, a timeout, no paths-ignore', () => {
+      const text = buildCiYaml(SWIFT)
+      assert.match(text, /^ {4}timeout-minutes: \d+$/m)
+      assert.match(text, /^ {2}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}$/m)
+      assert.match(text, /^ {2}cancel-in-progress: true$/m)
+      assert.doesNotMatch(text, /paths-ignore|echo|\bif:|setup-|Install dependencies/)
+    })
+
+    test('without a runner and a timeout the job is the Linux one', () => {
+      const text = buildCiYaml({ ...SWIFT, runner: undefined, timeout: undefined })
+      assert.match(text, /^ {4}runs-on: ubuntu-latest$/m)
+      assert.match(text, /^ {4}timeout-minutes: 10$/m)
+    })
+  })
+
+  describe('ciRunner', () => {
+    test('a root Package.swift gets macos-latest and 15 minutes', () => {
+      assert.deepEqual(ciRunner(['Package.swift', 'Tests/ATests.swift']), { runner: 'macos-latest', timeout: 15 })
+    })
+
+    test('a root Package.swift next to another manifest still gets macos-latest', () => {
+      assert.equal(ciRunner(['Package.swift', 'package.json']).runner, 'macos-latest')
+    })
+
+    test('every tree without a root Package.swift gets ubuntu-latest and 10 minutes', () => {
+      for (const paths of [[], ['package.json'], ['go.mod'], ['Packages/Core/Package.swift'], ['src/Package.swift']]) {
+        assert.deepEqual(ciRunner(paths), { runner: 'ubuntu-latest', timeout: 10 }, paths.join(','))
+      }
+    })
   })
 })
 
@@ -4520,7 +4653,7 @@ describe('runApply', () => {
       'a repo that needs CI when no stack can be detected',
       () => makeFake({ prs: [] }),
       ['widget'],
-      /could not detect the install and test commands: no package\.json with a test script, requirements\.txt, pyproject\.toml or go\.mod at the root/
+      /could not detect the install and test commands: no package\.json with a test script, requirements\.txt, pyproject\.toml, go\.mod or Package\.swift at the root/
     )
 
     describe('signed commits and the protection PUT', () => {

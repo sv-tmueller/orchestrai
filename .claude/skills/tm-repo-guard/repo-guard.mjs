@@ -507,7 +507,7 @@ export function hasPipelineLabels(names) {
 // CI setup (issue #551): detect the stack, build the ci.yml
 // ---------------------------------------------------------------------------
 
-const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod']
+const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod', 'Package.swift']
 const NODE_LOCKFILES = [
   ['package-lock.json', 'npm ci'],
   ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
@@ -520,16 +520,28 @@ function hasRealTestScript(pkg) {
   return typeof script === 'string' && script.trim() !== '' && !/no test specified/i.test(script)
 }
 
-// A test file whose nearest manifest is in a subfolder is not run by a command
-// at the root. Only when every test file is like that is detection unsafe.
-function subfolderOnlyTests(paths) {
+// The outermost subfolder with a manifest that holds each test file, or
+// undefined for a test file no subfolder manifest covers. One entry per test.
+function testOwners(paths) {
   const manifestDirs = paths
     .filter((p) => p.includes('/') && MANIFESTS.includes(p.slice(p.lastIndexOf('/') + 1)))
     .map((p) => p.slice(0, p.lastIndexOf('/')))
   const tests = paths.filter((p) => countTestFiles([p]) === 1)
-  if (tests.length === 0) return []
-  const owners = tests.map((t) => manifestDirs.filter((d) => t.startsWith(`${d}/`)).sort((a, b) => a.length - b.length)[0])
+  return tests.map((t) => manifestDirs.filter((d) => t.startsWith(`${d}/`)).sort((a, b) => a.length - b.length)[0])
+}
+
+// A test file whose nearest manifest is in a subfolder is not run by a command
+// at the root. Only when every test file is like that is detection unsafe.
+function subfolderOnlyTests(paths) {
+  const owners = testOwners(paths)
+  if (owners.length === 0) return []
   return owners.every((o) => o !== undefined) ? [...new Set(owners)].sort() : []
+}
+
+// The subfolders whose tests a root command does not run. Only a repo that also
+// has root tests gets this far, so these are the ones the plan has to name.
+function uncoveredSubfolders(paths) {
+  return [...new Set(testOwners(paths).filter((o) => o !== undefined))].sort()
 }
 
 const setup = (uses, withInputs) => ({ uses, with: withInputs })
@@ -548,20 +560,25 @@ export function detectStack(paths, pkg) {
   if (root.has('package.json') && hasRealTestScript(pkg)) rows.push('node')
   if (root.has('requirements.txt') || root.has('pyproject.toml')) rows.push('python')
   if (root.has('go.mod')) rows.push('go')
+  if (root.has('Package.swift')) rows.push('swift')
 
   if (rows.length === 0) {
     return {
       ok: false,
       found: root.has('package.json')
-        ? 'package.json has no real test script, and no requirements.txt, pyproject.toml or go.mod at the root'
-        : 'no package.json with a test script, requirements.txt, pyproject.toml or go.mod at the root',
+        ? 'package.json has no real test script, and no requirements.txt, pyproject.toml, go.mod or Package.swift at the root'
+        : 'no package.json with a test script, requirements.txt, pyproject.toml, go.mod or Package.swift at the root',
     }
   }
   if (rows.length > 1) {
-    const names = { node: 'package.json', python: root.has('requirements.txt') ? 'requirements.txt' : 'pyproject.toml', go: 'go.mod' }
+    const names = { node: 'package.json', python: root.has('requirements.txt') ? 'requirements.txt' : 'pyproject.toml', go: 'go.mod', swift: 'Package.swift' }
     return { ok: false, found: `more than one stack at the root: ${rows.map((r) => names[r]).join(', ')}` }
   }
 
+  if (rows[0] === 'swift') {
+    // SwiftPM resolves dependencies on build, and Xcode is on the runner image.
+    return { ok: true, install: null, test: 'swift test', runtime: [], uncovered: uncoveredSubfolders(paths) }
+  }
   if (rows[0] === 'go') {
     return { ok: true, install: null, test: 'go test ./...', runtime: [setup('actions/setup-go@v7', { 'go-version-file': 'go.mod' })] }
   }
@@ -589,10 +606,26 @@ export function detectStack(paths, pkg) {
 
 const yamlString = (value) => JSON.stringify(value)
 
+const LINUX_RUNNER = { runner: 'ubuntu-latest', timeout: 10 }
+// `-latest`, not a pinned image: the file is written once and `tests` becomes a
+// required check, so a retired image label would leave every PR blocked.
+// 15 minutes: a cold SwiftPM build plus tests takes a few minutes on the
+// macOS runner, and a package with heavy dependencies can pass 10. It has to
+// stay under CI_WAIT_MS (20 minutes), or the confirm run gives up on a job that
+// is still running. On a private repo it also caps a hung job at 150 billed
+// minutes (macOS minutes count 10x).
+const MACOS_RUNNER = { runner: 'macos-latest', timeout: 15 }
+
+// A SwiftPM package may use macOS-only frameworks, so a root Package.swift
+// moves the job to macOS, whether the commands were detected or given.
+export function ciRunner(paths) {
+  return paths.includes('Package.swift') ? MACOS_RUNNER : LINUX_RUNNER
+}
+
 // The job id is `tests` and it has no `name:`, so the required check is called
 // `tests`. No paths-ignore: a required check it skips never completes. Every
 // value from outside is JSON-quoted, which is valid YAML.
-export function buildCiYaml({ branch, install, test, runtime }) {
+export function buildCiYaml({ branch, install, test, runtime, runner = LINUX_RUNNER.runner, timeout = LINUX_RUNNER.timeout }) {
   const lines = [
     'name: CI',
     '',
@@ -608,8 +641,8 @@ export function buildCiYaml({ branch, install, test, runtime }) {
     '',
     'jobs:',
     '  tests:',
-    '    runs-on: ubuntu-latest',
-    '    timeout-minutes: 10',
+    `    runs-on: ${runner}`,
+    `    timeout-minutes: ${timeout}`,
     '    steps:',
     '      - uses: actions/checkout@v7',
   ]
