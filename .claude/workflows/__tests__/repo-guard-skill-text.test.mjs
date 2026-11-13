@@ -22,9 +22,11 @@
  *
  * What the script does at runtime is covered in repo-guard.test.mjs: the
  * `refusesCi` cases (the install and test commands that cannot be detected),
- * the `refused` case (a confirm token that no longer matches), and the exit 2
- * with a new plan and token after the merge (the "safety stop after the merge"
- * tests). This file pins only the wording.
+ * "a token from a changed state writes nothing" and
+ * "--confirm with a wrong token writes nothing either" (a confirm token that
+ * does not match the plan), and the exit 2 with a new plan and token after
+ * the merge (the "safety stop after the merge" tests). This file pins only the
+ * wording.
  */
 
 import { test, describe } from 'node:test'
@@ -94,6 +96,7 @@ const SECTIONS = [
     start: STEP1,
     end: STEP2,
     pins: [
+      ['the plan output is printed as is', 'Print its stdout as is.'],
       ['a --confirm in the command is left out of plan mode',
         'If the command already carries `--confirm` and a token, leave both out: plan mode always runs first.'],
       ['exit 2 and exit 1 of plan mode are reported and stop',
@@ -166,8 +169,12 @@ const SECTIONS = [
     start: STATUSES_START,
     end: null,
     pins: [
+      ['exit 2 and exit 1 of statuses are reported and stop',
+        'Exit 2 is a refusal or a usage error and exit 1 is a failed read: report it and stop.'],
       ['the printed commands are never run',
         'Never run the printed commands or any part of them, and never post a status or queue a merge any other way.'],
+      ['an owner who asks is told the commands are for their own shell',
+        'If the owner asks, say the commands are for their own shell.'],
     ],
   },
 ]

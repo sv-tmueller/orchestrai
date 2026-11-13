@@ -1323,7 +1323,8 @@ function runCiSetup({ run, call, clock, login }, target, ops, ci) {
     parseError(res).status === 422 &&
     parseError(res).message === 'Reference does not exist'
   if (writeOps(lateWrite, [{ method: 'DELETE', path: ciBranchRefPath(target) }], lines, branchGone)) {
-    lines.push(`${prName(pr.number)} is merged; the next apply takes the normal path`)
+    // Name no path: the run has not read whether ci.yml reached the default branch.
+    lines.push(`${prName(pr.number)} is merged; run apply again`)
     return output(1)
   }
 
