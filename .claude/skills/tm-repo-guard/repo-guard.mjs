@@ -626,6 +626,82 @@ export function buildCiYaml({ branch, install, test, runtime }) {
   return lines.join('\n') + '\n'
 }
 
+// The event names in the top-level `on:` of a workflow file, sorted and
+// de-duplicated, or null when the file is in any form this does not read. The
+// caller treats null as "cannot tell" and refuses, so each form left out here
+// costs a refusal and never a wrong answer. Not a YAML parser: it reads lines
+// only. It takes a string, a one-line list, a block list, and a block map (the
+// keys are the events and deeper lines are ignored). It does not take a
+// one-line map, a list over several lines, an anchor, an alias, a tag, a block
+// scalar, tab indentation or more than one document.
+const EVENT_NAME = /^[a-z_]+$/
+
+const yamlUnquote = (s) => s.match(/^(["'])(.*)\1$/)?.[2] ?? s
+
+const withoutComment = (s) => s.replace(/(^|\s+)#.*$/, '').trim()
+
+function inlineTriggers(value) {
+  const items = value.startsWith('[')
+    ? value.endsWith(']')
+      ? value.slice(1, -1).split(',')
+      : null
+    : [value]
+  const names = items?.map((s) => yamlUnquote(s.trim()))
+  return names && names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+// `lines` are the content lines, `from` the first one after the `on:` line.
+function blockTriggers(lines, from) {
+  const first = lines[from]
+  if (!first) return null
+  const isList = first.text.startsWith('-')
+  const block = []
+  for (const l of lines.slice(from)) {
+    // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it.
+    if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) break
+    block.push(l)
+  }
+  if (block.length === 0) return null
+
+  const names = []
+  for (const l of block) {
+    if (isList) {
+      const item = l.indent === first.indent ? withoutComment(l.text).match(/^-\s+(.+)$/) : null
+      if (!item) return null
+      names.push(yamlUnquote(item[1].trim()))
+    } else {
+      if (l.indent < first.indent) return null
+      if (l.indent > first.indent) continue
+      // A dash at the key indent is the value of the key before it, as in `schedule:` then `- cron`.
+      if (l.text === '-' || l.text.startsWith('- ')) continue
+      const key = l.text.match(/^(?:"([^"]*)"|'([^']*)'|([^\s:]*)):(?:\s|$)/)
+      if (!key) return null
+      names.push(key[1] ?? key[2] ?? key[3])
+    }
+  }
+  return names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+export function workflowTriggers(text) {
+  const lines = []
+  for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
+    const lead = raw.match(/^[ \t]*/)[0]
+    const body = raw.slice(lead.length).trimEnd()
+    if (body === '' || body.startsWith('#')) continue
+    if (lead.includes('\t')) return null
+    if (lead === '' && (body.startsWith('---') || body.startsWith('...'))) return null
+    lines.push({ indent: lead.length, text: body })
+  }
+
+  const onLine = /^(?:on|"on"|'on'):(?:\s+(.*))?$/
+  const onAt = lines.flatMap((l, i) => (l.indent === 0 && onLine.test(l.text) ? [i] : []))
+  if (onAt.length !== 1) return null
+
+  const inline = withoutComment(onLine.exec(lines[onAt[0]].text)[1] ?? '')
+  const names = inline === '' ? blockTriggers(lines, onAt[0] + 1) : inlineTriggers(inline)
+  return names === null || names.length === 0 ? null : [...new Set(names)].sort()
+}
+
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'

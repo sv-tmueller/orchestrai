@@ -29,6 +29,7 @@ import {
   hasPipelineLabels,
   detectStack,
   buildCiYaml,
+  workflowTriggers,
   factsAfterApply,
   planChanges,
   evaluate,
@@ -623,6 +624,118 @@ describe('hasPipelineLabels', () => {
     assert.equal(hasPipelineLabels(['in-progress', 'phase:developer']), false)
     assert.equal(hasPipelineLabels(['needs-human']), false)
     assert.equal(hasPipelineLabels([]), false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// workflowTriggers (issue #579)
+// ---------------------------------------------------------------------------
+describe('workflowTriggers', () => {
+  const lines = (...l) => `${l.join('\n')}\n`
+  const triggers = (text) => workflowTriggers(text)
+
+  describe('the accepted forms', () => {
+    test('a bare string: on: push', () => {
+      assert.deepEqual(triggers(lines('name: x', 'on: push', 'jobs: {}')), ['push'])
+    })
+    test('a string that is not a blocking event: pull_request_target', () => {
+      assert.deepEqual(triggers(lines('on: pull_request_target')), ['pull_request_target'])
+    })
+    test('a quoted string, single or double', () => {
+      assert.deepEqual(triggers(lines('on: "push"')), ['push'])
+      assert.deepEqual(triggers(lines("on: 'workflow_dispatch'")), ['workflow_dispatch'])
+    })
+    test('a one-line list, sorted and de-duplicated', () => {
+      assert.deepEqual(triggers(lines('on: [push, pull_request, push]')), ['pull_request', 'push'])
+      assert.deepEqual(triggers(lines('on: ["issues", \'schedule\']')), ['issues', 'schedule'])
+    })
+    test('a block list at indent 2', () => {
+      assert.deepEqual(triggers(lines('on:', '  - push', '  - workflow_dispatch', 'jobs: {}')), ['push', 'workflow_dispatch'])
+    })
+    test('a block list at indent 0', () => {
+      assert.deepEqual(triggers(lines('on:', '- push', '- issues', 'jobs: {}')), ['issues', 'push'])
+    })
+    test('a block map: the keys are the events and their children are ignored (the cropcast shape)', () => {
+      const text = lines(
+        'name: lockdown',
+        'on:',
+        '  issues:',
+        '    types: [opened]',
+        '  pull_request_target:',
+        '    types:',
+        '      - opened',
+        '      - synchronize',
+        'jobs: {}'
+      )
+      assert.deepEqual(triggers(text), ['issues', 'pull_request_target'])
+    })
+    test('a block map whose child names an event is not read as an event', () => {
+      assert.deepEqual(triggers(lines('on:', '  workflow_run:', '    workflows: [push]', '    types: [completed]')), ['workflow_run'])
+    })
+    test('a block map with a list at the key indent: the list belongs to the key before it', () => {
+      assert.deepEqual(triggers(lines('on:', '  schedule:', '  - cron: "0 0 * * *"', '  push:', '    branches: [main]')), ['push', 'schedule'])
+    })
+    test('a key with a value on the same line still names its event', () => {
+      assert.deepEqual(triggers(lines('on:', '  push: {}', '  workflow_dispatch:')), ['push', 'workflow_dispatch'])
+    })
+    test('a quoted on key, single or double', () => {
+      assert.deepEqual(triggers(lines('"on": push')), ['push'])
+      assert.deepEqual(triggers(lines("'on':", '  issues:')), ['issues'])
+    })
+    test('quoted event keys in a block map', () => {
+      assert.deepEqual(triggers(lines('on:', '  "push":', "  'issues':")), ['issues', 'push'])
+    })
+    test('trailing comments, blank lines and comment lines are skipped', () => {
+      const text = lines('# a workflow', '', 'on: # when', '  # events', '', '  push: # main only', '    branches: [main]', '  issues:  ')
+      assert.deepEqual(triggers(text), ['issues', 'push'])
+      assert.deepEqual(triggers(lines('on: [push] # comment')), ['push'])
+      assert.deepEqual(triggers(lines('on: push # comment')), ['push'])
+    })
+    test('CRLF line endings and a byte order mark', () => {
+      assert.deepEqual(triggers('﻿name: x\r\non:\r\n  issues:\r\n  push:\r\njobs: {}\r\n'), ['issues', 'push'])
+    })
+    test('a file with no final newline', () => {
+      assert.deepEqual(triggers('on:\n  push:'), ['push'])
+    })
+    test('the on block ends at the next top-level key', () => {
+      assert.deepEqual(triggers(lines('on:', '  issues:', 'permissions:', '  pull_request: read')), ['issues'])
+    })
+  })
+
+  describe('every other form is null, so the guard refuses', () => {
+    const rejects = (name, text) => test(name, () => assert.equal(triggers(text), null))
+
+    rejects('no on key', lines('name: x', 'jobs: {}'))
+    rejects('an empty file', '')
+    rejects('two on keys', lines('on: push', 'name: x', '"on": issues'))
+    rejects('an on key that is not at column 0', lines('jobs:', '  on: push'))
+    rejects('a one-line map', lines('on: {push: {}}'))
+    rejects('an empty one-line map', lines('on: {}'))
+    rejects('a list that spans lines', lines('on: [push,', '  issues]'))
+    rejects('an empty one-line list', lines('on: []'))
+    rejects('a list with an empty item', lines('on: [push, ]'))
+    rejects('an anchor', lines('on: &trigger', '  push:'))
+    rejects('an alias', lines('on: *trigger'))
+    rejects('a tag', lines('on: !!str push'))
+    rejects('a block scalar', lines('on: |', '  push'))
+    rejects('a folded block scalar', lines('on: >', '  push'))
+    rejects('tab indentation', lines('on:', '\tpush:'))
+    rejects('a line between column 0 and the key indent', lines('on:', '    issues:', '  push:'))
+    rejects('a capitalised key', lines('on:', '  Push:'))
+    rejects('a merge key', lines('on:', '  <<: *base'))
+    rejects('an event key with a dash', lines('on:', '  pull-request:'))
+    rejects('a string that is not an event name', lines('on: push and more'))
+    rejects('an empty block', lines('on:', 'jobs: {}'))
+    rejects('an on key with nothing after it', 'on:')
+    rejects('an empty block with only comments', lines('on:', '  # nothing', 'jobs: {}'))
+    rejects('a block list item with an alias', lines('on:', '  - *push'))
+    rejects('a block list that mixes in a map line', lines('on:', '  - push', '  issues:'))
+    rejects('a block list whose items sit at different indents', lines('on:', '  - push', '    - issues'))
+    rejects('a block list item with two events', lines('on:', '  - push issues'))
+    rejects('a dash with no space', lines('on:', '  -push'))
+    rejects('a document start marker', lines('---', 'on: push'))
+    rejects('a second document', lines('on: push', '---', 'on: issues'))
+    rejects('a key with a space before the colon', lines('on :', '  push:'))
   })
 })
 
