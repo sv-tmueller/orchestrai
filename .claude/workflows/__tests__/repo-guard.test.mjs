@@ -3738,6 +3738,37 @@ describe('runApply', () => {
         assert.match(text, /stopped here/)
       })
 
+      // The run stops before it re-reads the repo, so it cannot say which path the next apply takes.
+      for (const [name, base] of [
+        ['merged into main', 'main'],
+        ['merged into another base', 'dev'],
+      ]) {
+        test(`the branch delete fails with 422 after the PR is ${name}: the stop names no path, and the next apply takes the right one`, () => {
+          const fake = ciFake({ ci: { fail: { refDelete: fail(422, 'Validation Failed') } } })
+          const token = tokenOf(apply(fake, 'widget').text)
+          const run = (args, input) => {
+            if (base !== 'main' && args.join(' ') === 'api repos/octo/widget/pulls/20/files') fake.state.ci.pr.baseRefName = base
+            return fake.run(args, input)
+          }
+          const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+          assert.equal(code, 1, text)
+          assert.deepEqual(wrote(fake), [...upToOpen, MERGE, DELETE])
+          assert.match(text, /^PR #20 \(https:\/\/github\.com\/octo\/widget\/pull\/20\) is merged; run apply again$/m)
+          assert.doesNotMatch(text, /normal path/)
+          assert.doesNotMatch(text, /could not find/)
+
+          const next = apply(fake, 'widget')
+          assert.equal(next.code, 0, next.text)
+          if (base === 'main') {
+            assert.match(next.text, /required check: tests/)
+            assert.doesNotMatch(next.text, /expected check/)
+          } else {
+            assert.match(next.text, /^ {2}expected check: tests$/m)
+            assert.match(next.text, new RegExp(`^ {2}resume: branch ${CI_BRANCH} holds the planned workflow file$`, 'm'))
+          }
+        })
+      }
+
       test('the protection PUT fails: the CI PR stays merged and the run exits 1', () => {
         const fake = ciFake({ failPut: bad })
         const { code, text } = confirmCi(fake)
