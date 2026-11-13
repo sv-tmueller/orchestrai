@@ -29,6 +29,7 @@ import {
   hasPipelineLabels,
   detectStack,
   buildCiYaml,
+  workflowTriggers,
   factsAfterApply,
   planChanges,
   evaluate,
@@ -623,6 +624,162 @@ describe('hasPipelineLabels', () => {
     assert.equal(hasPipelineLabels(['in-progress', 'phase:developer']), false)
     assert.equal(hasPipelineLabels(['needs-human']), false)
     assert.equal(hasPipelineLabels([]), false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// workflowTriggers (issue #579)
+// ---------------------------------------------------------------------------
+describe('workflowTriggers', () => {
+  const lines = (...l) => `${l.join('\n')}\n`
+  const triggers = (text) => workflowTriggers(text)
+
+  describe('the accepted forms', () => {
+    test('a bare string: on: push', () => {
+      assert.deepEqual(triggers(lines('name: x', 'on: push', 'jobs: {}')), ['push'])
+    })
+    test('a string that is not a blocking event: pull_request_target', () => {
+      assert.deepEqual(triggers(lines('on: pull_request_target')), ['pull_request_target'])
+    })
+    test('a quoted string, single or double', () => {
+      assert.deepEqual(triggers(lines('on: "push"')), ['push'])
+      assert.deepEqual(triggers(lines("on: 'workflow_dispatch'")), ['workflow_dispatch'])
+    })
+    test('a one-line list, sorted and de-duplicated', () => {
+      assert.deepEqual(triggers(lines('on: [push, pull_request, push]')), ['pull_request', 'push'])
+      assert.deepEqual(triggers(lines('on: ["issues", \'schedule\']')), ['issues', 'schedule'])
+    })
+    test('a block list at indent 2', () => {
+      assert.deepEqual(triggers(lines('on:', '  - push', '  - workflow_dispatch', 'jobs: {}')), ['push', 'workflow_dispatch'])
+    })
+    test('a block list at indent 0', () => {
+      assert.deepEqual(triggers(lines('on:', '- push', '- issues', 'jobs: {}')), ['issues', 'push'])
+    })
+    test('a block map: the keys are the events and their children are ignored (the cropcast shape)', () => {
+      const text = lines(
+        'name: lockdown',
+        'on:',
+        '  issues:',
+        '    types: [opened]',
+        '  pull_request_target:',
+        '    types:',
+        '      - opened',
+        '      - synchronize',
+        'jobs: {}'
+      )
+      assert.deepEqual(triggers(text), ['issues', 'pull_request_target'])
+    })
+    test('a block map whose child names an event is not read as an event', () => {
+      assert.deepEqual(triggers(lines('on:', '  workflow_run:', '    workflows: [push]', '    types: [completed]')), ['workflow_run'])
+    })
+    test('a block map with a list at the key indent: the list belongs to the key before it', () => {
+      assert.deepEqual(triggers(lines('on:', '  schedule:', '  - cron: "0 0 * * *"', '  push:', '    branches: [main]')), ['push', 'schedule'])
+    })
+    test('a key with a value on the same line still names its event', () => {
+      assert.deepEqual(triggers(lines('on:', '  push: {}', '  workflow_dispatch:')), ['push', 'workflow_dispatch'])
+    })
+    test('a quoted on key, single or double', () => {
+      assert.deepEqual(triggers(lines('"on": push')), ['push'])
+      assert.deepEqual(triggers(lines("'on':", '  issues:')), ['issues'])
+    })
+    test('quoted event keys in a block map', () => {
+      assert.deepEqual(triggers(lines('on:', '  "push":', "  'issues':")), ['issues', 'push'])
+    })
+    test('trailing comments, blank lines and comment lines are skipped', () => {
+      const text = lines('# a workflow', '', 'on: # when', '  # events', '', '  push: # main only', '    branches: [main]', '  issues:  ')
+      assert.deepEqual(triggers(text), ['issues', 'push'])
+      assert.deepEqual(triggers(lines('on: [push] # comment')), ['push'])
+      assert.deepEqual(triggers(lines('on: push # comment')), ['push'])
+    })
+    test('CRLF line endings and a byte order mark', () => {
+      assert.deepEqual(triggers('﻿name: x\r\non:\r\n  issues:\r\n  push:\r\njobs: {}\r\n'), ['issues', 'push'])
+    })
+    test('a lone CR is a line break, so it cannot hide an event in a mixed-ending file', () => {
+      assert.deepEqual(triggers('on:\n  issues:\r  push:\n'), ['issues', 'push'])
+      assert.deepEqual(triggers('on:\r  issues:\r  push:\r'), ['issues', 'push'])
+    })
+    test('a file with no final newline', () => {
+      assert.deepEqual(triggers('on:\n  push:'), ['push'])
+    })
+    test('the on block ends at the next top-level key', () => {
+      assert.deepEqual(triggers(lines('on:', '  issues:', 'permissions:', '  pull_request: read')), ['issues'])
+    })
+  })
+
+  describe('every other form is null, so the guard refuses', () => {
+    const rejects = (name, text) => test(name, () => assert.equal(triggers(text), null))
+
+    rejects('no on key', lines('name: x', 'jobs: {}'))
+    rejects('an empty file', '')
+    rejects('two on keys', lines('on: push', 'name: x', '"on": issues'))
+    rejects('an on key that is not at column 0', lines('jobs:', '  on: push'))
+    rejects('a one-line map', lines('on: {push: {}}'))
+    rejects('an empty one-line map', lines('on: {}'))
+    rejects('a list that spans lines', lines('on: [push,', '  issues]'))
+    rejects('an empty one-line list', lines('on: []'))
+    rejects('a list with an empty item', lines('on: [push, ]'))
+    rejects('an anchor', lines('on: &trigger', '  push:'))
+    rejects('an alias', lines('on: *trigger'))
+    rejects('a tag', lines('on: !!str push'))
+    rejects('a block scalar', lines('on: |', '  push'))
+    rejects('a folded block scalar', lines('on: >', '  push'))
+    rejects('tab indentation', lines('on:', '\tpush:'))
+    rejects('a line between column 0 and the key indent', lines('on:', '    issues:', '  push:'))
+    rejects('a capitalised key', lines('on:', '  Push:'))
+    rejects('a merge key', lines('on:', '  <<: *base'))
+    rejects('an event key with a dash', lines('on:', '  pull-request:'))
+    rejects('a string that is not an event name', lines('on: push and more'))
+    rejects('an empty block', lines('on:', 'jobs: {}'))
+    rejects('an on key with nothing after it', 'on:')
+    rejects('an empty block with only comments', lines('on:', '  # nothing', 'jobs: {}'))
+    rejects('a block list item with an alias', lines('on:', '  - *push'))
+    rejects('a block list that mixes in a map line', lines('on:', '  - push', '  issues:'))
+    rejects('a block list whose items sit at different indents', lines('on:', '  - push', '    - issues'))
+    rejects('a block list item with two events', lines('on:', '  - push issues'))
+    rejects('a dash with no space', lines('on:', '  -push'))
+    rejects('a document start marker', lines('---', 'on: push'))
+    rejects('a second document', lines('on: push', '---', 'on: issues'))
+    rejects('a key with a space before the colon', lines('on :', '  push:'))
+    rejects('a NEL line break', 'on:\n  issues:\u0085  push:\n')
+    rejects('a line separator (U+2028)', 'on:\n  issues:\u2028  push:\n')
+    rejects('a paragraph separator (U+2029)', 'on:\n  issues:\u2029  push:\n')
+    rejects('a flow list continued at column 0', lines('on:', '  issues:', '    types: [a,', 'b]', '  push:'))
+    rejects('a quoted scalar continued at column 0', lines('on:', '  issues:', '    types: "a', 'b"', '  push:'))
+    rejects('a column 0 line that is not a key after the block', lines('on:', '  issues:', 'jobs', '  push:'))
+
+    // A flow collection or quoted scalar that continues at column 0 with a `key: value` line.
+    // PyYAML reads the continuation as part of the value, so the events after it are still there.
+    const hidden = (open, rest) => ['on:', '  issues:', `    types: ${open}`, ...rest, '  push:']
+    for (const [name, text] of [
+      ['a flow list whose continuation looks like a key', hidden('[a,', ['b: c]'])],
+      ['a flow list whose continuation is a quoted key', hidden('[a,', ['"b": c]'])],
+      ['a flow list with a comment line before the continuation', hidden('[a,', ['#x', 'b: c]'])],
+      ['a flow map whose continuation looks like a key', hidden('{a: 1,', ['b: c}'])],
+      ['a double quoted scalar whose continuation looks like a key', hidden('"a', ['b: c"'])],
+      ['a single quoted scalar whose continuation looks like a key', hidden("'a", ["b: c'"])],
+    ]) {
+      rejects(name, lines(...text))
+      rejects(`${name}, CRLF`, text.join('\r\n') + '\r\n')
+      rejects(`${name}, lone CR`, text.join('\r') + '\r')
+    }
+    rejects('a block list item that opens a quote', lines('on:', '  - "issues', 'b: c"', '  - push'))
+    rejects('a block map key that opens a quote', lines('on:', '  "issues', 'b: c": {}', '  push:'))
+    rejects('the first line of a flow list that is never closed', lines('on:', '  issues:', '    types: [a,', '  push:'))
+
+    // A second `on` key in a spelling the line reader does not count. PyYAML reads the later one.
+    rejects('a second on key with a space before the colon', 'on: issues\non : push\n')
+    rejects('a second on key with an escape in its name', 'on: issues\n"\\x6fn": push\n')
+    rejects('a second on key in another case', 'on: issues\nOn: push\n')
+    rejects('a second on key behind an anchor', 'on: issues\n&a on: push\n')
+    rejects('a second on key behind a tag', 'on: issues\n!!str on: push\n')
+    rejects('a second on key as an alias', 'on: issues\n*a : push\n')
+    rejects('a second on key as a complex key', 'on: issues\n? on\n: push\n')
+    rejects('a document that is one flow map', '{on : push, a: b,\non: issues\n}\n')
+
+    // The whole mapping is indented, so the column 0 lines after the first one are
+    // continuations of an open quote, not keys. PyYAML reads `on: push` at indent 2.
+    rejects('an indented root whose open quote hides a column 0 on key', '  name: "x\non:\n  issues: #"\n  on: push\n')
+    rejects('an indented root with a column 0 on key after its first line', lines('  name: x', 'on:', '  issues:'))
   })
 })
 
@@ -3326,17 +3483,198 @@ describe('runApply', () => {
       /blocked/
     )
     refusesCi(
-      'an existing workflow that no PR has run is not joined by a second one',
-      () => ciFake({ tree: [...NPM_TREE, '.github/workflows/build.yml'] }),
+      'an existing workflow that runs on pull requests and no PR has run is not joined by a second one',
+      () =>
+        ciFake({
+          tree: [...NPM_TREE, '.github/workflows/build.yml'],
+          files: { 'package.json': PKG, '.github/workflows/build.yml': 'on: pull_request\n' },
+        }),
       ['widget'],
       /already has a workflow under \.github\/workflows\/.*no finished, non-draft PR has run it.*open or finish a PR so the existing workflow runs/is
     )
     refusesCi(
-      'an existing workflow is refused with given commands too',
-      () => makeFake({ prs: [], tree: ['src/a.test.js', '.github/workflows/build.yml'] }),
+      'an existing workflow that runs on pull requests is refused with given commands too',
+      () =>
+        makeFake({
+          prs: [],
+          tree: ['src/a.test.js', '.github/workflows/build.yml'],
+          files: { '.github/workflows/build.yml': 'on: [push]\n' },
+        }),
       ['widget', '--install', 'make deps', '--test', 'make test'],
       /already has a workflow under \.github\/workflows\//
     )
+    describe('a workflow that cannot run as PR CI does not block the setup (issue #579)', () => {
+      const LOCKDOWN = '.github/workflows/lockdown.yml'
+      const BUILD = '.github/workflows/zbuild.yml'
+      const CROPCAST = [
+        'name: lockdown',
+        'on:',
+        '  issues:',
+        '    types: [opened]',
+        '  pull_request_target:',
+        '    types: [opened, synchronize]',
+        'jobs:',
+        '  lock:',
+        '    if: github.actor != github.repository_owner',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo locked',
+        '',
+      ].join('\n')
+      const withWorkflows = (workflows, over = {}) =>
+        ciFake({ tree: [...NPM_TREE, ...Object.keys(workflows)], files: { 'package.json': PKG, ...workflows }, ...over })
+      const readPaths = (fake) => contentsCalls(fake).map((c) => c.args[1])
+
+      test('a workflow with only issues and pull_request_target triggers gets the plan and a token', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.deepEqual(fake.state.writes, [])
+        for (const c of fake.state.calls) {
+          assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+          assert.equal(c.input, undefined)
+        }
+      })
+
+      test('reads the workflow first, then package.json, each on the default branch', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        apply(fake, 'widget')
+        assert.deepEqual(readPaths(fake), [`repos/octo/widget/contents/${LOCKDOWN}?ref=main`, 'repos/octo/widget/contents/package.json?ref=main'])
+      })
+
+      test('given commands skip the package.json read but still read the workflow', () => {
+        const fake = makeFake({ prs: [], tree: ['src/a.test.js', LOCKDOWN], files: { [LOCKDOWN]: CROPCAST } })
+        const { code, text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+        assert.equal(code, 0, text)
+        assert.deepEqual(readPaths(fake), [`repos/octo/widget/contents/${LOCKDOWN}?ref=main`])
+      })
+
+      test('several workflows that cannot run on a PR are all read, in tree order', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST, [BUILD]: 'on: workflow_dispatch\n' })
+        assert.equal(apply(fake, 'widget').code, 0)
+        assert.deepEqual(readPaths(fake).slice(0, 2), [LOCKDOWN, BUILD].map((p) => `repos/octo/widget/contents/${p}?ref=main`))
+      })
+
+      test('the plan and its token are the same with or without such a workflow in the tree', () => {
+        const plain = tokenOf(apply(ciFake(), 'widget').text)
+        const withFlow = tokenOf(apply(withWorkflows({ [LOCKDOWN]: CROPCAST }), 'widget').text)
+        assert.equal(withFlow, plain)
+      })
+
+      const trigger = (on) => `name: x\n${on}\njobs: {}\n`
+      const blocked = /already has a workflow under \.github\/workflows\/.*no finished, non-draft PR has run it/is
+      refusesCi('a workflow on: push', () => withWorkflows({ [BUILD]: trigger('on: push') }), ['widget'], /zbuild\.yml.*runs on.*push/is)
+      refusesCi('a workflow on: pull_request', () => withWorkflows({ [BUILD]: trigger('on: pull_request') }), ['widget'], blocked)
+      refusesCi(
+        'a workflow on a list with issues and pull_request',
+        () => withWorkflows({ [BUILD]: trigger('on: [issues, pull_request]') }),
+        ['widget'],
+        /zbuild\.yml.*pull_request/is
+      )
+      refusesCi(
+        'a workflow with push in a block map',
+        () => withWorkflows({ [BUILD]: trigger('on:\n  issues:\n  push:\n    branches: [main]') }),
+        ['widget'],
+        blocked
+      )
+      refusesCi(
+        'a second workflow that blocks, after one that does not',
+        () => withWorkflows({ [LOCKDOWN]: CROPCAST, [BUILD]: trigger('on: pull_request') }),
+        ['widget'],
+        /zbuild\.yml/
+      )
+      refusesCi(
+        'a workflow whose on: is a one-line map',
+        () => withWorkflows({ [BUILD]: trigger('on: {push: {}}') }),
+        ['widget'],
+        /zbuild\.yml.*could not read the triggers/is
+      )
+      refusesCi(
+        'a workflow with no on: key',
+        () => withWorkflows({ [BUILD]: 'name: x\njobs: {}\n' }),
+        ['widget'],
+        /zbuild\.yml.*could not read the triggers/is
+      )
+      refusesCi(
+        'a file under workflows that is not a workflow',
+        () => withWorkflows({ '.github/workflows/README.md': '# notes\n' }),
+        ['widget'],
+        /README\.md.*could not read the triggers/is
+      )
+      refusesCi(
+        'a workflow whose content is missing (404)',
+        () => ciFake({ tree: [...NPM_TREE, BUILD] }),
+        ['widget'],
+        /zbuild\.yml.*could not read it.*Not Found/is
+      )
+      refusesCi(
+        'a workflow read that fails (500) is a refusal, not a read failure',
+        () => withWorkflows({ [BUILD]: CROPCAST }, { contentsError: fail(500, 'Server Error') }),
+        ['widget'],
+        /zbuild\.yml.*could not read it.*Server Error/is
+      )
+      refusesCi(
+        'a workflow whose content cannot be decoded (a symlink)',
+        () => {
+          const fake = withWorkflows({ [BUILD]: CROPCAST })
+          const run = (args, input) =>
+            args.join(' ').includes(`contents/${BUILD}`)
+              ? { code: 0, stdout: JSON.stringify({ type: 'symlink', target: 'x.yml' }), stderr: '' }
+              : fake.run(args, input)
+          return { ...fake, run }
+        },
+        ['widget'],
+        /zbuild\.yml.*could not read it/is
+      )
+      refusesCi(
+        'a ci.yml that triggers only on workflow_dispatch is not overwritten',
+        () => ciFake({ tree: [...NPM_TREE, CI_FILE], files: { 'package.json': PKG, [CI_FILE]: trigger('on: workflow_dispatch') } }),
+        ['widget'],
+        /already has \.github\/workflows\/ci\.yml.*will not overwrite it/is
+      )
+      refusesCi(
+        'a ci.yml is refused even next to a workflow that cannot run as PR CI',
+        () => withWorkflows({ [LOCKDOWN]: CROPCAST, [CI_FILE]: trigger('on: workflow_dispatch') }),
+        ['widget'],
+        /already has \.github\/workflows\/ci\.yml/
+      )
+
+      test('a ci.yml in the tree is refused before any workflow is read', () => {
+        const fake = withWorkflows({ [CI_FILE]: trigger('on: workflow_dispatch') })
+        apply(fake, 'widget')
+        assert.deepEqual(readPaths(fake), [])
+      })
+
+      test('a refusal for a workflow does not tell the owner to open a PR when the file cannot be read', () => {
+        const out = apply(ciFake({ tree: [...NPM_TREE, BUILD] }), 'widget')
+        assert.doesNotMatch(out.text, /open or finish a PR/i)
+      })
+
+      test('a workflow that was swapped for a blocking one between plan and confirm is refused again', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        const token = tokenOf(apply(fake, 'widget').text)
+        fake.state.files[LOCKDOWN] = trigger('on: push')
+        const { code, text } = apply(fake, 'widget', '--confirm', token)
+        assert.equal(code, 2)
+        assert.match(text, /lockdown\.yml.*push/s)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('a confirm run merges with a skipped lockdown check on the PR and protects with tests as the only CI check', () => {
+        const skipped = { ...done('lockdown'), conclusion: 'SKIPPED' }
+        const rollup = (t, ci) => [skipped, ...(ci.pr.state === 'MERGED' || t >= 60000 ? [done('tests')] : [pending('tests')])]
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST }, { ci: { rollup } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const { code, text } = apply(fake, 'widget', '--confirm', token)
+        assert.equal(code, 0, text)
+        assert.match(text, /^octo\/widget: set up$/m)
+        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+        assert.equal(fake.state.writes.some((w) => w.method === 'PUT' && w.path.endsWith('/merge')), true)
+      })
+    })
+
     refusesCi(
       'a repo that requires signed commits when the plan has a PUT',
       () => ciFake({ protection: { ...SET_UP_PROTECTION, required_signatures: { enabled: true } } }),

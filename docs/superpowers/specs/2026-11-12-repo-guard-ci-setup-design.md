@@ -126,10 +126,25 @@ the message says to delete the branch.
 
 ### 3.4 Refusals that stay
 
-- The repo already has a file under `.github/workflows/`, but no finished,
-  non-draft PR has run it. The guard does not add a second CI next to an
-  existing one. It refuses, and the message says to open or finish a PR so
-  the existing workflow runs.
+- The repo already has `.github/workflows/ci.yml`. The guard never
+  overwrites it, so it refuses.
+- The repo has a workflow under `.github/workflows/` that triggers on
+  `pull_request` or `push`, and no finished, non-draft PR has run it. The
+  guard does not add a second CI next to an existing one. It refuses, and the
+  message says to open or finish a PR so the existing workflow runs. A
+  workflow with other triggers only (for example `issues`,
+  `pull_request_target` or `schedule`) cannot be the PR CI, so it does not
+  block (#579).
+- The guard cannot tell what a workflow triggers on. It reads each file under
+  `.github/workflows/` through the contents API, one read per file, which
+  the read guard already allows. It refuses when a read fails, when the file
+  is not a plain text file, or when the `on:` key is in a form its line
+  parser does not take. The parser takes a string, a one-line list, a block
+  list and a block map. A one-line map, a list over several lines, anchors,
+  aliases, tags, block scalars, tab indentation and more than one document
+  are refused. A file that is not a workflow is refused too.
+- Check keeps one rule with Apply: it still says "needs CI first" for such
+  a repo. Only Apply reads the workflows.
 - Blocked repos (no branch protection on the plan) and repos not owned by
   the owner's account, as today.
 

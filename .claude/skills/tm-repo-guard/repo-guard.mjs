@@ -626,6 +626,151 @@ export function buildCiYaml({ branch, install, test, runtime }) {
   return lines.join('\n') + '\n'
 }
 
+// The event names in the top-level `on:` of a workflow file, sorted and
+// de-duplicated, or null when the file is in any form this does not read. The
+// caller treats null as "cannot tell" and refuses, so each form left out here
+// costs a refusal and never a wrong answer. Not a YAML parser: it reads lines
+// only. It takes a string, a one-line list, a block list, and a block map (the
+// keys are the events and deeper lines are ignored). It does not take a
+// one-line map, a list over several lines, an anchor, an alias, a tag, a block
+// scalar, tab indentation, a NEL or Unicode line or paragraph separator, a
+// column 0 line after the block that is not a key, a flow collection or quoted
+// scalar that does not close on its own line inside the block (its column 0
+// continuation could pass for a key and end the block early), a second `on` key
+// in any spelling (a space before the colon, a case, an escape, an anchor, a
+// tag, an alias, a complex key), a document that is one flow collection, or
+// more than one document.
+const EVENT_NAME = /^[a-z_]+$/
+
+const TOP_KEY = /^(?:"[^"]*"|'[^']*'|[^\s:#]+):(?:\s|$)/
+
+// A column 0 key, quoted or plain, with room for a space before the colon.
+const KEY_AT_0 = /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#].*?))\s*:(?:\s|$)/
+
+// A column 0 line that could spell an `on` key in a way this cannot read:
+// an anchor, tag, alias or complex key before it, an escape inside it, or a
+// flow collection around it. Any of these makes the whole file unreadable.
+const AMBIGUOUS_AT_0 = /^(?:[&*!{\[]|\?(?:\s|$))/
+
+// True when a line leaves a quote or a flow bracket open, so the next line may
+// be a continuation. Quote characters inside a plain scalar count as open: that
+// costs a refusal and never a wrong answer.
+function leavesOpen(text) {
+  let quote = null
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (quote === '"' && c === '\\') i++
+      else if (c === quote) {
+        if (quote === "'" && text[i + 1] === "'") i++
+        else quote = null
+      }
+    } else if (c === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
+      break
+    } else if (c === '"' || c === "'") {
+      quote = c
+    } else if (c === '[' || c === '{') {
+      depth++
+    } else if (c === ']' || c === '}') {
+      depth--
+    }
+  }
+  return quote !== null || depth !== 0
+}
+
+// YAML 1.1 reads these as line breaks and JavaScript does not, so a file with
+// one is in a form this cannot read.
+const FOREIGN_BREAK = /[\u0085\u2028\u2029]/
+
+const yamlUnquote = (s) => s.match(/^(["'])(.*)\1$/)?.[2] ?? s
+
+const withoutComment = (s) => s.replace(/(^|\s+)#.*$/, '').trim()
+
+function inlineTriggers(value) {
+  const items = value.startsWith('[')
+    ? value.endsWith(']')
+      ? value.slice(1, -1).split(',')
+      : null
+    : [value]
+  const names = items?.map((s) => yamlUnquote(s.trim()))
+  return names && names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+// `lines` are the content lines, `from` the first one after the `on:` line.
+function blockTriggers(lines, from) {
+  const first = lines[from]
+  if (!first) return null
+  const isList = first.text.startsWith('-')
+  const block = []
+  for (const l of lines.slice(from)) {
+    // A list at column 0 keeps its dashes in the block. Any other column-0 line ends it,
+    // but only a top-level key may end it. Every line before it closes its own quotes and
+    // brackets, so that line cannot be the continuation of a flow list or quoted scalar
+    // that would hide the events after it.
+    if (l.indent === 0 && !(isList && first.indent === 0 && l.text.startsWith('-'))) {
+      if (!TOP_KEY.test(l.text)) return null
+      break
+    }
+    if (leavesOpen(l.text)) return null
+    block.push(l)
+  }
+  if (block.length === 0) return null
+
+  const names = []
+  for (const l of block) {
+    if (isList) {
+      const item = l.indent === first.indent ? withoutComment(l.text).match(/^-\s+(.+)$/) : null
+      if (!item) return null
+      names.push(yamlUnquote(item[1].trim()))
+    } else {
+      if (l.indent < first.indent) return null
+      if (l.indent > first.indent) continue
+      // A dash at the key indent is the value of the key before it, as in `schedule:` then `- cron`.
+      if (l.text === '-' || l.text.startsWith('- ')) continue
+      const key = l.text.match(/^(?:"([^"]*)"|'([^']*)'|([^\s:]*)):(?:\s|$)/)
+      if (!key) return null
+      names.push(key[1] ?? key[2] ?? key[3])
+    }
+  }
+  return names.every((n) => EVENT_NAME.test(n)) ? names : null
+}
+
+export function workflowTriggers(text) {
+  if (FOREIGN_BREAK.test(text)) return null
+  const lines = []
+  for (const raw of text.replace(/^﻿/, '').split(/\r\n|\r|\n/)) {
+    const lead = raw.match(/^[ \t]*/)[0]
+    const body = raw.slice(lead.length).trimEnd()
+    if (body === '' || body.startsWith('#')) continue
+    if (lead.includes('\t')) return null
+    if (lead === '' && (body.startsWith('---') || body.startsWith('...'))) return null
+    lines.push({ indent: lead.length, text: body })
+  }
+
+  // An indented root mapping puts every later column 0 line inside a continuation, so
+  // the column 0 scan below would read a key that PyYAML does not.
+  if (lines[0]?.indent > 0) return null
+
+  // Count every column 0 line that PyYAML could read as an `on` key, not only the one
+  // spelling this reads, so a second key in another spelling cannot go unseen.
+  const onAt = []
+  for (const [i, l] of lines.entries()) {
+    if (l.indent !== 0) continue
+    if (AMBIGUOUS_AT_0.test(l.text)) return null
+    const key = KEY_AT_0.exec(l.text)
+    if (!key) continue
+    if (key[1]?.includes('\\')) return null
+    if ((key[1] ?? key[2] ?? key[3]).toLowerCase() === 'on') onAt.push(i)
+  }
+  const onLine = /^(?:on|"on"|'on'):(?:\s+(.*))?$/
+  if (onAt.length !== 1 || !onLine.test(lines[onAt[0]].text)) return null
+
+  const inline = withoutComment(onLine.exec(lines[onAt[0]].text)[1] ?? '')
+  const names = inline === '' ? blockTriggers(lines, onAt[0] + 1) : inlineTriggers(inline)
+  return names === null || names.length === 0 ? null : [...new Set(names)].sort()
+}
+
 const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
@@ -1154,6 +1299,40 @@ function ciStepOps(target, existing) {
   return steps
 }
 
+// The workflows already in the repo decide whether the guard may add its own
+// CI next to them (issue #579). A workflow that does not run on `pull_request`
+// or `push` cannot be the PR CI the guard is about to wait for, so it does not
+// block. Anything the guard cannot read or parse is a refusal, never a guess.
+// Returns the refusal text, or null when the repo may get a CI of its own.
+const BLOCKING_EVENTS = ['pull_request', 'push']
+
+function checkWorkflows(call, facts, target) {
+  if (facts.treePaths.includes(CI_FILE)) {
+    return `${target.repo} already has ${CI_FILE} on ${target.branch}, and the guard will not overwrite it. Set up CI for this repo by hand`
+  }
+  for (const path of facts.treePaths.filter((p) => p.startsWith('.github/workflows/'))) {
+    const url = `repos/${facts.fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(target.branch)}`
+    const cannotTell = 'so it cannot tell whether that workflow runs on pull requests. It does not add a CI next to a workflow it cannot read'
+    const res = call(['api', url])
+    if (res.code !== 0) return `${target.repo} has ${path}, but the guard could not read it (${parseError(res).message}), ${cannotTell}`
+    const text = decodeTextFile(res.stdout)
+    if (text === null) {
+      return `${target.repo} has ${path}, but the guard could not read it (it is not a plain file, or its content cannot be decoded), ${cannotTell}`
+    }
+    const events = workflowTriggers(text)
+    if (events === null) return `${target.repo} has ${path}, but the guard could not read the triggers in its on: key, ${cannotTell}`
+    const blocking = events.filter((e) => BLOCKING_EVENTS.includes(e))
+    if (blocking.length > 0) {
+      return (
+        `${target.repo} already has a workflow under .github/workflows/ (${path}) that runs on ${blocking.join(' and ')}, ` +
+        'but no finished, non-draft PR has run it. ' +
+        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
+      )
+    }
+  }
+  return null
+}
+
 // The plan for a repo with test files and no finished PR check. Reads only
 // until --confirm has a token that matches.
 function planCiSetup(env, args, facts, target) {
@@ -1161,12 +1340,8 @@ function planCiSetup(env, args, facts, target) {
   if (facts.testFilesTruncated) {
     return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
   }
-  if (facts.treePaths.some((p) => p.startsWith('.github/workflows/'))) {
-    return refusal(
-      `${target.repo} already has a workflow under .github/workflows/ but no finished, non-draft PR has run it. ` +
-        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
-    )
-  }
+  const workflowsProblem = checkWorkflows(call, facts, target)
+  if (workflowsProblem) return refusal(workflowsProblem)
 
   const undetected = (why) =>
     refusal(
