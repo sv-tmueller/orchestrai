@@ -11,6 +11,9 @@
  * the plugin is installed, whether auto update is on, and whether the installed
  * copy is the newest commit. The dir facts come from each dir's plugin files;
  * the newest commit is one more read through `guarded()`. Nothing is written.
+ * Issue #542 adds a fourth fact: whether bypass is the default mode in that
+ * dir's settings.json, and a warning when bypass is on and the plugin (so the
+ * guard) is missing or switched off there. Only that one file and key is read.
  *
  * Apply changes one repo, and only after the owner confirms. Its writes go
  * through `writeGuarded()`, a separate fence that accepts exactly the branch
@@ -1918,6 +1921,37 @@ function readMarketplace(local, dir) {
   return { autoUpdate, repo }
 }
 
+const BYPASS_MODE = 'bypassPermissions'
+const PLAIN_MODE = /^[A-Za-z]{1,32}$/
+
+// The bypass default of one dir, from `<dir>/settings.json` only. Never throws.
+// A JSON parse message quotes part of the file, and a settings file can hold
+// secrets, so a broken file gets a fixed text. A mode is printed only when it
+// is a plain name. `pluginOff` is an explicit `false` for the plugin key.
+function readBypass(local, dir) {
+  const unknown = (why) => ({ kind: 'unknown', why, pluginOff: false })
+  let text
+  try {
+    text = local.read(join(dir, 'settings.json'))
+  } catch (err) {
+    return unknown(oneLine(err.message))
+  }
+  if (text === null) return { kind: 'nofile', pluginOff: false }
+  let data
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return unknown('not valid JSON')
+  }
+  if (!isObject(data)) return unknown('unexpected shape')
+  if (data.permissions !== undefined && !isObject(data.permissions)) return unknown('unexpected shape')
+  const mode = data.permissions?.defaultMode
+  if (mode !== undefined && !(typeof mode === 'string' && PLAIN_MODE.test(mode))) return unknown('unexpected shape')
+  const pluginOff = isObject(data.enabledPlugins) && data.enabledPlugins[PLUGIN_KEY] === false
+  if (mode === BYPASS_MODE) return { kind: 'on', pluginOff }
+  return { kind: mode === undefined ? 'off' : 'othermode', mode, pluginOff }
+}
+
 // Never throws: the caller prints every dir whatever happens to one of them.
 export function collectConfigDirs(run, local) {
   const call = guarded(run)
@@ -1965,7 +1999,9 @@ export function collectConfigDirs(run, local) {
           commit = { kind: 'behind', installed: sha.slice(0, 7), newest: newest.sha.slice(0, 7) }
         }
       }
-      return { name, installed, autoUpdate, commit }
+      const bypass = readBypass(local, path)
+      if (bypass.kind === 'unknown') failed = true
+      return { name, installed, autoUpdate, commit, bypass }
     } catch (err) {
       failed = true
       return { name, error: oneLine(err.message) }
@@ -1989,6 +2025,25 @@ const COMMIT_FACTS = {
   unreadable: (c) => `newest commit unknown (could not read: ${c.message})`,
 }
 
+const BYPASS_FACTS = {
+  on: () => 'bypass default on',
+  off: () => 'bypass default off',
+  nofile: () => 'bypass default off (no settings.json)',
+  othermode: (b) => `bypass default off (default mode ${b.mode})`,
+  unknown: (b) => `bypass default unknown (could not read settings.json: ${b.why})`,
+}
+
+const GUARD_GAP = 'the guard would not load here (only the orchestrai@orchestrai copy is read)'
+const BYPASS_NOTE =
+  "note: the bypass default is read from each dir's settings.json only; launch flags, aliases, --settings and managed settings are not read"
+
+// Why the guard would be missing in a dir with bypass on, or null when it is not.
+function guardGap(d) {
+  if (d.bypass.kind !== 'on') return null
+  if (!d.installed) return 'plugin not installed'
+  return d.bypass.pluginOff ? 'plugin switched off in settings.json' : null
+}
+
 export function renderConfigDirs({ error, dirs }) {
   const lines = []
   if (error !== null) {
@@ -2006,9 +2061,12 @@ export function renderConfigDirs({ error, dirs }) {
     }
     const auto = d.autoUpdate === null ? 'not recorded' : d.autoUpdate ? 'on' : 'off'
     lines.push(
-      `${d.name}: plugin ${d.installed ? 'installed' : 'not installed'}, auto update ${auto}, ${COMMIT_FACTS[d.commit.kind](d.commit)}`
+      `${d.name}: plugin ${d.installed ? 'installed' : 'not installed'}, auto update ${auto}, ${BYPASS_FACTS[d.bypass.kind](d.bypass)}, ${COMMIT_FACTS[d.commit.kind](d.commit)}`
     )
+    const gap = guardGap(d)
+    if (gap !== null) lines.push(`  warning: bypass default on and ${gap}: ${GUARD_GAP}`)
   }
+  if (dirs.some((d) => d.error === undefined)) lines.push(BYPASS_NOTE)
   return lines.join('\n') + '\n'
 }
 

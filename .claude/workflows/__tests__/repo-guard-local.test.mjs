@@ -2,18 +2,31 @@
  * Tests for the real file-system adapter of the repo guard (issue #512).
  *
  * `repo-guard.test.mjs` uses fakes only. This file calls the real
- * `nodeLocal()` and uses just `isDir`, `real` and `read`. Every path sits
- * under a fresh temp dir. The tests never use `home`, `envDir` or `names`,
- * so nothing here looks at the home folder.
+ * `nodeLocal()`. Every path sits under a fresh temp dir. The adapter tests use
+ * just `isDir`, `real` and `read`. The Check test (issue #542) sets `home` to
+ * a temp dir and `envDir` to null, so nothing here looks at the real home
+ * folder or the real environment.
  */
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, chmodSync, realpathSync, rmSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  chmodSync,
+  realpathSync,
+  rmSync,
+  readdirSync,
+  readFileSync,
+  lstatSync,
+} from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { nodeLocal } from '../../skills/tm-repo-guard/repo-guard.mjs'
+import { nodeLocal, collectConfigDirs, renderConfigDirs } from '../../skills/tm-repo-guard/repo-guard.mjs'
 
 const { isDir, real, read } = nodeLocal()
 
@@ -88,5 +101,76 @@ describe('nodeLocal read', () => {
     const dir = join(base, 'read-dir')
     mkdirSync(dir)
     assert.throws(() => read(dir), { code: 'EISDIR' })
+  })
+})
+
+describe('nodeLocal has no write function', () => {
+  test('the adapter offers exactly the read-only functions and two plain values', () => {
+    assert.deepEqual(Object.keys(nodeLocal()).sort(), ['envDir', 'home', 'isDir', 'names', 'read', 'real'])
+  })
+})
+
+// Check must not write to a config dir (issue #542). The tree is a temp home
+// with invented dir names; the record covers every path, so a new, removed or
+// changed file or dir shows up.
+describe('Check on a real disk is read-only', () => {
+  const NEWEST = 'c'.repeat(40)
+  const treeRecord = (root) => {
+    const out = []
+    const walk = (dir) => {
+      for (const name of readdirSync(dir).sort()) {
+        const path = join(dir, name)
+        const st = lstatSync(path)
+        if (st.isDirectory()) {
+          out.push([path, 'dir', st.mtimeMs])
+          walk(path)
+        } else {
+          out.push([path, 'file', st.size, st.mtimeMs, createHash('sha256').update(readFileSync(path)).digest('hex')])
+        }
+      }
+    }
+    walk(root)
+    return out
+  }
+  const put = (home, name, files) => {
+    mkdirSync(join(home, name, 'projects'), { recursive: true })
+    mkdirSync(join(home, name, 'plugins'), { recursive: true })
+    for (const [file, text] of Object.entries(files)) writeFileSync(join(home, name, file), text)
+  }
+
+  test('three fixture dirs: nothing is created, removed or changed, and the warning is printed', () => {
+    const home = mkdtempSync(join(base, 'home-'))
+    const bypass = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' } })
+    const installed = JSON.stringify({
+      version: 2,
+      plugins: { 'orchestrai@orchestrai': [{ scope: 'user', installPath: '/made/up', version: 'x', gitCommitSha: NEWEST }] },
+    })
+    const markets = JSON.stringify({ orchestrai: { source: { source: 'github', repo: 'acme/agent-kit' }, autoUpdate: true } })
+    put(home, '.claude-alpha', { 'settings.json': bypass, 'plugins/installed_plugins.json': installed, 'plugins/known_marketplaces.json': markets })
+    put(home, '.claude-beta', { 'settings.json': bypass })
+    put(home, '.claude-gamma', { 'settings.json': '{ "env": { "TOKEN": "sk-invented-0001" ' })
+
+    const before = treeRecord(home)
+    const calls = []
+    const run = (args) => {
+      calls.push(args)
+      return { code: 0, stdout: JSON.stringify({ sha: NEWEST }), stderr: '' }
+    }
+    const result = collectConfigDirs(run, { ...nodeLocal(), home, envDir: null })
+    const text = renderConfigDirs(result)
+    const after = treeRecord(home)
+
+    assert.deepEqual(after, before)
+    assert.ok(before.length > 0)
+    assert.deepEqual(calls, [['api', 'repos/acme/agent-kit/commits/HEAD']])
+    assert.ok(
+      text.includes(
+        '  warning: bypass default on and plugin not installed: the guard would not load here (only the orchestrai@orchestrai copy is read)'
+      )
+    )
+    assert.match(text, /^~\/\.claude-alpha: plugin installed, auto update on, bypass default on, at the newest commit$/m)
+    assert.match(text, /^~\/\.claude-gamma: .*bypass default unknown \(could not read settings\.json: not valid JSON\)/m)
+    assert.ok(!text.includes('sk-invented'))
+    assert.equal(result.failed, true)
   })
 })
