@@ -926,8 +926,8 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
   defineDenyRows('delete-repo', [
     "gh api -X DELETE $'\\u0072epos/acme/widget'",
     "gh api -X DELETE $'\\U00000072epos/acme/widget'",
-    "gh api -X DELETE $'\\u72epos/acme/widget'",
-    "gh api -X DELETE $'\\U72epos/acme/widget'",
+    "gh api -X DELETE $'\\u72\\u65pos/acme/widget'",
+    "gh api -X DELETE $'\\U72\\U65pos/acme/widget'",
     "gh api -X $'\\u0044ELETE' repos/acme/widget",
   ])
   defineDenyRows('admin-merge', [

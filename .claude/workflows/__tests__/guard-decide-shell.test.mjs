@@ -619,9 +619,9 @@ describe("parseCommandLine: \\u and \\U escapes in $'...'", () => {
 
   test('\\u reads one to four hex digits, \\U one to eight', () => {
     assert.equal(word("echo $'\\u0072epos'").text, 'repos')
-    assert.equal(word("echo $'\\u72epos'").text, 'repos')
+    assert.equal(word("echo $'\\u72\\u65pos'").text, 'repos')
     assert.equal(word("echo $'\\U00000072epos'").text, 'repos')
-    assert.equal(word("echo $'\\U72epos'").text, 'repos')
+    assert.equal(word("echo $'\\U72\\U65pos'").text, 'repos')
     assert.equal(word("echo $'\\u002d\\u002dadmin'").text, '--admin')
     assert.equal(word("echo $'\\U0000002d\\U0000002dadmin'").text, '--admin')
   })
@@ -649,7 +649,7 @@ describe("parseCommandLine: \\u and \\U escapes in $'...'", () => {
     assert.equal(word("echo $'\\u'").text, '\\u')
     assert.equal(word("echo $'\\ug'").text, '\\ug')
     assert.equal(word("echo $'\\U'").text, '\\U')
-    assert.equal(word("echo $'a\\Ub'").text, 'a\\Ub')
+    assert.equal(word("echo $'a\\Ug'").text, 'a\\Ug')
   })
 
   test('a surrogate or a code point past U+10FFFF is kept as written, and never throws', () => {

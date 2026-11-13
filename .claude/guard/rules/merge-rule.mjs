@@ -59,7 +59,15 @@
  *
  * The folder of a push is unknown after a `cd`, `-C`, `--git-dir`,
  * `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` assigned in front of the
- * command, `env -C` or `sudo -D`. A bare push there is denied.
+ * command, `env -C` or `sudo -D`. It is also unknown for every command after
+ * an `export`, `declare -x` or `typeset -x` of `GIT_DIR` or `GIT_WORK_TREE`
+ * earlier in the line, the way it is after a `cd`. A plain `GIT_DIR=x;`
+ * assignment is not exported and does not count. A bare push there is denied.
+ *
+ * The parser decodes the ANSI-C escapes in `$'...'` (hex, octal, `\u`, `\U`
+ * and the single-letter ones, and a NUL ends the string), so a word spelled
+ * `$'\u0072epos'` is read as `repos`. A word spelled that way still counts as
+ * expanding. An escape it does not know is kept as written.
  *
  * A `gh api` write is denied as branch-rule when its repos path has a literal
  * `protection` segment anywhere after the repo part, when `branches/<name>/`
@@ -86,6 +94,8 @@
  *     `gh pr merge 12 $(echo --admin)` or `gh repo edit $(echo --visibility)`.
  *   - A whole command held in a variable (`$CMD push origin main`,
  *     `eval "$CMD"`). A git or gh group or subcommand in a variable is read.
+ *   - `set -a`, or a sourced file, that exports `GIT_DIR` or `GIT_WORK_TREE`
+ *     before the push. Only `export`, `declare -x` and `typeset -x` are read.
  *   - `gh pr checkout` earlier in the line, which changes the current branch
  *     the way `git checkout` does. Only git commands are tracked.
  *   - `gh api` writes to a path that has a variable where a resource word

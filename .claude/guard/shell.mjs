@@ -5,7 +5,8 @@
  * `{ ok: true, commands }` or `{ ok: false, reason }`. Each command is
  * `{ words: [{ text, expands }], redirects, wrapped, nested, afterCd, env }`:
  *
- * - `words` has quotes removed, and the escapes inside `$'...'` decoded.
+ * - `words` has quotes removed, and the escapes inside `$'...'` decoded (`\x`,
+ *   octal, `\u`, `\U` and the single-letter ones; a NUL ends the string).
  *   `expands` is true when the word holds `$VAR`, `$1`, `${...}`, `$'...'` or
  *   a substitution, so its real value is unknown. It is the one test for
  *   "expands" that rule groups use.
@@ -18,9 +19,11 @@
  * - `nested` is true for a command found inside `$(...)`, backticks, `<(...)`,
  *   `bash -c` or `eval`.
  * - `afterCd` is true for every command after a `cd`, `pushd` or `popd` that
- *   appears earlier in the line. Subshell scope is ignored, which errs toward
- *   "unknown". It is also true for a command whose `env` or `sudo` wrapper
- *   carries `-C`, `--chdir` or `-D`.
+ *   appears earlier in the line, and after an `export`, `declare -x` or
+ *   `typeset -x` of `GIT_DIR` or `GIT_WORK_TREE`, which moves every later git
+ *   command to another repository. Subshell scope is ignored, which errs
+ *   toward "unknown". It is also true for a command whose `env` or `sudo`
+ *   wrapper carries `-C`, `--chdir` or `-D`.
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
  * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting
@@ -36,6 +39,7 @@ const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'while', 'until', 
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish'])
 const CD_COMMANDS = new Set(['cd', 'pushd', 'popd'])
 const NO_VALUE = new Set()
+const GIT_FOLDER_NAMES = new Set(['GIT_DIR', 'GIT_WORK_TREE'])
 
 const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 
@@ -178,6 +182,15 @@ function scriptIndex(words) {
   return -1
 }
 
+// `export`, `declare -x` or `typeset -x` of GIT_DIR or GIT_WORK_TREE: every
+// later git command in the line runs against another repository.
+function exportsGitFolder(name, words) {
+  if (name !== 'export' && name !== 'declare' && name !== 'typeset') return false
+  const args = words.slice(1).map((w) => w.text)
+  if (name !== 'export' && !args.some((a) => /^-[A-Za-z]*x[A-Za-z]*$/.test(a))) return false
+  return args.some((a) => GIT_FOLDER_NAMES.has(a.split('=')[0]))
+}
+
 function buildCommand(rawWords, redirects, afterCd, depth) {
   const { words, wrapped, state } = unwrap(rawWords)
   // An `env -C` or `sudo -D` moves this command, and what it runs, to another
@@ -202,7 +215,7 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
     line = words.slice(1).map((w) => w.text).join(' ')
   }
   let extra = []
-  let sawCd = CD_COMMANDS.has(name)
+  let sawCd = CD_COMMANDS.has(name) || exportsGitFolder(name, words)
   if (line !== null) {
     const inner = scan(line, 0, depth + 1, here, false)
     extra = nestedOf(inner)
@@ -212,15 +225,37 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
 }
 
 const ANSI_C_SIMPLE = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"', r: '\r', a: '\x07', b: '\b', e: '\x1b', f: '\f', v: '\v' }
+const ANSI_C_ESCAPE = /\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|[\s\S])/g
 
-// The text inside `$'...'` with its escapes decoded, so `$'\x72epos'` reads as
-// `repos`. An escape the parser does not know is kept as written.
+// One escape of `$'...'` as text, or null for a NUL, which ends the string in
+// bash. An escape the parser does not know, a surrogate, and a code point past
+// U+10FFFF (which JS cannot hold) are kept as written.
+function ansiCEscape(match, escape) {
+  const kind = escape[0]
+  let code
+  if (escape.length > 1 && (kind === 'x' || kind === 'u' || kind === 'U')) code = parseInt(escape.slice(1), 16)
+  else if (/^[0-7]+$/.test(escape)) code = parseInt(escape, 8) & 0xff
+  else return escape in ANSI_C_SIMPLE ? ANSI_C_SIMPLE[escape] : match
+  if (code === 0) return null
+  if (kind === 'u' || kind === 'U') {
+    return code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ? match : String.fromCodePoint(code)
+  }
+  return String.fromCharCode(code)
+}
+
+// The text inside `$'...'` with its escapes decoded, so `$'\x72epos'` and
+// `$'\u0072epos'` read as `repos`.
 function decodeAnsiC(raw) {
-  return raw.replace(/\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|[\s\S])/g, (match, escape) => {
-    if (escape.length > 1 && escape[0] === 'x') return String.fromCharCode(parseInt(escape.slice(1), 16))
-    if (/^[0-7]+$/.test(escape)) return String.fromCharCode(parseInt(escape, 8) & 0xff)
-    return escape in ANSI_C_SIMPLE ? ANSI_C_SIMPLE[escape] : match
-  })
+  let out = ''
+  let at = 0
+  for (const m of raw.matchAll(ANSI_C_ESCAPE)) {
+    out += raw.slice(at, m.index)
+    at = m.index + m[0].length
+    const piece = ansiCEscape(m[0], m[1])
+    if (piece === null) return out
+    out += piece
+  }
+  return out + raw.slice(at)
 }
 
 const isBlank = (ch) => ch === ' ' || ch === '\t' || ch === '\r'
