@@ -200,7 +200,8 @@ another root manifest counts as more than one row, except that a
 token, and exits 2. The skill asks the owner for the two commands and runs
 the plan again with `--install "<cmd>" --test "<cmd>"`. Given commands skip
 detection. The job then has no runtime setup step and relies on the
-runtimes preinstalled on `ubuntu-latest`.
+runtimes preinstalled on the job's runner (`ubuntu-latest`, or `macos-latest`
+with a root `Package.swift`).
 
 ## 5. The generated `ci.yml`
 
