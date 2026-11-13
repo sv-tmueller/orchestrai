@@ -38,6 +38,8 @@ const text = (v) => (typeof v === 'string' ? v : null)
 // every other subdomain included.
 const GITHUB_HOSTS = new Set(['github.com', 'github.com.', 'ssh.github.com'])
 
+const SSH_FAMILY = /^(ssh|git\+ssh|ssh\+git)$/i
+
 // { owner, repo } for a GitHub remote, { invalid: true } for a GitHub URL whose
 // path is not exactly owner/repo, or whose host or user part git would read
 // differently (see below), null for any other host or a local path. A query or
@@ -85,10 +87,14 @@ export function parseGitHubRemote(url) {
   const host = hostPort?.[1]
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
   if (/[%[\]]/.test(user)) return { invalid: true }
-  // git and ssh cannot use a port above 65535. An empty port is dropped by git,
-  // but after a colon in the user part ssh sees "github.com:" as the host.
+  // git and ssh cannot use a port above 65535. For the ssh family, git splits a
+  // port off only when the first colon in the authority is after the user part.
+  // With a colon in the user part, ssh gets "github.com:22" or "github.com:" as
+  // the host, whatever follows the colon. An empty port after a colon user is
+  // invalid for every scheme.
   const port = isScheme ? hostPort[2] : undefined
-  if (port !== undefined && (port === '' ? user.includes(':') : Number(port) > 65535)) return { invalid: true }
+  const colonUser = user.includes(':') && (port === '' || (isScheme && SSH_FAMILY.test(scheme[1])))
+  if (port !== undefined && (Number(port) > 65535 || colonUser)) return { invalid: true }
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
