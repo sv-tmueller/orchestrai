@@ -610,3 +610,135 @@ describe('parseCommandLine: lines it cannot read', () => {
     assert.equal(parseCommandLine('echo $((1+2))').ok, true)
   })
 })
+
+// Fix round past the cap (issue #539): `\u` and `\U` in $'...', and an export of
+// GIT_DIR or GIT_WORK_TREE counting like a cd.
+
+describe("parseCommandLine: \\u and \\U escapes in $'...'", () => {
+  const word = (line) => parse(line)[0].words[1]
+
+  test('\\u reads one to four hex digits, \\U one to eight', () => {
+    assert.equal(word("echo $'\\u0072epos'").text, 'repos')
+    assert.equal(word("echo $'\\u72epos'").text, 'repos')
+    assert.equal(word("echo $'\\U00000072epos'").text, 'repos')
+    assert.equal(word("echo $'\\U72epos'").text, 'repos')
+    assert.equal(word("echo $'\\u002d\\u002dadmin'").text, '--admin')
+    assert.equal(word("echo $'\\U0000002d\\U0000002dadmin'").text, '--admin')
+  })
+
+  test('the hex digits are read greedily, so a fifth digit stays text', () => {
+    assert.equal(word("echo $'\\u00720'").text, 'r0')
+    assert.equal(word("echo $'\\U000000720'").text, 'r0')
+  })
+
+  test('one digit is enough, as in bash', () => {
+    assert.equal(word("echo $'\\u7'").text, '\x07')
+    assert.equal(word("echo $'\\uA'").text, '\n')
+  })
+
+  test('upper and lower case hex digits both read', () => {
+    assert.equal(word("echo $'\\u00E9'").text, '\xe9')
+    assert.equal(word("echo $'\\u00e9'").text, '\xe9')
+  })
+
+  test('a code point above the basic plane reads as one character', () => {
+    assert.equal(word("echo $'\\U0001F600'").text, '\u{1F600}')
+  })
+
+  test('\\u and \\U with no hex digit are kept as written', () => {
+    assert.equal(word("echo $'\\u'").text, '\\u')
+    assert.equal(word("echo $'\\ug'").text, '\\ug')
+    assert.equal(word("echo $'\\U'").text, '\\U')
+    assert.equal(word("echo $'a\\Ub'").text, 'a\\Ub')
+  })
+
+  test('a surrogate or a code point past U+10FFFF is kept as written, and never throws', () => {
+    assert.equal(word("echo $'\\ud800'").text, '\\ud800')
+    assert.equal(word("echo $'\\U0000dfff'").text, '\\U0000dfff')
+    assert.equal(word("echo $'\\U00110000'").text, '\\U00110000')
+    assert.equal(word("echo $'\\UFFFFFFFF'").text, '\\UFFFFFFFF')
+    assert.equal(word("echo $'\\U7FFFFFFF'").text, '\\U7FFFFFFF')
+  })
+
+  test('a NUL ends the string, as in bash', () => {
+    assert.equal(word("echo $'--admin\\u0000x'").text, '--admin')
+    assert.equal(word("echo $'--admin\\U00000000x'").text, '--admin')
+    assert.equal(word("echo $'--admin\\x00x'").text, '--admin')
+    assert.equal(word("echo $'--admin\\0x'").text, '--admin')
+    assert.equal(word("echo $'--admin\\u0'").text, '--admin')
+  })
+
+  test('a NUL ends only its own $\'...\' piece of the word', () => {
+    assert.equal(word("echo a$'\\x00'b").text, 'ab')
+    assert.equal(word("echo $'a\\u0000b'c").text, 'ac')
+  })
+
+  test('the word still expands, and the escapes mix with the older ones', () => {
+    const w = word("echo $'\\x72\\u0065\\160\\U0000006fs'")
+    assert.equal(w.text, 'repos')
+    assert.equal(w.expands, true)
+  })
+
+  test('a \\u inside double or single quotes is plain text', () => {
+    assert.equal(word('echo "\\u0072"').text, '\\u0072')
+    assert.equal(word("echo '\\u0072'").text, '\\u0072')
+  })
+})
+
+describe('parseCommandLine: export of GIT_DIR or GIT_WORK_TREE counts like a cd', () => {
+  const marks = (line) => parse(line).map((c) => c.afterCd)
+
+  test('export, declare -x and typeset -x of either name mark the later commands', () => {
+    for (const line of [
+      'export GIT_DIR=x; a',
+      'export GIT_WORK_TREE=x; a',
+      'export GIT_DIR; a',
+      'export -p GIT_DIR=x; a',
+      'export A=1 GIT_DIR=x; a',
+      'export "GIT_DIR=x y"; a',
+      'declare -x GIT_DIR=x; a',
+      'declare -gx GIT_DIR=x; a',
+      'declare -xr GIT_WORK_TREE=x; a',
+      'declare -r -x GIT_DIR=x; a',
+      'typeset -x GIT_DIR=x; a',
+      'typeset -x GIT_WORK_TREE=x; a',
+    ]) {
+      assert.deepEqual(marks(line), [false, true], line)
+    }
+  })
+
+  test('the export itself is not marked, and every later command is', () => {
+    assert.deepEqual(marks('export GIT_DIR=x && a || b | c; d'), [false, true, true, true, true])
+  })
+
+  test('the mark reaches a command in a subshell or a substitution that follows', () => {
+    assert.deepEqual(marks('export GIT_DIR=x; (a; b)'), [false, true, true])
+    assert.deepEqual(marks('export GIT_DIR=x; echo $(a)'), [false, true, true])
+    assert.deepEqual(marks("export GIT_DIR=x; bash -c 'a'"), [false, true, true])
+  })
+
+  test('an export inside a subshell marks what follows, as a cd does', () => {
+    assert.deepEqual(marks('(export GIT_DIR=x; a); b'), [false, true, true])
+  })
+
+  test('other names, a declare with no -x, and a plain assignment do not mark', () => {
+    for (const line of [
+      'export FOO=1; a',
+      'export GIT_DIRX=1; a',
+      'export MY_GIT_DIR=1; a',
+      'declare GIT_DIR=x; a',
+      'declare -r GIT_DIR=x; a',
+      'typeset GIT_WORK_TREE=x; a',
+      'GIT_DIR=x; a',
+      'GIT_WORK_TREE=x; a',
+      'echo export GIT_DIR=x; a',
+      'export; a',
+    ]) {
+      assert.ok(marks(line).every((m) => m === false), line)
+    }
+  })
+
+  test('the word GIT_DIR after the export of something else does not mark', () => {
+    assert.deepEqual(marks('export FOO=1 && echo GIT_DIR; a'), [false, false, false])
+  })
+})

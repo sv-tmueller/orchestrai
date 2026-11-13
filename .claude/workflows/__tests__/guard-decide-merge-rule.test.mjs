@@ -920,6 +920,92 @@ describe('merge-rule review round 1, finding 9: an empty branch fact is unknown'
   ])
 })
 
+// Fix round past the cap (issue #539).
+
+describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
+  defineDenyRows('delete-repo', [
+    "gh api -X DELETE $'\\u0072epos/acme/widget'",
+    "gh api -X DELETE $'\\U00000072epos/acme/widget'",
+    "gh api -X DELETE $'\\u72epos/acme/widget'",
+    "gh api -X DELETE $'\\U72epos/acme/widget'",
+    "gh api -X $'\\u0044ELETE' repos/acme/widget",
+  ])
+  defineDenyRows('admin-merge', [
+    "gh pr merge 12 $'\\u002d\\u002dadmin'",
+    "gh pr merge 12 $'\\U0000002d\\U0000002dadmin'",
+    "gh pr merge 12 --$'\\u0061dmin'",
+    "gh pr merge 12 $'--\\u0061dmin'",
+    "gh pr merge 12 $'--\\U00000061dmin'",
+  ])
+  defineDenyRows('visibility', [
+    "gh repo edit $'\\u002d\\u002dvisibility' private",
+    "gh repo edit --$'\\u0076isibility' private",
+    "gh repo edit $'--\\u0076isibility=private'",
+    "gh repo edit $'--\\U00000076isibility' private",
+    "gh api -X PATCH repos/acme/widget -f $'\\u0076isibility'=public",
+    "gh api -X PATCH repos/acme/widget -f $'\\U00000076isibility'=public",
+  ])
+  defineDenyRows('branch-rule', [
+    "gh api -X PUT repos/acme/widget/branches/main/$'\\u0070rotection' --input -",
+    "gh api -X PUT repos/acme/widget/branches/main/$'\\U00000070rotection' --input -",
+    "gh api -X POST repos/acme/widget/$'\\u0072ulesets' --input -",
+    "gh api -X POST repos/acme/widget/$'\\U00000072ulesets' --input -",
+  ])
+  defineDenyRows('push-default', [
+    "git push origin $'\\u006dain'",
+    "git push origin $'\\U0000006dain'",
+  ])
+  defineDenyRows('delete-repo', [
+    "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
+  ])
+  defineAllowRows('ansi-c unicode', [
+    "gh api -X DELETE $'\\u0072epos/acme/widget/labels/bug'",
+    "gh api -X DELETE $'\\U00000072epos/acme/widget/labels/bug'",
+    "gh pr merge 12 $'\\u002d\\u002ddelete-branch'",
+  ])
+})
+
+describe('merge-rule fix round: an exported GIT_DIR or GIT_WORK_TREE counts like a cd', () => {
+  describe('denied: a bare push is judged against another folder', () => {
+    defineDenyRows('push-default', [
+      'export GIT_DIR=other/.git; git push',
+      'export GIT_DIR=other/.git && git push',
+      'declare -x GIT_DIR=other/.git; git push',
+      'typeset -x GIT_DIR=other/.git; git push',
+      'declare -gx GIT_DIR=other/.git; git push',
+      'export GIT_WORK_TREE=../w; git push',
+      'export GIT_WORK_TREE=../w && git push',
+      'declare -x GIT_WORK_TREE=../w; git push',
+      'typeset -x GIT_WORK_TREE=../w && git push',
+      'export GIT_DIR; git push',
+      'export GIT_DIR=other/.git; git push origin HEAD',
+      "export GIT_DIR=other/.git; bash -c 'git push'",
+      'export GIT_DIR=other/.git; (git push)',
+      'export GIT_DIR=other/.git; git status; git push',
+    ])
+  })
+
+  describe('passes: the push names its branch, or nothing is exported', () => {
+    defineAllowRows('exported git folder', [
+      'export GIT_DIR=other/.git; git push origin feat/x',
+      'export GIT_DIR=other/.git && git push origin feat/x',
+      'declare -x GIT_DIR=other/.git; git push origin feat/x',
+      'export GIT_WORK_TREE=../w; git push origin feat/x',
+      'GIT_DIR=x; git push',
+      'GIT_WORK_TREE=x; git push',
+      'declare GIT_DIR=x; git push',
+      'export FOO=1; git push',
+      'export GIT_DIRX=1; git push',
+    ])
+  })
+
+  describe('a named push to the default branch is still denied', () => {
+    defineDenyRows('push-default', [
+      'export GIT_DIR=other/.git; git push origin main',
+    ])
+  })
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')
@@ -997,6 +1083,8 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       // review round 1, finding 1
       'MCP tools', 'held in a variable', 'gh pr checkout', 'pulls/<n>/merge', 'transferring',
       'watch, flock, caffeinate, direnv exec', '${...}', 'case', 'assignment prefix', 'repos/$REPO/$X',
+      // fix round past the cap
+      'declare -x', 'typeset -x', 'ANSI-C escapes', 'set -a', 'sourced file',
     ]
     for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
