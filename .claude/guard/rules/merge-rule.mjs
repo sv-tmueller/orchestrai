@@ -61,13 +61,18 @@
  * `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` assigned in front of the
  * command, `env -C` or `sudo -D`. It is also unknown for every command after
  * an `export`, `declare -x` or `typeset -x` of `GIT_DIR` or `GIT_WORK_TREE`
- * earlier in the line, the way it is after a `cd`. A plain `GIT_DIR=x;`
- * assignment is not exported and does not count. A bare push there is denied.
+ * earlier in the line, with or without a value, the way it is after a `cd`.
+ * `declare` and `typeset` count only with an `-x` flag (also in a cluster such
+ * as `-gx`), and the name may be any argument (`export A=1 GIT_DIR=x`). A
+ * plain `GIT_DIR=x;` assignment and `declare GIT_DIR=x` are not exported and
+ * do not count. A bare push there is denied.
  *
- * The parser decodes the ANSI-C escapes in `$'...'` (hex, octal, `\u`, `\U`
- * and the single-letter ones, and a NUL ends the string), so a word spelled
- * `$'\u0072epos'` is read as `repos`. A word spelled that way still counts as
- * expanding. An escape it does not know is kept as written.
+ * The parser decodes the ANSI-C escapes in `$'...'`: `\x` hex, octal, `\u`,
+ * `\U`, and the single-letter escapes `\n \t \\ \' \" \r \a \b \e \f \v`. A
+ * NUL from `\x`, octal, `\u` or `\U` ends the string. So a word spelled
+ * `$'\u0072epos'` is read as `repos`, and one spelled `$'--admin\x00x'` as
+ * `--admin`. A word spelled that way still counts as expanding. Any other
+ * escape (`\c`, `\E`, `\?`) is kept as written, and `\cX` is named below.
  *
  * A `gh api` write is denied as branch-rule when its repos path has a literal
  * `protection` segment anywhere after the repo part, when `branches/<name>/`
@@ -96,6 +101,17 @@
  *     `eval "$CMD"`). A git or gh group or subcommand in a variable is read.
  *   - `set -a`, or a sourced file, that exports `GIT_DIR` or `GIT_WORK_TREE`
  *     before the push. Only `export`, `declare -x` and `typeset -x` are read.
+ *   - `\cX` control escapes in `$'...'` are not decoded. `\c@` and `\c<space>`
+ *     give a NUL in bash, which ends the word, so `gh pr merge 12
+ *     $'--admin\c@x'` runs as `--admin` and is not seen. `\E` and bytes 0x80
+ *     and up also differ from bash (`\E` is kept as written, and a byte becomes
+ *     a Latin-1 character), but they cannot hide an ASCII word.
+ *   - Export spellings that the "exported `GIT_DIR` counts like a `cd`" rule
+ *     does not read: an append (`export GIT_DIR+=other/.git`, also with
+ *     `declare -x` and `typeset -x`), `builtin export GIT_DIR=other/.git`,
+ *     `local -x GIT_DIR=other/.git` inside a function, and a name held in a
+ *     variable (`export $VAR=x`). A bare push after one of them is not read as
+ *     running in another repository.
  *   - `gh pr checkout` earlier in the line, which changes the current branch
  *     the way `git checkout` does. Only git commands are tracked.
  *   - `gh api` writes to a path that has a variable where a resource word

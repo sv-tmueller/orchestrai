@@ -1066,6 +1066,32 @@ describe('merge-rule: how the answer is shaped', () => {
   })
 })
 
+describe('merge-rule: named gaps from the Not covered list', () => {
+  // The owner chose to name these gaps in the header of rules/merge-rule.mjs,
+  // not to fix them (issue #539, decision of 2026-11-13). Each row pins
+  // today's answer. A later fix flips the row on purpose.
+  describe('a \\cX control escape in $\'...\' is not decoded', () => {
+    // `\c@` and `\c<space>` give a NUL in bash, which ends the word, so bash
+    // runs these as `--admin` and `--visibility`.
+    defineAllowRows('named gap', [
+      "gh pr merge 12 $'--admin\\c@x'",
+      "gh pr merge 12 $'--admin\\c x'",
+      "gh repo edit $'--visibility\\c@' public",
+    ])
+  })
+
+  describe('an export spelling the afterCd rule does not read', () => {
+    defineAllowRows('named gap', [
+      'export GIT_DIR+=other/.git; git push',
+      'declare -x GIT_DIR+=other/.git; git push',
+      'typeset -x GIT_WORK_TREE+=other; git push',
+      'builtin export GIT_DIR=other/.git; git push',
+      'f() { local -x GIT_DIR=other/.git; git push; }; f',
+      'export $VAR=x; git push',
+    ])
+  })
+})
+
 describe('merge-rule: the rule file says what it does not cover', () => {
   test('the header has a Not covered section', async () => {
     const { readFileSync } = await import('node:fs')
@@ -1085,6 +1111,11 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       'watch, flock, caffeinate, direnv exec', '${...}', 'case', 'assignment prefix', 'repos/$REPO/$X',
       // fix round past the cap
       'declare -x', 'typeset -x', 'ANSI-C escapes', 'set -a', 'sourced file',
+      // owner decision 2026-11-13: named gaps, not fixes
+      '`\\cX` control escapes', "$'--admin\\c@x'", '`\\E` and bytes 0x80 and up',
+      'export GIT_DIR+=other/.git', 'builtin export GIT_DIR=', 'local -x GIT_DIR=', 'export $VAR=x',
+      // sentences narrowed to what the code reads
+      'A NUL from `\\x`, octal, `\\u` or `\\U` ends the string', 'with or without a value',
     ]
     for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
