@@ -195,13 +195,41 @@ state per repo. It never writes.
 
 After the repos, Check lists your Claude Code config dirs: `~/.claude` and each
 `~/.claude-<name>` that has a `projects` folder, plus the one in
-`CLAUDE_CONFIG_DIR` if it is set. For each dir it shows three facts: whether the
+`CLAUDE_CONFIG_DIR` if it is set. For each dir it shows four facts: whether the
 orchestrai plugin is installed for your user, whether auto update is on for its
-marketplace, and whether the installed copy is the newest commit. It reads the
-plugin files in each dir and makes one GitHub read for the newest commit. It
-changes nothing. To switch auto update on, use `/plugin` in that dir. A dir it
-cannot read says `could not read`, and the command exits 1. Right after a merge,
-a copy stays behind until auto update runs in that dir.
+marketplace, whether bypass is the default mode in that dir's `settings.json`,
+and whether the installed copy is the newest commit. It reads the plugin files
+and `settings.json` in each dir and makes one GitHub read for the newest
+commit. It changes nothing, and it never writes the bypass setting. To switch
+auto update on, use `/plugin` in that dir. A dir it cannot read says `could not
+read`, and the command exits 1. Right after a merge, a copy stays behind until
+auto update runs in that dir.
+
+The bypass fact reads `permissions.defaultMode` in `settings.json`:
+
+- `bypass default on`: the mode is `bypassPermissions`. Per the probe in
+  `docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, a session started
+  in that dir then starts in bypass. That is an inference from the probe, not
+  something Check tests.
+- `bypass default off`: the file has no default mode, or names another one
+  (`bypass default off (default mode auto)`). With no file it says `(no
+  settings.json)`.
+- `bypass default unknown`: the file could not be read, is not valid JSON or
+  has an unexpected shape. The command exits 1. The line never quotes the file.
+
+A dir with bypass on and no plugin gets a `warning:` line. The guard ships in
+the plugin, so it would not load there. The same warning appears when the plugin
+is installed but switched off for your user with `"orchestrai@orchestrai":
+false` under `enabledPlugins` in that `settings.json`. A warning does not
+change the exit code. Check reads only the `orchestrai@orchestrai` copy: a
+synced copy is not seen, so the warning can fire where a synced copy would load
+the guard, and project settings can switch the plugin per repo and are not read.
+
+Check cannot see a bypass launch flag (`--permission-mode bypassPermissions`,
+`--dangerously-skip-permissions`), a shell alias or function that adds one, a
+`--settings` flag that sets `defaultMode`, or managed settings. A line that says
+`bypass default off` therefore does not mean a session there never runs in
+bypass. A last `note:` line says so.
 
 Each repo also shows its visibility, protection, auto merge, squash merge,
 required checks, whether it has the pipeline labels, the test file count and
