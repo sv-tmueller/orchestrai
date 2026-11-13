@@ -21,14 +21,21 @@
  *
  * The group reads commands, not text, so wrappers, substitutions and
  * `bash -c` are seen through (see shell.mjs). It only looks at Bash calls.
- * It is pure.
+ * It is pure. Branch facts are short names (`main`, not `origin/main`); a
+ * null or empty branch fact counts as unknown.
  *
  * The rule behind the reading: a word the guard cannot read is unknown, and
  * unknown is denied where the worst reading is one of the entries above. A
  * method word that expands counts as a write. A repo path made of variables
  * (`repos/$REPO`) counts as a repo path. A literal `protection` or
  * `rulesets` segment denies a write whatever expands before it. A path whose
- * literal tail is something else (`repos/$REPO/statuses/$SHA`) passes.
+ * literal tail is something else (`repos/$REPO/statuses/$SHA`) passes. Whether
+ * a word expands is the parser's flag (shell.mjs); only inside an expanding
+ * word does the group look at which segment holds the variable.
+ *
+ * A git subcommand that expands is read as a possible push. A gh group that
+ * expands is read as both `pr` and `repo`, and a gh subcommand that expands
+ * as `merge`, `edit` and `delete`.
  *
  * A dash word that expands in `gh pr merge` (`--$F`, `"--adm$in"`) is denied
  * as an admin merge, and in `gh repo edit` as a visibility change. A value
@@ -39,20 +46,26 @@
  * line (nested and wrapped ones included), the way it is after a `cd`, unless
  * that command is one of these, which never change which branch is checked
  * out: add, commit, status, fetch, pull, merge, log, diff, show, tag, stash
- * (except `stash branch`), reset, restore, rm, mv, rev-parse, remote, config, ls-remote, ls-files,
- * describe, cherry-pick, revert, clean, blame, grep, format-patch, apply, am,
- * gc, notes, shortlog, cat-file, diff-tree, for-each-ref, rev-list,
- * merge-base, update-index, push. A git command with no readable subcommand,
- * or one whose subcommand expands, makes it unknown too. Then a push with no
- * refspec, or of HEAD or @, is denied. A push that names its destination is
- * judged by that name. A word in the remote position of a push that expands
- * is unknown as well: an unquoted `$REMOTE` can hold "origin main", and the
- * parser does not record whether a word was quoted, so a quoted one is
- * denied too.
+ * (except `stash branch`), reset, restore, rm, mv, rev-parse, remote, config,
+ * ls-remote, ls-files, describe, cherry-pick, revert, clean, blame, grep,
+ * format-patch, apply, am, gc, notes, shortlog, cat-file, diff-tree,
+ * for-each-ref, rev-list, merge-base, update-index, push. A git command with
+ * no readable subcommand, or one whose subcommand expands, makes it unknown
+ * too. Then a push with no refspec, or of HEAD or @, is denied. A push that
+ * names its destination is judged by that name. A word in the remote position
+ * of a push that expands is unknown as well: an unquoted `$REMOTE` can hold
+ * "origin main", and the parser does not record whether a word was quoted, so
+ * a quoted one is denied too.
+ *
+ * The folder of a push is unknown after a `cd`, `-C`, `--git-dir`,
+ * `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` assigned in front of the
+ * command, `env -C` or `sudo -D`. A bare push there is denied.
  *
  * A `gh api` write is denied as branch-rule when its repos path has a literal
- * `protection` segment anywhere after the repo part, or when `branches/<name>/`
- * is followed by a segment that expands.
+ * `protection` segment anywhere after the repo part, when `branches/<name>/`
+ * is followed by a segment that expands, or when the segment right after a
+ * literal owner (and after the name, or after an expanding name) expands, or
+ * for `orgs` right after the org.
  *
  * The guard stops carelessness, not intent. GitHub's own rule is the hard
  * stop on a set-up repo.
@@ -64,25 +77,37 @@
  *   in the command.
  *
  * Not covered:
- *   The group reads the words of a command line as written. A spelling that
- *   only shows its meaning when the shell runs it is covered only where this
- *   header says so. These are not covered:
+ *   The group reads Bash calls only. It looks at a command only when its name
+ *   is git or gh once the wrappers and shells in shell.mjs are taken off, and
+ *   it reads the words as written. A word that expands is denied only where
+ *   this header says so; anywhere else it passes. These are not covered:
+ *   - MCP tools (`mcp__*`) and the PowerShell tool.
  *   - A flag hidden entirely inside a variable or substitution, such as
  *     `gh pr merge 12 $(echo --admin)` or `gh repo edit $(echo --visibility)`.
+ *   - A whole command held in a variable (`$CMD push origin main`,
+ *     `eval "$CMD"`). A git or gh group or subcommand in a variable is read.
+ *   - `gh pr checkout` earlier in the line, which changes the current branch
+ *     the way `git checkout` does. Only git commands are tracked.
+ *   - `gh api` writes to a path that has a variable where a resource word
+ *     would stand when the owner and name are one variable (`repos/$REPO/$X`),
+ *     or the owner is a variable and the name a literal (`repos/$O/widget/$X`).
  *   - REST calls outside `gh api` (curl, wget, httpie), and `gh api graphql`
- *     mutations.
+ *     mutations. REST pulls/<n>/merge, and transferring a repo.
  *   - REST ways to write to the default branch (git/refs, contents, merges).
  *     GitHub's rule stops these on a set-up repo.
  *   - Changing or renaming the default branch, and renaming or archiving a
  *     repo. A default-branch change can move the branch out from under the
  *     rule, so the owner decides in a later batch whether the list takes it.
  *   - What the parser cannot see into: scripts, aliases and functions; xargs,
- *     find -exec and git submodule foreach; a heredoc fed to a shell; a
+ *     find -exec and git submodule foreach; programs shell.mjs does not unwrap
+ *     (watch, flock, caffeinate, direnv exec); a heredoc fed to a shell; a
  *     command piped into a shell (echo '...' | bash) or handed to one with
- *     <<<; $(...) inside an unquoted heredoc; abbreviated long options such
- *     as --mirr; push settings from -c or git config; the PowerShell tool.
- *   - Nothing was cut from the sub-plan's "Cut to fit" list: every entry and
- *     every parser feature in the plan is built.
+ *     <<<; $(...) inside an unquoted heredoc and inside ${...}; a `case`
+ *     pattern's `)` inside $(...); a substitution in an assignment prefix or
+ *     a redirect target, which bash runs before its command but the parser
+ *     lists after it (this matters only for the branch and folder tracking);
+ *     abbreviated long options such as --mirr; push settings from -c or git
+ *     config.
  */
 
 import { commandName } from '../shell.mjs'
@@ -96,6 +121,9 @@ const API_VALUE_FLAGS = new Set([
 
 const hit = (entry, reason) => ({ entry, reason })
 
+// Branch facts are short names. Null and the empty string both mean unknown.
+const branchName = (value) => (typeof value === 'string' && value !== '' ? value : null)
+
 // ---------------------------------------------------------------------------
 // git
 // ---------------------------------------------------------------------------
@@ -103,7 +131,7 @@ const hit = (entry, reason) => ({ entry, reason })
 // Skips the global options and returns the subcommand and where it stands.
 function readGit(command) {
   const words = command.words
-  let elsewhere = command.afterCd
+  let elsewhere = command.afterCd || (command.env ?? []).some((n) => n === 'GIT_DIR' || n === 'GIT_WORK_TREE')
   let i = 1
   while (i < words.length && words[i].text.startsWith('-')) {
     const flag = words[i].text
@@ -176,8 +204,9 @@ function pushDestinations(push, facts) {
 
   const out = { branches: [], wild: false, unknown: false }
   const current = () => {
-    if (push.branchUnknown || typeof facts.currentBranch !== 'string') out.unknown = true
-    else out.branches.push(facts.currentBranch)
+    const current = branchName(facts.currentBranch)
+    if (push.branchUnknown || current === null) out.unknown = true
+    else out.branches.push(current)
   }
 
   if (remote?.expands) out.unknown = true
@@ -224,9 +253,9 @@ function checkPush(command, git, facts, switched) {
     return hit('force-push', 'A force push overwrites history. Push normally, or use --force-with-lease to your own feature branch.')
   }
 
-  const def = facts.defaultBranch
+  const def = branchName(facts.defaultBranch)
   if (push.all || push.mirror) {
-    return hit('push-default', `${push.all} pushes every branch, the default branch${typeof def === 'string' ? ` (${def})` : ''} included. Push your feature branch by name and open a PR.`)
+    return hit('push-default', `${push.all} pushes every branch, the default branch${def !== null ? ` (${def})` : ''} included. Push your feature branch by name and open a PR.`)
   }
   const dest = pushDestinations(push, facts)
   if (dest.wild) {
@@ -235,7 +264,7 @@ function checkPush(command, git, facts, switched) {
   if (dest.unknown) {
     return hit('push-default', 'The guard cannot tell which branch this push writes to (no branch named, a variable, another folder, or a branch switch earlier in the line). Name the feature branch in the command.')
   }
-  if (dest.branches.length > 0 && typeof def !== 'string') {
+  if (dest.branches.length > 0 && def === null) {
     return hit('push-default', 'The default branch is not known, so the guard cannot tell this push from one to it. Retry when it is known, or ask the owner.')
   }
   const onDefault = dest.branches.find((b) => b === def)
@@ -249,7 +278,9 @@ function checkPush(command, git, facts, switched) {
 // gh
 // ---------------------------------------------------------------------------
 
-const expanding = (text) => /[$`]/.test(text)
+// Whether a word expands is the parser's flag (`word.expands`). Only inside a
+// word that does expand is this used, to find which part holds the variable.
+const holdsVariable = (text) => /[$`]/.test(text)
 
 // Reads the options and the endpoint of `gh api`, starting at `from`.
 function readApi(words, from) {
@@ -264,9 +295,9 @@ function readApi(words, from) {
     methodUnknown = word.expands
   }
   // `name=value`, `=name=value` (from -f=name=value) or a bare name.
-  const addField = (value) => {
+  const addField = (word, value) => {
     const name = (value ?? '').replace(/^=/, '').split('=')[0]
-    fields.push({ name, unknown: expanding(name) })
+    fields.push({ name, unknown: word?.expands === true && holdsVariable(name) })
   }
 
   for (let j = from; j < words.length; j++) {
@@ -281,13 +312,14 @@ function readApi(words, from) {
       setMethod(word, t.slice(2))
     } else if (t === '-f' || t === '-F' || t === '--raw-field' || t === '--field') {
       body = true
-      addField(words[++j]?.text)
+      const next = words[++j]
+      addField(next, next?.text)
     } else if (/^--(raw-field|field)=/.test(t)) {
       body = true
-      addField(t.slice(t.indexOf('=') + 1))
+      addField(word, t.slice(t.indexOf('=') + 1))
     } else if (/^-[fF]./.test(t)) {
       body = true
-      addField(t.slice(2))
+      addField(word, t.slice(2))
     } else if (t === '--input') {
       body = input = true
       j++
@@ -298,48 +330,56 @@ function readApi(words, from) {
     } else if (t.startsWith('-') && t !== '-') {
       // a flag with no value
     } else if (endpoint === null) {
-      endpoint = t
+      endpoint = word
     }
   }
 
   const verb = methodUnknown ? 'UNKNOWN' : (method ?? (body ? 'POST' : 'GET')).toUpperCase()
   const path = endpoint === null
     ? null
-    : endpoint.replace(/^https?:\/\/[^/]+\//, '').replace(/[?#].*$/, '').replace(/^\/+/, '').replace(/\/+$/, '')
-  return { verb, path, fields, input }
+    : endpoint.text.replace(/^https?:\/\/[^/]+\//, '').replace(/[?#].*$/, '').replace(/^\/+/, '').replace(/\/+$/, '')
+  return { verb, path, pathExpands: endpoint?.expands === true, fields, input }
 }
 
-// Where a `gh api` path points, as far as the literal parts say.
-function classifyPath(path) {
+// Where a `gh api` path points, as far as the literal parts say. `expands` is
+// the parser's flag for the endpoint word; without it no segment expands.
+function classifyPath(path, expands) {
+  const ex = (segment) => expands && holdsVariable(segment)
   const segments = path.split('/')
-  if (expanding(segments[0])) return 'unknown'
+  const count = segments.length
+  if (ex(segments[0])) return 'unknown'
   const [root] = segments
 
   if (root === 'repos') {
-    for (let k = 2; k < segments.length; k++) {
+    for (let k = 2; k < count; k++) {
       if (segments[k] === 'rulesets' && (k === 2 || k === 3)) return 'rules'
       // A literal `protection` anywhere after the repo part.
       if (segments[k] === 'protection') return 'rules'
     }
     // branches/<name>/ followed by a segment that expands could be `protection`.
-    for (let j = 2; j < segments.length; j++) {
+    for (let j = 2; j < count; j++) {
       if (segments[j] !== 'branches') continue
-      for (let m = j + 2; m < segments.length; m++) {
-        if (expanding(segments[m])) return 'rules'
+      for (let m = j + 2; m < count; m++) {
+        if (ex(segments[m])) return 'rules'
       }
     }
-    // repos/<owner>/<name>, or repos/<one word that holds both>
-    if (segments.length === 3 || (segments.length === 2 && expanding(segments[1]))) return 'repo'
+    // The segment right after a literal owner and the name (or after an
+    // expanding owner and name) could be `rulesets`. After one expanding word
+    // that holds owner and name, or an expanding owner with a literal name,
+    // this cannot be told from a resource word, so it is not read.
+    if (count >= 4 && ex(segments[3]) && (!ex(segments[1]) || ex(segments[2]))) return 'rules'
+    // repos/<owner>/<name>, or repos/<one word that holds both>, or only variables
+    if (count === 3 || (count === 2 && ex(segments[1])) || (count >= 2 && segments.slice(1).every(ex))) return 'repo'
   }
-  if (root === 'orgs' && segments[2] === 'rulesets') return 'rules'
+  if (root === 'orgs' && (segments[2] === 'rulesets' || (count >= 3 && ex(segments[2])))) return 'rules'
   return 'other'
 }
 
 function checkApi(words, from) {
-  const { verb, path, fields, input } = readApi(words, from)
+  const { verb, path, pathExpands, fields, input } = readApi(words, from)
   if (path === null || verb === 'GET' || verb === 'HEAD') return null
 
-  const kind = classifyPath(path)
+  const kind = classifyPath(path, pathExpands)
   if (kind === 'unknown') {
     return hit('api-unknown', 'The guard cannot tell which API endpoint this writes to, because it starts with a variable or a substitution. Write the endpoint out in the command.')
   }
@@ -369,22 +409,16 @@ function readGh(words) {
   }
   skipFlags()
   const group = words[i]?.text
+  const groupExpands = words[i]?.expands === true
   i++
   // `gh api` keeps its own flags, so they are not skipped after the group.
-  if (group === 'api') return { group, sub: null, next: i }
+  if (group === 'api') return { group, groupExpands, sub: null, subExpands: false, next: i }
   skipFlags()
-  return { group, sub: words[i]?.text, next: i + 1 }
+  return { group, groupExpands, sub: words[i]?.text, subExpands: words[i]?.expands === true, next: i + 1 }
 }
 
-function checkGh(command) {
-  const { group, sub, next } = readGh(command.words)
-  if (group === 'api') return checkApi(command.words, next)
-
+function checkGhPair(group, sub, command, hiddenFlag) {
   const all = command.words.slice(1).map((w) => w.text)
-  // A word that starts with a dash and whose flag name expands (--$F, "--adm$in")
-  // could be the flag that matters. A value that expands after a literal flag
-  // name, and a word that is entirely an expansion, are not flags.
-  const hiddenFlag = command.words.slice(1).some((w) => w.expands && w.text.startsWith('-') && expanding(w.text.split('=')[0]))
   if (group === 'pr' && sub === 'merge') {
     const admin = all.some((t) => t === '--admin' || (t.startsWith('--admin=') && t !== '--admin=false'))
     if (admin || hiddenFlag) return hit('admin-merge', 'An admin merge skips the merge rule (or a flag here is a variable that could be --admin). Queue an auto merge once the statuses are on the head.')
@@ -394,6 +428,27 @@ function checkGh(command) {
   }
   if (group === 'repo' && sub === 'delete') {
     return hit('delete-repo', 'This deletes the repo. Only the owner does that, by hand.')
+  }
+  return null
+}
+
+function checkGh(command) {
+  const gh = readGh(command.words)
+  if (gh.group === 'api') return checkApi(command.words, gh.next)
+
+  // A word that starts with a dash and whose flag name expands (--$F, "--adm$in")
+  // could be the flag that matters. A value that expands after a literal flag
+  // name, and a word that is entirely an expansion, are not flags.
+  const hiddenFlag = command.words.slice(1).some((w) => w.expands && w.text.startsWith('-') && holdsVariable(w.text.split('=')[0]))
+  // A group that expands could be `pr` or `repo`; a subcommand that expands
+  // could be `merge`, `edit` or `delete`.
+  const groups = gh.groupExpands ? ['pr', 'repo'] : [gh.group]
+  const subs = gh.subExpands ? ['merge', 'edit', 'delete'] : [gh.sub]
+  for (const group of groups) {
+    for (const sub of subs) {
+      const found = checkGhPair(group, sub, command, hiddenFlag)
+      if (found) return found
+    }
   }
   return null
 }
@@ -408,7 +463,8 @@ export const mergeRule = {
       let found = null
       if (name === 'git') {
         const git = readGit(command)
-        if (git.sub === 'push') found = checkPush(command, git, ctx.facts, switched)
+        // A subcommand that expands could be `push`, and then the branch is unknown.
+        if (git.sub === 'push' || git.subExpands) found = checkPush(command, git, ctx.facts, switched || git.subExpands)
         if (!keepsBranch(git, command)) switched = true
       } else if (name === 'gh') {
         found = checkGh(command)

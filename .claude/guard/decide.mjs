@@ -1,13 +1,22 @@
 /**
  * The guard's decision (issue #539, batch #538).
  *
- * `decide(call, facts)` answers allow or deny for one tool call. It is pure:
- * no file system, no process, no network. Nothing calls it yet; the hook that
- * will is a later batch.
+ * `decide(call, facts, groups = GROUPS)` answers allow or deny for one tool
+ * call. It is pure: no file system, no process, no network. Nothing calls it
+ * yet; the hook that will is a later batch.
  *
  *   call   = { tool, input, mode, folder }
  *   facts  = { repoClass, repo, defaultBranch, currentBranch, enforceList, pluginRoot }
  *   answer = { decision: 'allow' | 'deny', rule, reason, enforced }
+ *
+ * `defaultBranch` and `currentBranch` are short names (`main`, not
+ * `origin/main`), or null when unknown. An empty string counts as null.
+ *
+ * decide never throws. An error in the parser answers deny with rule `error`;
+ * an error in a rule group answers deny with rule `<group id>/error`. Both
+ * keep `enforced`, so the caller refuses only on an enforced repo and
+ * otherwise logs. `groups` is a parameter so a test can pass a group that
+ * throws.
  *
  * `enforced` is true when `repo` is on `enforceList` (case-insensitive). Every
  * answer carries it. The caller refuses only when the answer is a deny and
@@ -67,7 +76,7 @@ function isRepoGuardCommand(parsed, pluginRoot) {
   return scripts.includes(script.text) && rest.every((word) => !word.expands)
 }
 
-export function decide(call, facts) {
+function decideCall(call, facts, groups) {
   const enforced = isEnforced(facts)
   const answer = (decision, rule, reason) => ({ decision, rule, reason, enforced })
   const deny = (rule, reason) => answer('deny', rule, reason)
@@ -95,7 +104,14 @@ export function decide(call, facts) {
     return deny('invalid-input', 'The shell call had no command text. Send the command as text.')
   }
 
-  const parsed = isBash ? parseCommandLine(call.input.command) : null
+  let parsed = null
+  if (isBash) {
+    try {
+      parsed = parseCommandLine(call.input.command)
+    } catch {
+      return deny('error', 'The shell parser failed on this line. The guard refuses what it cannot read.')
+    }
+  }
 
   if (isBash && isRepoGuardCommand(parsed, facts.pluginRoot)) {
     return allow('tm-repo-guard', 'This is the /tm-repo-guard command, which always passes.')
@@ -119,10 +135,32 @@ export function decide(call, facts) {
     facts,
     folder: call.folder,
   }
-  for (const group of GROUPS) {
-    const hit = group.check(ctx)
+  for (const group of groups) {
+    let hit
+    try {
+      hit = group.check(ctx)
+    } catch {
+      return deny(`${group.id}/error`, `The ${group.id} rules failed on this call. The guard refuses what it cannot check.`)
+    }
     if (hit) return deny(`${group.id}/${hit.entry}`, hit.reason)
   }
 
   return allow('no-rule', 'No guard rule applies to this call.')
+}
+
+// Never throws: a parser or group error, or any other fault, is a deny. The
+// caller keeps the usual `enforced` rule, so a bug refuses a call only on a
+// repo on the enforce list and is otherwise only logged.
+export function decide(call, facts, groups = GROUPS) {
+  try {
+    return decideCall(call, facts, groups)
+  } catch {
+    let enforced = false
+    try {
+      enforced = isEnforced(facts)
+    } catch {
+      // enforced stays false
+    }
+    return { decision: 'deny', rule: 'error', reason: 'The guard failed on this call. It refuses what it cannot check.', enforced }
+  }
 }
