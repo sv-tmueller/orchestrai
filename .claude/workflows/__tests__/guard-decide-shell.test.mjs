@@ -266,6 +266,69 @@ describe('parseCommandLine: expands', () => {
   })
 })
 
+describe('parseCommandLine: positional parameters and ANSI-C quoting (reviewer round 1)', () => {
+  test('$1, "$@" and $? expand', () => {
+    const [c] = parse('echo $1 "$@" $?')
+    assert.deepEqual(c.words.map((w) => w.expands), [false, true, true, true])
+    assert.deepEqual(c.words.map((w) => w.text), ['echo', '$1', '$@', '$?'])
+  })
+
+  test('$* and $# expand', () => {
+    const [c] = parse('echo $* $#')
+    assert.deepEqual(c.words.map((w) => w.expands), [false, true, true])
+  })
+
+  test("$'...' decodes hex, octal and the single-letter escapes", () => {
+    const [c] = parse("echo $'\\x72epos' $'\\162' $'a\\nb' $'a\\tb' $'\\\\' $'it\\'s'")
+    assert.deepEqual(c.words.slice(1).map((w) => w.text), ['repos', 'r', 'a\nb', 'a\tb', '\\', "it's"])
+    assert.ok(c.words.slice(1).every((w) => w.expands === true))
+  })
+
+  test("$'...' keeps an escape it does not know", () => {
+    assert.equal(parse("echo $'a\\qb'")[0].words[1].text, 'a\\qb')
+  })
+})
+
+describe('parseCommandLine: environment and directory of a wrapped command (reviewer round 1)', () => {
+  test('assigned names are recorded on the command', () => {
+    assert.deepEqual(parse('GIT_DIR=../o/.git git push')[0].env, ['GIT_DIR'])
+    assert.deepEqual(parse('A=1 B=2 git push')[0].env, ['A', 'B'])
+    assert.deepEqual(parse('env A=1 B=2 git push')[0].env, ['A', 'B'])
+    assert.deepEqual(parse('A=1 env B=2 git push')[0].env, ['A', 'B'])
+  })
+
+  test('a command with no assignments has an empty env', () => {
+    assert.deepEqual(parse('git push')[0].env, [])
+  })
+
+  test('a nested command inherits the names assigned in front of its shell', () => {
+    const commands = parse("GIT_DIR=x bash -c 'git push'")
+    assert.deepEqual(commands[commands.length - 1].env, ['GIT_DIR'])
+  })
+
+  test('env -C, env --chdir and sudo -D set afterCd', () => {
+    assert.equal(parse('env -C ../x git push')[0].afterCd, true)
+    assert.equal(parse('env --chdir=../x git push')[0].afterCd, true)
+    assert.equal(parse('env --chdir ../x git push')[0].afterCd, true)
+    assert.equal(parse('sudo -D ../x git push')[0].afterCd, true)
+    assert.equal(parse('sudo --chdir=../x git push')[0].afterCd, true)
+  })
+
+  test('the directory of one command does not mark the next one', () => {
+    assert.deepEqual(parse('env -C ../x git status; git push').map((c) => c.afterCd), [true, false])
+  })
+
+  test('the directory flag marks what a wrapped shell runs', () => {
+    const commands = parse("env -C ../x bash -c 'git push'")
+    assert.equal(commands[commands.length - 1].afterCd, true)
+  })
+
+  test('other wrapper flags do not set afterCd', () => {
+    assert.equal(parse('env -i git push')[0].afterCd, false)
+    assert.equal(parse('sudo -u bob git push')[0].afterCd, false)
+  })
+})
+
 describe('parseCommandLine: unwrapping', () => {
   const wrappers = [
     'A=1 git push',

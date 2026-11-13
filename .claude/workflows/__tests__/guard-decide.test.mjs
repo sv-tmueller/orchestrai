@@ -314,6 +314,45 @@ describe('decide: the rule group registry', () => {
   })
 })
 
+describe('decide: it never throws (reviewer round 1, finding 6)', () => {
+  const boom = { id: 'boom', check() { throw new Error('a bug in a group') } }
+  const quiet = { id: 'quiet', check() { return null } }
+
+  test('a group that throws becomes a deny with its own rule id', () => {
+    expectAnswer(decide(bash('ls'), facts(), [boom]), 'deny', 'boom/error')
+  })
+
+  test('the error answer keeps enforced', () => {
+    assert.equal(decide(bash('ls'), facts(), [boom]).enforced, true)
+    assert.equal(decide(bash('ls'), facts({ repo: 'acme/other' }), [boom]).enforced, false)
+  })
+
+  test('the groups before the failing one still run in order', () => {
+    const hitFirst = { id: 'first', check: () => ({ entry: 'x', reason: 'first said no' }) }
+    expectAnswer(decide(bash('ls'), facts(), [hitFirst, boom]), 'deny', 'first/x')
+    expectAnswer(decide(bash('ls'), facts(), [quiet, boom]), 'deny', 'boom/error')
+  })
+
+  test('a group list that is empty or quiet allows', () => {
+    expectAnswer(decide(bash('git push origin main'), facts(), []), 'allow', 'no-rule')
+    expectAnswer(decide(bash('ls'), facts(), [quiet]), 'allow', 'no-rule')
+  })
+
+  test('a group is not asked when the mode, class or exception already answered', () => {
+    expectAnswer(decide(bash('ls', { mode: 'default' }), facts(), [boom]), 'allow', 'mode')
+    expectAnswer(decide(bash('ls'), facts({ repoClass: 'organization' }), [boom]), 'allow', 'organization')
+  })
+
+  test('odd input never throws', () => {
+    for (const call of [undefined, null, 7, 'x', [], { tool: Symbol('x') }, { tool: 'Bash', input: null }, { tool: 'Bash', input: { command: {} } }]) {
+      for (const f of [undefined, null, 7, [], facts(), facts({ enforceList: 'acme/widget' })]) {
+        const answer = decide(call, f)
+        assert.ok(answer.decision === 'allow' || answer.decision === 'deny')
+      }
+    }
+  })
+})
+
 describe('decide: no side effects', () => {
   const guardDir = fileURLToPath(new URL('../../guard/', import.meta.url))
   const rulesDir = `${guardDir}rules/`

@@ -1,9 +1,9 @@
 /**
  * Tests for the merge-rule group of the guard (issue #539, batch #538).
  *
- * The group lives in `.claude/guard/rules/merge-rule.mjs` and has six entries:
- * push-default, force-push, admin-merge, branch-rule, visibility and
- * delete-repo. Every row runs through `decide` in the two classes where the
+ * The group lives in `.claude/guard/rules/merge-rule.mjs` and has seven entries:
+ * push-default, force-push, admin-merge, branch-rule, visibility, delete-repo
+ * and api-unknown. Every row runs through `decide` in the two classes where the
  * group applies (personal and set up, and no GitHub repo). Each deny entry has
  * look-alike allow rows next to it.
  *
@@ -794,6 +794,132 @@ describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
   })
 })
 
+// Reviewer round 1 (issue #539).
+
+describe('merge-rule review round 1, finding 2: another folder named through the environment', () => {
+  describe('denied: a bare push is judged against another folder', () => {
+    defineDenyRows('push-default', [
+      'GIT_DIR=../other/.git git push',
+      'GIT_WORK_TREE=../w git push',
+      'env -C ../other git push',
+      'sudo -D ../other git push',
+      'env GIT_DIR=../other/.git git push',
+      'env --chdir=../other git push',
+      'env --chdir ../other git push',
+      "GIT_DIR=../other/.git bash -c 'git push'",
+      'GIT_DIR=../other/.git git push origin HEAD',
+    ])
+  })
+
+  describe('passes: the push names its branch, or the variable is unrelated', () => {
+    defineAllowRows('environment', [
+      'GIT_DIR=../o/.git git push origin feat/x',
+      'env -C ../o git push origin feat/x',
+      'FOO=1 git push',
+      'env FOO=1 git push',
+      'GIT_TRACE=1 git push',
+    ])
+  })
+})
+
+describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
+  describe('denied', () => {
+    defineDenyRows('push-default', [
+      'git $GIT_OPTS push origin main',
+      'git $SUB origin main',
+      'git "$SUB" origin main',
+      'git $SUB origin HEAD:refs/heads/main',
+    ])
+    defineDenyRows('admin-merge', [
+      'gh pr $S 12 --admin',
+      'gh $G merge 12 --admin',
+      'gh pr "$S" 12 --admin',
+    ])
+    defineDenyRows('delete-repo', [
+      'gh repo $S acme/widget --yes',
+      'gh $G delete acme/widget --yes',
+    ])
+    defineDenyRows('visibility', [
+      'gh repo $S --visibility private',
+      'gh $G edit --visibility private',
+    ])
+  })
+
+  describe('passes: a word after the subcommand that expands is not the subcommand', () => {
+    defineAllowRows('subcommand', [
+      'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+      'gh pr ready "$PR"',
+      'gh repo edit "$REPO" --enable-auto-merge',
+      'gh issue edit "$N" --add-label in-progress',
+      'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
+    ])
+  })
+})
+
+describe('merge-rule review round 1, finding 4: gh api paths whose segments expand', () => {
+  describe('denied', () => {
+    defineDenyRows('branch-rule', [
+      'gh api -X POST "repos/acme/widget/$X" --input r.json',
+      'gh api -X POST "orgs/acme/$X" --input r.json',
+      'gh api -X DELETE "repos/$O/$R/$X"',
+      'gh api -X POST "repos/acme/$R/$X" --input r.json',
+      'gh api -X POST "orgs/$ORG/$X" --input r.json',
+    ])
+    defineDenyRows('delete-repo', [
+      'gh api -X DELETE "repos/$A/$B"',
+    ])
+  })
+
+  describe('passes: a literal resource word after the repo part', () => {
+    // `repos/$REPO/$X` stays allowed: it has the same shape as `repos/$O/$R`,
+    // which is a repo path, and an earlier decision keeps a PUT to it allowed.
+    // The Not covered header names it.
+    defineAllowRows('gh api expansion', [
+      'gh api -X POST "repos/acme/widget/statuses/$SHA" -f state=success',
+      'gh api -X POST "repos/$O/$R/statuses/$SHA" -f state=success',
+      'gh api -X PUT "repos/acme/widget/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
+      'gh api -X POST "repos/$REPO/$X" --input r.json',
+      "gh api -X POST 'repos/acme/widget/$X' --input r.json",
+    ])
+  })
+})
+
+describe('merge-rule review round 1, finding 5: escapes in $\'...\'', () => {
+  defineDenyRows('delete-repo', [
+    "gh api -X DELETE $'\\x72epos/acme/widget'",
+    "gh api -X DELETE $'\\162epos/acme/widget'",
+    "gh api -X $'DELE\\x54E' repos/acme/widget",
+  ])
+  defineDenyRows('push-default', [
+    "git push origin $'\\x6dain'",
+    "git push origin $'ma\\151n'",
+  ])
+  defineAllowRows('ansi-c', [
+    "gh api -X DELETE $'repos/acme/widget/labels/bug'",
+  ])
+})
+
+describe('merge-rule review round 1, finding 7: positional parameters', () => {
+  defineDenyRows('push-default', [
+    'git push origin "$1"',
+    'git push "$@"',
+    'git push origin $?',
+    'git push $*',
+  ])
+})
+
+describe('merge-rule review round 1, finding 9: an empty branch fact is unknown', () => {
+  defineDenyRows('push-default', [
+    ['git push origin main', { defaultBranch: '' }],
+    ['git push origin feat/x', { defaultBranch: '' }],
+    ['git push', { currentBranch: '' }],
+    ['git push origin HEAD', { currentBranch: '' }],
+  ])
+  defineAllowRows('empty branch', [
+    ['git push origin feat/x', { currentBranch: '' }],
+  ])
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')
@@ -861,7 +987,18 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
       .replace(/\s*\n\s*\*\s*/g, ' ')
     assert.match(source, /Not covered/)
-    for (const topic of ['curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell', 'variable in its destination', 'write the branch name out', 'reads the words of a command line as written', 'inside a variable or substitution', 'never change which branch']) {
+    const topics = [
+      'curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell',
+      'variable in its destination', 'write the branch name out', 'inside a variable or substitution',
+      'never change which branch',
+      // the boundary sentence
+      'The group reads Bash calls only', 'it reads the words as written',
+      'A word that expands is denied only where this header says so',
+      // review round 1, finding 1
+      'MCP tools', 'held in a variable', 'gh pr checkout', 'pulls/<n>/merge', 'transferring',
+      'watch, flock, caffeinate, direnv exec', '${...}', 'case', 'assignment prefix', 'repos/$REPO/$X',
+    ]
+    for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
     }
   })
