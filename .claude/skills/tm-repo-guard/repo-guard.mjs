@@ -1230,6 +1230,40 @@ function ciStepOps(target, existing) {
   return steps
 }
 
+// The workflows already in the repo decide whether the guard may add its own
+// CI next to them (issue #579). A workflow that does not run on `pull_request`
+// or `push` cannot be the PR CI the guard is about to wait for, so it does not
+// block. Anything the guard cannot read or parse is a refusal, never a guess.
+// Returns the refusal text, or null when the repo may get a CI of its own.
+const BLOCKING_EVENTS = ['pull_request', 'push']
+
+function checkWorkflows(call, facts, target) {
+  if (facts.treePaths.includes(CI_FILE)) {
+    return `${target.repo} already has ${CI_FILE} on ${target.branch}, and the guard will not overwrite it. Set up CI for this repo by hand`
+  }
+  for (const path of facts.treePaths.filter((p) => p.startsWith('.github/workflows/'))) {
+    const url = `repos/${facts.fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(target.branch)}`
+    const cannotTell = 'so it cannot tell whether that workflow runs on pull requests. It does not add a CI next to a workflow it cannot read'
+    const res = call(['api', url])
+    if (res.code !== 0) return `${target.repo} has ${path}, but the guard could not read it (${parseError(res).message}), ${cannotTell}`
+    const text = decodeTextFile(res.stdout)
+    if (text === null) {
+      return `${target.repo} has ${path}, but the guard could not read it (it is not a plain file, or its content cannot be decoded), ${cannotTell}`
+    }
+    const events = workflowTriggers(text)
+    if (events === null) return `${target.repo} has ${path}, but the guard could not read the triggers in its on: key, ${cannotTell}`
+    const blocking = events.filter((e) => BLOCKING_EVENTS.includes(e))
+    if (blocking.length > 0) {
+      return (
+        `${target.repo} already has a workflow under .github/workflows/ (${path}) that runs on ${blocking.join(' and ')}, ` +
+        'but no finished, non-draft PR has run it. ' +
+        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
+      )
+    }
+  }
+  return null
+}
+
 // The plan for a repo with test files and no finished PR check. Reads only
 // until --confirm has a token that matches.
 function planCiSetup(env, args, facts, target) {
@@ -1237,12 +1271,8 @@ function planCiSetup(env, args, facts, target) {
   if (facts.testFilesTruncated) {
     return refusal(`the file tree of ${target.repo} is truncated, so its root files and workflows cannot be trusted`)
   }
-  if (facts.treePaths.some((p) => p.startsWith('.github/workflows/'))) {
-    return refusal(
-      `${target.repo} already has a workflow under .github/workflows/ but no finished, non-draft PR has run it. ` +
-        'It does not add a second CI next to it. Open or finish a PR so the existing workflow runs, then run apply again'
-    )
-  }
+  const workflowsProblem = checkWorkflows(call, facts, target)
+  if (workflowsProblem) return refusal(workflowsProblem)
 
   const undetected = (why) =>
     refusal(

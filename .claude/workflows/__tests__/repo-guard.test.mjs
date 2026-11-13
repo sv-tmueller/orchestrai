@@ -3439,17 +3439,198 @@ describe('runApply', () => {
       /blocked/
     )
     refusesCi(
-      'an existing workflow that no PR has run is not joined by a second one',
-      () => ciFake({ tree: [...NPM_TREE, '.github/workflows/build.yml'] }),
+      'an existing workflow that runs on pull requests and no PR has run is not joined by a second one',
+      () =>
+        ciFake({
+          tree: [...NPM_TREE, '.github/workflows/build.yml'],
+          files: { 'package.json': PKG, '.github/workflows/build.yml': 'on: pull_request\n' },
+        }),
       ['widget'],
       /already has a workflow under \.github\/workflows\/.*no finished, non-draft PR has run it.*open or finish a PR so the existing workflow runs/is
     )
     refusesCi(
-      'an existing workflow is refused with given commands too',
-      () => makeFake({ prs: [], tree: ['src/a.test.js', '.github/workflows/build.yml'] }),
+      'an existing workflow that runs on pull requests is refused with given commands too',
+      () =>
+        makeFake({
+          prs: [],
+          tree: ['src/a.test.js', '.github/workflows/build.yml'],
+          files: { '.github/workflows/build.yml': 'on: [push]\n' },
+        }),
       ['widget', '--install', 'make deps', '--test', 'make test'],
       /already has a workflow under \.github\/workflows\//
     )
+    describe('a workflow that cannot run as PR CI does not block the setup (issue #579)', () => {
+      const LOCKDOWN = '.github/workflows/lockdown.yml'
+      const BUILD = '.github/workflows/zbuild.yml'
+      const CROPCAST = [
+        'name: lockdown',
+        'on:',
+        '  issues:',
+        '    types: [opened]',
+        '  pull_request_target:',
+        '    types: [opened, synchronize]',
+        'jobs:',
+        '  lock:',
+        '    if: github.actor != github.repository_owner',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo locked',
+        '',
+      ].join('\n')
+      const withWorkflows = (workflows, over = {}) =>
+        ciFake({ tree: [...NPM_TREE, ...Object.keys(workflows)], files: { 'package.json': PKG, ...workflows }, ...over })
+      const readPaths = (fake) => contentsCalls(fake).map((c) => c.args[1])
+
+      test('a workflow with only issues and pull_request_target triggers gets the plan and a token', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {2}file: \.github\/workflows\/ci\.yml$/m)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.deepEqual(fake.state.writes, [])
+        for (const c of fake.state.calls) {
+          assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+          assert.equal(c.input, undefined)
+        }
+      })
+
+      test('reads the workflow first, then package.json, each on the default branch', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        apply(fake, 'widget')
+        assert.deepEqual(readPaths(fake), [`repos/octo/widget/contents/${LOCKDOWN}?ref=main`, 'repos/octo/widget/contents/package.json?ref=main'])
+      })
+
+      test('given commands skip the package.json read but still read the workflow', () => {
+        const fake = makeFake({ prs: [], tree: ['src/a.test.js', LOCKDOWN], files: { [LOCKDOWN]: CROPCAST } })
+        const { code, text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+        assert.equal(code, 0, text)
+        assert.deepEqual(readPaths(fake), [`repos/octo/widget/contents/${LOCKDOWN}?ref=main`])
+      })
+
+      test('several workflows that cannot run on a PR are all read, in tree order', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST, [BUILD]: 'on: workflow_dispatch\n' })
+        assert.equal(apply(fake, 'widget').code, 0)
+        assert.deepEqual(readPaths(fake).slice(0, 2), [LOCKDOWN, BUILD].map((p) => `repos/octo/widget/contents/${p}?ref=main`))
+      })
+
+      test('the plan and its token are the same with or without such a workflow in the tree', () => {
+        const plain = tokenOf(apply(ciFake(), 'widget').text)
+        const withFlow = tokenOf(apply(withWorkflows({ [LOCKDOWN]: CROPCAST }), 'widget').text)
+        assert.equal(withFlow, plain)
+      })
+
+      const trigger = (on) => `name: x\n${on}\njobs: {}\n`
+      const blocked = /already has a workflow under \.github\/workflows\/.*no finished, non-draft PR has run it/is
+      refusesCi('a workflow on: push', () => withWorkflows({ [BUILD]: trigger('on: push') }), ['widget'], /zbuild\.yml.*runs on.*push/is)
+      refusesCi('a workflow on: pull_request', () => withWorkflows({ [BUILD]: trigger('on: pull_request') }), ['widget'], blocked)
+      refusesCi(
+        'a workflow on a list with issues and pull_request',
+        () => withWorkflows({ [BUILD]: trigger('on: [issues, pull_request]') }),
+        ['widget'],
+        /zbuild\.yml.*pull_request/is
+      )
+      refusesCi(
+        'a workflow with push in a block map',
+        () => withWorkflows({ [BUILD]: trigger('on:\n  issues:\n  push:\n    branches: [main]') }),
+        ['widget'],
+        blocked
+      )
+      refusesCi(
+        'a second workflow that blocks, after one that does not',
+        () => withWorkflows({ [LOCKDOWN]: CROPCAST, [BUILD]: trigger('on: pull_request') }),
+        ['widget'],
+        /zbuild\.yml/
+      )
+      refusesCi(
+        'a workflow whose on: is a one-line map',
+        () => withWorkflows({ [BUILD]: trigger('on: {push: {}}') }),
+        ['widget'],
+        /zbuild\.yml.*could not read the triggers/is
+      )
+      refusesCi(
+        'a workflow with no on: key',
+        () => withWorkflows({ [BUILD]: 'name: x\njobs: {}\n' }),
+        ['widget'],
+        /zbuild\.yml.*could not read the triggers/is
+      )
+      refusesCi(
+        'a file under workflows that is not a workflow',
+        () => withWorkflows({ '.github/workflows/README.md': '# notes\n' }),
+        ['widget'],
+        /README\.md.*could not read the triggers/is
+      )
+      refusesCi(
+        'a workflow whose content is missing (404)',
+        () => ciFake({ tree: [...NPM_TREE, BUILD] }),
+        ['widget'],
+        /zbuild\.yml.*could not read it.*Not Found/is
+      )
+      refusesCi(
+        'a workflow read that fails (500) is a refusal, not a read failure',
+        () => withWorkflows({ [BUILD]: CROPCAST }, { contentsError: fail(500, 'Server Error') }),
+        ['widget'],
+        /zbuild\.yml.*could not read it.*Server Error/is
+      )
+      refusesCi(
+        'a workflow whose content cannot be decoded (a symlink)',
+        () => {
+          const fake = withWorkflows({ [BUILD]: CROPCAST })
+          const run = (args, input) =>
+            args.join(' ').includes(`contents/${BUILD}`)
+              ? { code: 0, stdout: JSON.stringify({ type: 'symlink', target: 'x.yml' }), stderr: '' }
+              : fake.run(args, input)
+          return { ...fake, run }
+        },
+        ['widget'],
+        /zbuild\.yml.*could not read it/is
+      )
+      refusesCi(
+        'a ci.yml that triggers only on workflow_dispatch is not overwritten',
+        () => ciFake({ tree: [...NPM_TREE, CI_FILE], files: { 'package.json': PKG, [CI_FILE]: trigger('on: workflow_dispatch') } }),
+        ['widget'],
+        /already has \.github\/workflows\/ci\.yml.*will not overwrite it/is
+      )
+      refusesCi(
+        'a ci.yml is refused even next to a workflow that cannot run as PR CI',
+        () => withWorkflows({ [LOCKDOWN]: CROPCAST, [CI_FILE]: trigger('on: workflow_dispatch') }),
+        ['widget'],
+        /already has \.github\/workflows\/ci\.yml/
+      )
+
+      test('a ci.yml in the tree is refused before any workflow is read', () => {
+        const fake = withWorkflows({ [CI_FILE]: trigger('on: workflow_dispatch') })
+        apply(fake, 'widget')
+        assert.deepEqual(readPaths(fake), [])
+      })
+
+      test('a refusal for a workflow does not tell the owner to open a PR when the file cannot be read', () => {
+        const out = apply(ciFake({ tree: [...NPM_TREE, BUILD] }), 'widget')
+        assert.doesNotMatch(out.text, /open or finish a PR/i)
+      })
+
+      test('a workflow that was swapped for a blocking one between plan and confirm is refused again', () => {
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST })
+        const token = tokenOf(apply(fake, 'widget').text)
+        fake.state.files[LOCKDOWN] = trigger('on: push')
+        const { code, text } = apply(fake, 'widget', '--confirm', token)
+        assert.equal(code, 2)
+        assert.match(text, /lockdown\.yml.*push/s)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('a confirm run merges with a skipped lockdown check on the PR and protects with tests as the only CI check', () => {
+        const skipped = { ...done('lockdown'), conclusion: 'SKIPPED' }
+        const rollup = (t, ci) => [skipped, ...(ci.pr.state === 'MERGED' || t >= 60000 ? [done('tests')] : [pending('tests')])]
+        const fake = withWorkflows({ [LOCKDOWN]: CROPCAST }, { ci: { rollup } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const { code, text } = apply(fake, 'widget', '--confirm', token)
+        assert.equal(code, 0, text)
+        assert.match(text, /^octo\/widget: set up$/m)
+        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+        assert.equal(fake.state.writes.some((w) => w.method === 'PUT' && w.path.endsWith('/merge')), true)
+      })
+    })
+
     refusesCi(
       'a repo that requires signed commits when the plan has a PUT',
       () => ciFake({ protection: { ...SET_UP_PROTECTION, required_signatures: { enabled: true } } }),
