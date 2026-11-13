@@ -4017,6 +4017,40 @@ describe('runApply', () => {
         assert.equal(tokenOf(text), undefined)
       })
 
+      test('a newer non-CI PR decides the checks: the safety stop names that PR, not the CI PR', () => {
+        const fake = ciFake({ ci: { rollup: withMergedRollup([done('tests'), done('lint')]) } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ') === 'api repos/octo/widget/pulls/20/files') {
+            fake.state.prs = [pr(21, [done('tests'), done('lint')], false, { headRefName: 'feat/other', state: 'OPEN' })]
+          }
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2, text)
+        assert.deepEqual(wrote(fake), upToDelete)
+        assert.match(text, /checks that ran on PR #21: lint, tests; the plan expected: tests/)
+        assert.doesNotMatch(text, /checks that ran on PR #20/)
+        assert.match(text, /stopped here/)
+        assert.ok(tokenOf(text), 'no new token')
+      })
+
+      test('no PR decides the checks: the safety stop names no PR', () => {
+        const fake = ciFake({ ci: { rollup: withMergedRollup([]) } })
+        const token = tokenOf(apply(fake, 'widget').text)
+        const run = (args, input) => {
+          if (args.join(' ') === 'api repos/octo/widget/pulls/20/files') {
+            fake.state.tree = fake.state.tree.filter((p) => p !== 'src/a.test.js')
+          }
+          return fake.run(args, input)
+        }
+        const { code, text } = runApply(run, ['widget', '--confirm', token], fake.clock)
+        assert.equal(code, 2, text)
+        assert.match(text, /refusing: checks that ran: none; the plan expected: tests/)
+        assert.doesNotMatch(text, /PR #null/)
+        assert.ok(tokenOf(text), 'no new token')
+      })
+
       test('a PR retargeted before the merge leaves ci.yml off the default branch: exit 1, stopped here, no token, no PUT', () => {
         const fake = ciFake()
         const token = tokenOf(apply(fake, 'widget').text)

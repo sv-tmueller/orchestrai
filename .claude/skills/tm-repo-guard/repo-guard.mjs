@@ -835,6 +835,7 @@ function gatherFacts(call, info, requested) {
     prCheckNames: prCheckNames(prs),
     olderCheckNames: prCheckNames(older),
     ciChecks: deciding.names,
+    decidingPr: deciding.pr,
     testFileCount,
     testFilesTruncated,
     treePaths,
@@ -1354,9 +1355,10 @@ function runCiSetup({ run, call, clock, login }, target, ops, ci) {
   if (signed !== null) return stop(2, `refusing: ${signed}`)
   if (canonical(left) !== canonical(plannedAfter)) {
     const ran = facts.ciChecks
+    const where = facts.decidingPr === null ? '' : ` on PR #${facts.decidingPr}`
     const why =
       canonical(ran) !== canonical([CI_CHECK])
-        ? `checks that ran on PR #${pr.number}: ${ran.join(', ') || 'none'}; the plan expected: ${CI_CHECK}`
+        ? `checks that ran${where}: ${ran.join(', ') || 'none'}; the plan expected: ${CI_CHECK}`
         : 'the repo changed during the wait'
     if (left.length === 0) {
       lines.push(`${why}; nothing is left to write`)
