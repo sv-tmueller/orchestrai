@@ -1160,6 +1160,9 @@ function ciText(ci) {
     'CI setup: no finished, non-draft PR has run a check, so apply would add a CI workflow',
     `  install: ${ci.install ?? 'none'}`,
     `  test: ${ci.test}`,
+    ...(ci.runner ? [`  runner: ${ci.runner}`] : []),
+    ...(ci.macosCost ? ['  cost: macOS runner minutes count 10x against the free quota on a private repo'] : []),
+    ...(ci.uncovered ? [`  not run by this CI: tests in ${ci.uncovered.map((d) => `${d}/`).join(', ')} (each has its own manifest)`] : []),
     `  expected check: ${ci.check}`,
     '  file: .github/workflows/ci.yml',
   ]
@@ -1395,7 +1398,8 @@ function planCiSetup(env, args, facts, target) {
     if (!found.ok) return undetected(found.found)
   }
 
-  const text = buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime })
+  const { runner, timeout } = ciRunner(facts.treePaths)
+  const text = buildCiYaml({ branch: target.branch, install: found.install, test: found.test, runtime: found.runtime, runner, timeout })
   const ops = buildWrites(target, facts)
   const signed = signedCommitsRefusal(target, facts, ops)
   if (signed) return signed
@@ -1411,7 +1415,18 @@ function planCiSetup(env, args, facts, target) {
   // `existing` is in the token: a PR opened or closed between plan and confirm
   // changes what the run writes, so it must change the token. The PR head sha
   // is left out, so a push alone does not make a token stale.
-  const ci = { install: found.install, test: found.test, text, check: CI_CHECK, existing: resume.existing }
+  const macos = runner !== LINUX_RUNNER.runner
+  const ci = {
+    install: found.install,
+    test: found.test,
+    text,
+    check: CI_CHECK,
+    existing: resume.existing,
+    // Only on the macOS path, so a Node, Python or Go plan keeps its token.
+    ...(macos ? { runner } : {}),
+    ...(macos && facts.visibility === 'private' ? { macosCost: true } : {}),
+    ...(found.uncovered?.length > 0 ? { uncovered: found.uncovered } : {}),
+  }
   const token = confirmToken(target, ops, ci)
   if (args.confirm !== null) {
     if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }

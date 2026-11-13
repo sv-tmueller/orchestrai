@@ -3575,6 +3575,183 @@ describe('runApply', () => {
       /could not read: package\.json: Server Error/,
       1
     )
+    describe('a Swift package gets a macOS runner (issue #582)', () => {
+      const SWIFT_TREE = ['Package.swift', 'Sources/App/main.swift', 'Tests/AppTests/AppTests.swift']
+      const CROP_TREE = [
+        'Package.swift',
+        'Tests/CropcastTests/AppTests.swift',
+        'Packages/RegionFrame/Package.swift',
+        'Packages/RegionFrame/Tests/RegionFrameTests/RegionFrameTests.swift',
+        'Packages/RegionMirror/Package.swift',
+        'Packages/RegionMirror/Tests/RegionMirrorTests/RegionMirrorTests.swift',
+        'Packages/VirtualDisplay/Package.swift',
+        'Packages/VirtualDisplay/Tests/VirtualDisplayTests/VirtualDisplayTests.swift',
+      ]
+      const swiftYaml = (test = 'swift test', install = null) =>
+        buildCiYaml({ branch: 'main', install, test, runtime: [], runner: 'macos-latest', timeout: 15 })
+      const swiftFake = (over = {}) => makeFake({ prs: [], tree: SWIFT_TREE, ...over })
+      const costLines = (text) => text.split('\n').filter((l) => /^ {2}cost:/.test(l))
+      const NESTED = /^ {2}not run by this CI: .*Packages\/RegionFrame\/, Packages\/RegionMirror\/, Packages\/VirtualDisplay\//m
+
+      test('prints swift test, no install, the runner, and the macOS yaml block, with no file reads', () => {
+        const fake = swiftFake()
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {2}install: none$/m)
+        assert.match(text, /^ {2}test: swift test$/m)
+        assert.match(text, /^ {2}runner: macos-latest$/m)
+        assert.match(text, /^ {2}expected check: tests$/m)
+        const indented = swiftYaml().trimEnd().split('\n').map((l) => (l === '' ? '' : `    ${l}`)).join('\n')
+        assert.ok(text.includes(`  file: .github/workflows/ci.yml\n${indented}\n`), text)
+        assert.doesNotMatch(text, /Install dependencies/)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.equal(contentsCalls(fake).length, 0, 'Package.swift is not read')
+        assert.deepEqual(fake.state.writes, [])
+      })
+
+      test('the runner line sits between test and expected check', () => {
+        const lines = apply(swiftFake(), 'widget').text.split('\n')
+        const at = lines.indexOf('  test: swift test')
+        assert.equal(lines[at + 1], '  runner: macos-latest')
+        assert.equal(lines[at + 2], '  expected check: tests')
+      })
+
+      test('a public repo has no cost line and no nested line', () => {
+        const { text } = apply(swiftFake(), 'widget')
+        assert.deepEqual(costLines(text), [])
+        assert.doesNotMatch(text, /not run by this CI/)
+      })
+
+      test('a private repo gets exactly one cost line, and a different token', () => {
+        const pub = apply(swiftFake(), 'widget')
+        const priv = apply(swiftFake({ repo: { private: true } }), 'widget')
+        assert.equal(costLines(priv.text).length, 1, priv.text)
+        assert.match(costLines(priv.text)[0], /macOS.*10x.*private/i)
+        assert.notEqual(tokenOf(priv.text), tokenOf(pub.text))
+      })
+
+      test('a private repo reads no more than a public one: the visibility is already in the repo read', () => {
+        const pub = swiftFake()
+        const priv = swiftFake({ repo: { private: true } })
+        apply(pub, 'widget')
+        apply(priv, 'widget')
+        assert.deepEqual(priv.state.calls.map((c) => c.args), pub.state.calls.map((c) => c.args))
+      })
+
+      test('every call passes the read guard and carries no input', () => {
+        for (const fake of [swiftFake(), swiftFake({ repo: { private: true } }), makeFake({ prs: [], tree: CROP_TREE })]) {
+          apply(fake, 'widget')
+          for (const c of fake.state.calls) {
+            assert.equal(isReadOnly(c.args), true, c.args.join(' '))
+            assert.equal(c.input, undefined)
+          }
+        }
+      })
+
+      test('the cropcast shape names the three nested packages it does not cover, and gets a token', () => {
+        const LOCKDOWN = '.github/workflows/lockdown.yml'
+        const flow = 'name: lockdown\non:\n  issues:\n    types: [opened]\njobs:\n  lock:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo locked\n'
+        const fake = makeFake({ prs: [], tree: [...CROP_TREE, LOCKDOWN], files: { [LOCKDOWN]: flow } })
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0, text)
+        assert.match(text, NESTED)
+        assert.match(text, /^ {2}test: swift test$/m)
+        assert.ok(tokenOf(text), 'no token line')
+        assert.equal(contentsCalls(fake).length, 1, 'only the workflow is read')
+      })
+
+      test('the nested packages are part of the token', () => {
+        const withNested = tokenOf(apply(makeFake({ prs: [], tree: CROP_TREE }), 'widget').text)
+        const without = tokenOf(apply(makeFake({ prs: [], tree: CROP_TREE.slice(0, 2) }), 'widget').text)
+        assert.notEqual(withNested, without)
+      })
+
+      refusesCi(
+        'Package.swift and go.mod fail detection and name both',
+        () => makeFake({ prs: [], tree: [...SWIFT_TREE, 'go.mod'] }),
+        ['widget'],
+        /could not detect the install and test commands: more than one stack at the root: go\.mod, Package\.swift.*--install.*--test/s
+      )
+      refusesCi(
+        'Package.swift and a package.json with a real test script fail detection and name both',
+        () => makeFake({ prs: [], tree: [...SWIFT_TREE, 'package.json'], files: { 'package.json': PKG } }),
+        ['widget'],
+        /more than one stack at the root: package\.json, Package\.swift/
+      )
+      refusesCi(
+        'tests only under nested packages fail detection',
+        () => makeFake({ prs: [], tree: ['Package.swift', ...CROP_TREE.slice(2)] }),
+        ['widget'],
+        /only under subfolders.*Packages\/RegionFrame\//
+      )
+      refusesCi(
+        'a repo with no root manifest at all names Package.swift in the refusal',
+        () => makeFake({ prs: [], tree: ['Tests/AppTests.swift'] }),
+        ['widget'],
+        /go\.mod or Package\.swift at the root/
+      )
+
+      test('Package.swift beside a package.json with no real test script is still a swift plan', () => {
+        const fake = swiftFake({
+          tree: [...SWIFT_TREE, 'package.json'],
+          files: { 'package.json': JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }) },
+        })
+        const { code, text } = apply(fake, 'widget')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {2}runner: macos-latest$/m)
+      })
+
+      test('given commands on a swift tree still run on macOS, with no nested line', () => {
+        const fake = makeFake({ prs: [], tree: CROP_TREE })
+        const { code, text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {2}runner: macos-latest$/m)
+        assert.match(text, /^ {8}runs-on: macos-latest$/m)
+        assert.match(text, /^ {8}timeout-minutes: 15$/m)
+        assert.match(text, /^ {12}run: "make test"$/m)
+        assert.doesNotMatch(text, /not run by this CI/)
+        assert.equal(contentsCalls(fake).length, 0)
+      })
+
+      test('given commands on Package.swift next to a package.json run on macOS', () => {
+        const fake = makeFake({ prs: [], tree: [...SWIFT_TREE, 'package.json'], files: { 'package.json': PKG } })
+        const { code, text } = apply(fake, 'widget', '--install', 'npm ci', '--test', 'npm test')
+        assert.equal(code, 0, text)
+        assert.match(text, /^ {8}runs-on: macos-latest$/m)
+      })
+
+      test('given commands on a private swift repo get the cost line', () => {
+        const fake = makeFake({ prs: [], tree: SWIFT_TREE, repo: { private: true } })
+        const { text } = apply(fake, 'widget', '--install', 'make deps', '--test', 'make test')
+        assert.equal(costLines(text).length, 1, text)
+      })
+
+      test('given commands on a tree with no root Package.swift stay on Linux', () => {
+        const { text } = apply(makeFake({ prs: [], tree: ['go.mod', 'a_test.go', 'Packages/Core/Package.swift'] }), 'widget', '--install', 'make deps', '--test', 'make test')
+        assert.match(text, /^ {8}runs-on: ubuntu-latest$/m)
+        assert.doesNotMatch(text, /runner:/)
+      })
+
+      test('a Linux plan has no runner, cost or nested line, even on a private repo', () => {
+        for (const fake of [ciFake({ repo: { private: true } }), makeFake({ prs: [], tree: ['go.mod', 'a_test.go'], repo: { private: true } })]) {
+          const { text } = apply(fake, 'widget')
+          assert.doesNotMatch(text, /^ {2}(runner|cost|not run by this CI):/m)
+          assert.match(text, /^ {8}runs-on: ubuntu-latest$/m)
+          assert.match(text, /^ {8}timeout-minutes: 10$/m)
+        }
+      })
+
+      test('the Node, Python and Go tokens are what they were before swift support', () => {
+        const tokens = [
+          tokenOf(apply(ciFake(), 'widget').text),
+          tokenOf(apply(makeFake({ prs: [], tree: ['requirements.txt', 'test_a.py'] }), 'widget').text),
+          tokenOf(apply(makeFake({ prs: [], tree: ['go.mod', 'a_test.go'] }), 'widget').text),
+        ]
+        // Taken from the guard before swift support: the ci object keeps its five keys.
+        assert.deepEqual(tokens, ['174244f998b1', '8637e004fe4f', 'f4a4b739e2ce'])
+      })
+    })
+
     describe('a merged CI PR counts only while ci.yml is on the default branch (issue #569)', () => {
       const mergedElsewhere = (over = {}) =>
         ciFake({ ci: { pr: ciPr({ state: 'MERGED', baseRefName: 'dev' }), rollup: () => [done('tests')] }, ...over })
@@ -4036,6 +4213,54 @@ describe('runApply', () => {
       assert.deepEqual(body('/git/refs'), { ref: `refs/heads/${CI_BRANCH}`, sha: BASE_SHA })
       assert.deepEqual(body(`/contents/${CI_FILE}`), { message: CI_MESSAGE, content: b64(NPM_YAML), branch: CI_BRANCH })
       assert.deepEqual(body('/pulls'), { title: CI_TITLE, head: CI_BRANCH, base: 'main', body: CI_BODY, draft: false })
+    })
+
+    describe('a swift plan (issue #582)', () => {
+      const SWIFT_YAML = buildCiYaml({ branch: 'main', install: null, test: 'swift test', runtime: [], runner: 'macos-latest', timeout: 15 })
+      const swiftFake = (over = {}) => makeFake({ prs: [], tree: ['Package.swift', 'Tests/AppTests/AppTests.swift'], ...over })
+
+      test('the same writes run in the same order, and the file put is the macOS yaml', () => {
+        const fake = swiftFake()
+        const { code, text } = confirmCi(fake)
+        assert.equal(code, 0, text)
+        assert.deepEqual(
+          fake.state.writes.map((w) => `${w.method} ${w.path}`),
+          [
+            ...LABELS.map(() => 'POST repos/octo/widget/labels'),
+            'PATCH repos/octo/widget',
+            'POST repos/octo/widget/git/refs',
+            `PUT repos/octo/widget/contents/${CI_FILE}`,
+            'POST repos/octo/widget/pulls',
+            'PUT repos/octo/widget/pulls/20/merge',
+            `DELETE repos/octo/widget/git/refs/heads/${CI_BRANCH}`,
+            'PUT repos/octo/widget/branches/main/protection',
+          ]
+        )
+        const put = fake.state.writes.find((w) => w.path.endsWith(`/contents/${CI_FILE}`)).body
+        assert.deepEqual(put, { message: CI_MESSAGE, content: b64(SWIFT_YAML), branch: CI_BRANCH })
+        assert.match(SWIFT_YAML, /^ {4}runs-on: macos-latest$/m)
+      })
+
+      test('every call of the run passes the read guard or the fence, with the swift yaml as the planned text', () => {
+        const fake = swiftFake()
+        const token = tokenOf(apply(fake, 'widget').text)
+        fake.state.calls.length = 0
+        assert.equal(apply(fake, 'widget', '--confirm', token).code, 0)
+        const ctx = { text: SWIFT_YAML, pr: { number: 20, sha: PR_SHA } }
+        for (const c of fake.state.calls) {
+          const input = c.input === undefined ? undefined : JSON.parse(c.input)
+          assert.equal(isReadOnly(c.args) || isAllowedWrite(c.args, input, TARGET, ctx), true, c.args.join(' '))
+        }
+      })
+
+      test('the plan token of a public repo does not confirm a repo that turned private', () => {
+        const token = tokenOf(apply(swiftFake(), 'widget').text)
+        const fake = swiftFake({ repo: { private: true } })
+        const out = apply(fake, 'widget', '--confirm', token)
+        assert.equal(out.code, 2)
+        assert.match(out.text, /plan changed since it was shown/)
+        assert.deepEqual(fake.state.writes, [])
+      })
     })
 
     test('waits on a clock: polls 30 s apart until tests is green, then merges', () => {
