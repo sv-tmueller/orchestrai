@@ -380,6 +380,32 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     })
   }
 
+  // ssh gets `github.com:65536` or `github.com:` as the host here, which is not
+  // GitHub, so the parser must not say GitHub. It calls them invalid.
+  for (const url of [
+    'ssh://git@github.com:65536/o/r',
+    'ssh://git@github.com:99999999999/o/r',
+    'ssh://example.invalid:22@github.com:/o/r',
+    'ssh://user:pw@github.com:/o/r',
+  ]) {
+    test(`does not say GitHub for a port or user part ssh cannot resolve: ${url}`, () => {
+      const seen = gitsHost(url)
+      assert.equal(seen.error, undefined, `git refused ${url}`)
+      assert.equal(ACCEPTED_HOSTS.includes(seen.host), false, `git's host is ${seen.host}`)
+      assert.equal(isGitHub(url), false)
+      assert.deepEqual(parseGitHubRemote(url), { invalid: true })
+    })
+  }
+
+  // Same rule for git:// and https. The diag command shows the raw host and port
+  // for git:// and has no https, so only the parser is checked here.
+  for (const url of ['git://github.com:65536/o/r', 'https://github.com:65536/o/r']) {
+    test(`does not say GitHub for a port above 65535: ${url}`, () => {
+      assert.equal(isGitHub(url), false)
+      assert.deepEqual(parseGitHubRemote(url), { invalid: true })
+    })
+  }
+
   // git decodes or strips these in the host, so the parser cannot read the real
   // host. It must still never say GitHub for a host git sends elsewhere.
   for (const url of ['ssh://%67ithub.com/o/r', 'ssh://git@[github.com]:22/o/r', '[github.com]:o/r', 'ssh://[example.invalid]/o/r', 'ssh://%65xample.invalid/o/r']) {

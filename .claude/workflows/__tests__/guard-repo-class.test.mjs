@@ -340,6 +340,36 @@ describe('parseGitHubRemote', () => {
     for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
   })
 
+  test('a port above 65535 is invalid, for every scheme', () => {
+    const urls = [
+      'ssh://git@github.com:65536/octo/widget-api',
+      'ssh://git@github.com:99999999999/octo/widget-api',
+      'git://github.com:65536/octo/widget-api',
+      'https://github.com:65536/octo/widget-api',
+      'ssh://git@github.com:000065536/octo/widget-api',
+      'git+ssh://git@ssh.github.com:70000/octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  test('a colon in the user part with an empty port is invalid', () => {
+    const urls = ['ssh://example.invalid:22@github.com:/octo/widget-api', 'ssh://user:pw@github.com:/octo/widget-api']
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  test('ports up to 65535 with any leading zeros, and an empty port without a colon in the user part, are GitHub', () => {
+    const urls = [
+      'ssh://git@github.com:65535/octo/widget-api',
+      'ssh://git@github.com:00022/octo/widget-api',
+      'ssh://git@github.com:0/octo/widget-api',
+      'ssh://git@github.com:/octo/widget-api',
+      'https://github.com:65535/octo/widget-api',
+      'ssh://git:@github.com/octo/widget-api',
+      'https://user:pw@github.com:8443/octo/widget-api',
+    ]
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), widget, url)
+  })
+
   test('a percent sign or bracket in the host part is invalid, not GitHub and not another host', () => {
     const urls = ['ssh://%67ithub.com/octo/widget-api', 'ssh://git@[github.com]:22/octo/widget-api', '[github.com]:octo/widget-api', 'ssh://[example.invalid]/octo/widget-api']
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
