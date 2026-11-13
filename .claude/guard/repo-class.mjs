@@ -81,9 +81,14 @@ export function parseGitHubRemote(url) {
     path = scp[3]
   }
   if (/[%[\]]/.test(hostText)) return { invalid: true }
-  const host = isScheme ? /^([^:]+)(?::\d*)?$/.exec(hostText)?.[1] : hostText
+  const hostPort = isScheme ? /^([^:]+)(?::(\d*))?$/.exec(hostText) : [hostText, hostText]
+  const host = hostPort?.[1]
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
   if (/[%[\]]/.test(user)) return { invalid: true }
+  // git and ssh cannot use a port above 65535. An empty port is dropped by git,
+  // but after a colon in the user part ssh sees "github.com:" as the host.
+  const port = isScheme ? hostPort[2] : undefined
+  if (port !== undefined && (port === '' ? user.includes(':') : Number(port) > 65535)) return { invalid: true }
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
