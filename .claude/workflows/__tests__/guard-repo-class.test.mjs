@@ -27,7 +27,7 @@ const fail = (status, message) => ({
 const check = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS' })
 const pr = (number, rollup) => ({ number, isDraft: false, statusCheckRollup: rollup })
 
-const PR_LIST = (full) => `pr list --repo ${full} --state all --limit 10 --json number,isDraft,statusCheckRollup`
+const PR_LIST = (full) => `pr list --repo ${full} --state all --limit 10 --json number,isDraft,state,headRefName,statusCheckRollup`
 const LISTING = 'api --paginate --slurp user/repos?affiliation=owner&per_page=100'
 const UPGRADE = 'Upgrade to GitHub Pro or make this repository public to enable this feature.'
 
@@ -62,6 +62,8 @@ function personal(name, { info = {}, protection = TIDY_PROTECTION } = {}) {
 }
 
 const ME = { 'api user': json({ login: 'octo' }) }
+// Check runs `gh --version` first (requireGh in the repo guard). The lookup does not.
+const GH_VERSION = { '--version': { code: 0, stdout: 'gh version 2.60.0 (2026-01-01)\n', stderr: '' } }
 
 const orgRead = (full, extra = {}) => ({
   [`api repos/${full}`]: json({
@@ -930,6 +932,7 @@ describe('lookupRepoClass: same result as Check', () => {
   for (const [label, { expected, answers }] of Object.entries(FIXTURES)) {
     test(`${label}: the class is personal-set-up exactly when Check prints "set up"`, () => {
       const checkTable = {
+        ...GH_VERSION,
         ...ME,
         ...answers,
         [LISTING]: json([[{ full_name: 'octo/widget-api', owner: { login: 'octo' }, archived: false }]]),
@@ -952,9 +955,9 @@ describe('lookupRepoClass: same result as Check', () => {
 
   test('the lookup makes the same reads Check makes for that repo', () => {
     const answers = FIXTURES['set up'].answers
-    const checkRun = ghFake({ ...ME, ...answers, [LISTING]: json([[{ full_name: 'octo/widget-api', owner: { login: 'octo' }, archived: false }]]) })
+    const checkRun = ghFake({ ...GH_VERSION, ...ME, ...answers, [LISTING]: json([[{ full_name: 'octo/widget-api', owner: { login: 'octo' }, archived: false }]]) })
     collect(checkRun.run)
-    const perRepo = checkRun.keys().filter((k) => k !== 'api user' && k !== LISTING)
+    const perRepo = checkRun.keys().filter((k) => k !== '--version' && k !== 'api user' && k !== LISTING)
     const { gh } = lookup({ table: { ...answers, ...ME } })
     assert.deepEqual(gh.keys().filter((k) => k !== 'api user').sort(), perRepo.sort())
   })
