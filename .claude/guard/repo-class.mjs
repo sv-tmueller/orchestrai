@@ -81,7 +81,7 @@ export function parseGitHubRemote(url) {
     path = scp[3]
   }
   if (/[%[\]]/.test(hostText)) return { invalid: true }
-  const host = isScheme ? /^([^:]+)(?::\d+)?$/.exec(hostText)?.[1] : hostText
+  const host = isScheme ? /^([^:]+)(?::\d*)?$/.exec(hostText)?.[1] : hostText
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
   if (/[%[\]]/.test(user)) return { invalid: true }
 
