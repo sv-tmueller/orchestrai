@@ -409,6 +409,46 @@ describe('lean-allowed: the package rule', () => {
     assert.equal(pkg({ issuePaths: ['src'] }).allowed, true)
   })
 
+  for (const path of [
+    '(.claude/skills/x)',
+    '<.claude/skills/x>',
+    '.Claude/skills/x',
+    '.claude/skills.',
+    '/home/me/repo/.claude/agents/a.md',
+    '.claude/settings.json',
+    '.GitHub/dependabot.yml',
+    '(package.json)',
+    'Package.JSON',
+    'apps/web/requirements-dev.txt.',
+    'see uv.lock',
+  ]) {
+    test(`an issue path that contains a forced-full name in any spelling: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, false)
+    })
+  }
+
+  test('the reason for an issue path keeps its original letter case', () => {
+    assert.equal(pkg({ issuePaths: ['.Claude/skills/x'] }).reason, 'forced-full path: .Claude/skills/x')
+  })
+
+  for (const path of ['src/a.js', 'docs/claude-notes.md', 'docs/github-setup.md', 'src/packages.js']) {
+    test(`an issue path with no forced-full name stays allowed: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, true)
+    })
+  }
+
+  for (const [label, path] of [
+    ['a question mark', 'src/a?.js'],
+    ['an opening bracket', 'src/[ab].js'],
+    ['a closing bracket', 'src/a]b.js'],
+    ['a single quote in the middle', "src/a'b.js"],
+    ['a double quote in the middle', 'src/a"b.js'],
+  ]) {
+    test(`an issue path with ${label} throws`, () => {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/)
+    })
+  }
+
   test('an issue path that is empty after normalization throws', () => {
     for (const path of ['``', '""', '/', './', '  ']) {
       assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/, JSON.stringify(path))
@@ -645,6 +685,13 @@ describe('lean-allowed: the CLI with a diff', () => {
     const out = decide(dir, { issuePaths: 'src/a.js,.claude/skills' })
     assert.equal(out.allowed, false)
     assert.ok(out.reason.includes('.claude/skills'), out.reason)
+  })
+
+  test('an issue path wrapped in parentheses: not allowed, the reason names the path', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: '(.claude/skills/x)' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.claude/skills/x'), out.reason)
   })
 
   test('issue paths with a space after the comma: still not allowed', (t) => {

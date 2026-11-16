@@ -114,12 +114,20 @@ function normalizeIssuePaths(paths) {
   return normalized
 }
 
-// The parents of a forced-full directory. An issue that names one of these
-// covers every forced-full directory below it.
-const FORCED_FULL_PARENTS = ['.claude', '.github']
+// Issue paths come from prose, so this match is broader than forcedFull on
+// purpose: any spelling that contains `.claude`, `.github` or a dependency
+// file name gives full. It is a prediction that only decides whether the
+// architect is skipped. The diff check keeps the exact rule.
+const LOWER_DEPENDENCY_FILES = [...DEPENDENCY_FILES].map((name) => name.toLowerCase())
 
 function issuePathForcesFull(path) {
-  return forcedFull(path) || FORCED_FULL_PARENTS.includes(path)
+  const p = path.toLowerCase()
+  return (
+    p.includes('.claude') ||
+    p.includes('.github') ||
+    LOWER_DEPENDENCY_FILES.some((name) => p.includes(name)) ||
+    /(requirements|constraints)[^/]*\.txt/.test(p)
+  )
 }
 
 // Test files and docs add no counted lines, whatever the diff says about them.

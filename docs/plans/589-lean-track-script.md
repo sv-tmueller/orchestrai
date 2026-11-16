@@ -15,7 +15,7 @@
 > - A file with no line count (a binary file, or a text file marked `binary` or `-diff`) outside tests and docs gives full. This plan says a binary file counts zero lines, and its test listings "a binary change counts zero lines", "a binary entry has zero counts" and "a binary file added: allowed" were changed to match.
 > - With a diff head given, an empty diff gives full.
 > - A `.txt` file counts as code, and `requirements*.txt` and `constraints*.txt` are forced full.
-> - An issue path is normalized before the match, the parents `.claude` and `.github` force full, and an issue path that is not a plain repo-relative path is a usage error.
+> - An issue path is normalized before the match, and an issue path with a `.` or `..` segment or a glob, backslash, backtick or quote character is a usage error. The match on issue paths is broader than the match on the diff: an issue path that contains `.claude` or `.github`, or the name of a dependency file, in any letter case, gives full.
 > - The diff is read with `--no-relative`.
 
 ## Global Constraints

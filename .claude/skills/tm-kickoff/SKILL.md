@@ -536,9 +536,11 @@ from lean to full, never back. When in doubt, full.
      Pass `--default-ref unknown` when the first read or the fetch failed.
      `--size` is the issue's size label. `--diff-head` is `none` until the
      developer has pushed. `--issue-paths` is the paths the issue body
-     names, comma-separated, or `none`. It makes no gh calls: it reads the
-     diff and the file list with git, counts test files with the repo
-     guard's own rule, and prints `{ allowed, reason }`.
+     names, comma-separated, or `none`. Pass them as the issue writes them:
+     on issue paths the script matches broadly, and anything under `.claude`
+     or `.github`, or a dependency file, gives full. It makes no gh calls:
+     it reads the diff and the file list with git, counts test files with
+     the repo guard's own rule, and prints `{ allowed, reason }`.
   When `allowed` is false the package runs full with the script's
   `reason`; a nonzero exit runs full with the reason `lean-allowed error`.
 - **Track comment.** For a lean package, run the lean check first. If it

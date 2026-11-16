@@ -113,7 +113,9 @@ from the prose.
   so the line cap cannot apply. The result decides whether the architect is
   skipped, and goes into the wave plan or advisor proposal with its reason.
   Reading paths out of the issue body is the one step that stays with the
-  lead.
+  lead. The match on those paths is broader than the match on the diff: an
+  issue path that contains `.claude` or `.github`, or the name of a
+  dependency file, in any spelling, gives full.
 - **Before every reviewer dispatch (final).** Input: the same, plus the
   real diff between the default branch and the PR head, read with git. If
   lean is not allowed, the package moves to the full track at the tester
