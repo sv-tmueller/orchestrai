@@ -99,10 +99,10 @@ stay full, 49 are lean today, and 10 are code changes outside the machinery
 
 ## 4. How the decision runs
 
-One script next to `lean-allowed.mjs` holds the whole rule as a pure
-function and prints `{ track, reason }`. It makes no gh calls. The lead
-runs it and follows the answer; the lead no longer applies the rule from
-the prose.
+`lean-allowed.mjs` holds the whole rule, not only the repo clause, and
+prints `{ allowed, reason }` as it does today. It makes no gh calls. The
+lead runs it and follows the answer; the lead no longer applies the rule
+from the prose.
 
 - **Before dispatch (provisional).** Input: the size label, the repo clause
   inputs, and the paths the issue body names, if any. There is no diff yet,
@@ -112,7 +112,7 @@ the prose.
   lead.
 - **Before every reviewer dispatch (final).** Input: the same, plus the
   real diff between the default branch and the PR head, read with git. If
-  the result is full, the package moves to the full track at the tester
+  lean is not allowed, the package moves to the full track at the tester
   stage with a `Track: full - <reason>` comment, exactly as a broken diff
   check does today.
 - **Wave-end report.** One line: how many packages ran lean, ran full, and
@@ -160,8 +160,7 @@ The owner accepted this on 2026-11-16.
 
 ## 8. Left to the plan
 
-- The script's name and flags, and whether it wraps or absorbs
-  `lean-allowed.mjs`.
+- The script's new flags.
 - The exact docs extensions and the manifest list taken from the repo guard.
 - Unit tests first for the pure function. Update the text tests that pin
   the lean rule (`kickoff-lean-check-text.test.mjs`), `README.md`,
