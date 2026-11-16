@@ -1,11 +1,13 @@
 /**
- * Tests for the lean check (issue #504).
+ * Tests for the lean check (issues #504 and #589).
  *
- * Before the lead puts a package on the lean track, it asks `lean-allowed.mjs`
- * whether the repo allows it: a repo set up for auto merge with no test files
- * must run the full track. The decision is pure; the CLI lists the files of
- * `origin/<default>` with git, so those tests build real temporary git repos
- * with their config isolated and never touch this repo's refs.
+ * Before the lead puts a package on the lean track, it asks `lean-allowed.mjs`.
+ * The package must be size:S, touch no forced-full path and stay within the
+ * line cap, and the repo must allow it: a repo set up for auto merge with no
+ * test files must run the full track. Both decisions are pure; the CLI reads
+ * the diff and the files of `origin/<default>` with git, so those tests build
+ * real temporary git repos with their config isolated and never touch this
+ * repo's refs.
  */
 
 import { test, describe } from 'node:test'
@@ -16,7 +18,15 @@ import { tmpdir } from 'node:os'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
-import { leanAllowed, blobPaths } from '../../skills/tm-kickoff/lean-allowed.mjs'
+import {
+  leanAllowed,
+  blobPaths,
+  packageAllowed,
+  parseNumstat,
+  forcedFull,
+  countedLines,
+  LINE_CAP,
+} from '../../skills/tm-kickoff/lean-allowed.mjs'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(__dir, '..', '..', 'skills', 'tm-kickoff', 'lean-allowed.mjs')
@@ -77,13 +87,45 @@ function run(cwd, ...args) {
   })
 }
 
-function flags(ref, { autoMerge = 'true', protectedBranch = 'true', rules = '0' } = {}) {
+function flags(
+  ref,
+  {
+    autoMerge = 'true',
+    protectedBranch = 'true',
+    rules = '0',
+    size = 'S',
+    diffHead = 'none',
+    issuePaths = 'none',
+  } = {},
+) {
   return [
     '--default-ref', ref,
     '--auto-merge', autoMerge,
     '--branch-protected', protectedBranch,
     '--branch-rules', rules,
+    '--size', size,
+    '--diff-head', diffHead,
+    '--issue-paths', issuePaths,
   ]
+}
+
+// Commits the given files on a new branch off the current commit, then goes
+// back to main. `change` runs in between, for a rename or a delete.
+function branch(dir, name, files, change = () => {}) {
+  git(dir, 'checkout', '-q', '-b', name)
+  for (const [file, body] of Object.entries(files)) {
+    const path = join(dir, file)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, body)
+  }
+  change()
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-q', '-m', name)
+  git(dir, 'checkout', '-q', 'main')
+}
+
+function lines(n) {
+  return Array.from({ length: n }, (_, i) => `line ${i}\n`).join('')
 }
 
 const SET_UP = { autoMerge: true, branchProtected: true, branchRules: 0 }
@@ -217,6 +259,314 @@ describe('lean-allowed: blobPaths', () => {
   })
 })
 
+describe('lean-allowed: the package rule', () => {
+  const c = (path, added, deleted = 0) => ({ path, added, deleted })
+  const pkg = (over) => packageAllowed({ size: 'S', issuePaths: [], changes: 'none', ...over })
+
+  test('the cap is 150 counted lines', () => {
+    assert.equal(LINE_CAP, 150)
+  })
+
+  test('size S, no diff yet, no issue paths: allowed', () => {
+    assert.equal(pkg({}).allowed, true)
+  })
+
+  for (const size of ['M', 'L', 'XL', 'none']) {
+    test(`size ${size}: not allowed, the reason names the size`, () => {
+      const r = pkg({ size })
+      assert.equal(r.allowed, false)
+      assert.ok(r.reason.includes(size), r.reason)
+    })
+  }
+
+  test('150 counted lines: allowed', () => {
+    assert.equal(pkg({ changes: [c('src/a.ts', 100, 50)] }).allowed, true)
+  })
+
+  test('151 counted lines: not allowed, the reason names 151 and 150', () => {
+    const r = pkg({ changes: [c('src/a.ts', 100, 50), c('src/b.py', 1)] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('151') && r.reason.includes('150'), r.reason)
+  })
+
+  test('test files and docs do not count', () => {
+    const changes = [
+      c('src/a.ts', 150),
+      c('src/a.test.ts', 900),
+      c('docs/x.md', 900),
+      c('NOTES.MD', 900),
+      c('guide.rst', 900),
+      c('page.mdx', 900),
+    ]
+    assert.equal(countedLines(changes), 150)
+    assert.equal(pkg({ changes }).allowed, true)
+  })
+
+  test('a .txt file counts as code: build files and pinned lists are plain text', () => {
+    assert.equal(countedLines([c('CMakeLists.txt', 900)]), 900)
+    assert.equal(pkg({ changes: [c('CMakeLists.txt', 151)] }).allowed, false)
+  })
+
+  for (const path of ['requirements-dev.txt', 'api/requirements_test.txt', 'constraints.txt']) {
+    test(`forced full, a pinned dependency list: ${path}`, () => {
+      assert.equal(forcedFull(path), true)
+    })
+  }
+
+  for (const path of [' .claude/skills', './.claude/skills/x/SKILL.md', '/.github/workflows/ci.yml', '.claude/agents/']) {
+    test(`forced full from an issue path written as ${JSON.stringify(path)}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, false)
+    })
+  }
+
+  const NO_COUNT = (path) =>
+    `${path} has no line count (binary, or marked binary or -diff), so the line cap cannot be checked`
+  const nc = (path) => ({ path, added: null, deleted: null })
+
+  test('a file with no line count: not allowed, the reason names the first such file', () => {
+    assert.deepEqual(pkg({ changes: [c('src/a.ts', 1), nc('art/logo.png'), nc('b.bin')] }), {
+      allowed: false,
+      reason: NO_COUNT('art/logo.png'),
+    })
+  })
+
+  test('a no-count entry that is a test file or a doc does not block and adds no lines', () => {
+    const changes = [nc('src/a.test.js'), nc('docs/shot.md'), c('src/a.ts', 150)]
+    assert.equal(countedLines(changes), 150)
+    assert.equal(pkg({ changes }).allowed, true)
+  })
+
+  test('a mode-only change and an empty file count zero and are allowed', () => {
+    assert.equal(pkg({ changes: [c('run.sh', 0, 0), c('src/empty.js', 0, 0)] }).allowed, true)
+  })
+
+  test('a forced-full path is reported before a no-count file', () => {
+    const r = pkg({ changes: [nc('art/logo.png'), c('package.json', 1)] })
+    assert.equal(r.allowed, false)
+    assert.equal(r.reason, 'forced-full path: package.json')
+  })
+
+  test('a no-count file is reported before the line cap', () => {
+    const r = pkg({ changes: [c('src/a.ts', 500), nc('art/logo.png')] })
+    assert.equal(r.reason, NO_COUNT('art/logo.png'))
+  })
+
+  test('an empty diff: not allowed', () => {
+    assert.deepEqual(pkg({ changes: [] }), { allowed: false, reason: 'the diff is empty' })
+  })
+
+  test('no diff yet is still allowed', () => {
+    assert.equal(pkg({ changes: 'none' }).allowed, true)
+  })
+
+  test('the size check comes before the empty diff check', () => {
+    assert.ok(pkg({ size: 'M', changes: [] }).reason.includes('size is M'))
+  })
+
+  test('the issue path check comes before the empty diff check', () => {
+    assert.equal(pkg({ issuePaths: ['.claude'], changes: [] }).reason, 'forced-full path: .claude')
+  })
+
+  test('an unreadable diff: not allowed', () => {
+    assert.equal(pkg({ changes: 'unknown' }).allowed, false)
+  })
+
+  for (const path of [
+    '.claude/agents/reviewer.md',
+    '.claude/skills/x/SKILL.md',
+    '.claude/workflows/a.js',
+    '.github/workflows/ci.yml',
+    'package.json',
+    'apps/web/package.json',
+    'pnpm-lock.yaml',
+    'uv.lock',
+    'go.sum',
+    'Package.resolved',
+  ]) {
+    test(`forced full in the diff: ${path}`, () => {
+      const r = pkg({ changes: [c(path, 1)] })
+      assert.equal(r.allowed, false)
+      assert.ok(r.reason.includes(path), r.reason)
+    })
+  }
+
+  for (const [written, normalized] of [
+    ['.claude', '.claude'],
+    ['.github', '.github'],
+    ['`.claude/skills/x`', '.claude/skills/x'],
+    ['.claude//skills/x', '.claude/skills/x'],
+    ['"./.claude/workflows/"', '.claude/workflows'],
+    ["'.github/workflows/ci.yml'", '.github/workflows/ci.yml'],
+  ]) {
+    test(`forced full from the issue path ${written}, the reason names ${normalized}`, () => {
+      const r = pkg({ issuePaths: [written] })
+      assert.equal(r.allowed, false)
+      assert.equal(r.reason, `forced-full path: ${normalized}`)
+    })
+  }
+
+  test('the issue path src is a parent of nothing forced: allowed', () => {
+    assert.equal(pkg({ issuePaths: ['src'] }).allowed, true)
+  })
+
+  for (const path of [
+    '.Claude/skills/x',
+    '.claude/skills.',
+    '/home/me/repo/.claude/agents/a.md',
+    '.claude/settings.json',
+    '.GitHub/dependabot.yml',
+    'Package.JSON',
+    'apps/web/requirements-dev.txt.',
+    'see uv.lock',
+  ]) {
+    test(`an issue path that contains a forced-full name in any spelling: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, false)
+    })
+  }
+
+  for (const path of [
+    '(.claude/skills/x)',
+    '<.claude/skills/x>',
+    '(package.json)',
+    '.{claude/agents,github/workflows}/x',
+    'package{,-lock}.json',
+    '.{claude,github}/workflows',
+    'src/a(b).js',
+    '<src/a.js>',
+    'src/a;b.js',
+    'src/a:b.js',
+    'src/für.js',
+  ]) {
+    test(`an issue path with a character outside the whitelist throws: ${path}`, () => {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/)
+    })
+  }
+
+  for (const path of ['src/a b.js', 'Generic Scripted REST API/x.js', 'src/a_b-c.d/e.js']) {
+    test(`an issue path made of whitelisted characters stays allowed: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, true)
+    })
+  }
+
+  test('the reason for an issue path keeps its original letter case', () => {
+    assert.equal(pkg({ issuePaths: ['.Claude/skills/x'] }).reason, 'forced-full path: .Claude/skills/x')
+  })
+
+  for (const path of ['src/a.js', 'docs/claude-notes.md', 'docs/github-setup.md', 'src/packages.js']) {
+    test(`an issue path with no forced-full name stays allowed: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, true)
+    })
+  }
+
+  for (const [label, path] of [
+    ['a question mark', 'src/a?.js'],
+    ['an opening bracket', 'src/[ab].js'],
+    ['a closing bracket', 'src/a]b.js'],
+    ['a single quote in the middle', "src/a'b.js"],
+    ['a double quote in the middle', 'src/a"b.js'],
+  ]) {
+    test(`an issue path with ${label} throws`, () => {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/)
+    })
+  }
+
+  test('an issue path that is empty after normalization throws', () => {
+    for (const path of ['``', '""', '/', './', '  ']) {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/, JSON.stringify(path))
+    }
+  })
+
+  test('an issue path that is not a plain repo-relative path throws', () => {
+    for (const path of [
+      '.claude/./skills/x',
+      '.claude/skills/../skills/x',
+      'src/*.js',
+      '**/package.json',
+      'src\\a.js',
+      'src/a`b.js',
+    ]) {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/, JSON.stringify(path))
+    }
+  })
+
+  test('an issue path with spaces around the name inside backticks is trimmed', () => {
+    const r = pkg({ issuePaths: ['` .claude `'] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('.claude'), r.reason)
+  })
+
+  test('a space inside a directory name is a legal issue path', () => {
+    assert.equal(pkg({ issuePaths: ['Generic Scripted REST API/x.js'] }).allowed, true)
+  })
+
+  test('paths from the diff are not normalized', () => {
+    assert.equal(pkg({ changes: [c('.claude', 1)] }).allowed, true)
+  })
+
+  test('forced full from the issue paths, directory named without a slash', () => {
+    const r = pkg({ issuePaths: ['.claude/skills'] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('.claude/skills'), r.reason)
+  })
+
+  test('near misses are not forced full', () => {
+    for (const path of [
+      '.claude/skills-notes.md',
+      'docs/.github/workflows/x.yml',
+      '.claude/settings.json',
+      'src/package.json.ts',
+    ]) {
+      assert.equal(forcedFull(path), false, path)
+    }
+  })
+
+  test('the manifest names come from the repo guard, not a copy', () => {
+    const src = readFileSync(scriptPath, 'utf8')
+    assert.match(src, /MANIFESTS/)
+    assert.doesNotMatch(src, /'pyproject\.toml'/)
+  })
+
+  test('malformed input throws', () => {
+    assert.throws(() => pkg({ size: 's' }), /size/)
+    assert.throws(() => pkg({ issuePaths: 'src/a.js' }), /issuePaths/)
+    assert.throws(() => pkg({ changes: 'nope' }), /changes/)
+    assert.throws(() => pkg({ changes: [{ path: 'a', added: -1, deleted: 0 }] }), /changes/)
+  })
+})
+
+describe('lean-allowed: parseNumstat', () => {
+  test('reads counts and paths from -z output', () => {
+    assert.deepEqual(parseNumstat('3\t1\tsrc/a.ts\x0010\t0\tb.md\x00'), [
+      { path: 'src/a.ts', added: 3, deleted: 1 },
+      { path: 'b.md', added: 10, deleted: 0 },
+    ])
+  })
+
+  test('a binary entry has no counts, not zero counts', () => {
+    assert.deepEqual(parseNumstat('-\t-\tart/logo.png\x00'), [
+      { path: 'art/logo.png', added: null, deleted: null },
+    ])
+  })
+
+  test('a 0 0 entry keeps its zero counts', () => {
+    assert.deepEqual(parseNumstat('0\t0\trun.sh\x00'), [{ path: 'run.sh', added: 0, deleted: 0 }])
+  })
+
+  test('keeps a tab, a newline and non-ASCII inside a path', () => {
+    assert.deepEqual(parseNumstat('1\t0\tdir\twith\ttab/fü\nr.js\x00'), [
+      { path: 'dir\twith\ttab/fü\nr.js', added: 1, deleted: 0 },
+    ])
+  })
+
+  test('empty output is an empty list', () => {
+    assert.deepEqual(parseNumstat(''), [])
+  })
+
+  test('an entry that is not numstat throws', () => {
+    assert.throws(() => parseNumstat('garbage\x00'), /numstat/)
+  })
+})
+
 describe('lean-allowed: the CLI on a temp repo', () => {
   test('a test file on the default ref: allowed', (t) => {
     const dir = makeRepo(t, { 'README.md': 'x', 'src/a.test.js': 'x' })
@@ -296,6 +646,164 @@ describe('lean-allowed: the CLI on a temp repo', () => {
   })
 })
 
+describe('lean-allowed: the CLI with a diff', () => {
+  const BASE = { 'README.md': 'x', 'src/a.test.js': 'x' }
+
+  function decide(dir, opts) {
+    const r = run(dir, ...flags('main', opts))
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stderr, '')
+    return JSON.parse(r.stdout)
+  }
+
+  test('no diff yet, size S: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, {}), { allowed: true, reason: 'test files found' })
+  })
+
+  test('size M: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    const out = decide(dir, { size: 'M', diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('size is M'), out.reason)
+  })
+
+  test('a 10-line code change on the branch: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a 151-line code change: not allowed, the reason has 151', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(151) })
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('151'), out.reason)
+  })
+
+  test('900 lines of tests and docs plus 10 of code: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', {
+      'src/a.js': lines(10),
+      'src/b.test.js': lines(450),
+      'docs/guide.md': lines(450),
+    })
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a change under .github/workflows: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { '.github/workflows/ci.yml': lines(3) })
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.github/workflows/ci.yml'), out.reason)
+  })
+
+  test('an issue path under .claude/skills: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: 'src/a.js,.claude/skills' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.claude/skills'), out.reason)
+  })
+
+  test('an issue path in a nested package: not allowed, the reason names the path', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: 'src/a.js,apps/web/package.json' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('apps/web/package.json'), out.reason)
+  })
+
+  test('issue paths with a space after the comma: still not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: 'src/a.js, .claude/skills' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.claude/skills'), out.reason)
+  })
+
+  test('diff.relative set and run from a subdirectory: still sees the whole diff', (t) => {
+    const dir = makeRepo(t, { ...BASE, 'docs/guide.md': 'x' })
+    branch(dir, 'feat', { '.github/workflows/ci.yml': lines(3) })
+    git(dir, 'config', 'diff.relative', 'true')
+    const r = run(join(dir, 'docs'), ...flags('main', { diffHead: 'feat' }))
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(r.stdout).allowed, false)
+  })
+
+  test('main moved on by 400 lines after the branch point: still allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    writeFileSync(join(dir, 'src', 'other.js'), lines(400))
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-q', '-m', 'main moves on')
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a 100-line file renamed with no edit: not allowed', (t) => {
+    const dir = makeRepo(t, { ...BASE, 'src/big.js': lines(100) })
+    branch(dir, 'feat', {}, () => git(dir, 'mv', 'src/big.js', 'src/huge.js'))
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('200'), out.reason)
+  })
+
+  test('a binary file added: not allowed, no line count', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'art/logo.bin': Buffer.from([0, 1, 2, 0, 255]) })
+    assert.deepEqual(decide(dir, { diffHead: 'feat' }), {
+      allowed: false,
+      reason:
+        'art/logo.bin has no line count (binary, or marked binary or -diff), so the line cap cannot be checked',
+    })
+  })
+
+  test('a 5000-line source file marked -diff in the same diff: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'huge.js': lines(5000), '.gitattributes': 'huge.js -diff\n' })
+    // Git reads the attributes from the checkout, so stay on the branch the
+    // way a developer's worktree does.
+    git(dir, 'checkout', '-q', 'feat')
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('huge.js has no line count'), out.reason)
+  })
+
+  test('a diff head equal to the default ref: empty diff, not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, { diffHead: 'main' }), { allowed: false, reason: 'the diff is empty' })
+  })
+
+  for (const path of ['.claude', '.github', '`.claude/skills/x`', '.claude//skills/x']) {
+    test(`the issue path ${path}: not allowed`, (t) => {
+      const dir = makeRepo(t, BASE)
+      assert.equal(decide(dir, { issuePaths: path }).allowed, false)
+    })
+  }
+
+  test('a diff head that does not exist: not allowed, exit 0', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, { diffHead: 'origin/nope' }), {
+      allowed: false,
+      reason: 'the diff could not be read',
+    })
+  })
+
+  test('--default-ref unknown with a diff head: not allowed, exit 0', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    const r = run(dir, ...flags('unknown', { diffHead: 'feat' }))
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), { allowed: false, reason: 'the diff could not be read' })
+  })
+
+  test('set up, no test files, small code change: not allowed with the repo reason', (t) => {
+    const dir = makeRepo(t, { 'README.md': 'x' })
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    assert.deepEqual(decide(dir, { diffHead: 'feat' }), { allowed: false, reason: NO_TESTS })
+  })
+})
+
 describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   const good = flags('main')
 
@@ -320,4 +828,23 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   test('a bad rules count', () => expectUsage(flags('main', { rules: '-1' })))
   test('an empty ref', () => expectUsage(flags('')))
   test('a ref that starts with a dash', () => expectUsage(flags('--output=x')))
+  test('a bad size', () => expectUsage(flags('main', { size: 's' })))
+  test('an empty diff head', () => expectUsage(flags('main', { diffHead: '' })))
+  test('a diff head that starts with a dash', () =>
+    expectUsage(flags('main', { diffHead: '--output=x' })))
+  test('an empty issue path list', () => expectUsage(flags('main', { issuePaths: '' })))
+  test('an empty issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a,,b' })))
+  test('a blank issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a, ,b' })))
+  test('an issue path that is only a pair of backticks', () =>
+    expectUsage(flags('main', { issuePaths: '``' })))
+  test('an issue path with a dot segment', () =>
+    expectUsage(flags('main', { issuePaths: '.claude/./skills/x' })))
+  test('an issue path with a glob character', () =>
+    expectUsage(flags('main', { issuePaths: 'src/*.js' })))
+  test('an issue path wrapped in parentheses', () =>
+    expectUsage(flags('main', { issuePaths: '(.claude/skills/x)' })))
+  test('an issue path with a brace glob over two forced-full directories', () =>
+    expectUsage(flags('main', { issuePaths: '.{claude/agents,github/workflows}/x' })))
+  test('an issue path with a brace glob over a dependency file name', () =>
+    expectUsage(flags('main', { issuePaths: 'package{,-lock}.json' })))
 })

@@ -49,7 +49,8 @@ test('Lean check: the command the skill gives is one the script accepts', () => 
   for (let i = 0; i < tokens.length; i += 2) pairs.push([tokens[i], tokens[i + 1]])
 
   // `unknown` for the ref keeps git out of the run, so cwd does not matter.
-  const concrete = (v) => (v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v)
+  const concrete = (v) =>
+    v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v === '<paths>' ? 'src/a.js' : v
   const base = pairs.map(([flag, value]) => [flag, concrete(value.split('|')[0])])
 
   for (let k = 0; k < pairs.length; k++) {
@@ -88,8 +89,13 @@ const CLAUSES = [
     'Diff check',
     'Before every lean reviewer dispatch (after DONE or DONE_WITH_CONCERNS, after each fix round, and on resume)',
   ],
-  ['Diff check', 'if the paths still pass, run the lean check'],
-  ['Diff check', "or `Track: full - <the lean check's reason>` when the lean check broke it"],
+  ['Diff check', 'run the lean check with `--diff-head origin/<branch>`'],
+  [
+    'Diff check',
+    "If it does not allow the lean track, post `Track: full - <the lean check's reason>` on the issue, remove `track:lean`",
+  ],
+  ['Before dispatch', 'Run the lean check with `--diff-head none`'],
+  ['Lean check', 'The lead does not apply the rule itself'],
 ]
 
 for (const [label, clause] of CLAUSES) {
@@ -97,3 +103,24 @@ for (const [label, clause] of CLAUSES) {
     assert.ok(bullet(label).includes(clause), `missing from "${label}": ${clause}`)
   })
 }
+
+// Issue #589: the rule lives in the script, and code no longer forces full.
+test('the lean rule no longer excludes executable code', () => {
+  const start = text.indexOf('### Pipeline tracks (lean and full)')
+  const end = text.indexOf('### Repair (queued PRs behind the default branch)')
+  assert.ok(start !== -1 && end > start, 'the Pipeline tracks section was not found')
+  assert.ok(!text.slice(start, end).includes('executable code'))
+})
+
+test('the report says how each track count is read', () => {
+  const clause =
+    'lean is a `Track: lean` comment with no later `Track: full`, moved is a `Track: lean` followed by a `Track: full`, and full is every other package'
+  assert.ok(text.includes(clause), 'missing from tm-kickoff section 4')
+})
+
+test('both reports carry the track counts', () => {
+  const line = '- Tracks: <n> lean, <n> full, <n> moved to full (#NN: <the lean check\'s reason>)'
+  assert.ok(text.includes(line), 'missing from tm-kickoff')
+  const advisor = readFileSync(join(claudeDir, 'skills', 'tm-advisor', 'SKILL.md'), 'utf8')
+  assert.ok(advisor.replace(/\s+/g, ' ').includes(line), 'missing from tm-advisor')
+})

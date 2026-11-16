@@ -56,7 +56,7 @@ const CLAUSES = [
     'clears',
     ' - **Diff check.** ',
     ' - **Review.** ',
-    'when the lean check broke it, remove `track:lean`, and continue on the full track from step 3 (tester).',
+    "post `Track: full - <the lean check's reason>` on the issue, remove `track:lean`, and continue on the full track from step 3 (tester).",
   ],
   [
     'gate, Resume detection',

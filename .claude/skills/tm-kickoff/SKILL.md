@@ -511,33 +511,38 @@ above). Limit deaths have no such bound.
 ### Pipeline tracks (lean and full)
 
 The numbered pipeline above is the full track, the default for every
-package. A package qualifies for the lean track only on `size:S`, a
-diff that avoids `.claude/agents`, `.claude/skills`, `.claude/workflows`
-and executable code, and a lean check (below) that allows it. Everything
-else, and every `size:M`, runs full. When in doubt, full.
+package. A package runs the lean track only when the lean check (below)
+allows it. The check holds the whole rule: `size:S`, no forced-full path
+(`.claude/agents`, `.claude/skills`, `.claude/workflows`,
+`.github/workflows`, dependency manifests and lockfiles), at most 150
+counted lines (added plus deleted, outside test files and docs), and a
+repo that has test files or is not set up for auto merge. A package moves
+from lean to full, never back. When in doubt, full.
 
-- **Before dispatch.** Predict the track from the issue body and state it
-  and why in the wave plan or advisor proposal.
-- **Lean check.** On a repo set up for auto merge that has no test files,
-  the lean track is off, because a lean merge there would rest on the
-  reviewer alone. Run it only for a package the size and path rule above
-  lets through, and run it fresh each time:
+- **Before dispatch.** Run the lean check with `--diff-head none` and
+  state the track and the check's reason in the wave plan or advisor
+  proposal.
+- **Lean check.** The lead does not apply the rule itself: it runs the
+  check and follows the answer. Run it fresh each time:
   1. The three reads of step 7 sub-step 2. Set up is decided as in "Fix
      rounds" rule 8: a read that fails or prints `null` is passed as
      `unknown` and counts as set up.
   2. `git fetch origin`.
   3. `node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/lean-allowed.mjs"
      --default-ref origin/<default> --auto-merge true|false|unknown
-     --branch-protected true|false|unknown --branch-rules <n>|unknown`.
+     --branch-protected true|false|unknown --branch-rules <n>|unknown
+     --size S|M|L|XL|none --diff-head origin/<branch>|none
+     --issue-paths <paths>|none`.
      Pass `--default-ref unknown` when the first read or the fetch failed.
-     It makes no gh calls: it lists the files on `origin/<default>` with
-     git, counts test files with the repo guard's own rule, and prints
-     `{ allowed, reason }`.
-  On a set-up repo, a file list that cannot be read falls to full. When
-  `allowed` is false the package runs full with the script's `reason`; a
-  nonzero exit runs full with the reason `lean-allowed error`. Repos with
-  test files, and repos that are not set up, keep the track the size and
-  path rule gives.
+     `--size` is the issue's size label. `--diff-head` is `none` until the
+     developer has pushed. `--issue-paths` is the paths the issue body
+     names, comma-separated, or `none`. Pass them as the issue writes them:
+     on issue paths the script matches broadly, and anything under `.claude`
+     or `.github`, or a dependency file, gives full. It makes no gh calls:
+     it reads the diff and the file list with git, counts test files with
+     the repo guard's own rule, and prints `{ allowed, reason }`.
+  When `allowed` is false the package runs full with the script's
+  `reason`; a nonzero exit runs full with the reason `lean-allowed error`.
 - **Track comment.** For a lean package, run the lean check first. If it
   allows the lean track, post `Track: lean - <reason; expected paths;
   verification: reviewer runs the check suite>` on the issue, and set the
@@ -550,12 +555,11 @@ else, and every `size:M`, runs full. When in doubt, full.
   never carries `phase:architect` or `phase:tester`: only `phase:developer`
   and `phase:reviewer`.
 - **Diff check.** Before every lean reviewer dispatch (after DONE or
-  DONE_WITH_CONCERNS, after each fix round, and on resume), check
-  `gh pr diff <n> --name-only`; if the paths still pass, run the lean
-  check. If eligibility is broken, post `Track: full - <reason; the paths
-  that broke eligibility>` on the issue, or `Track: full - <the lean
-  check's reason>` when the lean check broke it, remove `track:lean`, and
-  continue on the full track from step 3 (tester).
+  DONE_WITH_CONCERNS, after each fix round, and on resume), run the lean
+  check with `--diff-head origin/<branch>`. If it does not allow the lean
+  track, post `Track: full - <the lean check's reason>` on the issue,
+  remove `track:lean`, and continue on the full track from step 3
+  (tester).
 - **Review.** Otherwise skip steps 3-4 (tester) and dispatch the reviewer
   (step 5) with the PR, branch, issue and "lean track", forwarding any
   NOTES from the developer. On CHANGES_REQUESTED (a failing check counts),
@@ -1229,7 +1233,11 @@ instead (its skill section 5).
 Report to the user: PRs merged, queued, and waiting for a human merge (with
 the reason), packages parked (`needs-human`, with their open questions),
 issues deferred to later waves or stopped at the gate, which PRs were
-repaired (and how), and any lessons.
+repaired (and how), how many packages ran lean, ran full, and moved from
+lean to full, and any lessons. Read the track counts from the issue
+comments: lean is a `Track: lean` comment with no later `Track: full`,
+moved is a `Track: lean` followed by a `Track: full`, and full is every
+other package.
 Classify each ready PR with the gate's read (`gh pr view <n> --json
 state,autoMergeRequest`, see "Resume detection") at report time, so a merge
 that landed during the wave shows as merged. A repaired PR's line gets the
@@ -1247,6 +1255,7 @@ off: <first stderr line>`. End with:
 - PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
 - #NN parked (needs-human): <the repair's Parking reason>
+- Tracks: <n> lean, <n> full, <n> moved to full (#NN: <the lean check's reason>)
 - Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
 - Run-long fallback fired on #NN: judgment switched to Sonnet, see <decision comment link> (only if the switch fired this run)
 
