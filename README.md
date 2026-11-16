@@ -60,12 +60,15 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 
 ### Pipeline rules
 
-- **Lean vs full track.** A `size:S` package whose diff stays out of
-  `.claude/agents`, `.claude/skills`, `.claude/workflows`, and executable code
-  skips the architect and tester stages; everything else runs the full
-  five-stage pipeline. On a repo set up for auto merge that has no test files
-  (the repo guard's rule), every package runs the full track, so a merge never
-  rests on the reviewer alone. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
+- **Lean vs full track.** A `size:S` package that stays out of
+  `.claude/agents`, `.claude/skills`, `.claude/workflows`,
+  `.github/workflows` and dependency manifests, and changes at most 150
+  lines outside tests and docs, skips the architect and tester stages;
+  everything else runs the full five-stage pipeline. A script decides
+  (`lean-allowed.mjs`), before dispatch and again on the real diff. On a
+  repo set up for auto merge that has no test files (the repo guard's
+  rule), every package runs the full track, so a merge never rests on the
+  reviewer alone. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
   "Pipeline tracks (lean and full)".
 - **Dependency environment.** The lead builds one read-only dependency
   environment per run and passes its path to the developer, tester, and

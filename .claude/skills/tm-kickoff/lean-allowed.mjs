@@ -197,9 +197,18 @@ export function leanAllowed(input) {
 
 const USAGE =
   'usage: lean-allowed.mjs --default-ref <ref>|unknown --auto-merge true|false|unknown ' +
-  '--branch-protected true|false|unknown --branch-rules <n>|unknown'
+  '--branch-protected true|false|unknown --branch-rules <n>|unknown ' +
+  '--size S|M|L|XL|none --diff-head <ref>|none --issue-paths <paths>|none'
 
-const FLAGS = ['--default-ref', '--auto-merge', '--branch-protected', '--branch-rules']
+const FLAGS = [
+  '--default-ref',
+  '--auto-merge',
+  '--branch-protected',
+  '--branch-rules',
+  '--size',
+  '--diff-head',
+  '--issue-paths',
+]
 
 // Reads argv as flag/value pairs. An unknown flag, a stray argument, a
 // repeated flag or a flag with no value is a usage error, so a corrected
@@ -230,9 +239,21 @@ function parseRules(value) {
   return fail('--branch-rules must be a non-negative integer or unknown')
 }
 
-function parseRef(value) {
-  if (value === '' || value.startsWith('-')) fail('--default-ref must be a ref or unknown')
+function parseRef(name, value, word) {
+  if (value === '' || value.startsWith('-')) fail(`${name} must be a ref or ${word}`)
   return value
+}
+
+function parseSize(value) {
+  return SIZES.includes(value) ? value : fail(`--size must be one of ${SIZES.join(', ')}`)
+}
+
+// A comma-separated list, or `none` for an issue that names no paths.
+function parseIssuePaths(value) {
+  if (value === 'none') return []
+  const paths = value.split(',')
+  if (paths.includes('')) fail('--issue-paths must be comma-separated paths or none')
+  return paths
 }
 
 // A local read is never truncated, unlike GitHub's trees API. --full-tree
@@ -249,15 +270,38 @@ function listPaths(ref) {
   return blobPaths(r.stdout)
 }
 
+// The three dots start the diff at the merge base, so what landed on the
+// default branch after the branch point is not counted. --no-renames keeps
+// every entry one path: a rename counts as a delete plus an add, which can
+// only push a package to the full track.
+function readChanges(defaultRef, diffHead) {
+  if (diffHead === 'none') return 'none'
+  if (defaultRef === 'unknown') return 'unknown'
+  const r = spawnSync(
+    'git',
+    ['diff', '--numstat', '-z', '--no-renames', `${defaultRef}...${diffHead}`, '--'],
+    { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 },
+  )
+  if (r.error || r.status !== 0) return 'unknown'
+  try {
+    return parseNumstat(r.stdout)
+  } catch {
+    return 'unknown'
+  }
+}
+
 export function main(argv) {
   let input
   try {
     const v = parseArgs(argv)
     input = {
-      ref: parseRef(v.get('--default-ref')),
+      ref: parseRef('--default-ref', v.get('--default-ref'), 'unknown'),
       autoMerge: parseBool('--auto-merge', v.get('--auto-merge')),
       branchProtected: parseBool('--branch-protected', v.get('--branch-protected')),
       branchRules: parseRules(v.get('--branch-rules')),
+      size: parseSize(v.get('--size')),
+      diffHead: parseRef('--diff-head', v.get('--diff-head'), 'none'),
+      issuePaths: parseIssuePaths(v.get('--issue-paths')),
     }
     // Validate the reads before touching git.
     leanAllowed({ ...input, paths: [] })
@@ -265,7 +309,14 @@ export function main(argv) {
     process.stderr.write(`${err.message} (${USAGE})\n`)
     process.exit(2)
   }
-  const { ref, ...reads } = input
+  const { ref, size, diffHead, issuePaths, ...reads } = input
+  // The package half first: it needs no file list, and only size:S needs the diff.
+  const changes = size === 'S' ? readChanges(ref, diffHead) : 'none'
+  const pkg = packageAllowed({ size, issuePaths, changes })
+  if (!pkg.allowed) {
+    process.stdout.write(JSON.stringify(pkg) + '\n')
+    return
+  }
   // The list is only used on a set-up repo, so skip the git call otherwise.
   const needsList = isSetUp(reads)
   const result = leanAllowed({ ...reads, paths: needsList ? listPaths(ref) : [] })

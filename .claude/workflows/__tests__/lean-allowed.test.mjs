@@ -1,11 +1,13 @@
 /**
- * Tests for the lean check (issue #504).
+ * Tests for the lean check (issues #504 and #589).
  *
- * Before the lead puts a package on the lean track, it asks `lean-allowed.mjs`
- * whether the repo allows it: a repo set up for auto merge with no test files
- * must run the full track. The decision is pure; the CLI lists the files of
- * `origin/<default>` with git, so those tests build real temporary git repos
- * with their config isolated and never touch this repo's refs.
+ * Before the lead puts a package on the lean track, it asks `lean-allowed.mjs`.
+ * The package must be size:S, touch no forced-full path and stay within the
+ * line cap, and the repo must allow it: a repo set up for auto merge with no
+ * test files must run the full track. Both decisions are pure; the CLI reads
+ * the diff and the files of `origin/<default>` with git, so those tests build
+ * real temporary git repos with their config isolated and never touch this
+ * repo's refs.
  */
 
 import { test, describe } from 'node:test'
@@ -85,13 +87,45 @@ function run(cwd, ...args) {
   })
 }
 
-function flags(ref, { autoMerge = 'true', protectedBranch = 'true', rules = '0' } = {}) {
+function flags(
+  ref,
+  {
+    autoMerge = 'true',
+    protectedBranch = 'true',
+    rules = '0',
+    size = 'S',
+    diffHead = 'none',
+    issuePaths = 'none',
+  } = {},
+) {
   return [
     '--default-ref', ref,
     '--auto-merge', autoMerge,
     '--branch-protected', protectedBranch,
     '--branch-rules', rules,
+    '--size', size,
+    '--diff-head', diffHead,
+    '--issue-paths', issuePaths,
   ]
+}
+
+// Commits the given files on a new branch off the current commit, then goes
+// back to main. `change` runs in between, for a rename or a delete.
+function branch(dir, name, files, change = () => {}) {
+  git(dir, 'checkout', '-q', '-b', name)
+  for (const [file, body] of Object.entries(files)) {
+    const path = join(dir, file)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, body)
+  }
+  change()
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-q', '-m', name)
+  git(dir, 'checkout', '-q', 'main')
+}
+
+function lines(n) {
+  return Array.from({ length: n }, (_, i) => `line ${i}\n`).join('')
 }
 
 const SET_UP = { autoMerge: true, branchProtected: true, branchRules: 0 }
@@ -434,6 +468,114 @@ describe('lean-allowed: the CLI on a temp repo', () => {
   })
 })
 
+describe('lean-allowed: the CLI with a diff', () => {
+  const BASE = { 'README.md': 'x', 'src/a.test.js': 'x' }
+
+  function decide(dir, opts) {
+    const r = run(dir, ...flags('main', opts))
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stderr, '')
+    return JSON.parse(r.stdout)
+  }
+
+  test('no diff yet, size S: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, {}), { allowed: true, reason: 'test files found' })
+  })
+
+  test('size M: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    const out = decide(dir, { size: 'M', diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('size is M'), out.reason)
+  })
+
+  test('a 10-line code change on the branch: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a 151-line code change: not allowed, the reason has 151', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(151) })
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('151'), out.reason)
+  })
+
+  test('900 lines of tests and docs plus 10 of code: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', {
+      'src/a.js': lines(10),
+      'src/b.test.js': lines(450),
+      'docs/guide.md': lines(450),
+    })
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a change under .github/workflows: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { '.github/workflows/ci.yml': lines(3) })
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.github/workflows/ci.yml'), out.reason)
+  })
+
+  test('an issue path under .claude/skills: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: 'src/a.js,.claude/skills' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.claude/skills'), out.reason)
+  })
+
+  test('main moved on by 400 lines after the branch point: still allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    writeFileSync(join(dir, 'src', 'other.js'), lines(400))
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-q', '-m', 'main moves on')
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a 100-line file renamed with no edit: not allowed', (t) => {
+    const dir = makeRepo(t, { ...BASE, 'src/big.js': lines(100) })
+    branch(dir, 'feat', {}, () => git(dir, 'mv', 'src/big.js', 'src/huge.js'))
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('200'), out.reason)
+  })
+
+  test('a binary file added: allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'art/logo.bin': Buffer.from([0, 1, 2, 0, 255]) })
+    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+  })
+
+  test('a diff head that does not exist: not allowed, exit 0', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, { diffHead: 'origin/nope' }), {
+      allowed: false,
+      reason: 'the diff could not be read',
+    })
+  })
+
+  test('--default-ref unknown with a diff head: not allowed, exit 0', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    const r = run(dir, ...flags('unknown', { diffHead: 'feat' }))
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), { allowed: false, reason: 'the diff could not be read' })
+  })
+
+  test('set up, no test files, small code change: not allowed with the repo reason', (t) => {
+    const dir = makeRepo(t, { 'README.md': 'x' })
+    branch(dir, 'feat', { 'src/a.js': lines(10) })
+    assert.deepEqual(decide(dir, { diffHead: 'feat' }), { allowed: false, reason: NO_TESTS })
+  })
+})
+
 describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   const good = flags('main')
 
@@ -458,4 +600,10 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   test('a bad rules count', () => expectUsage(flags('main', { rules: '-1' })))
   test('an empty ref', () => expectUsage(flags('')))
   test('a ref that starts with a dash', () => expectUsage(flags('--output=x')))
+  test('a bad size', () => expectUsage(flags('main', { size: 's' })))
+  test('an empty diff head', () => expectUsage(flags('main', { diffHead: '' })))
+  test('a diff head that starts with a dash', () =>
+    expectUsage(flags('main', { diffHead: '--output=x' })))
+  test('an empty issue path list', () => expectUsage(flags('main', { issuePaths: '' })))
+  test('an empty issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a,,b' })))
 })

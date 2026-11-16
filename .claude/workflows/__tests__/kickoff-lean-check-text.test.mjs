@@ -88,8 +88,13 @@ const CLAUSES = [
     'Diff check',
     'Before every lean reviewer dispatch (after DONE or DONE_WITH_CONCERNS, after each fix round, and on resume)',
   ],
-  ['Diff check', 'if the paths still pass, run the lean check'],
-  ['Diff check', "or `Track: full - <the lean check's reason>` when the lean check broke it"],
+  ['Diff check', 'run the lean check with `--diff-head origin/<branch>`'],
+  [
+    'Diff check',
+    "If it does not allow the lean track, post `Track: full - <the lean check's reason>` on the issue, remove `track:lean`",
+  ],
+  ['Before dispatch', 'Run the lean check with `--diff-head none`'],
+  ['Lean check', 'The lead does not apply the rule itself'],
 ]
 
 for (const [label, clause] of CLAUSES) {
@@ -97,3 +102,18 @@ for (const [label, clause] of CLAUSES) {
     assert.ok(bullet(label).includes(clause), `missing from "${label}": ${clause}`)
   })
 }
+
+// Issue #589: the rule lives in the script, and code no longer forces full.
+test('the lean rule no longer excludes executable code', () => {
+  const start = text.indexOf('### Pipeline tracks (lean and full)')
+  const end = text.indexOf('### Repair (queued PRs behind the default branch)')
+  assert.ok(start !== -1 && end > start, 'the Pipeline tracks section was not found')
+  assert.ok(!text.slice(start, end).includes('executable code'))
+})
+
+test('both reports carry the track counts', () => {
+  const line = '- Tracks: <n> lean, <n> full, <n> moved to full (#NN: <the lean check\'s reason>)'
+  assert.ok(text.includes(line), 'missing from tm-kickoff')
+  const advisor = readFileSync(join(claudeDir, 'skills', 'tm-advisor', 'SKILL.md'), 'utf8')
+  assert.ok(advisor.replace(/\s+/g, ' ').includes(line), 'missing from tm-advisor')
+})
