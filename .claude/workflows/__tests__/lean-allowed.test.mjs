@@ -16,7 +16,15 @@ import { tmpdir } from 'node:os'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
-import { leanAllowed, blobPaths } from '../../skills/tm-kickoff/lean-allowed.mjs'
+import {
+  leanAllowed,
+  blobPaths,
+  packageAllowed,
+  parseNumstat,
+  forcedFull,
+  countedLines,
+  LINE_CAP,
+} from '../../skills/tm-kickoff/lean-allowed.mjs'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(__dir, '..', '..', 'skills', 'tm-kickoff', 'lean-allowed.mjs')
@@ -214,6 +222,136 @@ describe('lean-allowed: blobPaths', () => {
     assert.deepEqual(blobPaths('100644 blob aaa\tx.md'), ['x.md'])
     assert.deepEqual(blobPaths('100644 blob aaa\tx.md\0'), ['x.md'])
     assert.deepEqual(blobPaths(''), [])
+  })
+})
+
+describe('lean-allowed: the package rule', () => {
+  const c = (path, added, deleted = 0) => ({ path, added, deleted })
+  const pkg = (over) => packageAllowed({ size: 'S', issuePaths: [], changes: 'none', ...over })
+
+  test('the cap is 150 counted lines', () => {
+    assert.equal(LINE_CAP, 150)
+  })
+
+  test('size S, no diff yet, no issue paths: allowed', () => {
+    assert.equal(pkg({}).allowed, true)
+  })
+
+  for (const size of ['M', 'L', 'XL', 'none']) {
+    test(`size ${size}: not allowed, the reason names the size`, () => {
+      const r = pkg({ size })
+      assert.equal(r.allowed, false)
+      assert.ok(r.reason.includes(size), r.reason)
+    })
+  }
+
+  test('150 counted lines: allowed', () => {
+    assert.equal(pkg({ changes: [c('src/a.ts', 100, 50)] }).allowed, true)
+  })
+
+  test('151 counted lines: not allowed, the reason names 151 and 150', () => {
+    const r = pkg({ changes: [c('src/a.ts', 100, 50), c('src/b.py', 1)] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('151') && r.reason.includes('150'), r.reason)
+  })
+
+  test('test files and docs do not count', () => {
+    const changes = [
+      c('src/a.ts', 150),
+      c('src/a.test.ts', 900),
+      c('docs/x.md', 900),
+      c('NOTES.TXT', 900),
+      c('guide.rst', 900),
+      c('page.mdx', 900),
+    ]
+    assert.equal(countedLines(changes), 150)
+    assert.equal(pkg({ changes }).allowed, true)
+  })
+
+  test('a binary change counts zero lines', () => {
+    assert.equal(pkg({ changes: [c('art/logo.png', 0, 0)] }).allowed, true)
+  })
+
+  test('an unreadable diff: not allowed', () => {
+    assert.equal(pkg({ changes: 'unknown' }).allowed, false)
+  })
+
+  for (const path of [
+    '.claude/agents/reviewer.md',
+    '.claude/skills/x/SKILL.md',
+    '.claude/workflows/a.js',
+    '.github/workflows/ci.yml',
+    'package.json',
+    'apps/web/package.json',
+    'pnpm-lock.yaml',
+    'uv.lock',
+    'go.sum',
+    'Package.resolved',
+  ]) {
+    test(`forced full in the diff: ${path}`, () => {
+      const r = pkg({ changes: [c(path, 1)] })
+      assert.equal(r.allowed, false)
+      assert.ok(r.reason.includes(path), r.reason)
+    })
+  }
+
+  test('forced full from the issue paths, directory named without a slash', () => {
+    const r = pkg({ issuePaths: ['.claude/skills'] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('.claude/skills'), r.reason)
+  })
+
+  test('near misses are not forced full', () => {
+    for (const path of [
+      '.claude/skills-notes.md',
+      'docs/.github/workflows/x.yml',
+      '.claude/settings.json',
+      'src/package.json.ts',
+    ]) {
+      assert.equal(forcedFull(path), false, path)
+    }
+  })
+
+  test('the manifest names come from the repo guard, not a copy', () => {
+    const src = readFileSync(scriptPath, 'utf8')
+    assert.match(src, /MANIFESTS/)
+    assert.doesNotMatch(src, /'pyproject\.toml'/)
+  })
+
+  test('malformed input throws', () => {
+    assert.throws(() => pkg({ size: 's' }), /size/)
+    assert.throws(() => pkg({ issuePaths: 'src/a.js' }), /issuePaths/)
+    assert.throws(() => pkg({ changes: 'nope' }), /changes/)
+    assert.throws(() => pkg({ changes: [{ path: 'a', added: -1, deleted: 0 }] }), /changes/)
+  })
+})
+
+describe('lean-allowed: parseNumstat', () => {
+  test('reads counts and paths from -z output', () => {
+    assert.deepEqual(parseNumstat('3\t1\tsrc/a.ts\x0010\t0\tb.md\x00'), [
+      { path: 'src/a.ts', added: 3, deleted: 1 },
+      { path: 'b.md', added: 10, deleted: 0 },
+    ])
+  })
+
+  test('a binary entry has zero counts', () => {
+    assert.deepEqual(parseNumstat('-\t-\tart/logo.png\x00'), [
+      { path: 'art/logo.png', added: 0, deleted: 0 },
+    ])
+  })
+
+  test('keeps a tab, a newline and non-ASCII inside a path', () => {
+    assert.deepEqual(parseNumstat('1\t0\tdir\twith\ttab/fü\nr.js\x00'), [
+      { path: 'dir\twith\ttab/fü\nr.js', added: 1, deleted: 0 },
+    ])
+  })
+
+  test('empty output is an empty list', () => {
+    assert.deepEqual(parseNumstat(''), [])
+  })
+
+  test('an entry that is not numstat throws', () => {
+    assert.throws(() => parseNumstat('garbage\x00'), /numstat/)
   })
 })
 

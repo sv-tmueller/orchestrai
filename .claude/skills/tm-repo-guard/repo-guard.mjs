@@ -510,8 +510,8 @@ export function hasPipelineLabels(names) {
 // CI setup (issue #551): detect the stack, build the ci.yml
 // ---------------------------------------------------------------------------
 
-const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod', 'Package.swift']
-const NODE_LOCKFILES = [
+export const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod', 'Package.swift']
+export const NODE_LOCKFILES = [
   ['package-lock.json', 'npm ci'],
   ['pnpm-lock.yaml', 'pnpm install --frozen-lockfile'],
   ['yarn.lock', 'yarn install --frozen-lockfile'],

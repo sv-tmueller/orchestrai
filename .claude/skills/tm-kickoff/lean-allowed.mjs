@@ -1,25 +1,31 @@
 #!/usr/bin/env node
-// Lean check for the kickoff pipeline (issue #504).
+// Lean check for the kickoff pipeline (issues #504 and #589).
 //
-// On a repo set up for auto merge that has no test files, a lean merge would
-// rest on the reviewer alone, so every package runs the full track there. The
-// lead asks this script once a package has passed the size and path rule. The
-// script decides only that one clause. It makes no gh calls: the lead does the
-// setup reads and the fetch, and this script lists the files of the default
-// ref with git and counts test files with the repo guard's own rule.
+// Decides whether a package may run the lean track (no architect, no tester).
+// It holds the whole rule, so the lead runs it and follows the answer:
+//
+//   1. the package: `size:S`, no forced-full path, at most LINE_CAP counted
+//      lines (packageAllowed);
+//   2. the repo: on a repo set up for auto merge that has no test files, a
+//      lean merge would rest on the reviewer alone, so lean is off there
+//      (leanAllowed).
+//
+// It makes no gh calls: the lead does the setup reads and the fetch, and this
+// script reads the diff and the files of the default ref with git, and counts
+// test files with the repo guard's own rule.
 //
 // Exports are pure; main() is the only part that touches argv, stdout, git,
 // or process.exit.
 //
 // Done when: the CLI prints one JSON object and exits 0, or prints one line
-// on stderr and exits 2 on a usage error. A file list that cannot be read is
-// a decision input (not allowed), not a usage error.
+// on stderr and exits 2 on a usage error. A diff or a file list that cannot
+// be read is a decision input (not allowed), not a usage error.
 
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-import { countTestFiles } from '../tm-repo-guard/repo-guard.mjs'
+import { countTestFiles, MANIFESTS, NODE_LOCKFILES } from '../tm-repo-guard/repo-guard.mjs'
 
 function fail(message) {
   throw new Error(message)
@@ -43,6 +49,105 @@ function isSetUp({ autoMerge, branchProtected, branchRules }) {
     return true
   }
   return autoMerge === true && (branchProtected === true || branchRules > 0)
+}
+
+// Measured on four repos (design doc of 2026-11-16): up to this many counted
+// lines, the tester found no code defect on a size:S change.
+export const LINE_CAP = 150
+
+const SIZES = ['S', 'M', 'L', 'XL', 'none']
+
+// A mistake in these reaches beyond the diff: the pipeline's own seats and
+// skills, and the CI a lean merge depends on.
+const FORCED_FULL_DIRS = ['.claude/agents', '.claude/skills', '.claude/workflows', '.github/workflows']
+
+// The repo guard knows the manifests and the Node lockfiles. These are the
+// lockfiles and pinned lists of its other stacks.
+const OTHER_DEPENDENCY_FILES = ['uv.lock', 'poetry.lock', 'requirements.txt', 'go.sum', 'Package.resolved']
+const DEPENDENCY_FILES = new Set([
+  ...MANIFESTS,
+  ...NODE_LOCKFILES.map(([name]) => name),
+  ...OTHER_DEPENDENCY_FILES,
+])
+
+const DOC_FILE = /\.(md|mdx|txt|rst)$/i
+
+function baseName(path) {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+export function forcedFull(path) {
+  if (FORCED_FULL_DIRS.some((dir) => path === dir || path.startsWith(dir + '/'))) return true
+  return DEPENDENCY_FILES.has(baseName(path))
+}
+
+// Added plus deleted lines outside test files and docs.
+export function countedLines(changes) {
+  let n = 0
+  for (const { path, added, deleted } of changes) {
+    if (countTestFiles([path]) > 0 || DOC_FILE.test(path)) continue
+    n += added + deleted
+  }
+  return n
+}
+
+// Parses `git diff --numstat -z --no-renames` output: entries are
+// NUL-separated, each one `<added>\t<deleted>\t<path>`. A binary file has `-`
+// for both counts and counts as zero lines; its path still goes through the
+// path rule.
+export function parseNumstat(text) {
+  const changes = []
+  for (const entry of text.split('\0')) {
+    if (entry === '') continue
+    const match = entry.match(/^(\d+|-)\t(\d+|-)\t([\s\S]+)$/)
+    if (!match) fail('not a numstat entry')
+    const count = (v) => (v === '-' ? 0 : Number(v))
+    changes.push({ path: match[3], added: count(match[1]), deleted: count(match[2]) })
+  }
+  return changes
+}
+
+function isCount(value) {
+  return Number.isInteger(value) && value >= 0
+}
+
+function normalizeChanges(changes) {
+  if (changes === 'none' || changes === 'unknown') return changes
+  const ok =
+    Array.isArray(changes) &&
+    changes.every(
+      (c) => c !== null && typeof c === 'object' && typeof c.path === 'string' && isCount(c.added) && isCount(c.deleted),
+    )
+  return ok ? changes : fail('changes must be a list of { path, added, deleted }, none or unknown')
+}
+
+// The package half of the rule. Returns { allowed, reason }, and throws with
+// a one-line message on a malformed input. `issuePaths` are the paths the
+// issue body names. `changes` is the parsed diff, 'none' before the developer
+// has pushed (so the line cap cannot apply yet), or 'unknown' when the diff
+// could not be read.
+export function packageAllowed(input) {
+  const size = SIZES.includes(input.size) ? input.size : fail(`size must be one of ${SIZES.join(', ')}`)
+  const { issuePaths } = input
+  if (!Array.isArray(issuePaths) || !issuePaths.every((p) => typeof p === 'string')) {
+    fail('issuePaths must be an array of strings')
+  }
+  const changes = normalizeChanges(input.changes)
+
+  if (size !== 'S') {
+    return { allowed: false, reason: `size is ${size}, and the lean track needs size:S` }
+  }
+  const diffPaths = Array.isArray(changes) ? changes.map((c) => c.path) : []
+  const forced = [...issuePaths, ...diffPaths].find(forcedFull)
+  if (forced !== undefined) return { allowed: false, reason: `forced-full path: ${forced}` }
+  if (changes === 'unknown') return { allowed: false, reason: 'the diff could not be read' }
+  if (changes !== 'none') {
+    const counted = countedLines(changes)
+    if (counted > LINE_CAP) {
+      return { allowed: false, reason: `${counted} counted lines, over the cap of ${LINE_CAP}` }
+    }
+  }
+  return { allowed: true, reason: 'the package passes the size, path and line rules' }
 }
 
 // Parses `git ls-tree -r -z` output: entries are NUL-separated, each one
