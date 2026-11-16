@@ -100,16 +100,17 @@ export function normalizeIssuePath(path) {
 }
 
 // Normalizes the issue paths and refuses what is not a plain repo-relative
-// path: an empty path, a `.` or `..` segment, or a glob, backslash or quote
-// character. A form the prefix match cannot read could dodge a forced-full
-// path, so it is refused. Both packageAllowed and the CLI parser call this.
-const NOT_PLAIN = /[*?[\]\\`'"]/
-
+// path. The test is a whitelist, because a list of bad characters cannot
+// close the class: a form the match cannot read (a brace glob, a wrapper)
+// could hide a forced-full path. Both packageAllowed and the CLI parser
+// call this.
 function normalizeIssuePaths(paths) {
   const normalized = paths.map(normalizeIssuePath)
-  const plain = (p) => p !== '' && !NOT_PLAIN.test(p) && !p.split('/').some((seg) => seg === '.' || seg === '..')
+  const plain = (p) => /^[A-Za-z0-9 ._\/-]+$/.test(p) && !p.split('/').some((seg) => seg === '.' || seg === '..')
   if (!normalized.every(plain)) {
-    fail('issuePaths must be plain repo-relative paths: no empty path, no . or .. segment, no glob, backslash or quote')
+    fail(
+      'issuePaths must be plain repo-relative paths: only letters, digits, space, ., _, - and /, with no empty path and no . or .. segment',
+    )
   }
   return normalized
 }

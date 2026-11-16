@@ -410,20 +410,41 @@ describe('lean-allowed: the package rule', () => {
   })
 
   for (const path of [
-    '(.claude/skills/x)',
-    '<.claude/skills/x>',
     '.Claude/skills/x',
     '.claude/skills.',
     '/home/me/repo/.claude/agents/a.md',
     '.claude/settings.json',
     '.GitHub/dependabot.yml',
-    '(package.json)',
     'Package.JSON',
     'apps/web/requirements-dev.txt.',
     'see uv.lock',
   ]) {
     test(`an issue path that contains a forced-full name in any spelling: ${path}`, () => {
       assert.equal(pkg({ issuePaths: [path] }).allowed, false)
+    })
+  }
+
+  for (const path of [
+    '(.claude/skills/x)',
+    '<.claude/skills/x>',
+    '(package.json)',
+    '.{claude/agents,github/workflows}/x',
+    'package{,-lock}.json',
+    '.{claude,github}/workflows',
+    'src/a(b).js',
+    '<src/a.js>',
+    'src/a;b.js',
+    'src/a:b.js',
+    'src/für.js',
+  ]) {
+    test(`an issue path with a character outside the whitelist throws: ${path}`, () => {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/)
+    })
+  }
+
+  for (const path of ['src/a b.js', 'Generic Scripted REST API/x.js', 'src/a_b-c.d/e.js']) {
+    test(`an issue path made of whitelisted characters stays allowed: ${path}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, true)
     })
   }
 
@@ -687,11 +708,11 @@ describe('lean-allowed: the CLI with a diff', () => {
     assert.ok(out.reason.includes('.claude/skills'), out.reason)
   })
 
-  test('an issue path wrapped in parentheses: not allowed, the reason names the path', (t) => {
+  test('an issue path in a nested package: not allowed, the reason names the path', (t) => {
     const dir = makeRepo(t, BASE)
-    const out = decide(dir, { issuePaths: '(.claude/skills/x)' })
+    const out = decide(dir, { issuePaths: 'src/a.js,apps/web/package.json' })
     assert.equal(out.allowed, false)
-    assert.ok(out.reason.includes('.claude/skills/x'), out.reason)
+    assert.ok(out.reason.includes('apps/web/package.json'), out.reason)
   })
 
   test('issue paths with a space after the comma: still not allowed', (t) => {
@@ -820,4 +841,10 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
     expectUsage(flags('main', { issuePaths: '.claude/./skills/x' })))
   test('an issue path with a glob character', () =>
     expectUsage(flags('main', { issuePaths: 'src/*.js' })))
+  test('an issue path wrapped in parentheses', () =>
+    expectUsage(flags('main', { issuePaths: '(.claude/skills/x)' })))
+  test('an issue path with a brace glob over two forced-full directories', () =>
+    expectUsage(flags('main', { issuePaths: '.{claude/agents,github/workflows}/x' })))
+  test('an issue path with a brace glob over a dependency file name', () =>
+    expectUsage(flags('main', { issuePaths: 'package{,-lock}.json' })))
 })

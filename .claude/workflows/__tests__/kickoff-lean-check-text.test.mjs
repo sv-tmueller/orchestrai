@@ -49,7 +49,8 @@ test('Lean check: the command the skill gives is one the script accepts', () => 
   for (let i = 0; i < tokens.length; i += 2) pairs.push([tokens[i], tokens[i + 1]])
 
   // `unknown` for the ref keeps git out of the run, so cwd does not matter.
-  const concrete = (v) => (v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v)
+  const concrete = (v) =>
+    v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v === '<paths>' ? 'src/a.js' : v
   const base = pairs.map(([flag, value]) => [flag, concrete(value.split('|')[0])])
 
   for (let k = 0; k < pairs.length; k++) {

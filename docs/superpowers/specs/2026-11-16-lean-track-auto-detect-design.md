@@ -115,7 +115,9 @@ from the prose.
   Reading paths out of the issue body is the one step that stays with the
   lead. The match on those paths is broader than the match on the diff: an
   issue path that contains `.claude` or `.github`, or the name of a
-  dependency file, in any spelling, gives full.
+  dependency file, in any letter case, gives full. An issue path with a
+  character outside letters, digits, space, `.`, `_`, `-` and `/` is a usage
+  error, which the lead runs as full.
 - **Before every reviewer dispatch (final).** Input: the same, plus the
   real diff between the default branch and the PR head, read with git. If
   lean is not allowed, the package moves to the full track at the tester
