@@ -87,39 +87,60 @@ export function forcedFull(path) {
 }
 
 // The lead copies these from an issue body, so they can carry a space after
-// a comma or a leading `./` or `/`. Paths from git never do.
-function normalizeIssuePath(path) {
-  return path.trim().replace(/^(\.?\/)+/, '')
+// a comma, backticks or quotes, a leading `./` or `/`, a doubled `/` or a
+// trailing `/`. Paths from git never do.
+export function normalizeIssuePath(path) {
+  return path
+    .trim()
+    .replace(/^[`'"]+|[`'"]+$/g, '')
+    .replace(/^(\.?\/)+/, '')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '')
 }
 
-// Added plus deleted lines outside test files and docs.
+// The parents of a forced-full directory. An issue that names one of these
+// covers every forced-full directory below it.
+const FORCED_FULL_PARENTS = ['.claude', '.github']
+
+function issuePathForcesFull(path) {
+  return forcedFull(path) || FORCED_FULL_PARENTS.includes(path)
+}
+
+// Test files and docs add no counted lines, whatever the diff says about them.
+function isUncounted(path) {
+  return countTestFiles([path]) > 0 || DOC_FILE.test(path)
+}
+
+// Added plus deleted lines outside test files and docs. An entry with no
+// count (null) adds nothing here; packageAllowed refuses it before the cap.
 export function countedLines(changes) {
   let n = 0
   for (const { path, added, deleted } of changes) {
-    if (countTestFiles([path]) > 0 || DOC_FILE.test(path)) continue
-    n += added + deleted
+    if (isUncounted(path)) continue
+    n += (added ?? 0) + (deleted ?? 0)
   }
   return n
 }
 
 // Parses `git diff --numstat -z --no-renames` output: entries are
-// NUL-separated, each one `<added>\t<deleted>\t<path>`. A binary file has `-`
-// for both counts and counts as zero lines; its path still goes through the
-// path rule.
+// NUL-separated, each one `<added>\t<deleted>\t<path>`. A file git prints
+// `-` for (binary, or marked binary or -diff) has no line count: both counts
+// are null, which stays different from a real 0. Its path still goes through
+// the path rule.
 export function parseNumstat(text) {
   const changes = []
   for (const entry of text.split('\0')) {
     if (entry === '') continue
     const match = entry.match(/^(\d+|-)\t(\d+|-)\t([\s\S]+)$/)
     if (!match) fail('not a numstat entry')
-    const count = (v) => (v === '-' ? 0 : Number(v))
+    const count = (v) => (v === '-' ? null : Number(v))
     changes.push({ path: match[3], added: count(match[1]), deleted: count(match[2]) })
   }
   return changes
 }
 
 function isCount(value) {
-  return Number.isInteger(value) && value >= 0
+  return value === null || (Number.isInteger(value) && value >= 0)
 }
 
 function normalizeChanges(changes) {
@@ -136,7 +157,7 @@ function normalizeChanges(changes) {
 // a one-line message on a malformed input. `issuePaths` are the paths the
 // issue body names. `changes` is the parsed diff, 'none' before the developer
 // has pushed (so the line cap cannot apply yet), or 'unknown' when the diff
-// could not be read.
+// could not be read. An entry with null counts has no line count.
 export function packageAllowed(input) {
   const size = SIZES.includes(input.size) ? input.size : fail(`size must be one of ${SIZES.join(', ')}`)
   const { issuePaths } = input
@@ -144,15 +165,29 @@ export function packageAllowed(input) {
     fail('issuePaths must be an array of strings')
   }
   const changes = normalizeChanges(input.changes)
+  const issueNormalized = issuePaths.map(normalizeIssuePath)
+  if (issueNormalized.includes('')) fail('issuePaths must not hold an empty path')
 
   if (size !== 'S') {
     return { allowed: false, reason: `size is ${size}, and the lean track needs size:S` }
   }
   const diffPaths = Array.isArray(changes) ? changes.map((c) => c.path) : []
-  const forced = [...issuePaths.map(normalizeIssuePath), ...diffPaths].find(forcedFull)
+  const forced = issueNormalized.find(issuePathForcesFull) ?? diffPaths.find(forcedFull)
   if (forced !== undefined) return { allowed: false, reason: `forced-full path: ${forced}` }
   if (changes === 'unknown') return { allowed: false, reason: 'the diff could not be read' }
+  if (Array.isArray(changes) && changes.length === 0) {
+    return { allowed: false, reason: 'the diff is empty' }
+  }
   if (changes !== 'none') {
+    // A text file marked binary or -diff prints as `-  -`, so it would count
+    // zero and dodge the cap if it were not refused here.
+    const uncountable = changes.find((c) => (c.added === null || c.deleted === null) && !isUncounted(c.path))
+    if (uncountable !== undefined) {
+      return {
+        allowed: false,
+        reason: `${uncountable.path} has no line count (binary, or marked binary or -diff), so the line cap cannot be checked`,
+      }
+    }
     const counted = countedLines(changes)
     if (counted > LINE_CAP) {
       return { allowed: false, reason: `${counted} counted lines, over the cap of ${LINE_CAP}` }
@@ -263,7 +298,7 @@ function parseSize(value) {
 function parseIssuePaths(value) {
   if (value === 'none') return []
   const paths = value.split(',').map((p) => p.trim())
-  if (paths.includes('')) fail('--issue-paths must be comma-separated paths or none')
+  if (paths.some((p) => normalizeIssuePath(p) === '')) fail('--issue-paths must be comma-separated paths or none')
   return paths
 }
 

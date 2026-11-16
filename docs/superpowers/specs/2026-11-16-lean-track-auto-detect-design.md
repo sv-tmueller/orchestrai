@@ -49,7 +49,9 @@ so is any input the script cannot read.
    lines in files that are neither test files (the repo guard's rule) nor
    docs (Markdown and reStructuredText). Tests and docs are never capped.
    A `.txt` file counts as code, because build files and pinned dependency
-   lists are plain text too. A binary file counts zero lines.
+   lists are plain text too. A file with no line count (a binary file, or a
+   text file marked binary or -diff) outside tests and docs gives full, and
+   so does an empty diff.
 4. The repo clause in `lean-allowed.mjs` allows it: unchanged. On a repo
    set up for auto merge with no test files, lean stays off.
 

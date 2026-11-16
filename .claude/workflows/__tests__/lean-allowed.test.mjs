@@ -319,8 +319,52 @@ describe('lean-allowed: the package rule', () => {
     })
   }
 
-  test('a binary change counts zero lines', () => {
-    assert.equal(pkg({ changes: [c('art/logo.png', 0, 0)] }).allowed, true)
+  const NO_COUNT = (path) =>
+    `${path} has no line count (binary, or marked binary or -diff), so the line cap cannot be checked`
+  const nc = (path) => ({ path, added: null, deleted: null })
+
+  test('a file with no line count: not allowed, the reason names the first such file', () => {
+    assert.deepEqual(pkg({ changes: [c('src/a.ts', 1), nc('art/logo.png'), nc('b.bin')] }), {
+      allowed: false,
+      reason: NO_COUNT('art/logo.png'),
+    })
+  })
+
+  test('a no-count entry that is a test file or a doc does not block and adds no lines', () => {
+    const changes = [nc('src/a.test.js'), nc('docs/shot.md'), c('src/a.ts', 150)]
+    assert.equal(countedLines(changes), 150)
+    assert.equal(pkg({ changes }).allowed, true)
+  })
+
+  test('a mode-only change and an empty file count zero and are allowed', () => {
+    assert.equal(pkg({ changes: [c('run.sh', 0, 0), c('src/empty.js', 0, 0)] }).allowed, true)
+  })
+
+  test('a forced-full path is reported before a no-count file', () => {
+    const r = pkg({ changes: [nc('art/logo.png'), c('package.json', 1)] })
+    assert.equal(r.allowed, false)
+    assert.equal(r.reason, 'forced-full path: package.json')
+  })
+
+  test('a no-count file is reported before the line cap', () => {
+    const r = pkg({ changes: [c('src/a.ts', 500), nc('art/logo.png')] })
+    assert.equal(r.reason, NO_COUNT('art/logo.png'))
+  })
+
+  test('an empty diff: not allowed', () => {
+    assert.deepEqual(pkg({ changes: [] }), { allowed: false, reason: 'the diff is empty' })
+  })
+
+  test('no diff yet is still allowed', () => {
+    assert.equal(pkg({ changes: 'none' }).allowed, true)
+  })
+
+  test('the size check comes before the empty diff check', () => {
+    assert.ok(pkg({ size: 'M', changes: [] }).reason.includes('size is M'))
+  })
+
+  test('the issue path check comes before the empty diff check', () => {
+    assert.equal(pkg({ issuePaths: ['.claude'], changes: [] }).reason, 'forced-full path: .claude')
   })
 
   test('an unreadable diff: not allowed', () => {
@@ -345,6 +389,35 @@ describe('lean-allowed: the package rule', () => {
       assert.ok(r.reason.includes(path), r.reason)
     })
   }
+
+  for (const [written, normalized] of [
+    ['.claude', '.claude'],
+    ['.github', '.github'],
+    ['`.claude/skills/x`', '.claude/skills/x'],
+    ['.claude//skills/x', '.claude/skills/x'],
+    ['"./.claude/workflows/"', '.claude/workflows'],
+    ["'.github/workflows/ci.yml'", '.github/workflows/ci.yml'],
+  ]) {
+    test(`forced full from the issue path ${written}, the reason names ${normalized}`, () => {
+      const r = pkg({ issuePaths: [written] })
+      assert.equal(r.allowed, false)
+      assert.equal(r.reason, `forced-full path: ${normalized}`)
+    })
+  }
+
+  test('the issue path src is a parent of nothing forced: allowed', () => {
+    assert.equal(pkg({ issuePaths: ['src'] }).allowed, true)
+  })
+
+  test('an issue path that is empty after normalization throws', () => {
+    for (const path of ['``', '""', '/', './', '  ']) {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/, JSON.stringify(path))
+    }
+  })
+
+  test('paths from the diff are not normalized', () => {
+    assert.equal(pkg({ changes: [c('.claude', 1)] }).allowed, true)
+  })
 
   test('forced full from the issue paths, directory named without a slash', () => {
     const r = pkg({ issuePaths: ['.claude/skills'] })
@@ -385,10 +458,14 @@ describe('lean-allowed: parseNumstat', () => {
     ])
   })
 
-  test('a binary entry has zero counts', () => {
+  test('a binary entry has no counts, not zero counts', () => {
     assert.deepEqual(parseNumstat('-\t-\tart/logo.png\x00'), [
-      { path: 'art/logo.png', added: 0, deleted: 0 },
+      { path: 'art/logo.png', added: null, deleted: null },
     ])
+  })
+
+  test('a 0 0 entry keeps its zero counts', () => {
+    assert.deepEqual(parseNumstat('0\t0\trun.sh\x00'), [{ path: 'run.sh', added: 0, deleted: 0 }])
   })
 
   test('keeps a tab, a newline and non-ASCII inside a path', () => {
@@ -580,11 +657,38 @@ describe('lean-allowed: the CLI with a diff', () => {
     assert.ok(out.reason.includes('200'), out.reason)
   })
 
-  test('a binary file added: allowed', (t) => {
+  test('a binary file added: not allowed, no line count', (t) => {
     const dir = makeRepo(t, BASE)
     branch(dir, 'feat', { 'art/logo.bin': Buffer.from([0, 1, 2, 0, 255]) })
-    assert.equal(decide(dir, { diffHead: 'feat' }).allowed, true)
+    assert.deepEqual(decide(dir, { diffHead: 'feat' }), {
+      allowed: false,
+      reason:
+        'art/logo.bin has no line count (binary, or marked binary or -diff), so the line cap cannot be checked',
+    })
   })
+
+  test('a 5000-line source file marked -diff in the same diff: not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    branch(dir, 'feat', { 'huge.js': lines(5000), '.gitattributes': 'huge.js -diff\n' })
+    // Git reads the attributes from the checkout, so stay on the branch the
+    // way a developer's worktree does.
+    git(dir, 'checkout', '-q', 'feat')
+    const out = decide(dir, { diffHead: 'feat' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('huge.js has no line count'), out.reason)
+  })
+
+  test('a diff head equal to the default ref: empty diff, not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    assert.deepEqual(decide(dir, { diffHead: 'main' }), { allowed: false, reason: 'the diff is empty' })
+  })
+
+  for (const path of ['.claude', '.github', '`.claude/skills/x`', '.claude//skills/x']) {
+    test(`the issue path ${path}: not allowed`, (t) => {
+      const dir = makeRepo(t, BASE)
+      assert.equal(decide(dir, { issuePaths: path }).allowed, false)
+    })
+  }
 
   test('a diff head that does not exist: not allowed, exit 0', (t) => {
     const dir = makeRepo(t, BASE)
@@ -640,4 +744,6 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   test('an empty issue path list', () => expectUsage(flags('main', { issuePaths: '' })))
   test('an empty issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a,,b' })))
   test('a blank issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a, ,b' })))
+  test('an issue path that is only a pair of backticks', () =>
+    expectUsage(flags('main', { issuePaths: '``' })))
 })
