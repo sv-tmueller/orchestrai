@@ -14,7 +14,7 @@
 
 - Line cap: `150` counted lines. Counted lines are added plus deleted lines in files that are neither test files nor docs.
 - Test file: `countTestFiles([path]) > 0` from `.claude/skills/tm-repo-guard/repo-guard.mjs`. Never copy its patterns.
-- Docs: file name ends in `.md`, `.mdx`, `.txt` or `.rst`, case-insensitive.
+- Docs: file name ends in `.md`, `.mdx` or `.rst`, case-insensitive. (Changed in the final review: `.txt` counts as code, and `requirements*.txt` and `constraints*.txt` are forced full.)
 - Forced-full directories, matched as `path === dir` or `path.startsWith(dir + '/')`: `.claude/agents`, `.claude/skills`, `.claude/workflows`, `.github/workflows`.
 - Forced-full file names, matched on the base name in any directory: the repo guard's `MANIFESTS` and `NODE_LOCKFILES` names, plus `uv.lock`, `poetry.lock`, `requirements.txt`, `go.sum`, `Package.resolved`.
 - Any input the script cannot read gives `allowed: false`. A usage error exits 2 with one stderr line. Every other run exits 0.

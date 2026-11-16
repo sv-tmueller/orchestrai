@@ -70,7 +70,11 @@ const DEPENDENCY_FILES = new Set([
   ...OTHER_DEPENDENCY_FILES,
 ])
 
-const DOC_FILE = /\.(md|mdx|txt|rst)$/i
+// A pinned dependency list by another name, such as requirements-dev.txt.
+const PINNED_LIST = /^(requirements|constraints)[^/]*\.txt$/
+
+// Not .txt: build files (CMakeLists.txt) and pinned lists are plain text too.
+const DOC_FILE = /\.(md|mdx|rst)$/i
 
 function baseName(path) {
   return path.slice(path.lastIndexOf('/') + 1)
@@ -78,7 +82,14 @@ function baseName(path) {
 
 export function forcedFull(path) {
   if (FORCED_FULL_DIRS.some((dir) => path === dir || path.startsWith(dir + '/'))) return true
-  return DEPENDENCY_FILES.has(baseName(path))
+  const name = baseName(path)
+  return DEPENDENCY_FILES.has(name) || PINNED_LIST.test(name)
+}
+
+// The lead copies these from an issue body, so they can carry a space after
+// a comma or a leading `./` or `/`. Paths from git never do.
+function normalizeIssuePath(path) {
+  return path.trim().replace(/^(\.?\/)+/, '')
 }
 
 // Added plus deleted lines outside test files and docs.
@@ -138,7 +149,7 @@ export function packageAllowed(input) {
     return { allowed: false, reason: `size is ${size}, and the lean track needs size:S` }
   }
   const diffPaths = Array.isArray(changes) ? changes.map((c) => c.path) : []
-  const forced = [...issuePaths, ...diffPaths].find(forcedFull)
+  const forced = [...issuePaths.map(normalizeIssuePath), ...diffPaths].find(forcedFull)
   if (forced !== undefined) return { allowed: false, reason: `forced-full path: ${forced}` }
   if (changes === 'unknown') return { allowed: false, reason: 'the diff could not be read' }
   if (changes !== 'none') {
@@ -251,7 +262,7 @@ function parseSize(value) {
 // A comma-separated list, or `none` for an issue that names no paths.
 function parseIssuePaths(value) {
   if (value === 'none') return []
-  const paths = value.split(',')
+  const paths = value.split(',').map((p) => p.trim())
   if (paths.includes('')) fail('--issue-paths must be comma-separated paths or none')
   return paths
 }
@@ -273,13 +284,15 @@ function listPaths(ref) {
 // The three dots start the diff at the merge base, so what landed on the
 // default branch after the branch point is not counted. --no-renames keeps
 // every entry one path: a rename counts as a delete plus an add, which can
-// only push a package to the full track.
+// only push a package to the full track. --no-relative keeps the whole diff
+// when the lead runs from a subdirectory with diff.relative set, as
+// --full-tree does for the file list.
 function readChanges(defaultRef, diffHead) {
   if (diffHead === 'none') return 'none'
   if (defaultRef === 'unknown') return 'unknown'
   const r = spawnSync(
     'git',
-    ['diff', '--numstat', '-z', '--no-renames', `${defaultRef}...${diffHead}`, '--'],
+    ['diff', '--numstat', '-z', '--no-renames', '--no-relative', `${defaultRef}...${diffHead}`, '--'],
     { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 },
   )
   if (r.error || r.status !== 0) return 'unknown'

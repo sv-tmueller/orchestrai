@@ -62,8 +62,8 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 
 - **Lean vs full track.** A `size:S` package that stays out of
   `.claude/agents`, `.claude/skills`, `.claude/workflows`,
-  `.github/workflows` and dependency manifests, and changes at most 150
-  lines outside tests and docs, skips the architect and tester stages;
+  `.github/workflows` and dependency manifests and lockfiles, and changes
+  at most 150 lines outside tests and docs, skips the architect and tester stages;
   everything else runs the full five-stage pipeline. A script decides
   (`lean-allowed.mjs`), before dispatch and again on the real diff. On a
   repo set up for auto merge that has no test files (the repo guard's

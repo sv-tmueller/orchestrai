@@ -111,6 +111,12 @@ test('the lean rule no longer excludes executable code', () => {
   assert.ok(!text.slice(start, end).includes('executable code'))
 })
 
+test('the report says how each track count is read', () => {
+  const clause =
+    'lean is a `Track: lean` comment with no later `Track: full`, moved is a `Track: lean` followed by a `Track: full`, and full is every other package'
+  assert.ok(text.includes(clause), 'missing from tm-kickoff section 4')
+})
+
 test('both reports carry the track counts', () => {
   const line = '- Tracks: <n> lean, <n> full, <n> moved to full (#NN: <the lean check\'s reason>)'
   assert.ok(text.includes(line), 'missing from tm-kickoff')

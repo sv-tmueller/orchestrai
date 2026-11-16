@@ -1232,7 +1232,10 @@ Report to the user: PRs merged, queued, and waiting for a human merge (with
 the reason), packages parked (`needs-human`, with their open questions),
 issues deferred to later waves or stopped at the gate, which PRs were
 repaired (and how), how many packages ran lean, ran full, and moved from
-lean to full (counted from the `Track:` comments), and any lessons.
+lean to full, and any lessons. Read the track counts from the issue
+comments: lean is a `Track: lean` comment with no later `Track: full`,
+moved is a `Track: lean` followed by a `Track: full`, and full is every
+other package.
 Classify each ready PR with the gate's read (`gh pr view <n> --json
 state,autoMergeRequest`, see "Resume detection") at report time, so a merge
 that landed during the wave shows as merged. A repaired PR's line gets the

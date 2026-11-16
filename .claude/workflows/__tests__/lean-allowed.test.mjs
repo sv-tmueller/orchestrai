@@ -294,13 +294,30 @@ describe('lean-allowed: the package rule', () => {
       c('src/a.ts', 150),
       c('src/a.test.ts', 900),
       c('docs/x.md', 900),
-      c('NOTES.TXT', 900),
+      c('NOTES.MD', 900),
       c('guide.rst', 900),
       c('page.mdx', 900),
     ]
     assert.equal(countedLines(changes), 150)
     assert.equal(pkg({ changes }).allowed, true)
   })
+
+  test('a .txt file counts as code: build files and pinned lists are plain text', () => {
+    assert.equal(countedLines([c('CMakeLists.txt', 900)]), 900)
+    assert.equal(pkg({ changes: [c('CMakeLists.txt', 151)] }).allowed, false)
+  })
+
+  for (const path of ['requirements-dev.txt', 'api/requirements_test.txt', 'constraints.txt']) {
+    test(`forced full, a pinned dependency list: ${path}`, () => {
+      assert.equal(forcedFull(path), true)
+    })
+  }
+
+  for (const path of [' .claude/skills', './.claude/skills/x/SKILL.md', '/.github/workflows/ci.yml', '.claude/agents/']) {
+    test(`forced full from an issue path written as ${JSON.stringify(path)}`, () => {
+      assert.equal(pkg({ issuePaths: [path] }).allowed, false)
+    })
+  }
 
   test('a binary change counts zero lines', () => {
     assert.equal(pkg({ changes: [c('art/logo.png', 0, 0)] }).allowed, true)
@@ -530,6 +547,22 @@ describe('lean-allowed: the CLI with a diff', () => {
     assert.ok(out.reason.includes('.claude/skills'), out.reason)
   })
 
+  test('issue paths with a space after the comma: still not allowed', (t) => {
+    const dir = makeRepo(t, BASE)
+    const out = decide(dir, { issuePaths: 'src/a.js, .claude/skills' })
+    assert.equal(out.allowed, false)
+    assert.ok(out.reason.includes('.claude/skills'), out.reason)
+  })
+
+  test('diff.relative set and run from a subdirectory: still sees the whole diff', (t) => {
+    const dir = makeRepo(t, { ...BASE, 'docs/guide.md': 'x' })
+    branch(dir, 'feat', { '.github/workflows/ci.yml': lines(3) })
+    git(dir, 'config', 'diff.relative', 'true')
+    const r = run(join(dir, 'docs'), ...flags('main', { diffHead: 'feat' }))
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(r.stdout).allowed, false)
+  })
+
   test('main moved on by 400 lines after the branch point: still allowed', (t) => {
     const dir = makeRepo(t, BASE)
     branch(dir, 'feat', { 'src/a.js': lines(10) })
@@ -606,4 +639,5 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
     expectUsage(flags('main', { diffHead: '--output=x' })))
   test('an empty issue path list', () => expectUsage(flags('main', { issuePaths: '' })))
   test('an empty issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a,,b' })))
+  test('a blank issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a, ,b' })))
 })

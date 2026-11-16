@@ -47,7 +47,9 @@ so is any input the script cannot read.
    - dependency manifests and lockfiles (the repo guard's own lists).
 3. Counted lines are at most 150. Counted lines are added plus deleted
    lines in files that are neither test files (the repo guard's rule) nor
-   docs (Markdown and plain text). Tests and docs are never capped.
+   docs (Markdown and reStructuredText). Tests and docs are never capped.
+   A `.txt` file counts as code, because build files and pinned dependency
+   lists are plain text too. A binary file counts zero lines.
 4. The repo clause in `lean-allowed.mjs` allows it: unchanged. On a repo
    set up for auto merge with no test files, lean stays off.
 
