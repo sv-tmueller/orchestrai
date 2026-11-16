@@ -415,6 +415,29 @@ describe('lean-allowed: the package rule', () => {
     }
   })
 
+  test('an issue path that is not a plain repo-relative path throws', () => {
+    for (const path of [
+      '.claude/./skills/x',
+      '.claude/skills/../skills/x',
+      'src/*.js',
+      '**/package.json',
+      'src\\a.js',
+      'src/a`b.js',
+    ]) {
+      assert.throws(() => pkg({ issuePaths: [path] }), /issuePaths/, JSON.stringify(path))
+    }
+  })
+
+  test('an issue path with spaces around the name inside backticks is trimmed', () => {
+    const r = pkg({ issuePaths: ['` .claude `'] })
+    assert.equal(r.allowed, false)
+    assert.ok(r.reason.includes('.claude'), r.reason)
+  })
+
+  test('a space inside a directory name is a legal issue path', () => {
+    assert.equal(pkg({ issuePaths: ['Generic Scripted REST API/x.js'] }).allowed, true)
+  })
+
   test('paths from the diff are not normalized', () => {
     assert.equal(pkg({ changes: [c('.claude', 1)] }).allowed, true)
   })
@@ -746,4 +769,8 @@ describe('lean-allowed: usage errors exit 2 with one stderr line', () => {
   test('a blank issue path in the list', () => expectUsage(flags('main', { issuePaths: 'a, ,b' })))
   test('an issue path that is only a pair of backticks', () =>
     expectUsage(flags('main', { issuePaths: '``' })))
+  test('an issue path with a dot segment', () =>
+    expectUsage(flags('main', { issuePaths: '.claude/./skills/x' })))
+  test('an issue path with a glob character', () =>
+    expectUsage(flags('main', { issuePaths: 'src/*.js' })))
 })

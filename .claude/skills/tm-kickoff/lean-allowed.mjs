@@ -93,9 +93,25 @@ export function normalizeIssuePath(path) {
   return path
     .trim()
     .replace(/^[`'"]+|[`'"]+$/g, '')
+    .trim()
     .replace(/^(\.?\/)+/, '')
     .replace(/\/+/g, '/')
     .replace(/\/$/, '')
+}
+
+// Normalizes the issue paths and refuses what is not a plain repo-relative
+// path: an empty path, a `.` or `..` segment, or a glob, backslash or quote
+// character. A form the prefix match cannot read could dodge a forced-full
+// path, so it is refused. Both packageAllowed and the CLI parser call this.
+const NOT_PLAIN = /[*?[\]\\`'"]/
+
+function normalizeIssuePaths(paths) {
+  const normalized = paths.map(normalizeIssuePath)
+  const plain = (p) => p !== '' && !NOT_PLAIN.test(p) && !p.split('/').some((seg) => seg === '.' || seg === '..')
+  if (!normalized.every(plain)) {
+    fail('issuePaths must be plain repo-relative paths: no empty path, no . or .. segment, no glob, backslash or quote')
+  }
+  return normalized
 }
 
 // The parents of a forced-full directory. An issue that names one of these
@@ -165,8 +181,7 @@ export function packageAllowed(input) {
     fail('issuePaths must be an array of strings')
   }
   const changes = normalizeChanges(input.changes)
-  const issueNormalized = issuePaths.map(normalizeIssuePath)
-  if (issueNormalized.includes('')) fail('issuePaths must not hold an empty path')
+  const issueNormalized = normalizeIssuePaths(issuePaths)
 
   if (size !== 'S') {
     return { allowed: false, reason: `size is ${size}, and the lean track needs size:S` }
@@ -298,7 +313,7 @@ function parseSize(value) {
 function parseIssuePaths(value) {
   if (value === 'none') return []
   const paths = value.split(',').map((p) => p.trim())
-  if (paths.some((p) => normalizeIssuePath(p) === '')) fail('--issue-paths must be comma-separated paths or none')
+  normalizeIssuePaths(paths)
   return paths
 }
 

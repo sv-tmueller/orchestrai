@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-16-lean-track-auto-detect-design.md`. Issue #589.
 
+> **Changed after this plan was written** (review and tester rounds on PR #590). The code and the design doc are the current statement of the rule. Where this plan differs, they win:
+>
+> - A file with no line count (a binary file, or a text file marked `binary` or `-diff`) outside tests and docs gives full. This plan says a binary file counts zero lines, and its test listings "a binary change counts zero lines", "a binary entry has zero counts" and "a binary file added: allowed" were changed to match.
+> - With a diff head given, an empty diff gives full.
+> - A `.txt` file counts as code, and `requirements*.txt` and `constraints*.txt` are forced full.
+> - An issue path is normalized before the match, the parents `.claude` and `.github` force full, and an issue path that is not a plain repo-relative path is a usage error.
+> - The diff is read with `--no-relative`.
+
 ## Global Constraints
 
 - Line cap: `150` counted lines. Counted lines are added plus deleted lines in files that are neither test files nor docs.
@@ -27,7 +35,7 @@
 ## Review Focus
 
 - **A rename with no content change.** The diff is read with `--no-renames`, so it counts as a delete plus an add and can exceed the cap. Expected: full, never a crash. Test in Task 2.
-- **A binary file.** numstat prints `-` for both counts. Expected: zero counted lines, and the path rules still apply. Tests in Tasks 1 and 2.
+- **A binary file.** numstat prints `-` for both counts. Expected: full outside tests and docs, because the line cap cannot be checked (changed in the tester rounds; this plan first said zero counted lines). Tests in Tasks 1 and 2.
 - **Spaces, tabs, newlines and non-ASCII in a path.** Expected: the `-z` parser keeps the path whole. Test in Task 1.
 - **Near-miss paths.** `.claude/skills-notes.md` and `docs/.github/workflows/x.yml` are not forced full. `.claude/skills` with no trailing slash (how an issue body names a directory) and `apps/web/package.json` are. Tests in Task 1.
 - **A PR branch behind the default branch.** Expected: only the branch's own changes count, not what landed on the default branch since. Test in Task 2.
