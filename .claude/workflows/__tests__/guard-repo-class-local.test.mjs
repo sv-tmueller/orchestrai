@@ -312,12 +312,17 @@ const ACCEPTED_HOSTS = ['github.com', 'github.com.', 'ssh.github.com']
 function gitsHost(url) {
   const res = spawnSync('git', ['fetch-pack', '--diag-url', url], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
   if (res.status !== 0) return { error: res.stderr.trim() }
-  const field = (name) => new RegExp(`^Diag: ${name}=(.*)$`, 'm').exec(res.stdout)?.[1]
-  const withPort = field('hostandport')
-  const text = field('userandhost') ?? withPort
+  // A value can hold a line break, so a field runs to the next "Diag: " line.
+  const fields = {}
+  for (const part of res.stdout.replace(/\n$/, '').split(/\n(?=Diag: )/)) {
+    const m = /^Diag: ([a-z]+)=([\s\S]*)$/.exec(part)
+    if (m) fields[m[1]] = m[2]
+  }
+  const withPort = fields.hostandport
+  const text = fields.userandhost ?? withPort
   if (text === undefined) return { error: `no host in: ${res.stdout}` }
   const host = text.slice(text.lastIndexOf('@') + 1)
-  return { host: (withPort === undefined ? host : host.replace(/:\d+$/, '')).toLowerCase() }
+  return { destination: text, host: (withPort === undefined ? host : host.replace(/:\d+$/, '')).toLowerCase() }
 }
 
 const probe = gitsHost('ssh://git@github.com/o/r')
@@ -352,6 +357,19 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'git@github.com@example.invalid:o/r',
     'git@notgithub.com:o/r',
     'git@www.github.com:o/r',
+    // a line break after the port digits or in the host keeps them in the host git hands ssh
+    'ssh://git@github.com:22\n/o/r',
+    'ssh://git@github.com:22\r/o/r',
+    'ssh://git@github.com:\n/o/r',
+    'ssh://git@github.com:\r/o/r',
+    'ssh://git@github.com\n/o/r',
+    'ssh://git@github.com\r/o/r',
+    'ssh://git@\ngithub.com/o/r',
+    'ssh://git@\rgithub.com/o/r',
+    'git@github.com\n:o/r',
+    'git@github.com\r:o/r',
+    'git://github.com:\n9418/o/r',
+    'git://github.com:\r9418/o/r',
     // the accepted hosts
     'ssh://git@github.com/o/r.git',
     'ssh://git@ssh.github.com:443/o/r.git',
@@ -362,6 +380,13 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'ssh://x@github.com:/o/r',
     'ssh://git@github.com:+22/o/r',
     'ssh://git@github.com: 22/o/r',
+    'ssh://git@github.com:\t22/o/r',
+    'ssh://git@github.com:\n22/o/r',
+    'ssh://git@github.com:\v22/o/r',
+    'ssh://git@github.com:\f22/o/r',
+    'ssh://git@github.com:\r22/o/r',
+    'ssh://git@github.com:\n\n22/o/r',
+    'ssh://git@github.com:\r\n+22/o/r',
     'a@b@github.com:o/r',
     // a colon in the user part with no port after the host: git hands ssh the plain host
     'ssh://x:@github.com/o/r',
@@ -383,7 +408,7 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
   ]
 
   for (const url of sameAsGit) {
-    test(`says GitHub exactly when git's host is GitHub: ${url}`, () => {
+    test(`says GitHub exactly when git's host is GitHub: ${JSON.stringify(url)}`, () => {
       const seen = gitsHost(url)
       assert.equal(seen.error, undefined, `git refused ${url}`)
       assert.equal(isGitHub(url), ACCEPTED_HOSTS.includes(seen.host), `git's host is ${seen.host}`)
@@ -396,6 +421,8 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'ssh://git@github.com:65536/o/r',
     'ssh://git@github.com:99999999999/o/r',
     'ssh://git@github.com:-1/o/r',
+    'ssh://git@github.com:\n-1/o/r',
+    'ssh://git@github.com:\r65536/o/r',
     'ssh://example.invalid:22@github.com:/o/r',
     'ssh://user:pw@github.com:/o/r',
     // a colon in the user part and a port after the host: git does not split the port off
@@ -413,7 +440,7 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'git+ssh://a:b@ssh.github.com:443/o/r',
     'ssh+git://a:b@ssh.github.com:443/o/r',
   ]) {
-    test(`does not say GitHub for a port or user part ssh cannot resolve: ${url}`, () => {
+    test(`does not say GitHub for a port or user part ssh cannot resolve: ${JSON.stringify(url)}`, () => {
       const seen = gitsHost(url)
       assert.equal(seen.error, undefined, `git refused ${url}`)
       assert.equal(ACCEPTED_HOSTS.includes(seen.host), false, `git's host is ${seen.host}`)
@@ -440,5 +467,71 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
       if (!ACCEPTED_HOSTS.includes(seen.host)) assert.equal(isGitHub(url), false, `git's host is ${seen.host}`)
       assert.deepEqual(parseGitHubRemote(url), { invalid: true })
     })
+  }
+
+  // git hands a path with a line break to github.com untouched, so these are
+  // GitHub remotes whose path is not one owner and one repo. null would let a
+  // remote that reaches GitHub pass as no GitHub remote.
+  for (const lb of ['\n', '\r']) {
+    for (const url of [
+      `ssh://git@github.com/o${lb}/r`,
+      `ssh://git@github.com/o/${lb}r`,
+      `ssh://git@github.com:${lb}22/o${lb}/r`,
+      `git://github.com/o${lb}/r`,
+      `git@github.com:o${lb}/r`,
+      `github.com:o/${lb}r`,
+    ]) {
+      test(`says invalid, not null, for a line break in the path: ${JSON.stringify(url)}`, () => {
+        const seen = gitsHost(url)
+        assert.equal(seen.error, undefined, `git refused ${JSON.stringify(url)}`)
+        assert.equal(ACCEPTED_HOSTS.includes(seen.host), true, `git's host is ${seen.host}`)
+        assert.deepEqual(parseGitHubRemote(url), { invalid: true })
+      })
+    }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// The remote parser against ssh
+// ---------------------------------------------------------------------------
+
+// git passes `userandhost` from the diag command to ssh as one argument, and
+// ssh then reads the user and the host from it. OpenSSH 9.6 and later refuse a
+// line break in the user part and in the host, so the remote never connects.
+// `ssh -G` prints the settings ssh would use and makes no connection.
+function sshHost(destination) {
+  const res = spawnSync('ssh', ['-F', '/dev/null', '-G', '--', destination], { encoding: 'utf8' })
+  if (res.error || res.status !== 0) return { refused: (res.error?.message ?? res.stderr).trim() }
+  return { host: /^hostname (.*)$/m.exec(res.stdout)?.[1]?.toLowerCase() }
+}
+
+const sshPlain = sshHost('git@github.com')
+const sshControl = sshHost('a\nb@github.com')
+const SSH_SKIP =
+  SKIP ||
+  (sshPlain.host !== 'github.com' && 'there is no usable "ssh -G"') ||
+  (sshControl.refused === undefined && 'this ssh accepts a line break in the user part, so the parser answer for it is open (see issue #586)')
+
+describe('parseGitHubRemote against ssh -G for a line break outside the port and the path', { skip: SSH_SKIP }, () => {
+  for (const lb of ['\n', '\r']) {
+    for (const url of [
+      `ssh://a${lb}b@github.com/o/r`,
+      `ssh://${lb}git@github.com/o/r`,
+      `ssh://git${lb}@github.com/o/r`,
+      `ssh://git@example.invalid${lb}@github.com/o/r`,
+      `ssh://git@github.com${lb}@example.invalid/o/r`,
+      `ssh://git@${lb}github.com/o/r`,
+      `ssh://git@github.com${lb}/o/r`,
+      `a${lb}b@github.com:o/r`,
+      `git@github.com${lb}:o/r`,
+    ]) {
+      test(`says GitHub exactly when ssh reaches github.com: ${JSON.stringify(url)}`, () => {
+        const seen = gitsHost(url)
+        assert.equal(seen.error, undefined, `git refused ${JSON.stringify(url)}`)
+        const reached = sshHost(seen.destination)
+        assert.equal(isGitHub(url), ACCEPTED_HOSTS.includes(reached.host ?? ''), JSON.stringify(reached))
+        assert.equal(parseGitHubRemote(url), null)
+      })
+    }
   }
 })

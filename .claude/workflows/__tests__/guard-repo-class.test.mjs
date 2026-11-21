@@ -246,6 +246,11 @@ describe('parseGitHubRemote', () => {
       'ssh://git@github.com:/octo/widget-api',
       'ssh://git@github.com:+22/octo/widget-api',
       'ssh://git@github.com: 22/octo/widget-api',
+      'ssh://git@github.com:\t22/octo/widget-api',
+      'ssh://git@github.com:\n22/octo/widget-api',
+      'ssh://git@github.com:\v22/octo/widget-api',
+      'ssh://git@github.com:\f22/octo/widget-api',
+      'ssh://git@github.com:\r22/octo/widget-api',
       'ssh://github.com/octo/widget-api',
       'git@github.com:octo/widget-api.git',
       'a@b@github.com:octo/widget-api',
@@ -365,6 +370,51 @@ describe('parseGitHubRemote', () => {
   test('an http(s) port with a sign or leading whitespace is null, not GitHub', () => {
     const urls = ['https://github.com:+443/octo/widget-api', 'https://github.com: 443/octo/widget-api']
     for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  // ssh, and curl for http(s), refuse a line break in the user part or the host,
+  // and curl refuses one anywhere in an http(s) remote, so none of these connects
+  // to GitHub. A line break after the port digits keeps the port in the host.
+  test('a line break in the user part, the host, an http(s) remote or after the port is null, not GitHub', () => {
+    const urls = []
+    for (const lb of ['\n', '\r']) {
+      urls.push(
+        `ssh://a${lb}b@github.com/octo/widget-api`,
+        `ssh://${lb}git@github.com/octo/widget-api`,
+        `ssh://git@example.invalid${lb}@github.com/octo/widget-api`,
+        `ssh://git@${lb}github.com/octo/widget-api`,
+        `ssh://git@github.com${lb}/octo/widget-api`,
+        `ssh://git@github.com:22${lb}/octo/widget-api`,
+        `ssh://git@github.com:${lb}/octo/widget-api`,
+        `git://a${lb}b@github.com/octo/widget-api`,
+        `git://github.com:${lb}9418/octo/widget-api`,
+        `a${lb}b@github.com:octo/widget-api`,
+        `git@github.com${lb}:octo/widget-api`,
+        `https://github.com/octo${lb}/widget-api`,
+        `https://github.com${lb}/octo/widget-api`,
+        `https://a${lb}b@github.com/octo/widget-api`,
+        `https://github.com:${lb}443/octo/widget-api`,
+      )
+    }
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, JSON.stringify(url))
+  })
+
+  // git sends the path to github.com as it is, so a remote with a line break in
+  // the path is a GitHub remote that does not name one owner and one repo.
+  test('a line break in the path of an ssh, git or scp-like remote is invalid, not null', () => {
+    const urls = []
+    for (const lb of ['\n', '\r']) {
+      urls.push(
+        `ssh://git@github.com/octo${lb}/widget-api`,
+        `ssh://git@github.com/octo/${lb}widget-api`,
+        `ssh://git@github.com:${lb}22/octo/widget-api${lb}x`,
+        `git+ssh://git@github.com/octo/widget${lb}-api`,
+        `git://github.com/octo${lb}/widget-api`,
+        `git@github.com:octo${lb}/widget-api`,
+        `github.com:octo/${lb}widget-api`,
+      )
+    }
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, JSON.stringify(url))
   })
 
   test('a colon in the user part with an empty port is invalid', () => {
