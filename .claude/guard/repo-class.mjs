@@ -76,25 +76,32 @@ export function parseGitHubRemote(url) {
     user = authority.slice(0, Math.max(at, 0))
     hostText = authority.slice(at + 1)
   } else {
-    const scp = /^(?:([^@/:\s]+)@)?([^@/:\s]+):(.*)$/.exec(input)
+    const scp = /^(?:([^/:\s]+)@)?([^@/:\s]+):(.*)$/.exec(input)
     if (!scp) return null
     user = scp[1] ?? ''
     hostText = scp[2]
     path = scp[3]
   }
   if (/[%[\]]/.test(hostText)) return { invalid: true }
-  const hostPort = isScheme ? /^([^:]+)(?::(\d*))?$/.exec(hostText) : [hostText, hostText]
+  const sshFamily = isScheme && SSH_FAMILY.test(scheme[1])
+  const portPattern = sshFamily
+    ? /^([^:]+)(?::([ \t\n\v\f\r]*[+-]?\d+|))?$/
+    : /^([^:]+)(?::(\d*))?$/
+  const hostPort = isScheme ? portPattern.exec(hostText) : [hostText, hostText]
   const host = hostPort?.[1]
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
   if (/[%[\]]/.test(user)) return { invalid: true }
-  // git and ssh cannot use a port above 65535. For the ssh family, git splits a
-  // port off only when the first colon in the authority is after the user part.
+  // git and ssh cannot use a port above 65535. For the ssh family, git reads the
+  // port the way strtol does (leading whitespace, one sign) and leaves a port
+  // below 0 or above 65535 in the host. http(s) and git:// take digits only. For
+  // the ssh family, git splits a port off only when the first colon in the
+  // authority is after the user part.
   // With a colon in the user part, ssh gets "github.com:22" or "github.com:" as
   // the host, whatever follows the colon. An empty port after a colon user is
   // invalid for every scheme.
   const port = isScheme ? hostPort[2] : undefined
-  const colonUser = user.includes(':') && (port === '' || (isScheme && SSH_FAMILY.test(scheme[1])))
-  if (port !== undefined && (Number(port) > 65535 || colonUser)) return { invalid: true }
+  const colonUser = user.includes(':') && (port === '' || sshFamily)
+  if (port !== undefined && (Number(port) < 0 || Number(port) > 65535 || colonUser)) return { invalid: true }
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
