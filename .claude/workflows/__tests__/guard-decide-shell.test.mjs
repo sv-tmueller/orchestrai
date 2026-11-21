@@ -685,6 +685,23 @@ describe("parseCommandLine: \\u and \\U escapes in $'...'", () => {
   })
 })
 
+describe("parseCommandLine: \\? and \\E in $'...' (#587)", () => {
+  const word = (line) => parse(line)[0].words[1]
+
+  test('\\E decodes like \\e', () => {
+    assert.equal(word("echo $'a\\Eb'").text, 'a\x1bb')
+    assert.equal(word("echo $'a\\Eb'").text, word("echo $'a\\eb'").text)
+  })
+
+  test('\\? decodes to a question mark', () => {
+    assert.equal(word("echo $'a\\?b'").text, 'a?b')
+  })
+
+  test('an escape bash does not know is still kept as written', () => {
+    assert.equal(word("echo $'a\\qb'").text, 'a\\qb')
+  })
+})
+
 describe('parseCommandLine: export of GIT_DIR or GIT_WORK_TREE counts like a cd', () => {
   const marks = (line) => parse(line).map((c) => c.afterCd)
 

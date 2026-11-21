@@ -1006,6 +1006,17 @@ describe('merge-rule fix round: an exported GIT_DIR or GIT_WORK_TREE counts like
   })
 })
 
+describe('merge-rule: PR #547 follow-ups (#587)', () => {
+  describe("\\? and \\E in $'...'", () => {
+    // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
+    // literal `protection` or `rulesets` segment before it is still a segment.
+    defineDenyRows('branch-rule', [
+      "gh api -X DELETE $'repos/acme/widget/branches/main/protection\\?'",
+      "gh api -X POST $'repos/acme/widget/rulesets\\?' --input r.json",
+    ])
+  })
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')

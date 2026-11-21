@@ -224,7 +224,7 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
   return { command, extra, sawCd }
 }
 
-const ANSI_C_SIMPLE = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"', r: '\r', a: '\x07', b: '\b', e: '\x1b', f: '\f', v: '\v' }
+const ANSI_C_SIMPLE = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"', r: '\r', a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', v: '\v', '?': '?' }
 const ANSI_C_ESCAPE = /\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|[\s\S])/g
 
 // One escape of `$'...'` as text, or null for a NUL, which ends the string in
