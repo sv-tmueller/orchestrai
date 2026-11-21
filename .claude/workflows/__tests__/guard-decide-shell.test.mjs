@@ -685,6 +685,50 @@ describe("parseCommandLine: \\u and \\U escapes in $'...'", () => {
   })
 })
 
+describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
+  test('a cluster that ends in a value letter takes the next word as its value', () => {
+    assert.deepEqual(texts('sudo -Eu root git push'), [['git', 'push']])
+    assert.deepEqual(texts('doas -nu root git push'), [['git', 'push']])
+    assert.deepEqual(texts('env -iu FOO git push'), [['git', 'push']])
+  })
+
+  test('the first value letter ends the cluster, and the rest of it is the value', () => {
+    assert.deepEqual(texts('sudo -uEu git push'), [['git', 'push']])
+    assert.deepEqual(texts('env -uC git push'), [['git', 'push']])
+    assert.deepEqual(texts('stdbuf -oL git push'), [['git', 'push']])
+  })
+
+  test('a cluster with no value letter takes no value', () => {
+    assert.deepEqual(texts('sudo -nE git push'), [['git', 'push']])
+    assert.deepEqual(texts('env -iv git push'), [['git', 'push']])
+  })
+
+  test('env -S inside a cluster gives a nested command', () => {
+    const commands = parse("env -iS 'git push origin main'")
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].nested, true)
+    // The value can also be the rest of the cluster.
+    assert.deepEqual(texts('env -iSgit push'), [['git', 'push']])
+  })
+
+  test('the chdir letter in a cluster sets afterCd', () => {
+    assert.equal(parse('env -iC ../o git push')[0].afterCd, true)
+    assert.equal(parse('env -iC../o git push')[0].afterCd, true)
+    assert.equal(parse('sudo -nD ../x git push')[0].afterCd, true)
+    assert.equal(parse('sudo -nD../x git push')[0].afterCd, true)
+  })
+
+  test('the chdir letter after a value letter is part of that value, so afterCd stays false', () => {
+    assert.equal(parse('env -uC git push')[0].afterCd, false)
+    assert.equal(parse('sudo -uD git push')[0].afterCd, false)
+  })
+
+  test('a cluster without the chdir letter does not set afterCd', () => {
+    assert.equal(parse('env -iu FOO git push')[0].afterCd, false)
+    assert.equal(parse('sudo -Eu root git push')[0].afterCd, false)
+  })
+})
+
 describe("parseCommandLine: \\? and \\E in $'...' (#587)", () => {
   const word = (line) => parse(line)[0].words[1]
 

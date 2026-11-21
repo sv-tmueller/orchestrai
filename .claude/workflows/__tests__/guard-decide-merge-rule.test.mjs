@@ -1007,6 +1007,47 @@ describe('merge-rule fix round: an exported GIT_DIR or GIT_WORK_TREE counts like
 })
 
 describe('merge-rule: PR #547 follow-ups (#587)', () => {
+  describe('wrapper short-option clusters', () => {
+    // The value of a cluster's value letter was read as the command name, so
+    // the real command was never checked.
+    defineDenyRows('push-default', [
+      'sudo -Eu root git push origin main',
+      'doas -nu root git push origin main',
+      'env -iu FOO git push origin main',
+      "env -iS 'git push origin main'",
+      'env -iSgit push origin main',
+    ])
+    defineDenyRows('delete-repo', [
+      'sudo -nu root gh repo delete acme/widget --yes',
+    ])
+    // The chdir letter inside a cluster moves the push to another folder, so a
+    // bare push is no longer known to be on the current branch.
+    defineDenyRows('push-default', [
+      'env -iC ../o git push',
+      'sudo -nD ../x git push',
+      'env -iC../o git push',
+    ])
+
+    // Still denied before and after the fix. Each is read the way the program
+    // reads it, so the real command is checked.
+    describe('still denied (pass before the fix)', () => {
+      defineDenyRows('push-default', [
+        'sudo -u root -E git push origin main',
+        'sudo -uEu git push origin main',
+        'env -uC git push origin main',
+      ])
+    })
+
+    describe('still passes', () => {
+      defineAllowRows('wrapper', [
+        'sudo -Eu root git status',
+        'env -iu FOO git status',
+        'stdbuf -oL git push origin feat/x',
+        'sudo -nu root git push origin feat/x',
+      ])
+    })
+  })
+
   describe("\\? and \\E in $'...'", () => {
     // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
     // literal `protection` or `rulesets` segment before it is still a segment.

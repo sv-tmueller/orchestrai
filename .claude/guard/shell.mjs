@@ -43,6 +43,20 @@ const GIT_FOLDER_NAMES = new Set(['GIT_DIR', 'GIT_WORK_TREE'])
 
 const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 
+// Reads a short-option cluster (`-xyz`) the way getopt does: left to right,
+// and the first letter that takes a value ends it. The value is the rest of
+// the cluster, or the next word when that letter is the last one. `seen` is
+// called for each letter read as an option, the value letter included. Returns
+// null when no letter takes a value, else `{ letter, rest }` where `rest` is
+// null when the value is the next word.
+function readCluster(text, takesValue, seen) {
+  for (let k = 1; k < text.length; k++) {
+    seen(text[k])
+    if (takesValue(text[k])) return { letter: text[k], rest: k === text.length - 1 ? null : text.slice(k + 1) }
+  }
+  return null
+}
+
 // Wrappers: each takes the words after the wrapper name and a state object
 // ({ lines, env, chdir }), and returns what is left once the wrapper's own
 // flags and arguments are removed. `chdir` names the wrapper's own
@@ -54,11 +68,18 @@ function skipFlags(words, valueFlags, state, chdir = null) {
     if (t === '--') {
       i++
       break
-    } else if (t.length > 1 && t.startsWith('-')) {
-      if (chdir && (t === chdir.short || t === chdir.long || t.startsWith(`${chdir.long}=`) || (t.startsWith(chdir.short) && t.length > 2))) {
-        state.chdir = true
-      }
+    } else if (t.length > 1 && t.startsWith('--')) {
+      if (chdir && (t === chdir.long || t.startsWith(`${chdir.long}=`))) state.chdir = true
       i += valueFlags.has(t) ? 2 : 1
+    } else if (t.length > 1 && t.startsWith('-')) {
+      const value = readCluster(
+        t,
+        (letter) => valueFlags.has(`-${letter}`),
+        (letter) => {
+          if (chdir && `-${letter}` === chdir.short) state.chdir = true
+        },
+      )
+      i += value && value.rest === null ? 2 : 1
     } else {
       break
     }
@@ -75,7 +96,8 @@ const SUDO_VALUE_FLAGS = new Set([
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 
 // `env -S` takes a whole command line as one string. Its value goes to
-// `state.lines` and is parsed as a line. Assigned names go to `state.env`.
+// `state.lines` and is parsed as a line, also when `S` ends a cluster
+// (`-iS`). Assigned names go to `state.env`.
 function skipEnv(words, state) {
   let i = 0
   while (i < words.length) {
@@ -86,18 +108,28 @@ function skipEnv(words, state) {
     } else if (t === '--') {
       i++
       break
-    } else if (t === '-S' || t === '--split-string') {
+    } else if (t === '--split-string') {
       if (words[i + 1]) state.lines.push(words[i + 1].text)
       i += 2
     } else if (t.startsWith('--split-string=')) {
       state.lines.push(t.slice('--split-string='.length))
       i++
-    } else if (t.startsWith('-S') && t.length > 2) {
-      state.lines.push(t.slice(2))
-      i++
-    } else if (t.length > 1 && t.startsWith('-')) {
-      if (t === '-C' || t === '--chdir' || t.startsWith('--chdir=') || (t.startsWith('-C') && t.length > 2)) state.chdir = true
+    } else if (t.length > 1 && t.startsWith('--')) {
+      if (t === '--chdir' || t.startsWith('--chdir=')) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
+    } else if (t.length > 1 && t.startsWith('-')) {
+      const value = readCluster(
+        t,
+        (letter) => letter === 'S' || ENV_VALUE_FLAGS.has(`-${letter}`),
+        (letter) => {
+          if (letter === 'C') state.chdir = true
+        },
+      )
+      if (value?.letter === 'S') {
+        if (value.rest !== null) state.lines.push(value.rest)
+        else if (words[i + 1]) state.lines.push(words[i + 1].text)
+      }
+      i += value && value.rest === null ? 2 : 1
     } else {
       break
     }
