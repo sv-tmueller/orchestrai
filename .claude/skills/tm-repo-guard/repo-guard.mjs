@@ -791,9 +791,10 @@ export function workflowTriggers(text) {
   // The reference is GitHub's YAML 1.2 reading, where the trigger key is `on`, plain or
   // quoted. The loop also counts `on` in another case or with a space before the colon,
   // and the check below refuses the file unless there is exactly one such key and it is
-  // the plain spelling. That extra counting is a safety margin, and anchors, tags, aliases,
-  // complex keys and escapes at column 0 are refused outright. YAML 1.1 readers such as
-  // PyYAML also read `true:` and `yes:` as this key, and this does not count those.
+  // written `on`, `"on"` or `'on'`, in lower case with the colon right after it. That extra
+  // counting is a safety margin, and anchors, tags, aliases, complex keys and escapes at
+  // column 0 are refused outright. YAML 1.1 readers such as PyYAML also read `true:` and
+  // `yes:` as this key, and this does not count those.
   const onAt = []
   for (const [i, l] of lines.entries()) {
     if (l.indent !== 0) continue
