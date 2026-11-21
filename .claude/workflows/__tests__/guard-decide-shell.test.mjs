@@ -698,7 +698,7 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.deepEqual(texts('stdbuf -oLeL git push'), [['git', 'push']])
   })
 
-  test('a cluster word that expands skips one word, whatever letters its text ends in', () => {
+  test('an expansion in a cluster word hides the letters after it, so the word skips one word', () => {
     assert.deepEqual(texts('sudo -$u git push'), [['git', 'push']])
     assert.deepEqual(texts('env -$u git push'), [['git', 'push']])
     assert.deepEqual(texts('doas -$u git push'), [['git', 'push']])
@@ -720,6 +720,70 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
 
   test('a cluster word that expands does not set afterCd by its letters', () => {
     assert.equal(parse('env -$C git push')[0].afterCd, false)
+  })
+
+  test("a word decoded from $'...' is read as the letters it holds", () => {
+    assert.deepEqual(texts("env -$'u' X git push"), [['git', 'push']])
+    assert.deepEqual(texts("sudo -$'u' root git push"), [['git', 'push']])
+    assert.deepEqual(texts("timeout -$'s' KILL 5 git push"), [['git', 'push']])
+    assert.deepEqual(texts("nice -$'n' 5 git push"), [['git', 'push']])
+    const commands = parse("env -$'S' 'git push origin main'")
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].nested, true)
+  })
+
+  test('a value letter before an expansion takes the rest of the word as its value', () => {
+    assert.deepEqual(texts('sudo -u$x git push'), [['git', 'push']])
+    assert.deepEqual(texts('env -u"$x" git push'), [['git', 'push']])
+    // The substitution is its own nested command, listed after the wrapped one.
+    assert.deepEqual(texts('env -iu$(id) git push'), [['git', 'push'], ['id']])
+    assert.deepEqual(texts('env -u`id` git push'), [['git', 'push'], ['id']])
+  })
+
+  test('no letter after an expansion is read as an option', () => {
+    assert.deepEqual(texts('sudo -$u git push'), [['git', 'push']])
+    assert.deepEqual(texts('sudo -n$u git push'), [['git', 'push']])
+    assert.equal(parse('env -$C git push')[0].afterCd, false)
+    assert.equal(parse('env -n$C git push')[0].afterCd, false)
+    assert.equal(parse('sudo -n$D git push')[0].afterCd, false)
+  })
+
+  test('a chdir letter before an expansion sets afterCd', () => {
+    assert.equal(parse('sudo -D"$d" git push')[0].afterCd, true)
+    assert.equal(parse('sudo -D$d git push')[0].afterCd, true)
+    assert.equal(parse('sudo -D$(pwd) git push')[0].afterCd, true)
+    assert.equal(parse('sudo -D`pwd` git push')[0].afterCd, true)
+    assert.equal(parse('sudo -nD"$d" git push')[0].afterCd, true)
+    assert.equal(parse('env -C$d git push')[0].afterCd, true)
+    assert.equal(parse('env -C"$d" git push')[0].afterCd, true)
+    assert.equal(parse('env -iC"$d" git push')[0].afterCd, true)
+    assert.deepEqual(texts('env -C"$d" git push'), [['git', 'push']])
+  })
+
+  test('a process substitution hides the letters after it like a `$` does', () => {
+    assert.deepEqual(texts('env -<(echo)u git push'), [['git', 'push'], ['echo']])
+    assert.deepEqual(texts('sudo -n>(cat)u git push'), [['git', 'push'], ['cat']])
+    assert.equal(parse('env -<(echo)C git push')[0].afterCd, false)
+    assert.equal(parse('env -C<(echo) git push')[0].afterCd, true)
+  })
+
+  test('a decoded dollar sign counts as the start of an expansion', () => {
+    assert.deepEqual(texts("sudo -$'\\x24'u git push"), [['git', 'push']])
+  })
+
+  test('env -S before an expansion gives a nested command', () => {
+    const commands = parse('env -S"git push origin main $x"')
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main', '$x']])
+    assert.equal(commands[0].nested, true)
+    const cluster = parse('env -iS"git push $x"')
+    assert.deepEqual(cluster.map((c) => c.words.map((w) => w.text)), [['git', 'push', '$x']])
+    assert.equal(cluster[0].nested, true)
+  })
+
+  test('env -S whose value starts at the expansion leaves the words after it as the command', () => {
+    const commands = parse('env -S$x git push origin main')
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].nested, false)
   })
 
   test('a cluster with no value letter takes no value', () => {

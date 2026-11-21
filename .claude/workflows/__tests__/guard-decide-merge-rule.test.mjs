@@ -1038,9 +1038,9 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
-    // A word that expands has an unknown value, so its letters are not read as
-    // options. It skips one word, like any flag without a value, and the next
-    // word is the command.
+    // The text from the first `$` on is unknown, so no letter after it is read
+    // as an option. The word skips one word, like any flag without a value,
+    // and the next word is the command.
     describe('a flag word that expands does not swallow the command', () => {
       defineDenyRows('push-default', [
         'sudo -$u git push origin main',
@@ -1052,6 +1052,42 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'sudo -u $x git push origin main',
         'env -$S git push origin main',
         'env -S$x git push origin main',
+      ])
+    })
+
+    // The parser decodes `$'u'` to `u`, so the word reads as `-u` and its
+    // value is the next word, as in the real program.
+    describe("a flag word decoded from $'...' is read as the letters it holds", () => {
+      defineDenyRows('push-default', [
+        "env -$'u' X git push origin main",
+        "sudo -$'u' root git push origin main",
+        "doas -$'u' root git push origin main",
+        "timeout -$'s' KILL 5 git push origin main",
+        "nice -$'n' 5 git push origin main",
+        "ionice -$'c' 3 git push origin main",
+        "stdbuf -$'o' L git push origin main",
+        "env -$'S' 'git push origin main'",
+      ])
+    })
+
+    // The letters before the expansion are read, so a chdir letter still moves
+    // the push to another folder, and `-S` still starts a command line.
+    describe('a flag word with an expansion after a literal letter', () => {
+      defineDenyRows('push-default', [
+        'sudo -D"$d" git push',
+        'sudo -D$d git push',
+        'sudo -D$(pwd) git push',
+        'sudo -D`pwd` git push',
+        'sudo -nD"$d" git push',
+        'env -C$d git push',
+        'env -C"$d" git push',
+        'env -iC"$d" git push',
+        'env -S"git push origin main $x"',
+        'env -iS"git push origin main $x"',
+        'env -S"git push origin main `date`"',
+        'env -<(echo)u git push origin main',
+        'sudo ->(cat)n git push origin main',
+        "sudo -$'\\x24'u git push origin main",
       ])
     })
 

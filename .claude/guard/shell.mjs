@@ -50,8 +50,19 @@ const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 // called for each letter read as an option, the value letter included. Returns
 // null when no letter takes a value, else `{ letter, rest }` where `rest` is
 // null when the value is the next word.
-function readCluster(text, takesValue, seen) {
-  for (let k = 1; k < text.length; k++) {
+//
+// In a word that expands, reading stops at the first `$`, backtick or `<(`
+// (`>(`), because the text from there on is unknown: a value letter before it
+// takes the rest of the word as its value, and no letter after it is read as
+// an option. A `$'...'` word is already decoded and has no `$` left, so it is
+// read as the letters it holds.
+function readCluster(text, expands, takesValue, seen) {
+  let end = text.length
+  if (expands) {
+    const unknown = text.search(/[$`]|[<>]\(/)
+    if (unknown >= 0) end = unknown
+  }
+  for (let k = 1; k < end; k++) {
     seen(text[k])
     if (takesValue(text[k])) return { letter: text[k], rest: k === text.length - 1 ? null : text.slice(k + 1) }
   }
@@ -73,14 +84,9 @@ function skipFlags(words, valueFlags, state, chdir = null) {
       if (chdir && (t === chdir.long || t.startsWith(`${chdir.long}=`))) state.chdir = true
       i += valueFlags.has(t) ? 2 : 1
     } else if (t.length > 1 && t.startsWith('-')) {
-      // A word that expands has an unknown value: skip it alone, as for a flag
-      // without a value, so the command behind it is still read.
-      if (words[i].expands) {
-        i++
-        continue
-      }
       const value = readCluster(
         t,
+        words[i].expands,
         (letter) => valueFlags.has(`-${letter}`),
         (letter) => {
           if (chdir && `-${letter}` === chdir.short) state.chdir = true
@@ -125,21 +131,20 @@ function skipEnv(words, state) {
       if (t === '--chdir' || t.startsWith('--chdir=')) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
     } else if (t.length > 1 && t.startsWith('-')) {
-      // Unknown value: neither a value letter nor `S` can be read from it.
-      if (words[i].expands) {
-        i++
-        continue
-      }
       const value = readCluster(
         t,
+        words[i].expands,
         (letter) => letter === 'S' || ENV_VALUE_FLAGS.has(`-${letter}`),
         (letter) => {
           if (letter === 'C') state.chdir = true
         },
       )
       if (value?.letter === 'S') {
-        if (value.rest !== null) state.lines.push(value.rest)
-        else if (words[i + 1]) state.lines.push(words[i + 1].text)
+        // A value that starts at an expansion (`-S$x`) is all unknown text:
+        // none of it is a line, so the words after it stay the command.
+        if (value.rest !== null) {
+          if (!(words[i].expands && /^[$`]/.test(value.rest))) state.lines.push(value.rest)
+        } else if (words[i + 1]) state.lines.push(words[i + 1].text)
       }
       i += value && value.rest === null ? 2 : 1
     } else {
