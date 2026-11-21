@@ -23,7 +23,8 @@
  *   `typeset -x` of `GIT_DIR` or `GIT_WORK_TREE`, which moves every later git
  *   command to another repository. Subshell scope is ignored, which errs
  *   toward "unknown". It is also true for a command whose `env` or `sudo`
- *   wrapper carries `-C`, `--chdir` or `-D`.
+ *   wrapper carries `-C`, `--chdir` or `-D`, also inside a short-option
+ *   cluster (`env -iC dir`, `sudo -nD dir`).
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
  * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting

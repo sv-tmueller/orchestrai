@@ -1164,7 +1164,7 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       // fix round past the cap
       'declare -x', 'typeset -x', 'ANSI-C escapes', 'set -a', 'sourced file',
       // owner decision 2026-11-13: named gaps, not fixes
-      '`\\cX` control escapes', "$'--admin\\c@x'", '`\\E` and bytes 0x80 and up',
+      '`\\cX` control escapes', "$'--admin\\c@x'", 'Bytes 0x80 and up also differ from bash',
       'export GIT_DIR+=other/.git', 'builtin export GIT_DIR=', 'local -x GIT_DIR=', 'export $VAR=x',
       // sentences narrowed to what the code reads
       'A NUL from `\\x`, octal, `\\u` or `\\U` ends the string', 'with or without a value',
@@ -1172,5 +1172,14 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
     }
+  })
+
+  test("the header lists \\E and \\? as decoded, not as kept as written (#587)", async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
+      .replace(/\s*\n\s*\*\s*/g, ' ')
+    assert.ok(source.includes("\\e \\E \\f \\v \\?"), 'the decoded list does not name \\E and \\?')
+    assert.ok(!source.includes('`\\E`, `\\?`) is kept as written'), 'the header still keeps \\E and \\? as written')
+    assert.ok(!source.includes('`\\E` is kept as written'), 'the header still keeps \\E as written')
   })
 })

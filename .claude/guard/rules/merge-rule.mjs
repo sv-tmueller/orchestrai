@@ -68,11 +68,12 @@
  * do not count. A bare push there is denied.
  *
  * The parser decodes the ANSI-C escapes in `$'...'`: `\x` hex, octal, `\u`,
- * `\U`, and the single-letter escapes `\n \t \\ \' \" \r \a \b \e \f \v`. A
- * NUL from `\x`, octal, `\u` or `\U` ends the string. So a word spelled
+ * `\U`, and the single-letter escapes
+ * `\n \t \\ \' \" \r \a \b \e \E \f \v \?`. A NUL from `\x`, octal, `\u` or
+ * `\U` ends the string. So a word spelled
  * `$'\u0072epos'` is read as `repos`, and one spelled `$'--admin\x00x'` as
  * `--admin`. A word spelled that way still counts as expanding. Any other
- * escape (`\c`, `\E`, `\?`) is kept as written, and `\cX` is named below.
+ * escape is kept as written, as in bash, except `\cX`, which is named below.
  *
  * A `gh api` write is denied as branch-rule when its repos path has a literal
  * `protection` segment anywhere after the repo part, when `branches/<name>/`
@@ -103,9 +104,9 @@
  *     before the push. Only `export`, `declare -x` and `typeset -x` are read.
  *   - `\cX` control escapes in `$'...'` are not decoded. `\c@` and `\c<space>`
  *     give a NUL in bash, which ends the word, so `gh pr merge 12
- *     $'--admin\c@x'` runs as `--admin` and is not seen. `\E` and bytes 0x80
- *     and up also differ from bash (`\E` is kept as written, and a byte becomes
- *     a Latin-1 character), but they cannot hide an ASCII word.
+ *     $'--admin\c@x'` runs as `--admin` and is not seen. Bytes 0x80 and up
+ *     also differ from bash (a byte becomes a Latin-1 character), but they
+ *     cannot hide an ASCII word.
  *   - Export spellings that the "exported `GIT_DIR` counts like a `cd`" rule
  *     does not read: an append (`export GIT_DIR+=other/.git`, also with
  *     `declare -x` and `typeset -x`), `builtin export GIT_DIR=other/.git`,
