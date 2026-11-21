@@ -368,8 +368,9 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'ssh://git@\rgithub.com/o/r',
     'git@github.com\n:o/r',
     'git@github.com\r:o/r',
-    'git://github.com:\n9418/o/r',
-    'git://github.com:\r9418/o/r',
+    // U+2028 and U+2029 are not control bytes, so ssh takes them as part of the user
+    'ssh://a b@github.com/o/r',
+    'ssh://a b@github.com/o/r',
     // the accepted hosts
     'ssh://git@github.com/o/r.git',
     'ssh://git@ssh.github.com:443/o/r.git',
@@ -489,21 +490,53 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
       })
     }
   }
+
+  // U+2028 and U+2029 are not control bytes, so git hands them to github.com in
+  // the path as well.
+  for (const ch of [' ', ' ']) {
+    const url = `ssh://git@github.com/o${ch}/r`
+    test(`says invalid, not null, for U+${ch.codePointAt(0).toString(16)} in the path`, () => {
+      const seen = gitsHost(url)
+      assert.equal(seen.error, undefined, `git refused ${JSON.stringify(url)}`)
+      assert.equal(ACCEPTED_HOSTS.includes(seen.host), true, `git's host is ${seen.host}`)
+      assert.deepEqual(parseGitHubRemote(url), { invalid: true })
+    })
+  }
 })
 
 // ---------------------------------------------------------------------------
 // The remote parser against ssh
 // ---------------------------------------------------------------------------
 
+// `ssh -G` prints one setting per line, key first. A value runs to the next
+// setting line, so a line break in the hostname is not cut off.
+function sshHostname(settings) {
+  for (const part of settings.replace(/\n$/, '').split(/\n(?=[a-z]+ )/)) {
+    const m = /^hostname ([\s\S]*)$/.exec(part)
+    if (m) return m[1].toLowerCase()
+  }
+  return undefined
+}
+
 // git passes `userandhost` from the diag command to ssh as one argument, and
-// ssh then reads the user and the host from it. OpenSSH 9.6 and later refuse a
-// line break in the user part and in the host, so the remote never connects.
-// `ssh -G` prints the settings ssh would use and makes no connection.
+// ssh then reads the user and the host from it. OpenSSH refuses a line break
+// in the host. It refuses one in the user part from 10.1 on (CVE-2025-61984),
+// and earlier where a distribution carries that patch, as the 9.6p1 this
+// suite was written on does. On an ssh that accepts one in the user part the
+// suite skips itself. `ssh -G` prints the settings ssh would use and makes no
+// connection.
 function sshHost(destination) {
   const res = spawnSync('ssh', ['-F', '/dev/null', '-G', '--', destination], { encoding: 'utf8' })
   if (res.error || res.status !== 0) return { refused: (res.error?.message ?? res.stderr).trim() }
-  return { host: /^hostname (.*)$/m.exec(res.stdout)?.[1]?.toLowerCase() }
+  return { host: sshHostname(res.stdout) }
 }
+
+test('the ssh -G reader keeps a line break inside the hostname value', () => {
+  const out = 'user git\nhostname github.com\nport 22\nidentityfile ~/.ssh/id\n'
+  assert.equal(sshHostname(out), 'github.com')
+  assert.equal(sshHostname(out.replace('github.com', 'github.com\n')), 'github.com\n')
+  assert.equal(sshHostname(out.replace('github.com', 'GitHub.com\r')), 'github.com\r')
+})
 
 const sshPlain = sshHost('git@github.com')
 const sshControl = sshHost('a\nb@github.com')

@@ -387,7 +387,6 @@ describe('parseGitHubRemote', () => {
         `ssh://git@github.com:22${lb}/octo/widget-api`,
         `ssh://git@github.com:${lb}/octo/widget-api`,
         `git://a${lb}b@github.com/octo/widget-api`,
-        `git://github.com:${lb}9418/octo/widget-api`,
         `a${lb}b@github.com:octo/widget-api`,
         `git@github.com${lb}:octo/widget-api`,
         `https://github.com/octo${lb}/widget-api`,
@@ -415,6 +414,17 @@ describe('parseGitHubRemote', () => {
       )
     }
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, JSON.stringify(url))
+  })
+
+  // U+2028 and U+2029 are not control bytes. git, ssh and curl take them as part
+  // of the user or the path, so the remote reaches GitHub like any other.
+  test('U+2028 and U+2029 in a user part are not line breaks, and in the path they are invalid', () => {
+    for (const ch of [' ', ' ']) {
+      for (const url of [`ssh://a${ch}b@github.com/octo/widget-api`, `https://a${ch}b@github.com/octo/widget-api`]) {
+        assert.deepEqual(parseGitHubRemote(url), widget, JSON.stringify(url))
+      }
+      assert.deepEqual(parseGitHubRemote(`ssh://git@github.com/octo${ch}/widget-api`), { invalid: true }, JSON.stringify(ch))
+    }
   })
 
   test('a colon in the user part with an empty port is invalid', () => {
