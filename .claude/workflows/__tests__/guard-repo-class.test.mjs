@@ -372,9 +372,12 @@ describe('parseGitHubRemote', () => {
     for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
   })
 
-  // ssh, and curl for http(s), refuse a line break in the user part or the host,
-  // and curl refuses one anywhere in an http(s) remote, so none of these connects
-  // to GitHub. A line break after the port digits keeps the port in the host.
+  // None of these connects to GitHub, given an ssh that refuses a line break in
+  // the user part (OpenSSH 10.1 on, or earlier with the patch for
+  // CVE-2025-61984). ssh also refuses one in the host. git or curl refuses one
+  // anywhere in an http(s) remote. For git://, git keeps the text before the @
+  // in the host name, so the host is not github.com. A line break after the
+  // port digits keeps the port in the host.
   test('a line break in the user part, the host, an http(s) remote or after the port is null, not GitHub', () => {
     const urls = []
     for (const lb of ['\n', '\r']) {
