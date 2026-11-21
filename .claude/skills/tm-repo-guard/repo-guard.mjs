@@ -788,8 +788,12 @@ export function workflowTriggers(text) {
   // the column 0 scan below would read a key that PyYAML does not.
   if (lines[0]?.indent > 0) return null
 
-  // Count every column 0 line that PyYAML could read as an `on` key, not only the one
-  // spelling this reads, so a second key in another spelling cannot go unseen.
+  // The reference is GitHub's YAML 1.2 reading, where the trigger key is `on`, plain or
+  // quoted. The loop also counts `on` in another case or with a space before the colon,
+  // and the check below refuses the file unless there is exactly one such key and it is
+  // the plain spelling. That extra counting is a safety margin, and anchors, tags, aliases,
+  // complex keys and escapes at column 0 are refused outright. YAML 1.1 readers such as
+  // PyYAML also read `true:` and `yes:` as this key, and this does not count those.
   const onAt = []
   for (const [i, l] of lines.entries()) {
     if (l.indent !== 0) continue
@@ -2035,7 +2039,7 @@ const BYPASS_FACTS = {
 
 const GUARD_GAP = 'the guard would not load here (only the orchestrai@orchestrai copy is read)'
 const BYPASS_NOTE =
-  "note: the bypass default is read from each dir's settings.json only; launch flags, aliases, --settings and managed settings are not read"
+  "note: only each dir's settings.json is read; a launch flag, alias, --settings or managed settings can still start a session in bypass, and Check gives no warning for those"
 
 // Why the guard would be missing in a dir with bypass on, or null when it is not.
 function guardGap(d) {
