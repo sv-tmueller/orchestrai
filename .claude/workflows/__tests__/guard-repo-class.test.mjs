@@ -244,8 +244,11 @@ describe('parseGitHubRemote', () => {
       'ssh://git@github.com/octo/widget-api.git',
       'ssh://git@github.com:22/octo/widget-api.git',
       'ssh://git@github.com:/octo/widget-api',
+      'ssh://git@github.com:+22/octo/widget-api',
+      'ssh://git@github.com: 22/octo/widget-api',
       'ssh://github.com/octo/widget-api',
       'git@github.com:octo/widget-api.git',
+      'a@b@github.com:octo/widget-api',
       'git@GITHUB.COM:octo/widget-api.git',
       'github.com:octo/widget-api',
       'git+ssh://git@github.com/octo/widget-api',
@@ -350,6 +353,18 @@ describe('parseGitHubRemote', () => {
       'git+ssh://git@ssh.github.com:70000/octo/widget-api',
     ]
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  // git reads an ssh port the way strtol does, and a port below 0 stays in the host.
+  test('an ssh port below 0 is invalid', () => {
+    assert.deepEqual(parseGitHubRemote('ssh://git@github.com:-1/octo/widget-api'), { invalid: true })
+  })
+
+  // git and a URL parser read an http(s) port as digits only, so a sign or a
+  // space makes the host something else.
+  test('an http(s) port with a sign or leading whitespace is null, not GitHub', () => {
+    const urls = ['https://github.com:+443/octo/widget-api', 'https://github.com: 443/octo/widget-api']
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
   })
 
   test('a colon in the user part with an empty port is invalid', () => {

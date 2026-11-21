@@ -360,6 +360,9 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
     'ssh://git@github.com:/o/r',
     'ssh://git@ssh.github.com:/o/r',
     'ssh://x@github.com:/o/r',
+    'ssh://git@github.com:+22/o/r',
+    'ssh://git@github.com: 22/o/r',
+    'a@b@github.com:o/r',
     // a colon in the user part with no port after the host: git hands ssh the plain host
     'ssh://x:@github.com/o/r',
     'ssh://a:b@github.com/o/r',
@@ -392,6 +395,7 @@ describe('parseGitHubRemote against git fetch-pack --diag-url', { skip: SKIP }, 
   for (const url of [
     'ssh://git@github.com:65536/o/r',
     'ssh://git@github.com:99999999999/o/r',
+    'ssh://git@github.com:-1/o/r',
     'ssh://example.invalid:22@github.com:/o/r',
     'ssh://user:pw@github.com:/o/r',
     // a colon in the user part and a port after the host: git does not split the port off
