@@ -93,7 +93,11 @@
  *   The group reads Bash calls only. It looks at a command only when its name
  *   is git or gh once the wrappers and shells in shell.mjs are taken off, and
  *   it reads the words as written. A word that expands is denied only where
- *   this header says so; anywhere else it passes. These are not covered:
+ *   this header says so; anywhere else it passes. The owner decided each
+ *   entry below at the sign-off of batch #592. An entry marked "Taken on"
+ *   stays listed until #593 builds it; the rest stay out. The reasons are in
+ *   section 4.4 of docs/superpowers/specs/2026-11-10-autonomous-runs-design.md.
+ *   These are not covered:
  *   - MCP tools (`mcp__*`) and the PowerShell tool.
  *   - A flag hidden entirely inside a variable or substitution, such as
  *     `gh pr merge 12 $(echo --admin)` or `gh repo edit $(echo --visibility)`.
@@ -113,17 +117,21 @@
  *     variable (`export $VAR=x`). A bare push after one of them is not read as
  *     running in another repository.
  *   - `gh pr checkout` earlier in the line, which changes the current branch
- *     the way `git checkout` does. Only git commands are tracked.
+ *     the way `git checkout` does. Only git commands are tracked. Taken on:
+ *     #593 builds it.
  *   - `gh api` writes to a path that has a variable where a resource word
  *     would stand when the owner and name are one variable (`repos/$REPO/$X`),
  *     or the owner is a variable and the name a literal (`repos/$O/widget/$X`).
- *   - REST calls outside `gh api` (curl, wget, httpie), and `gh api graphql`
- *     mutations. REST pulls/<n>/merge, and transferring a repo.
+ *   - REST calls outside `gh api` (curl, wget, httpie), REST pulls/<n>/merge,
+ *     and `gh api graphql` mutations other than those of branch protection
+ *     and rulesets.
+ *   - `gh api graphql` mutations of branch protection and rulesets, and
+ *     transferring a repo. Taken on: #593 builds them.
  *   - REST ways to write to the default branch (git/refs, contents, merges).
  *     GitHub's rule stops these on a set-up repo.
- *   - Changing or renaming the default branch, and renaming or archiving a
- *     repo. A default-branch change can move the branch out from under the
- *     rule, so the owner decides in a later batch whether the list takes it.
+ *   - Changing or renaming the default branch, which can move the branch out
+ *     from under the rule. Taken on: #593 builds it.
+ *   - Renaming or archiving a repo.
  *   - What the parser cannot see into: scripts, aliases and functions; xargs,
  *     find -exec and git submodule foreach; programs shell.mjs does not unwrap
  *     (watch, flock, caffeinate, direnv exec); a heredoc fed to a shell; a
@@ -132,8 +140,9 @@
  *     pattern's `)` inside $(...); a substitution in an assignment prefix or
  *     a redirect target, which bash runs before its command but the parser
  *     lists after it (this matters only for the branch and folder tracking);
- *     abbreviated long options such as --mirr; push settings from -c or git
- *     config.
+ *     abbreviated long options, of git (--mirr) and of a wrapper
+ *     (`env --unse X git push origin main` runs the push, but the parser
+ *     reads `X` as the command); push settings from -c or git config.
  */
 
 import { commandName } from '../shell.mjs'
