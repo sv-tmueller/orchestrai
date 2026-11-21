@@ -63,7 +63,7 @@ export function parseGitHubRemote(url) {
   let hostText
   let path
   let isScheme = false
-  const scheme = /^(https?|git|ssh|git\+ssh|ssh\+git):\/\/(.*)$/i.exec(input)
+  const scheme = /^(https?|git|ssh|git\+ssh|ssh\+git):\/\/([\s\S]*)$/i.exec(input)
   if (scheme) {
     isScheme = true
     const web = /^https?$/i.test(scheme[1])
@@ -75,8 +75,11 @@ export function parseGitHubRemote(url) {
     const at = authority.lastIndexOf('@')
     user = authority.slice(0, Math.max(at, 0))
     hostText = authority.slice(at + 1)
+    // git sends a line break in the path or in an ssh port to GitHub. ssh refuses
+    // one in the user part, and curl in any part of an http(s) remote.
+    if (/[\n\r]/.test(user) || (web && /[\n\r]/.test(rest))) return null
   } else {
-    const scp = /^(?:([^/:\s]+)@)?([^@/:\s]+):(.*)$/.exec(input)
+    const scp = /^(?:([^/:\s]+)@)?([^@/:\s]+):([\s\S]*)$/.exec(input)
     if (!scp) return null
     user = scp[1] ?? ''
     hostText = scp[2]
