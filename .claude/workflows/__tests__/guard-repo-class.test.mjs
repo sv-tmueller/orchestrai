@@ -244,8 +244,16 @@ describe('parseGitHubRemote', () => {
       'ssh://git@github.com/octo/widget-api.git',
       'ssh://git@github.com:22/octo/widget-api.git',
       'ssh://git@github.com:/octo/widget-api',
+      'ssh://git@github.com:+22/octo/widget-api',
+      'ssh://git@github.com: 22/octo/widget-api',
+      'ssh://git@github.com:\t22/octo/widget-api',
+      'ssh://git@github.com:\n22/octo/widget-api',
+      'ssh://git@github.com:\v22/octo/widget-api',
+      'ssh://git@github.com:\f22/octo/widget-api',
+      'ssh://git@github.com:\r22/octo/widget-api',
       'ssh://github.com/octo/widget-api',
       'git@github.com:octo/widget-api.git',
+      'a@b@github.com:octo/widget-api',
       'git@GITHUB.COM:octo/widget-api.git',
       'github.com:octo/widget-api',
       'git+ssh://git@github.com/octo/widget-api',
@@ -350,6 +358,76 @@ describe('parseGitHubRemote', () => {
       'git+ssh://git@ssh.github.com:70000/octo/widget-api',
     ]
     for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, url)
+  })
+
+  // git reads an ssh port the way strtol does, and a port below 0 stays in the host.
+  test('an ssh port below 0 is invalid', () => {
+    assert.deepEqual(parseGitHubRemote('ssh://git@github.com:-1/octo/widget-api'), { invalid: true })
+  })
+
+  // git and a URL parser read an http(s) port as digits only, so a sign or a
+  // space makes the host something else.
+  test('an http(s) port with a sign or leading whitespace is null, not GitHub', () => {
+    const urls = ['https://github.com:+443/octo/widget-api', 'https://github.com: 443/octo/widget-api']
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, url)
+  })
+
+  // None of these connects to GitHub, given an ssh that refuses a line break in
+  // the user part (OpenSSH 10.1 on, or earlier with the patch for
+  // CVE-2025-61984). ssh also refuses one in the host. git or curl refuses one
+  // anywhere in an http(s) remote. For git://, git keeps the text before the @
+  // in the host name, so the host is not github.com. A line break after the
+  // port digits keeps the port in the host.
+  test('a line break in the user part, the host, an http(s) remote or after the port is null, not GitHub', () => {
+    const urls = []
+    for (const lb of ['\n', '\r']) {
+      urls.push(
+        `ssh://a${lb}b@github.com/octo/widget-api`,
+        `ssh://${lb}git@github.com/octo/widget-api`,
+        `ssh://git@example.invalid${lb}@github.com/octo/widget-api`,
+        `ssh://git@${lb}github.com/octo/widget-api`,
+        `ssh://git@github.com${lb}/octo/widget-api`,
+        `ssh://git@github.com:22${lb}/octo/widget-api`,
+        `ssh://git@github.com:${lb}/octo/widget-api`,
+        `git://a${lb}b@github.com/octo/widget-api`,
+        `a${lb}b@github.com:octo/widget-api`,
+        `git@github.com${lb}:octo/widget-api`,
+        `https://github.com/octo${lb}/widget-api`,
+        `https://github.com${lb}/octo/widget-api`,
+        `https://a${lb}b@github.com/octo/widget-api`,
+        `https://github.com:${lb}443/octo/widget-api`,
+      )
+    }
+    for (const url of urls) assert.equal(parseGitHubRemote(url), null, JSON.stringify(url))
+  })
+
+  // git sends the path to github.com as it is, so a remote with a line break in
+  // the path is a GitHub remote that does not name one owner and one repo.
+  test('a line break in the path of an ssh, git or scp-like remote is invalid, not null', () => {
+    const urls = []
+    for (const lb of ['\n', '\r']) {
+      urls.push(
+        `ssh://git@github.com/octo${lb}/widget-api`,
+        `ssh://git@github.com/octo/${lb}widget-api`,
+        `ssh://git@github.com:${lb}22/octo/widget-api${lb}x`,
+        `git+ssh://git@github.com/octo/widget${lb}-api`,
+        `git://github.com/octo${lb}/widget-api`,
+        `git@github.com:octo${lb}/widget-api`,
+        `github.com:octo/${lb}widget-api`,
+      )
+    }
+    for (const url of urls) assert.deepEqual(parseGitHubRemote(url), { invalid: true }, JSON.stringify(url))
+  })
+
+  // U+2028 and U+2029 are not control bytes. git, ssh and curl take them as part
+  // of the user or the path, so the remote reaches GitHub like any other.
+  test('U+2028 and U+2029 in a user part are not line breaks, and in the path they are invalid', () => {
+    for (const ch of [' ', ' ']) {
+      for (const url of [`ssh://a${ch}b@github.com/octo/widget-api`, `https://a${ch}b@github.com/octo/widget-api`]) {
+        assert.deepEqual(parseGitHubRemote(url), widget, JSON.stringify(url))
+      }
+      assert.deepEqual(parseGitHubRemote(`ssh://git@github.com/octo${ch}/widget-api`), { invalid: true }, JSON.stringify(ch))
+    }
   })
 
   test('a colon in the user part with an empty port is invalid', () => {

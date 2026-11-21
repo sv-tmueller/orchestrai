@@ -63,7 +63,7 @@ export function parseGitHubRemote(url) {
   let hostText
   let path
   let isScheme = false
-  const scheme = /^(https?|git|ssh|git\+ssh|ssh\+git):\/\/(.*)$/i.exec(input)
+  const scheme = /^(https?|git|ssh|git\+ssh|ssh\+git):\/\/([\s\S]*)$/i.exec(input)
   if (scheme) {
     isScheme = true
     const web = /^https?$/i.test(scheme[1])
@@ -75,26 +75,41 @@ export function parseGitHubRemote(url) {
     const at = authority.lastIndexOf('@')
     user = authority.slice(0, Math.max(at, 0))
     hostText = authority.slice(at + 1)
+    // git sends a line break in the path or in an ssh port to GitHub. git or
+    // curl refuses one in any part of an http(s) remote. ssh refuses one in the
+    // user part from OpenSSH 10.1 on, or earlier with the patch for
+    // CVE-2025-61984. An older ssh may accept it; the parser answers null there
+    // too, as it did before line breaks were read at all.
+    if (/[\n\r]/.test(user) || (web && /[\n\r]/.test(rest))) return null
   } else {
-    const scp = /^(?:([^@/:\s]+)@)?([^@/:\s]+):(.*)$/.exec(input)
+    const scp = /^(?:([^/:\s]+)@)?([^@/:\s]+):([\s\S]*)$/.exec(input)
     if (!scp) return null
     user = scp[1] ?? ''
     hostText = scp[2]
     path = scp[3]
   }
   if (/[%[\]]/.test(hostText)) return { invalid: true }
-  const hostPort = isScheme ? /^([^:]+)(?::(\d*))?$/.exec(hostText) : [hostText, hostText]
+  const sshFamily = isScheme && SSH_FAMILY.test(scheme[1])
+  const portPattern = sshFamily
+    ? /^([^:]+)(?::([ \t\n\v\f\r]*[+-]?\d+|))?$/
+    : /^([^:]+)(?::(\d*))?$/
+  const hostPort = isScheme ? portPattern.exec(hostText) : [hostText, hostText]
   const host = hostPort?.[1]
   if (host === undefined || !GITHUB_HOSTS.has(host.toLowerCase())) return null
   if (/[%[\]]/.test(user)) return { invalid: true }
-  // git and ssh cannot use a port above 65535. For the ssh family, git splits a
-  // port off only when the first colon in the authority is after the user part.
+  // git and ssh cannot use a port above 65535. For the ssh family, git reads the
+  // port the way strtol does (leading whitespace, one sign) and leaves a port
+  // below 0 or above 65535 in the host. For http(s), a port is digits only. For
+  // git://, git reads the port like an ssh port, but the parser takes digits
+  // only there: GitHub no longer serves the git protocol, so no such remote
+  // can fetch or push. For the ssh family, git splits a port off only when the
+  // first colon in the authority is after the user part.
   // With a colon in the user part, ssh gets "github.com:22" or "github.com:" as
   // the host, whatever follows the colon. An empty port after a colon user is
   // invalid for every scheme.
   const port = isScheme ? hostPort[2] : undefined
-  const colonUser = user.includes(':') && (port === '' || (isScheme && SSH_FAMILY.test(scheme[1])))
-  if (port !== undefined && (Number(port) > 65535 || colonUser)) return { invalid: true }
+  const colonUser = user.includes(':') && (port === '' || sshFamily)
+  if (port !== undefined && (Number(port) < 0 || Number(port) > 65535 || colonUser)) return { invalid: true }
 
   let name = path.replace(/\/+$/, '')
   if (name.endsWith('.git')) name = name.slice(0, -4)
