@@ -695,7 +695,31 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
   test('the first value letter ends the cluster, and the rest of it is the value', () => {
     assert.deepEqual(texts('sudo -uEu git push'), [['git', 'push']])
     assert.deepEqual(texts('env -uC git push'), [['git', 'push']])
-    assert.deepEqual(texts('stdbuf -oL git push'), [['git', 'push']])
+    assert.deepEqual(texts('stdbuf -oLeL git push'), [['git', 'push']])
+  })
+
+  test('a cluster word that expands skips one word, whatever letters its text ends in', () => {
+    assert.deepEqual(texts('sudo -$u git push'), [['git', 'push']])
+    assert.deepEqual(texts('env -$u git push'), [['git', 'push']])
+    assert.deepEqual(texts('doas -$u git push'), [['git', 'push']])
+    assert.deepEqual(texts('timeout -$s 5 git push'), [['git', 'push']])
+    assert.deepEqual(texts('sudo -n$u git push'), [['git', 'push']])
+    assert.deepEqual(texts('sudo -u$x git push'), [['git', 'push']])
+  })
+
+  test('env -S in a word that expands is not read as a command line', () => {
+    const commands = parse('env -$S git push')
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push']])
+    assert.equal(commands[0].nested, false)
+    // The value of -S is unknown, so the next word is neither swallowed as the
+    // string nor parsed as one. It stays the command word.
+    const quoted = parse("env -$S 'git push origin main'")
+    assert.deepEqual(quoted.map((c) => c.words.map((w) => w.text)), [['git push origin main']])
+    assert.equal(quoted[0].nested, false)
+  })
+
+  test('a cluster word that expands does not set afterCd by its letters', () => {
+    assert.equal(parse('env -$C git push')[0].afterCd, false)
   })
 
   test('a cluster with no value letter takes no value', () => {

@@ -1038,6 +1038,23 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
+    // A word that expands has an unknown value, so its letters are not read as
+    // options. It skips one word, like any flag without a value, and the next
+    // word is the command.
+    describe('a flag word that expands does not swallow the command', () => {
+      defineDenyRows('push-default', [
+        'sudo -$u git push origin main',
+        'env -$u git push origin main',
+        'doas -$u git push origin main',
+        'timeout -$s 5 git push origin main',
+        'sudo -n$u git push origin main',
+        'sudo -u$x git push origin main',
+        'sudo -u $x git push origin main',
+        'env -$S git push origin main',
+        'env -S$x git push origin main',
+      ])
+    })
+
     describe('still passes', () => {
       defineAllowRows('wrapper', [
         'sudo -Eu root git status',

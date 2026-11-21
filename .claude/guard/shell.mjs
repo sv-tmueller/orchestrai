@@ -69,10 +69,16 @@ function skipFlags(words, valueFlags, state, chdir = null) {
     if (t === '--') {
       i++
       break
-    } else if (t.length > 1 && t.startsWith('--')) {
+    } else if (t.startsWith('--')) {
       if (chdir && (t === chdir.long || t.startsWith(`${chdir.long}=`))) state.chdir = true
       i += valueFlags.has(t) ? 2 : 1
     } else if (t.length > 1 && t.startsWith('-')) {
+      // A word that expands has an unknown value: skip it alone, as for a flag
+      // without a value, so the command behind it is still read.
+      if (words[i].expands) {
+        i++
+        continue
+      }
       const value = readCluster(
         t,
         (letter) => valueFlags.has(`-${letter}`),
@@ -115,10 +121,15 @@ function skipEnv(words, state) {
     } else if (t.startsWith('--split-string=')) {
       state.lines.push(t.slice('--split-string='.length))
       i++
-    } else if (t.length > 1 && t.startsWith('--')) {
+    } else if (t.startsWith('--')) {
       if (t === '--chdir' || t.startsWith('--chdir=')) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
     } else if (t.length > 1 && t.startsWith('-')) {
+      // Unknown value: neither a value letter nor `S` can be read from it.
+      if (words[i].expands) {
+        i++
+        continue
+      }
       const value = readCluster(
         t,
         (letter) => letter === 'S' || ENV_VALUE_FLAGS.has(`-${letter}`),

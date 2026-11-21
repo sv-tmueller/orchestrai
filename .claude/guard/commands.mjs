@@ -7,8 +7,10 @@
  *   and `env`. It returns `{ sub, subExpands, index, elsewhere }`: the
  *   subcommand word, whether it expands, the index of that word in
  *   `command.words`, and whether the command runs in another folder (`-C`,
- *   `--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`, or a `cd` earlier
- *   in the line).
+ *   `--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`, or
+ *   `command.afterCd`, which the parser sets after a `cd` earlier in the
+ *   line, after `env -C` or `sudo -D`, and after an exported `GIT_DIR` or
+ *   `GIT_WORK_TREE`).
  * - `readGh(words)` takes `command.words`. It returns
  *   `{ group, groupExpands, sub, subExpands, next }`. For `gh api`, `sub` is
  *   null and `next` is the index of the first word after `api`.
