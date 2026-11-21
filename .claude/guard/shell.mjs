@@ -56,6 +56,12 @@ const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 // takes the rest of the word as its value, and no letter after it is read as
 // an option. A `$'...'` word is already decoded and has no `$` left, so it is
 // read as the letters it holds.
+//
+// Not covered: the parser cannot know whether that unknown text is empty. If
+// it is, the program takes the next word as the value instead, and the parser
+// does not follow that reading. `env -u$x -nu git push origin main` with an
+// empty `x` unsets `-nu` and runs the push, while the parser reads `git` as
+// the value of the second `-u`.
 function readCluster(text, expands, takesValue, seen) {
   let end = text.length
   if (expands) {
