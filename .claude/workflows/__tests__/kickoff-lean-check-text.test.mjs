@@ -50,7 +50,7 @@ test('Lean check: the command the skill gives is one the script accepts', () => 
 
   // `unknown` for the ref keeps git out of the run, so cwd does not matter.
   const concrete = (v) =>
-    v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v === '<paths>' ? 'src/a.js' : v
+    v === '<n>' ? '2' : v === 'origin/<default>' ? 'unknown' : v === "'<paths>'" ? 'src/a.js' : v
   const base = pairs.map(([flag, value]) => [flag, concrete(value.split('|')[0])])
 
   for (let k = 0; k < pairs.length; k++) {
@@ -73,6 +73,10 @@ const CLAUSES = [
     'a read that fails or prints `null` is passed as `unknown` and counts as set up',
   ],
   ['Lean check', 'Pass `--default-ref unknown` when the first read or the fetch failed'],
+  [
+    'Lean check',
+    "Pass the paths as one single-quoted shell argument, with each `'` in them written as `'\\''`",
+  ],
   [
     'Lean check',
     "When `allowed` is false the package runs full with the script's `reason`; a nonzero exit runs full with the reason `lean-allowed error`",
