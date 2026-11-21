@@ -75,11 +75,11 @@ export function parseGitHubRemote(url) {
     const at = authority.lastIndexOf('@')
     user = authority.slice(0, Math.max(at, 0))
     hostText = authority.slice(at + 1)
-    // git sends a line break in the path or in an ssh port to GitHub. curl
-    // refuses one in any part of an http(s) remote. ssh refuses one in the user
-    // part from OpenSSH 10.1 on, or earlier with the patch for CVE-2025-61984.
-    // An older ssh may accept it; the parser answers null there too, as it did
-    // before line breaks were read at all.
+    // git sends a line break in the path or in an ssh port to GitHub. git or
+    // curl refuses one in any part of an http(s) remote. ssh refuses one in the
+    // user part from OpenSSH 10.1 on, or earlier with the patch for
+    // CVE-2025-61984. An older ssh may accept it; the parser answers null there
+    // too, as it did before line breaks were read at all.
     if (/[\n\r]/.test(user) || (web && /[\n\r]/.test(rest))) return null
   } else {
     const scp = /^(?:([^/:\s]+)@)?([^@/:\s]+):([\s\S]*)$/.exec(input)
