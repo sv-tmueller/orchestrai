@@ -210,10 +210,11 @@ auto update runs in that dir.
 
 The bypass fact reads `permissions.defaultMode` in `settings.json`:
 
-- `bypass default on`: the mode is `bypassPermissions`. Per the probe in
-  `docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, a session started
-  in that dir then starts in bypass. That is an inference from the probe, not
-  something Check tests.
+- `bypass default on`: the mode is `bypassPermissions`. In the probe
+  (`docs/research/2026-11-11-hook-denial-in-bypass-probe.md`, row 7), sessions
+  started with such a dir and no mode flag or `--settings` ran in bypass. That
+  the mode came from `settings.json` is an inference there, and Check does not
+  test it.
 - `bypass default off`: the file has no default mode, or names another one
   (`bypass default off (default mode auto)`). With no file it says `(no
   settings.json)`.

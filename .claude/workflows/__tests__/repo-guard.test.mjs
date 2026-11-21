@@ -5504,7 +5504,7 @@ describe('config dirs', () => {
   const settingsPath = (dir) => `${dir}/settings.json`
   const OFF = 'bypass default off (no settings.json)'
   const NOTE =
-    "note: the bypass default is read from each dir's settings.json only; launch flags, aliases, --settings and managed settings are not read"
+    "note: only each dir's settings.json is read; a launch flag, alias, --settings or managed settings can still start a session in bypass, and Check gives no warning for those"
   const userEntry = (sha) => ({ scope: 'user', installPath: '/made/up', version: 'x', gitCommitSha: sha })
   const installedJson = (entries) => JSON.stringify({ version: 2, plugins: { [PLUGIN]: entries } })
   const marketsJson = (extra = {}, source = { source: 'github', repo: REPO }) =>
@@ -5982,26 +5982,26 @@ describe('config dirs', () => {
 
       test('bypass on with the plugin current: no warning', () => {
         const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings: BYPASS })))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
       })
 
       test('bypass on with a stale plugin: no warning', () => {
         const installed = installedJson([userEntry(OLDER)])
         const { text } = report(fakeLocal(configDir('.claude-alpha', { installed, markets: marketsJson(), settings: BYPASS })))
         assert.ok(line(text).includes('not at the newest commit'))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
       })
 
       test('bypass off and no plugin: no warning', () => {
         for (const settings of [undefined, '{}', mode('auto')]) {
           const { text } = report(fakeLocal(configDir('.claude-alpha', { settings })))
-          assert.ok(!text.includes('warning'), String(settings))
+          assert.ok(!text.includes('  warning:'), String(settings))
         }
       })
 
       test('an unknown bypass fact and no plugin: no warning, exit 1', () => {
         const { result, text } = report(fakeLocal(configDir('.claude-alpha', { settings: '{ not json' })))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
         assert.equal(result.failed, true)
       })
 
@@ -6009,14 +6009,14 @@ describe('config dirs', () => {
         const { result, text } = report(fakeLocal(configDir('.claude-alpha', { installed: '{ not json', settings: BYPASS })))
         assert.match(line(text), /^~\/\.claude-alpha: could not read: installed_plugins\.json: /)
         assert.ok(!text.includes('bypass default'))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
         assert.equal(result.failed, true)
       })
 
       test('only the synced copy switched off: that is not the orchestrai@orchestrai key, so no warning', () => {
         const settings = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins: { 'orchestrai@synced': false } })
         const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
       })
 
       test('a missing or malformed enabledPlugins is "not switched off"', () => {
@@ -6024,14 +6024,14 @@ describe('config dirs', () => {
         for (const enabledPlugins of values) {
           const settings = JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' }, enabledPlugins })
           const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
-          assert.ok(!text.includes('warning'), JSON.stringify(enabledPlugins))
+          assert.ok(!text.includes('  warning:'), JSON.stringify(enabledPlugins))
         }
       })
 
       test('a switched-off plugin with bypass off: no warning', () => {
         const settings = JSON.stringify({ permissions: { defaultMode: 'auto' }, enabledPlugins: { [PLUGIN]: false } })
         const { text } = report(fakeLocal(configDir('.claude-alpha', { ...current, settings })))
-        assert.ok(!text.includes('warning'))
+        assert.ok(!text.includes('  warning:'))
       })
 
       test('a warning sits under its own dir and only that dir gets one', () => {

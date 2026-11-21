@@ -7,6 +7,7 @@ changes no code, skill, agent, or workflow.
 Sections 4, 7 and 8 were revised on 2026-11-11, after the probe and the
 owner's decisions in batch #538.
 Section 6 was revised on 2026-11-12 (#555), after `tm-new-project` was removed.
+Section 4.4 was added on 2026-11-21 (#588), with the owner's decisions in batch #592.
 
 ## 1. Goal
 
@@ -140,6 +141,34 @@ wait for step 3.
 
 Each repo can add its own entries, for commands with effects outside the
 code. The per-repo list waits for the first repo that needs it.
+
+### 4.4 What the merge-rule group does not cover
+
+The merge-rule group is the first entry of the deny list (4.3). It reads
+`git` and `gh` commands in Bash calls only. The header of
+`.claude/guard/rules/merge-rule.mjs` lists, under "Not covered", what it does
+not read. The header is the source for the exact spellings.
+
+The owner decided each kind on that list on 2026-11-21, at the sign-off of
+batch #592. A kind that is taken on is built by #593, and it stays on the
+header's list until then.
+
+| Kind | Decision | Reason |
+|---|---|---|
+| MCP tools, PowerShell tool | stays out | The pipeline works through `gh` in Bash. Revisit if a GitHub MCP server is installed. |
+| Flag or whole command hidden in a variable or substitution | stays out | Hiding a flag is intent, not carelessness. |
+| `set -a`, sourced exports, unread export spellings | stays out | Rare. The worst case is a bare push judged against the wrong folder, and GitHub's rule still stops it. |
+| `\cX` escapes | stays out | Intent. |
+| `gh pr checkout` earlier in the line | take on (#593) | Same case as `git checkout`, which is already read. |
+| `gh api` with a variable where the resource word stands | stays out | Denying it would also catch harmless paths built from variables. |
+| REST through curl, wget, httpie | stays out | Needs a hand-built token header. Agents use `gh`. |
+| `gh api graphql` mutations | take on (#593), branch protection and ruleset mutations only | Same branch-rule entry by the other API. Removing the rule is what switches off GitHub's hard stop. |
+| REST `pulls/<n>/merge` | stays out | A normal merge. GitHub applies the rule, as with `gh pr merge`. |
+| Transferring a repo | take on (#593) | As hard to undo as a delete. |
+| REST writes to the default branch | stays out | GitHub's rule stops them on a set-up repo. A repo that is not set up refuses every shell command already. |
+| Changing or renaming the default branch | take on (#593) | orchestrai protects `main` by name (classic protection, no rulesets), so a new default branch would have no rule. |
+| Renaming or archiving a repo | stays out | Both can be undone, and neither goes around the merge rule. |
+| What the parser cannot see into | stays out | There is no bounded list to build. |
 
 ## 5. Contract and run bounds
 
