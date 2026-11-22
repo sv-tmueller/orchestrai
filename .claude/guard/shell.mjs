@@ -54,8 +54,10 @@ const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 // In a word that expands, reading stops at the first `$`, backtick or `<(`
 // (`>(`), because the text from there on is unknown: a value letter before it
 // takes the rest of the word as its value, and no letter after it is read as
-// an option. A `$'...'` word is already decoded and has no `$` left, so it is
-// read as the letters it holds.
+// an option. A `$'...'` word is already decoded, so the letters it holds are
+// read as letters. If the decoded text holds one of those stop characters
+// (`$'\x24'` is a `$`), reading stops there as well, because the decoded text
+// no longer shows that the character was written as an escape.
 //
 // Not covered: the parser cannot know whether that unknown text is empty. If
 // it is, the program takes the next word as the value instead, and the parser
@@ -76,9 +78,10 @@ function readCluster(text, expands, takesValue, seen) {
 }
 
 // Wrappers: each takes the words after the wrapper name and a state object
-// ({ lines, env, chdir }), and returns what is left once the wrapper's own
-// flags and arguments are removed. `chdir` names the wrapper's own
-// change-directory flag: a short form and a long form.
+// ({ line, env, chdir }), and returns what is left once the wrapper's own
+// flags and arguments are removed. `line` is the `env -S` string, or null.
+// `chdir` names the wrapper's own change-directory flag: a short form and a
+// long form.
 function skipFlags(words, valueFlags, state, chdir = null) {
   let i = 0
   while (i < words.length) {
@@ -114,9 +117,14 @@ const SUDO_VALUE_FLAGS = new Set([
 
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 
-// `env -S` takes a whole command line as one string. Its value goes to
-// `state.lines` and is parsed as a line, also when `S` ends a cluster
-// (`-iS`). Assigned names go to `state.env`.
+// The real `env` puts the words of an `-S` string in the place of `-S` and its
+// value, and goes on reading its own options from there. So the string is not
+// a command line of its own: it may hold options (`-S -i`, `-iS '-u X'`). The
+// value ends this reading, and `state.line` keeps the string. `buildCommand`
+// then reads the string and the words after it again as one `env` line, which
+// reads the options and the command the way `env` does. A value that starts at
+// an expansion (`-S$x`) is unknown text: no line is set, and the words after it
+// are read on as they are. Assigned names go to `state.env`.
 function skipEnv(words, state) {
   let i = 0
   while (i < words.length) {
@@ -128,11 +136,13 @@ function skipEnv(words, state) {
       i++
       break
     } else if (t === '--split-string') {
-      if (words[i + 1]) state.lines.push(words[i + 1].text)
+      if (words[i + 1]) state.line = words[i + 1].text
       i += 2
+      break
     } else if (t.startsWith('--split-string=')) {
-      state.lines.push(t.slice('--split-string='.length))
+      state.line = t.slice('--split-string='.length)
       i++
+      break
     } else if (t.startsWith('--')) {
       if (t === '--chdir' || t.startsWith('--chdir=')) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
@@ -145,14 +155,14 @@ function skipEnv(words, state) {
           if (letter === 'C') state.chdir = true
         },
       )
-      if (value?.letter === 'S') {
-        // A value that starts at an expansion (`-S$x`) is all unknown text:
-        // none of it is a line, so the words after it stay the command.
-        if (value.rest !== null) {
-          if (!(words[i].expands && /^[$`]/.test(value.rest))) state.lines.push(value.rest)
-        } else if (words[i + 1]) state.lines.push(words[i + 1].text)
-      }
+      const at = i
       i += value && value.rest === null ? 2 : 1
+      if (value?.letter === 'S') {
+        if (value.rest !== null && words[at].expands && /^[$`]/.test(value.rest)) continue
+        const text = value.rest === null ? words[at + 1]?.text : value.rest
+        if (text !== undefined) state.line = text
+        break
+      }
     } else {
       break
     }
@@ -194,7 +204,7 @@ export function parseCommandLine(text) {
 function unwrap(input) {
   let words = input
   let wrapped = false
-  const state = { lines: [], env: [], chdir: false }
+  const state = { line: null, env: [], chdir: false }
   for (let guard = 0; guard < 50 && words.length > 0; guard++) {
     const head = words[0].text
     if (ASSIGNMENT.test(head) || KEYWORDS.has(head)) {
@@ -207,6 +217,9 @@ function unwrap(input) {
     if (!wrapper) break
     words = wrapper(words.slice(1), state)
     wrapped = true
+    // `env -S` ends the reading: the words after its value are read again with
+    // the string, in `buildCommand`.
+    if (state.line !== null) break
   }
   return { words, wrapped, state }
 }
@@ -252,8 +265,10 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
   // folder. The names assigned in front of it reach what it runs.
   const here = afterCd || state.chdir
   const nestedOf = (inner) => inner.commands.map((c) => ({ ...c, nested: true, env: [...state.env, ...c.env] }))
-  if (state.lines.length > 0) {
-    const line = [...state.lines, ...words.map((w) => w.text)].join(' ')
+  if (state.line !== null) {
+    // A word that does not expand is quoted, so it stays the one word it was.
+    const rest = words.map((w) => (w.expands ? w.text : shellQuote(w.text)))
+    const line = ['env', state.line, ...rest].join(' ')
     const inner = scan(line, 0, depth + 1, here, false)
     return { command: null, extra: nestedOf(inner), sawCd: inner.sawCd }
   }
@@ -312,6 +327,8 @@ function decodeAnsiC(raw) {
   }
   return out + raw.slice(at)
 }
+
+const shellQuote = (text) => `'${text.replace(/'/g, "'\\''")}'`
 
 const isBlank = (ch) => ch === ' ' || ch === '\t' || ch === '\r'
 

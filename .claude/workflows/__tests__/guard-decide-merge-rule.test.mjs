@@ -1101,6 +1101,39 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
     })
   })
 
+  describe('an env -S value is read as env options', () => {
+    // The real `env` puts the words of the string in the place of `-S` and its
+    // value, and goes on reading its own options. The string and the words after
+    // it are one `env` line, so a string that holds options does not hide the
+    // command behind them.
+    defineDenyRows('push-default', [
+      'env -iS -i git push origin main',
+      'env -u X -iS -S git push origin main',
+      'env -iS -C /tmp git push origin main',
+      'env -iS -- git push origin main',
+      'env -iS -u -S git push origin main',
+      'env -iS -u nice git push origin main',
+      "env -iS -i -u 'X git' git push origin main",
+      'env -S -i git push origin main',
+      'env --split-string=-i git push origin main',
+      'env --split-string -i git push origin main',
+      "env -S '-u X' git push origin main",
+      "env -iS '-C /tmp' git push",
+      "env -S '-i' -S 'git push' origin main",
+    ])
+
+    describe('passes', () => {
+      defineAllowRows('wrapper', [
+        'env -iS -i git status',
+        'env -S -i git push origin feat/x',
+        "env -S '-i ls' -la",
+        // The value of `-u` is `git`, so the program that runs is `push`.
+        'env -iS -u git push origin main',
+        'env -iS -i npm test',
+      ])
+    })
+  })
+
   describe("\\? and \\E in $'...'", () => {
     // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
     // literal `protection` or `rulesets` segment before it is still a segment.
