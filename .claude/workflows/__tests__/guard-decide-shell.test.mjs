@@ -775,15 +775,16 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     const commands = parse('env -S"git push origin main $x"')
     assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main', '$x']])
     assert.equal(commands[0].nested, true)
-    const cluster = parse('env -iS"git push $x"')
-    assert.deepEqual(cluster.map((c) => c.words.map((w) => w.text)), [['git', 'push', '$x']])
-    assert.equal(cluster[0].nested, true)
+    // `-iS"git push $x"` holds an `S` that counts as a split-string option, so
+    // the command is read as on main: the whole word is one skipped dash word,
+    // and no command is left.
+    assert.deepEqual(parse('env -iS"git push $x"'), [])
   })
 
-  test('env -S whose value starts at the expansion leaves the words after it as the command', () => {
+  test('env -S whose value starts at the expansion is read as on main, so the value is the line', () => {
     const commands = parse('env -S$x git push origin main')
-    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
-    assert.equal(commands[0].nested, false)
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['$x', 'git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].nested, true)
   })
 
   test('a cluster with no value letter takes no value', () => {
@@ -791,12 +792,23 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.deepEqual(texts('env -iv git push'), [['git', 'push']])
   })
 
-  test('env -S inside a cluster gives a nested command', () => {
+  test('env -S inside a cluster is read as on main: the cluster is one skipped word', () => {
     const commands = parse("env -iS 'git push origin main'")
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git push origin main']])
+    assert.equal(commands[0].nested, false)
+    assert.deepEqual(texts('env -iSgit push'), [['push']])
+  })
+
+  test('a command where env gets -S drops what was read before and reads its wrappers as on main', () => {
+    // `-nu` is one skipped dash word, so `root` is the command.
+    assert.deepEqual(texts("sudo -nu root env -S 'git push'"), [['root', 'env', '-S', 'git push']])
+    assert.equal(parse("env -iC ../o -S 'git push'")[0].afterCd, false)
+  })
+
+  test('the line built from an env -S string is read with the cluster readers', () => {
+    const commands = parse("env -S 'sudo -Eu root git push origin main'")
     assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
     assert.equal(commands[0].nested, true)
-    // The value can also be the rest of the cluster.
-    assert.deepEqual(texts('env -iSgit push'), [['git', 'push']])
   })
 
   test('the chdir letter in a cluster sets afterCd', () => {

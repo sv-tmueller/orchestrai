@@ -1014,8 +1014,6 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       'sudo -Eu root git push origin main',
       'doas -nu root git push origin main',
       'env -iu FOO git push origin main',
-      "env -iS 'git push origin main'",
-      'env -iSgit push origin main',
     ])
     defineDenyRows('delete-repo', [
       'sudo -nu root gh repo delete acme/widget --yes',
@@ -1051,7 +1049,6 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'sudo -u$x git push origin main',
         'sudo -u $x git push origin main',
         'env -$S git push origin main',
-        'env -S$x git push origin main',
       ])
     })
 
@@ -1083,7 +1080,6 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'env -C"$d" git push',
         'env -iC"$d" git push',
         'env -S"git push origin main $x"',
-        'env -iS"git push origin main $x"',
         'env -S"git push origin main `date`"',
         'env -<(echo)u git push origin main',
         'sudo ->(cat)n git push origin main',
@@ -1101,11 +1097,13 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
     })
   })
 
-  describe('an env -S value is read as env options', () => {
-    // The real `env` puts the words of the string in the place of `-S` and its
-    // value, and goes on reading its own options. The string and the words after
-    // it are one `env` line, so a string that holds options does not hide the
-    // command behind them.
+  describe('a command where env gets a split-string option is read as on main', () => {
+    // When `env` gets `-S` or `--split-string` in a command, the wrappers of
+    // that command are read again from its first word with the readers from
+    // before the cluster reading: a dash word is one skipped word, and the `-S`
+    // string is parsed as a line. A letter `S` inside a cluster (`-iS`) counts as
+    // the option, so these are read that way too. The rows are answered as main
+    // answers them.
     defineDenyRows('push-default', [
       'env -iS -i git push origin main',
       'env -u X -iS -S git push origin main',
@@ -1114,12 +1112,11 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       'env -iS -u -S git push origin main',
       'env -iS -u nice git push origin main',
       "env -iS -i -u 'X git' git push origin main",
-      'env -S -i git push origin main',
-      'env --split-string=-i git push origin main',
-      'env --split-string -i git push origin main',
-      "env -S '-u X' git push origin main",
       "env -iS '-C /tmp' git push",
-      "env -S '-i' -S 'git push' origin main",
+      'env -iS-u -iu git push origin main',
+      'env -iu -S env -S-i git push origin main',
+      'env -iu -u -S$x git push origin main',
+      'env -iS -u -S"a $x" git push origin main',
     ])
 
     describe('passes', () => {
@@ -1130,6 +1127,32 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         // The value of `-u` is `git`, so the program that runs is `push`.
         'env -iS -u git push origin main',
         'env -iS -i npm test',
+        // Each `-S` takes the next word as its string, and the line stays within
+        // the nesting limit.
+        'env -S -S -S -S -S git status',
+        // No push in the line, and the `$x` is the value of `-C`, not a git
+        // subcommand.
+        "env -S'-i git' -C \"a $x\" ls -la",
+      ])
+    })
+
+    // Gap: the real `env` reads options from the `-S` string and runs
+    // `git push origin main` for each of these. Main allows them too, so the
+    // guard does too. #600 replaces the fallback and closes them.
+    describe('a gap: the real env runs the push and the guard allows it (#600)', () => {
+      defineAllowRows('gap', [
+        "env -iS 'git push origin main'",
+        'env -iSgit push origin main',
+        'env -S$x git push origin main',
+        'env -iS"git push origin main $x"',
+        'env -S -i git push origin main',
+        'env --split-string=-i git push origin main',
+        'env --split-string -i git push origin main',
+        "env -S '-u X' git push origin main",
+        "env -S '-i' -S 'git push' origin main",
+        'env -S-u X git push origin main',
+        // The cluster reading does not apply here, so `-iu` is one skipped word.
+        "env -S '' -iu FOO git push origin main",
       ])
     })
   })
