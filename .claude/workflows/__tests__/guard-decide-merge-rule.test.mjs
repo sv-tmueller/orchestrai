@@ -1237,6 +1237,7 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
       .replace(/\s*\n\s*\*\s*/g, ' ')
     assert.match(source, /Not covered/)
+    assert.ok(!source.includes('the owner decides in a later batch'), 'the header still leaves a kind to a later batch')
     const topics = [
       'curl', 'graphql', 'git/refs', 'xargs', '<<<', 'piped into a shell',
       'variable in its destination', 'write the branch name out', 'inside a variable or substitution',
@@ -1254,6 +1255,12 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       'export GIT_DIR+=other/.git', 'builtin export GIT_DIR=', 'local -x GIT_DIR=', 'export $VAR=x',
       // sentences narrowed to what the code reads
       'A NUL from `\\x`, octal, `\\u` or `\\U` ends the string', 'with or without a value',
+      // owner decisions of 2026-11-21 (batch #592)
+      'An entry marked "Taken on" stays listed until #593 builds it',
+      'Only git commands are tracked. Taken on: #593 builds it.',
+      'mutations of branch protection and rulesets, and transferring a repo. Taken on: #593 builds them.',
+      'out from under the rule. Taken on: #593 builds it.',
+      '`env --unse X git push origin main`',
     ]
     for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
