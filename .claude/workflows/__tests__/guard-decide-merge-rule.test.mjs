@@ -253,6 +253,294 @@ describe('merge-rule: push-default', () => {
       ])
     })
   })
+
+  describe('a branch switch earlier in the line', () => {
+    describe('denied: the current branch is no longer known', () => {
+      defineDenyRows('push-default', [
+        'git checkout main && git push',
+        'git switch main && git push',
+        'git checkout main; git push origin HEAD',
+        'git checkout -- file.txt && git push',
+        'git checkout main && git push origin @',
+        'git checkout main && git push -u origin HEAD',
+        "bash -c 'git checkout main && git push'",
+        'git -c advice.detachedHead=false switch main && git push',
+        'git -C ../wt checkout main && git push',
+        'git switch -c feat/y && git commit -m x && git push',
+      ])
+    })
+
+    describe('passes: the push names its branch', () => {
+      defineAllowRows('switch', [
+        'git checkout -b feat/x && git push -u origin feat/x',
+        'git switch main && git push origin feat/x',
+        'git switch -c feat/y && git push origin feat/y:feat/y',
+        'git checkout feat/x && git push origin HEAD:refs/heads/feat/x',
+        'git push && git checkout main',
+        'git checkout main',
+      ])
+    })
+  })
+
+  describe('an expanding word in the remote position', () => {
+    // The word in the remote position can hide a refspec: an unquoted
+    // `$REMOTE` that holds "origin main" splits into two words. The parser does
+    // not record whether a word was quoted, so a quoted one is denied as well.
+    describe('denied', () => {
+      defineDenyRows('push-default', [
+        'git push $ARGS',
+        'git push $(echo origin main)',
+        'git push "$REMOTE"',
+        'git push "$REMOTE" feat/x',
+        'git push $REMOTE feat/x',
+        'git push -u "$REMOTE" feat/x',
+        'git push `echo origin main`',
+      ])
+    })
+  })
+
+  describe('heads/<x> as a destination', () => {
+    defineDenyRows('push-default', [
+      'git push origin feat/x:heads/main',
+      'git push origin heads/main',
+    ])
+    defineAllowRows('heads', [
+      'git push origin feat/x:heads/feat/y',
+      'git push origin heads/feat/y',
+    ])
+  })
+
+  describe('a variable in the destination', () => {
+    // Denied even when it would be harmless. The fix is to write the branch
+    // name out in the command.
+    defineDenyRows('push-default', [
+      'git push --force-with-lease origin HEAD:refs/heads/$BRANCH',
+      'git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"',
+    ])
+    defineAllowRows('literal branch', [
+      'git push --force-with-lease origin HEAD:refs/heads/feat/539-guard-core',
+    ])
+  })
+
+  describe('git commands that can move HEAD onto a branch', () => {
+    // After any earlier git command in the line, the current branch is unknown,
+    // unless the command is on the list of commands that never change which
+    // branch is checked out. A push that names its destination is judged by it.
+    describe('denied: a bare push, or a push of HEAD, after a command not on the list', () => {
+      defineDenyRows('push-default', [
+        'git branch -M main && git push',
+        'git branch -m main && git push',
+        'git branch --move main && git push',
+        'git rebase main main && git push',
+        'git rebase --onto x y main && git push',
+        'git symbolic-ref HEAD refs/heads/main && git push',
+        'git bisect reset main && git push',
+        'git checkout main && git push',
+        'git switch main && git push origin HEAD',
+        'git worktree add ../w main && git push',
+        'git checkout -- file.txt && git push',
+        'git -C ../x branch -M main && git push',
+        "bash -c 'git branch -M main && git push'",
+        'git branch -M main; git push origin @',
+        'git $SUB main && git push',
+        'git && git push',
+        'git -c x=y && git push',
+      ])
+    })
+
+    describe('passes: commands on the list, and pushes that name their branch', () => {
+      defineAllowRows('git list', [
+        'git add -A && git commit -m x && git push',
+        'git fetch origin && git merge origin/main && git push',
+        'git pull --rebase && git push',
+        'git stash && git push',
+        'git commit --amend --no-edit && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+        'git rebase origin/main && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+        'git checkout --detach FETCH_HEAD && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
+        'git branch -D feat/old && git push origin feat/1-x',
+        'git status && git log --oneline && git diff && git push',
+        'git tag v1 && git push',
+        'git ls-remote origin && git remote -v && git push',
+        'git reset --hard origin/feat/1-x && git push',
+        'git cherry-pick abc && git revert def && git push',
+        'git push && git push',
+      ])
+    })
+
+    describe('every command on the list keeps the branch known', () => {
+      const list = [
+        'add', 'commit', 'status', 'fetch', 'pull', 'merge', 'log', 'diff', 'show', 'tag', 'stash', 'reset',
+        'restore', 'rm', 'mv', 'rev-parse', 'remote', 'config', 'ls-remote', 'ls-files', 'describe',
+        'cherry-pick', 'revert', 'clean', 'blame', 'grep', 'format-patch', 'apply', 'am', 'gc', 'notes',
+        'shortlog', 'cat-file', 'diff-tree', 'for-each-ref', 'rev-list', 'merge-base', 'update-index', 'push',
+      ]
+      defineAllowRows('git list', list.map((sub) => `git ${sub} x && git push`))
+    })
+  })
+
+  describe('git stash branch checks out a new branch', () => {
+    // `stash` stays on the list of commands that keep the branch known, except
+    // its `branch` form. After `git stash branch <name>` the current branch is
+    // unknown, whatever the name, the same way it is after a checkout.
+    describe('denied', () => {
+      defineDenyRows('push-default', [
+        'git stash branch main && git push',
+        'git stash branch main && git push origin HEAD',
+        'git stash branch feat/x && git push',
+        'git -C . stash branch main && git push',
+        'git stash branch main stash@{0} && git push',
+        'git stash -q branch main && git push',
+        'git stash $VERB main && git push',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('stash', [
+        'git stash && git push',
+        'git stash push -m wip && git push',
+        'git stash push -m branch && git push',
+        'git stash pop && git push',
+        'git stash list && git push',
+        'git stash drop && git push',
+        'git stash apply && git push',
+        'git stash branch feat/x && git push origin feat/x',
+        'git stash branch feat/x && git push --force-with-lease origin HEAD:refs/heads/feat/x',
+      ])
+    })
+  })
+
+  describe('more shell spellings', () => {
+    defineDenyRows('push-default', [
+      "bash -c -l 'git push origin main'",
+      "sh -c -e 'git push origin main'",
+      "$SHELL -c 'git push origin main'",
+      "\"$SH\" -lc 'git push origin main'",
+      "${SHELL} --login -c 'git push origin main'",
+    ])
+    defineAllowRows('shell', [
+      "bash -c -l 'git push origin feat/x'",
+      "$SHELL -c 'git status'",
+    ])
+  })
+
+  describe('another folder named through the environment', () => {
+    describe('denied: a bare push is judged against another folder', () => {
+      defineDenyRows('push-default', [
+        'GIT_DIR=../other/.git git push',
+        'GIT_WORK_TREE=../w git push',
+        'env -C ../other git push',
+        'sudo -D ../other git push',
+        'env GIT_DIR=../other/.git git push',
+        'env --chdir=../other git push',
+        'env --chdir ../other git push',
+        "GIT_DIR=../other/.git bash -c 'git push'",
+        'GIT_DIR=../other/.git git push origin HEAD',
+      ])
+    })
+
+    describe('passes: the push names its branch, or the variable is unrelated', () => {
+      defineAllowRows('environment', [
+        'GIT_DIR=../o/.git git push origin feat/x',
+        'env -C ../o git push origin feat/x',
+        'FOO=1 git push',
+        'env FOO=1 git push',
+        'GIT_TRACE=1 git push',
+      ])
+    })
+  })
+
+  describe('a git or gh subcommand that expands', () => {
+    describe('denied', () => {
+      defineDenyRows('push-default', [
+        'git $GIT_OPTS push origin main',
+        'git $SUB origin main',
+        'git "$SUB" origin main',
+        'git $SUB origin HEAD:refs/heads/main',
+      ])
+    })
+
+    describe('passes: a word after the subcommand that expands is not the subcommand', () => {
+      defineAllowRows('subcommand', [
+        'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
+      ])
+    })
+  })
+
+  describe('escapes in $\'...\'', () => {
+    defineDenyRows('push-default', [
+      "git push origin $'\\x6dain'",
+      "git push origin $'ma\\151n'",
+    ])
+  })
+
+  describe('positional parameters', () => {
+    defineDenyRows('push-default', [
+      'git push origin "$1"',
+      'git push "$@"',
+      'git push origin $?',
+      'git push $*',
+    ])
+  })
+
+  describe('an empty branch fact is unknown', () => {
+    defineDenyRows('push-default', [
+      ['git push origin main', { defaultBranch: '' }],
+      ['git push origin feat/x', { defaultBranch: '' }],
+      ['git push', { currentBranch: '' }],
+      ['git push origin HEAD', { currentBranch: '' }],
+    ])
+    defineAllowRows('empty branch', [
+      ['git push origin feat/x', { currentBranch: '' }],
+    ])
+  })
+
+  describe("\\u and \\U escapes in $'...'", () => {
+    defineDenyRows('push-default', [
+      "git push origin $'\\u006dain'",
+      "git push origin $'\\U0000006dain'",
+    ])
+  })
+
+  describe('an exported GIT_DIR or GIT_WORK_TREE counts like a cd', () => {
+    describe('denied: a bare push is judged against another folder', () => {
+      defineDenyRows('push-default', [
+        'export GIT_DIR=other/.git; git push',
+        'export GIT_DIR=other/.git && git push',
+        'declare -x GIT_DIR=other/.git; git push',
+        'typeset -x GIT_DIR=other/.git; git push',
+        'declare -gx GIT_DIR=other/.git; git push',
+        'export GIT_WORK_TREE=../w; git push',
+        'export GIT_WORK_TREE=../w && git push',
+        'declare -x GIT_WORK_TREE=../w; git push',
+        'typeset -x GIT_WORK_TREE=../w && git push',
+        'export GIT_DIR; git push',
+        'export GIT_DIR=other/.git; git push origin HEAD',
+        "export GIT_DIR=other/.git; bash -c 'git push'",
+        'export GIT_DIR=other/.git; (git push)',
+        'export GIT_DIR=other/.git; git status; git push',
+      ])
+    })
+
+    describe('passes: the push names its branch, or nothing is exported', () => {
+      defineAllowRows('exported git folder', [
+        'export GIT_DIR=other/.git; git push origin feat/x',
+        'export GIT_DIR=other/.git && git push origin feat/x',
+        'declare -x GIT_DIR=other/.git; git push origin feat/x',
+        'export GIT_WORK_TREE=../w; git push origin feat/x',
+        'GIT_DIR=x; git push',
+        'GIT_WORK_TREE=x; git push',
+        'declare GIT_DIR=x; git push',
+        'export FOO=1; git push',
+        'export GIT_DIRX=1; git push',
+      ])
+    })
+
+    describe('a named push to the default branch is still denied', () => {
+      defineDenyRows('push-default', [
+        'export GIT_DIR=other/.git; git push origin main',
+      ])
+    })
+  })
 })
 
 describe('merge-rule: force-push', () => {
@@ -539,62 +827,6 @@ describe('merge-rule round 1, finding 2: gh api with a word the guard cannot rea
   })
 })
 
-describe('merge-rule round 1, finding 3: a branch switch earlier in the line', () => {
-  describe('denied: the current branch is no longer known', () => {
-    defineDenyRows('push-default', [
-      'git checkout main && git push',
-      'git switch main && git push',
-      'git checkout main; git push origin HEAD',
-      'git checkout -- file.txt && git push',
-      'git checkout main && git push origin @',
-      'git checkout main && git push -u origin HEAD',
-      "bash -c 'git checkout main && git push'",
-      'git -c advice.detachedHead=false switch main && git push',
-      'git -C ../wt checkout main && git push',
-      'git switch -c feat/y && git commit -m x && git push',
-    ])
-  })
-
-  describe('passes: the push names its branch', () => {
-    defineAllowRows('switch', [
-      'git checkout -b feat/x && git push -u origin feat/x',
-      'git switch main && git push origin feat/x',
-      'git switch -c feat/y && git push origin feat/y:feat/y',
-      'git checkout feat/x && git push origin HEAD:refs/heads/feat/x',
-      'git push && git checkout main',
-      'git checkout main',
-    ])
-  })
-})
-
-describe('merge-rule round 1, finding 4: an expanding word in the remote position', () => {
-  // The word in the remote position can hide a refspec: an unquoted
-  // `$REMOTE` that holds "origin main" splits into two words. The parser does
-  // not record whether a word was quoted, so a quoted one is denied as well.
-  describe('denied', () => {
-    defineDenyRows('push-default', [
-      'git push $ARGS',
-      'git push $(echo origin main)',
-      'git push "$REMOTE"',
-      'git push "$REMOTE" feat/x',
-      'git push $REMOTE feat/x',
-      'git push -u "$REMOTE" feat/x',
-      'git push `echo origin main`',
-    ])
-  })
-})
-
-describe('merge-rule round 1, finding 5: heads/<x> as a destination', () => {
-  defineDenyRows('push-default', [
-    'git push origin feat/x:heads/main',
-    'git push origin heads/main',
-  ])
-  defineAllowRows('heads', [
-    'git push origin feat/x:heads/feat/y',
-    'git push origin heads/feat/y',
-  ])
-})
-
 describe('merge-rule round 1, finding 7: -f=name=value', () => {
   defineDenyRows('visibility', [
     'gh api -X PATCH repos/acme/widget -f=private=true',
@@ -604,18 +836,6 @@ describe('merge-rule round 1, finding 7: -f=name=value', () => {
   defineAllowRows('field', [
     'gh api -X PATCH repos/acme/widget -f=allow_auto_merge=true',
     'gh api -X=GET repos/acme/widget',
-  ])
-})
-
-describe('merge-rule round 1, finding 8: a variable in the destination', () => {
-  // Denied even when it would be harmless. The fix is to write the branch
-  // name out in the command.
-  defineDenyRows('push-default', [
-    'git push --force-with-lease origin HEAD:refs/heads/$BRANCH',
-    'git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"',
-  ])
-  defineAllowRows('literal branch', [
-    'git push --force-with-lease origin HEAD:refs/heads/feat/539-guard-core',
   ])
 })
 
@@ -632,93 +852,6 @@ describe('merge-rule round 1: pipeline commands written with variables still pas
 })
 
 // Tester round 2 (issue #539).
-
-describe('merge-rule round 2, finding 2: git commands that can move HEAD onto a branch', () => {
-  // After any earlier git command in the line, the current branch is unknown,
-  // unless the command is on the list of commands that never change which
-  // branch is checked out. A push that names its destination is judged by it.
-  describe('denied: a bare push, or a push of HEAD, after a command not on the list', () => {
-    defineDenyRows('push-default', [
-      'git branch -M main && git push',
-      'git branch -m main && git push',
-      'git branch --move main && git push',
-      'git rebase main main && git push',
-      'git rebase --onto x y main && git push',
-      'git symbolic-ref HEAD refs/heads/main && git push',
-      'git bisect reset main && git push',
-      'git checkout main && git push',
-      'git switch main && git push origin HEAD',
-      'git worktree add ../w main && git push',
-      'git checkout -- file.txt && git push',
-      'git -C ../x branch -M main && git push',
-      "bash -c 'git branch -M main && git push'",
-      'git branch -M main; git push origin @',
-      'git $SUB main && git push',
-      'git && git push',
-      'git -c x=y && git push',
-    ])
-  })
-
-  describe('passes: commands on the list, and pushes that name their branch', () => {
-    defineAllowRows('git list', [
-      'git add -A && git commit -m x && git push',
-      'git fetch origin && git merge origin/main && git push',
-      'git pull --rebase && git push',
-      'git stash && git push',
-      'git commit --amend --no-edit && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
-      'git rebase origin/main && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
-      'git checkout --detach FETCH_HEAD && git push --force-with-lease origin HEAD:refs/heads/feat/1-x',
-      'git branch -D feat/old && git push origin feat/1-x',
-      'git status && git log --oneline && git diff && git push',
-      'git tag v1 && git push',
-      'git ls-remote origin && git remote -v && git push',
-      'git reset --hard origin/feat/1-x && git push',
-      'git cherry-pick abc && git revert def && git push',
-      'git push && git push',
-    ])
-  })
-
-  describe('every command on the list keeps the branch known', () => {
-    const list = [
-      'add', 'commit', 'status', 'fetch', 'pull', 'merge', 'log', 'diff', 'show', 'tag', 'stash', 'reset',
-      'restore', 'rm', 'mv', 'rev-parse', 'remote', 'config', 'ls-remote', 'ls-files', 'describe',
-      'cherry-pick', 'revert', 'clean', 'blame', 'grep', 'format-patch', 'apply', 'am', 'gc', 'notes',
-      'shortlog', 'cat-file', 'diff-tree', 'for-each-ref', 'rev-list', 'merge-base', 'update-index', 'push',
-    ]
-    defineAllowRows('git list', list.map((sub) => `git ${sub} x && git push`))
-  })
-})
-
-describe('merge-rule round 3: git stash branch checks out a new branch', () => {
-  // `stash` stays on the list of commands that keep the branch known, except
-  // its `branch` form. After `git stash branch <name>` the current branch is
-  // unknown, whatever the name, the same way it is after a checkout.
-  describe('denied', () => {
-    defineDenyRows('push-default', [
-      'git stash branch main && git push',
-      'git stash branch main && git push origin HEAD',
-      'git stash branch feat/x && git push',
-      'git -C . stash branch main && git push',
-      'git stash branch main stash@{0} && git push',
-      'git stash -q branch main && git push',
-      'git stash $VERB main && git push',
-    ])
-  })
-
-  describe('passes', () => {
-    defineAllowRows('stash', [
-      'git stash && git push',
-      'git stash push -m wip && git push',
-      'git stash push -m branch && git push',
-      'git stash pop && git push',
-      'git stash list && git push',
-      'git stash drop && git push',
-      'git stash apply && git push',
-      'git stash branch feat/x && git push origin feat/x',
-      'git stash branch feat/x && git push --force-with-lease origin HEAD:refs/heads/feat/x',
-    ])
-  })
-})
 
 describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and gh repo edit', () => {
   describe('denied', () => {
@@ -759,20 +892,6 @@ describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and 
   })
 })
 
-describe('merge-rule round 2, finding 4: more shell spellings', () => {
-  defineDenyRows('push-default', [
-    "bash -c -l 'git push origin main'",
-    "sh -c -e 'git push origin main'",
-    "$SHELL -c 'git push origin main'",
-    "\"$SH\" -lc 'git push origin main'",
-    "${SHELL} --login -c 'git push origin main'",
-  ])
-  defineAllowRows('shell', [
-    "bash -c -l 'git push origin feat/x'",
-    "$SHELL -c 'git status'",
-  ])
-})
-
 describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
   describe('denied', () => {
     defineDenyRows('branch-rule', [
@@ -798,40 +917,8 @@ describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
 
 // Reviewer round 1 (issue #539).
 
-describe('merge-rule review round 1, finding 2: another folder named through the environment', () => {
-  describe('denied: a bare push is judged against another folder', () => {
-    defineDenyRows('push-default', [
-      'GIT_DIR=../other/.git git push',
-      'GIT_WORK_TREE=../w git push',
-      'env -C ../other git push',
-      'sudo -D ../other git push',
-      'env GIT_DIR=../other/.git git push',
-      'env --chdir=../other git push',
-      'env --chdir ../other git push',
-      "GIT_DIR=../other/.git bash -c 'git push'",
-      'GIT_DIR=../other/.git git push origin HEAD',
-    ])
-  })
-
-  describe('passes: the push names its branch, or the variable is unrelated', () => {
-    defineAllowRows('environment', [
-      'GIT_DIR=../o/.git git push origin feat/x',
-      'env -C ../o git push origin feat/x',
-      'FOO=1 git push',
-      'env FOO=1 git push',
-      'GIT_TRACE=1 git push',
-    ])
-  })
-})
-
 describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
   describe('denied', () => {
-    defineDenyRows('push-default', [
-      'git $GIT_OPTS push origin main',
-      'git $SUB origin main',
-      'git "$SUB" origin main',
-      'git $SUB origin HEAD:refs/heads/main',
-    ])
     defineDenyRows('admin-merge', [
       'gh pr $S 12 --admin',
       'gh $G merge 12 --admin',
@@ -853,7 +940,6 @@ describe('merge-rule review round 1, finding 3: a git or gh subcommand that expa
       'gh pr ready "$PR"',
       'gh repo edit "$REPO" --enable-auto-merge',
       'gh issue edit "$N" --add-label in-progress',
-      'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
     ])
   })
 })
@@ -892,33 +978,8 @@ describe('merge-rule review round 1, finding 5: escapes in $\'...\'', () => {
     "gh api -X DELETE $'\\162epos/acme/widget'",
     "gh api -X $'DELE\\x54E' repos/acme/widget",
   ])
-  defineDenyRows('push-default', [
-    "git push origin $'\\x6dain'",
-    "git push origin $'ma\\151n'",
-  ])
   defineAllowRows('ansi-c', [
     "gh api -X DELETE $'repos/acme/widget/labels/bug'",
-  ])
-})
-
-describe('merge-rule review round 1, finding 7: positional parameters', () => {
-  defineDenyRows('push-default', [
-    'git push origin "$1"',
-    'git push "$@"',
-    'git push origin $?',
-    'git push $*',
-  ])
-})
-
-describe('merge-rule review round 1, finding 9: an empty branch fact is unknown', () => {
-  defineDenyRows('push-default', [
-    ['git push origin main', { defaultBranch: '' }],
-    ['git push origin feat/x', { defaultBranch: '' }],
-    ['git push', { currentBranch: '' }],
-    ['git push origin HEAD', { currentBranch: '' }],
-  ])
-  defineAllowRows('empty branch', [
-    ['git push origin feat/x', { currentBranch: '' }],
   ])
 })
 
@@ -953,10 +1014,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
     "gh api -X POST repos/acme/widget/$'\\u0072ulesets' --input -",
     "gh api -X POST repos/acme/widget/$'\\U00000072ulesets' --input -",
   ])
-  defineDenyRows('push-default', [
-    "git push origin $'\\u006dain'",
-    "git push origin $'\\U0000006dain'",
-  ])
   defineDenyRows('delete-repo', [
     "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
   ])
@@ -965,47 +1022,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
     "gh api -X DELETE $'\\U00000072epos/acme/widget/labels/bug'",
     "gh pr merge 12 $'\\u002d\\u002ddelete-branch'",
   ])
-})
-
-describe('merge-rule fix round: an exported GIT_DIR or GIT_WORK_TREE counts like a cd', () => {
-  describe('denied: a bare push is judged against another folder', () => {
-    defineDenyRows('push-default', [
-      'export GIT_DIR=other/.git; git push',
-      'export GIT_DIR=other/.git && git push',
-      'declare -x GIT_DIR=other/.git; git push',
-      'typeset -x GIT_DIR=other/.git; git push',
-      'declare -gx GIT_DIR=other/.git; git push',
-      'export GIT_WORK_TREE=../w; git push',
-      'export GIT_WORK_TREE=../w && git push',
-      'declare -x GIT_WORK_TREE=../w; git push',
-      'typeset -x GIT_WORK_TREE=../w && git push',
-      'export GIT_DIR; git push',
-      'export GIT_DIR=other/.git; git push origin HEAD',
-      "export GIT_DIR=other/.git; bash -c 'git push'",
-      'export GIT_DIR=other/.git; (git push)',
-      'export GIT_DIR=other/.git; git status; git push',
-    ])
-  })
-
-  describe('passes: the push names its branch, or nothing is exported', () => {
-    defineAllowRows('exported git folder', [
-      'export GIT_DIR=other/.git; git push origin feat/x',
-      'export GIT_DIR=other/.git && git push origin feat/x',
-      'declare -x GIT_DIR=other/.git; git push origin feat/x',
-      'export GIT_WORK_TREE=../w; git push origin feat/x',
-      'GIT_DIR=x; git push',
-      'GIT_WORK_TREE=x; git push',
-      'declare GIT_DIR=x; git push',
-      'export FOO=1; git push',
-      'export GIT_DIRX=1; git push',
-    ])
-  })
-
-  describe('a named push to the default branch is still denied', () => {
-    defineDenyRows('push-default', [
-      'export GIT_DIR=other/.git; git push origin main',
-    ])
-  })
 })
 
 describe('merge-rule: PR #547 follow-ups (#587)', () => {
