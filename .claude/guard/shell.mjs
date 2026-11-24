@@ -25,7 +25,8 @@
  *   toward "unknown". It is also true for a command whose `env` or `sudo`
  *   wrapper carries `-C`, `--chdir` or `-D`, also inside a short-option
  *   cluster (`env -iC dir`, `sudo -nD dir`). The cluster reading does not apply
- *   to a command where `env` gets a split-string option (see `skipEnv`).
+ *   to a command where `env` gets a split-string option, nor to any line read
+ *   for that command (see `skipEnv`).
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
  * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting
@@ -60,11 +61,20 @@ const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 // (`$'\x24'` is a `$`), reading stops there as well, because the decoded text
 // no longer shows that the character was written as an escape.
 //
-// Not covered: the parser cannot know whether that unknown text is empty. If
-// it is, the program takes the next word as the value instead, and the parser
-// does not follow that reading. `env -u$x -nu git push origin main` with an
-// empty `x` unsets `-nu` and runs the push, while the parser reads `git` as
-// the value of the second `-u`.
+// Not covered: an expansion that is empty at run time. The parser cannot know
+// that it is empty, and does not follow what the program then reads. There
+// are two forms.
+//
+// Attached to a value letter (`-u$x`): the program takes the next word as the
+// value instead. `env -u$x -nu git push origin main` with an empty `x` unsets
+// `-nu` and runs the push, while the parser reads `git` as the value of the
+// second `-u`.
+//
+// As a word of its own, outside quotes (`$x` or a backtick command): the shell
+// drops the word, and the program reads each later word one place earlier.
+// `env -u $x -Eu git push origin main` with an empty `x` unsets `-Eu` and runs
+// the push, while the parser reads `$x` as the value of the first `-u` and
+// `git` as the value of the second.
 function readCluster(text, expands, takesValue, seen) {
   let end = text.length
   if (expands) {
@@ -84,8 +94,9 @@ function readCluster(text, expands, takesValue, seen) {
 // `env -S`, and is filled only in `wholeWords` mode. `chdir` names the
 // wrapper's own change-directory flag: a short form and a long form.
 //
-// There are two modes, and `unwrap` picks the one for a command (see the
-// comment above `skipEnv`). By default a word with a single dash is read as a
+// There are two modes. `unwrap` picks the one for a command, and a line read
+// for a command in `wholeWords` mode stays in that mode (see the comment
+// above `skipEnv`). By default a word with a single dash is read as a
 // short-option cluster. With `wholeWords` set, every dash word is one skipped
 // word, and it takes the next word only when the whole word is a value flag.
 function skipFlags(words, valueFlags, state, chdir = null) {
@@ -147,8 +158,16 @@ const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 // skipped word). In that mode `-S`, `-S<text>`, `--split-string <word>` and
 // `--split-string=<text>` push their value to `state.lines`, and
 // `buildCommand` joins `state.lines` and the words that are left with spaces
-// and scans the result as a line. A command inside that line starts with the
-// cluster readers again.
+// and scans the result as a line.
+// The whole-word readers also read that line and every other line read for
+// that command (the `-c` script of a shell, the line of an `eval`), with each
+// command inside them at any depth. The cluster readers do not run there,
+// because the built line is not the line the real `env` runs. The whole-word
+// reader drops an option word that stands after the string:
+// `env -S 'env -iu' -i git push origin main` builds
+// `env -iu git push origin main`, and a cluster reader would take `git` as the
+// value of `-iu`, while the real `env` gives `-iu` the dropped `-i` and runs
+// the push.
 //
 // The real `env` puts the words of the string in the place of `-S` and goes on
 // reading its own options from there, and this reading does not follow that:
@@ -247,7 +266,7 @@ export function commandName(command) {
 export function parseCommandLine(text) {
   if (typeof text !== 'string') return { ok: false, reason: 'the command is not text' }
   try {
-    const { commands } = scan(text, 0, 0, false, false)
+    const { commands } = scan(text, 0, 0, false, false, false)
     return { ok: true, commands }
   } catch (err) {
     if (err instanceof ParseError) return { ok: false, reason: err.message }
@@ -255,7 +274,7 @@ export function parseCommandLine(text) {
   }
 }
 
-function unwrap(input, wholeWords = false) {
+function unwrap(input, wholeWords) {
   let words = input
   let wrapped = false
   const state = { lines: [], env: [], chdir: false, wholeWords, split: false }
@@ -312,15 +331,15 @@ function exportsGitFolder(name, words) {
   return args.some((a) => GIT_FOLDER_NAMES.has(a.split('=')[0]))
 }
 
-function buildCommand(rawWords, redirects, afterCd, depth) {
-  const { words, wrapped, state } = unwrap(rawWords)
+function buildCommand(rawWords, redirects, afterCd, depth, wholeWords) {
+  const { words, wrapped, state } = unwrap(rawWords, wholeWords)
   // An `env -C` or `sudo -D` moves this command, and what it runs, to another
   // folder. The names assigned in front of it reach what it runs.
   const here = afterCd || state.chdir
   const nestedOf = (inner) => inner.commands.map((c) => ({ ...c, nested: true, env: [...state.env, ...c.env] }))
   if (state.lines.length > 0) {
     const line = [...state.lines, ...words.map((w) => w.text)].join(' ')
-    const inner = scan(line, 0, depth + 1, here, false)
+    const inner = scan(line, 0, depth + 1, here, false, state.wholeWords)
     return { command: null, extra: nestedOf(inner), sawCd: inner.sawCd }
   }
   if (words.length === 0) return { command: null, extra: [], sawCd: false }
@@ -338,7 +357,7 @@ function buildCommand(rawWords, redirects, afterCd, depth) {
   let extra = []
   let sawCd = CD_COMMANDS.has(name) || exportsGitFolder(name, words)
   if (line !== null) {
-    const inner = scan(line, 0, depth + 1, here, false)
+    const inner = scan(line, 0, depth + 1, here, false, state.wholeWords)
     extra = nestedOf(inner)
     sawCd = sawCd || inner.sawCd
   }
@@ -383,7 +402,7 @@ const isBlank = (ch) => ch === ' ' || ch === '\t' || ch === '\r'
 
 // Reads commands from `text` starting at `start`. With `closer` set it stops
 // after the `)` that closes a `$(`, and returns the index after it as `end`.
-function scan(text, start, depth, afterCd, closer) {
+function scan(text, start, depth, afterCd, closer, wholeWords) {
   if (depth > MAX_DEPTH) throw new ParseError(`nesting deeper than ${MAX_DEPTH}`)
 
   const commands = []
@@ -403,7 +422,7 @@ function scan(text, start, depth, afterCd, closer) {
 
   const finish = () => {
     if (words.length > 0) {
-      const built = buildCommand(words, redirects, seenCd, depth)
+      const built = buildCommand(words, redirects, seenCd, depth, wholeWords)
       if (built.command) commands.push(built.command)
       commands.push(...pending, ...built.extra)
       if (built.sawCd || nestedCd) seenCd = true
@@ -439,7 +458,7 @@ function scan(text, start, depth, afterCd, closer) {
         i = end
         return
       }
-      const inner = scan(text, i + 2, depth + 1, seenCd, true)
+      const inner = scan(text, i + 2, depth + 1, seenCd, true, wholeWords)
       addNested(inner)
       word.text += text.slice(i, inner.end)
       word.expands = true
@@ -491,7 +510,7 @@ function scan(text, start, depth, afterCd, closer) {
     while (j < text.length && text[j] !== '`') j += text[j] === '\\' ? 2 : 1
     if (j >= text.length) throw new ParseError('unterminated backtick')
     const inner = text.slice(i + 1, j).replace(/\\([`$\\])/g, '$1')
-    addNested(scan(inner, 0, depth + 1, seenCd, false))
+    addNested(scan(inner, 0, depth + 1, seenCd, false, wholeWords))
     word.text += text.slice(i, j + 1)
     word.expands = true
     i = j + 1
@@ -558,7 +577,7 @@ function scan(text, start, depth, afterCd, closer) {
         word.any = true
         backtick(word)
       } else if ((ch === '<' || ch === '>') && text[i + 1] === '(') {
-        const inner = scan(text, i + 2, depth + 1, seenCd, true)
+        const inner = scan(text, i + 2, depth + 1, seenCd, true, wholeWords)
         addNested(inner)
         word.text += text.slice(i, inner.end)
         word.expands = word.any = true

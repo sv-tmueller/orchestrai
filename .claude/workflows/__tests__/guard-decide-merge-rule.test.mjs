@@ -1087,6 +1087,25 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
+    // Gap: an expansion that is empty at run time. The parser cannot know it is
+    // empty, so it reads the word as written. Attached to a value letter, the
+    // program takes the next word as the value instead. No existing row pinned
+    // this form.
+    describe('a gap: an expansion that is empty at run time, attached to a value letter', () => {
+      defineAllowRows('gap', ['env -u$x -nu git push origin main'])
+    })
+
+    // As a word of its own outside quotes, the shell drops the word and the
+    // program reads each later word one place earlier, so `-Eu` is the value of
+    // `-u` in the first row. The real program runs the push in each row.
+    describe('a gap: an expansion that is empty at run time, as a word of its own', () => {
+      defineAllowRows('gap', [
+        'env -u $x -Eu git push origin main',
+        'env -iu git $x git push origin main',
+        'env -iu git `true` git push origin main',
+      ])
+    })
+
     describe('still passes', () => {
       defineAllowRows('wrapper', [
         'sudo -Eu root git status',
@@ -1118,6 +1137,19 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       'env -iu -u -S$x git push origin main',
       'env -iS -u -S"a $x" git push origin main',
     ])
+
+    // The line built from the string is not the line the real `env` runs: the
+    // reader drops an option word that stands after the string. So a command
+    // inside the line is read with the whole-word readers too. A cluster reader
+    // would take `git` as the value of `-iu`, and the push would pass.
+    describe('a command inside the built line is read with the whole-word readers', () => {
+      defineDenyRows('push-default', [
+        "env -S 'env -iu' -i git push origin main",
+        "env -S 'env -iu' -- git push origin main",
+        "env -S 'nice env -iu' -i git push origin main",
+        "env -S 'sudo env -iu' -i git push origin main",
+      ])
+    })
 
     describe('passes', () => {
       defineAllowRows('wrapper', [
@@ -1153,6 +1185,11 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'env -S-u X git push origin main',
         // The cluster reading does not apply here, so `-iu` is one skipped word.
         "env -S '' -iu FOO git push origin main",
+        // A cluster inside a line read for a `-S` command is read as one skipped
+        // word, so `-Eu` does not take `root` and the command is `root`.
+        "env -S 'sudo -Eu root' git push origin main",
+        "env -iS bash -c 'sudo -Eu root git push origin main'",
+        "env -S '' eval sudo -Eu root git push origin main",
       ])
     })
   })

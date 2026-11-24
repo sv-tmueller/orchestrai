@@ -805,10 +805,25 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.equal(parse("env -iC ../o -S 'git push'")[0].afterCd, false)
   })
 
-  test('the line built from an env -S string is read with the cluster readers', () => {
+  test('the line built from an env -S string is read with the whole-word readers', () => {
+    // `-Eu` is one skipped word, so `root` is the command.
     const commands = parse("env -S 'sudo -Eu root git push origin main'")
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['root', 'git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].nested, true)
+  })
+
+  test('a command in the built line takes no value for -iu, as the option word after the string is dropped', () => {
+    // The built line is `env -iu git push origin main`. A cluster reader would
+    // take `git` as the value of `-iu`.
+    const commands = parse("env -S 'env -iu' -i git push origin main")
     assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
     assert.equal(commands[0].nested, true)
+  })
+
+  test('a -c script of a shell read for a -S command is read with the whole-word readers', () => {
+    const commands = parse("env -iS bash -c 'sudo -Eu root git push origin main'")
+    const nested = commands.filter((c) => c.nested)
+    assert.deepEqual(nested.map((c) => c.words.map((w) => w.text)), [['root', 'git', 'push', 'origin', 'main']])
   })
 
   test('the chdir letter in a cluster sets afterCd', () => {
