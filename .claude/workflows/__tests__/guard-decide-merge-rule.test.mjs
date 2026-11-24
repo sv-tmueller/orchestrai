@@ -967,6 +967,102 @@ describe('merge-rule: admin-merge', () => {
       'gh pr list --search admin',
     ])
   })
+
+  describe('gh flags before the subcommand', () => {
+    describe('denied', () => {
+      defineDenyRows('admin-merge', [
+        'gh -R acme/widget pr merge 12 --admin',
+        'gh --repo acme/widget pr merge 12 --admin',
+        'gh --repo=acme/widget pr merge 12 --admin',
+        'gh pr -R acme/widget merge 12 --admin',
+        'gh pr --repo acme/widget merge 12 --admin',
+        'gh pr --repo=acme/widget merge --admin 12',
+        'gh pr merge -R acme/widget 12 --admin',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('gh flag', [
+        'gh -R acme/widget pr view 12',
+        'gh pr -R acme/widget merge 12 --squash --auto',
+      ])
+    })
+  })
+
+  describe('a flag that expands in gh pr merge and gh repo edit', () => {
+    describe('denied', () => {
+      defineDenyRows('admin-merge', [
+        'gh pr merge 12 --$F',
+        'gh pr merge 12 "--adm$in"',
+        'gh pr merge 12 --admin=$V',
+        'gh pr merge 12 -$F',
+        'gh -R acme/widget pr merge 12 --$F',
+      ])
+    })
+
+    describe('passes: a word that is entirely an expansion, or a value that expands', () => {
+      defineAllowRows('gh expansion', [
+        'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+        'gh pr merge $PR --disable-auto',
+        'gh pr merge 12 --match-head-commit=$SHA',
+        'gh pr merge 12 --subject "$S"',
+        'gh pr merge 12 --body "$B" --squash',
+      ])
+    })
+
+    describe('not covered: a flag hidden entirely inside an expansion', () => {
+      // The "Not covered" header of rules/merge-rule.mjs names these two. The
+      // guard reads the words as written; the flag only shows when the shell runs
+      // the substitution. These rows pin the gap.
+      defineAllowRows('hidden flag', [
+        'gh pr merge 12 $(echo --admin)',
+        'gh repo edit $(echo --visibility) private',
+      ])
+    })
+  })
+
+  describe('a git or gh subcommand that expands', () => {
+    describe('denied', () => {
+      defineDenyRows('admin-merge', [
+        'gh pr $S 12 --admin',
+        'gh $G merge 12 --admin',
+        'gh pr "$S" 12 --admin',
+      ])
+    })
+
+    describe('passes: a word after the subcommand that expands is not the subcommand', () => {
+      defineAllowRows('subcommand', [
+        'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+        'gh pr ready "$PR"',
+      ])
+    })
+  })
+
+  describe("\\u and \\U escapes in $'...'", () => {
+    defineDenyRows('admin-merge', [
+      "gh pr merge 12 $'\\u002d\\u002dadmin'",
+      "gh pr merge 12 $'\\U0000002d\\U0000002dadmin'",
+      "gh pr merge 12 --$'\\u0061dmin'",
+      "gh pr merge 12 $'--\\u0061dmin'",
+      "gh pr merge 12 $'--\\U00000061dmin'",
+    ])
+    defineAllowRows('ansi-c unicode', [
+      "gh pr merge 12 $'\\u002d\\u002ddelete-branch'",
+    ])
+  })
+
+  describe('named gap: a \\cX control escape in $\'...\' is not decoded', () => {
+    // The owner chose to name these gaps in the header of rules/merge-rule.mjs,
+    // not to fix them (issue #539, decision of 2026-11-13). Each row pins
+    // today's answer. A later fix flips the row on purpose.
+    // `\c@` and `\c<space>` give a NUL in bash, which ends the word, so bash
+    // runs these as `--admin` and `--visibility`.
+    defineAllowRows('named gap', [
+      "gh pr merge 12 $'--admin\\c@x'",
+      "gh pr merge 12 $'--admin\\c x'",
+      "gh repo edit $'--visibility\\c@' public",
+    ])
+  })
 })
 
 describe('merge-rule: branch-rule', () => {
@@ -1090,15 +1186,6 @@ describe('merge-rule: the pipeline commands that must keep working', () => {
 
 describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => {
   describe('denied', () => {
-    defineDenyRows('admin-merge', [
-      'gh -R acme/widget pr merge 12 --admin',
-      'gh --repo acme/widget pr merge 12 --admin',
-      'gh --repo=acme/widget pr merge 12 --admin',
-      'gh pr -R acme/widget merge 12 --admin',
-      'gh pr --repo acme/widget merge 12 --admin',
-      'gh pr --repo=acme/widget merge --admin 12',
-      'gh pr merge -R acme/widget 12 --admin',
-    ])
     defineDenyRows('delete-repo', [
       'gh -R acme/widget repo delete --yes',
       'gh repo --repo acme/widget delete --yes',
@@ -1117,8 +1204,6 @@ describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => 
 
   describe('passes', () => {
     defineAllowRows('gh flag', [
-      'gh -R acme/widget pr view 12',
-      'gh pr -R acme/widget merge 12 --squash --auto',
       'gh --repo acme/widget repo view',
       'gh repo -R acme/widget edit --enable-auto-merge',
       'gh -R acme/widget api repos/acme/widget',
@@ -1219,13 +1304,6 @@ describe('merge-rule round 1: pipeline commands written with variables still pas
 
 describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and gh repo edit', () => {
   describe('denied', () => {
-    defineDenyRows('admin-merge', [
-      'gh pr merge 12 --$F',
-      'gh pr merge 12 "--adm$in"',
-      'gh pr merge 12 --admin=$V',
-      'gh pr merge 12 -$F',
-      'gh -R acme/widget pr merge 12 --$F',
-    ])
     defineDenyRows('visibility', [
       'gh repo edit --$OPT private',
       'gh repo edit "--vis$X" private',
@@ -1235,23 +1313,8 @@ describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and 
 
   describe('passes: a word that is entirely an expansion, or a value that expands', () => {
     defineAllowRows('gh expansion', [
-      'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
-      'gh pr merge $PR --disable-auto',
       'gh repo edit "$REPO" --enable-auto-merge',
-      'gh pr merge 12 --match-head-commit=$SHA',
-      'gh pr merge 12 --subject "$S"',
-      'gh pr merge 12 --body "$B" --squash',
       'gh repo edit --description "$D"',
-    ])
-  })
-
-  describe('not covered: a flag hidden entirely inside an expansion', () => {
-    // The "Not covered" header of rules/merge-rule.mjs names these two. The
-    // guard reads the words as written; the flag only shows when the shell runs
-    // the substitution. These rows pin the gap.
-    defineAllowRows('hidden flag', [
-      'gh pr merge 12 $(echo --admin)',
-      'gh repo edit $(echo --visibility) private',
     ])
   })
 })
@@ -1283,11 +1346,6 @@ describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
 
 describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
   describe('denied', () => {
-    defineDenyRows('admin-merge', [
-      'gh pr $S 12 --admin',
-      'gh $G merge 12 --admin',
-      'gh pr "$S" 12 --admin',
-    ])
     defineDenyRows('delete-repo', [
       'gh repo $S acme/widget --yes',
       'gh $G delete acme/widget --yes',
@@ -1300,8 +1358,6 @@ describe('merge-rule review round 1, finding 3: a git or gh subcommand that expa
 
   describe('passes: a word after the subcommand that expands is not the subcommand', () => {
     defineAllowRows('subcommand', [
-      'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
-      'gh pr ready "$PR"',
       'gh repo edit "$REPO" --enable-auto-merge',
       'gh issue edit "$N" --add-label in-progress',
     ])
@@ -1357,13 +1413,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
     "gh api -X DELETE $'\\U72\\U65pos/acme/widget'",
     "gh api -X $'\\u0044ELETE' repos/acme/widget",
   ])
-  defineDenyRows('admin-merge', [
-    "gh pr merge 12 $'\\u002d\\u002dadmin'",
-    "gh pr merge 12 $'\\U0000002d\\U0000002dadmin'",
-    "gh pr merge 12 --$'\\u0061dmin'",
-    "gh pr merge 12 $'--\\u0061dmin'",
-    "gh pr merge 12 $'--\\U00000061dmin'",
-  ])
   defineDenyRows('visibility', [
     "gh repo edit $'\\u002d\\u002dvisibility' private",
     "gh repo edit --$'\\u0076isibility' private",
@@ -1384,7 +1433,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
   defineAllowRows('ansi-c unicode', [
     "gh api -X DELETE $'\\u0072epos/acme/widget/labels/bug'",
     "gh api -X DELETE $'\\U00000072epos/acme/widget/labels/bug'",
-    "gh pr merge 12 $'\\u002d\\u002ddelete-branch'",
   ])
 })
 
@@ -1464,21 +1512,6 @@ describe('merge-rule: how the answer is shaped', () => {
       assert.equal(answer.decision, 'allow', name)
       assert.equal(answer.rule, 'no-rule', name)
     }
-  })
-})
-
-describe('merge-rule: named gaps from the Not covered list', () => {
-  // The owner chose to name these gaps in the header of rules/merge-rule.mjs,
-  // not to fix them (issue #539, decision of 2026-11-13). Each row pins
-  // today's answer. A later fix flips the row on purpose.
-  describe('a \\cX control escape in $\'...\' is not decoded', () => {
-    // `\c@` and `\c<space>` give a NUL in bash, which ends the word, so bash
-    // runs these as `--admin` and `--visibility`.
-    defineAllowRows('named gap', [
-      "gh pr merge 12 $'--admin\\c@x'",
-      "gh pr merge 12 $'--admin\\c x'",
-      "gh repo edit $'--visibility\\c@' public",
-    ])
   })
 })
 
