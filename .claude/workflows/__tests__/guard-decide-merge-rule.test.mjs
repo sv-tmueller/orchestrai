@@ -1537,6 +1537,85 @@ describe('merge-rule: api-unknown', () => {
   })
 })
 
+describe('merge-rule: transfer-repo', () => {
+  describe('denied', () => {
+    defineDenyRows('transfer-repo', [
+      'gh api -X POST repos/acme/widget/transfer -f new_owner=other',
+      'gh api repos/acme/widget/transfer -f new_owner=other',
+      "gh api --method POST 'repos/{owner}/{repo}/transfer' -f new_owner=other",
+      'gh api -X POST /repos/acme/widget/transfer/ --input body.json',
+      'gh api -X POST https://api.github.com/repos/acme/widget/transfer -f new_owner=other',
+      'gh api -X POST "repos/$REPO/transfer" -f new_owner=other',
+      'gh api -X POST "repos/$O/$R/transfer" -f new_owner=other',
+      'gh api -X "$M" repos/acme/widget/transfer',
+      'gh -R acme/widget api repos/acme/widget/transfer -f new_owner=other',
+    ])
+  })
+
+  describe('passes', () => {
+    defineAllowRows('transfer', [
+      'gh api repos/acme/widget/transfer',
+      'gh issue transfer 5 acme/other',
+      'gh api -X POST repos/acme/widget/forks -f organization=other',
+      'gh api -X POST repos/acme/widget/dispatches -f event_type=transfer',
+      'gh api -X DELETE repos/acme/widget/labels/transfer',
+    ])
+  })
+})
+
+describe('merge-rule: default-branch', () => {
+  describe('denied', () => {
+    defineDenyRows('default-branch', [
+      'gh repo edit --default-branch trunk',
+      'gh repo edit --default-branch=trunk',
+      'gh repo edit --default-branch main',
+      'gh repo edit acme/widget --default-branch trunk',
+      'gh -R acme/widget repo edit --default-branch trunk',
+      'gh repo --repo acme/widget edit --default-branch "$B"',
+      'gh $G edit --default-branch trunk',
+      'gh api -X PATCH repos/acme/widget -f default_branch=trunk',
+      'gh api -X PATCH repos/acme/widget -F default_branch=trunk',
+      'gh api --method=PATCH repos/acme/widget --field=default_branch=trunk',
+      'gh api -X PATCH repos/acme/widget -fdefault_branch=trunk',
+      'gh api -X PATCH repos/acme/widget -f=default_branch=trunk',
+      "gh api -X PATCH 'repos/{owner}/{repo}' -f default_branch=trunk",
+      'gh api -X PATCH "repos/$REPO" -f default_branch=trunk',
+      'gh api -X patch https://api.github.com/repos/acme/widget -f default_branch=main',
+      'gh api -X POST repos/acme/widget/branches/main/rename -f new_name=trunk',
+      'gh api repos/acme/widget/branches/main/rename -f new_name=trunk',
+      "gh api -X POST 'repos/{owner}/{repo}/branches/main/rename' -f new_name=trunk",
+      'gh api -X POST "repos/$REPO/branches/main/rename" -f new_name=trunk',
+      // the branch name expands, so it could be the default branch
+      'gh api -X POST "repos/$REPO/branches/$B/rename" -f new_name=x',
+      'gh api -X POST repos/acme/widget/branches/$B/rename -f new_name=x',
+      'gh api -X POST https://api.github.com/repos/acme/widget/branches/main/rename?x=1 --input body.json',
+      // the default branch is not known
+      ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: null }],
+      ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: '' }],
+      // the default branch is not main
+      ['gh api -X POST repos/acme/widget/branches/trunk/rename -f new_name=main', { defaultBranch: 'trunk' }],
+    ])
+  })
+
+  describe('passes', () => {
+    defineAllowRows('default branch', [
+      'gh repo edit --enable-auto-merge',
+      'gh repo edit --delete-branch-on-merge',
+      'gh repo edit --description "default-branch notes"',
+      'gh repo view --json defaultBranchRef',
+      'gh pr edit 12 --base trunk',
+      'gh api -X PATCH repos/acme/widget -f description=default_branch',
+      'gh api repos/acme/widget --jq .default_branch',
+      'gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y',
+      'gh api repos/acme/widget/branches/main/rename',
+      ['gh api -X POST repos/acme/widget/branches/main/rename -f new_name=x', { defaultBranch: 'trunk' }],
+      'gh repo rename widget2 --yes',
+      'gh repo archive acme/widget --yes',
+      'gh api -X PATCH repos/acme/widget -f name=widget2',
+    ])
+  })
+})
+
 describe('merge-rule: the pipeline commands that must keep working', () => {
   defineAllowRows('pipeline', [
     'git ls-remote --exit-code origin feat/1-x && git fetch origin feat/1-x && git checkout --detach FETCH_HEAD',
@@ -1677,85 +1756,6 @@ describe('merge-rule: the rule file says what it does not cover', () => {
 })
 
 describe('merge-rule: the four kinds taken on from the Not covered list (#593)', () => {
-  describe('C. transferring a repo', () => {
-    describe('denied', () => {
-      defineDenyRows('transfer-repo', [
-        'gh api -X POST repos/acme/widget/transfer -f new_owner=other',
-        'gh api repos/acme/widget/transfer -f new_owner=other',
-        "gh api --method POST 'repos/{owner}/{repo}/transfer' -f new_owner=other",
-        'gh api -X POST /repos/acme/widget/transfer/ --input body.json',
-        'gh api -X POST https://api.github.com/repos/acme/widget/transfer -f new_owner=other',
-        'gh api -X POST "repos/$REPO/transfer" -f new_owner=other',
-        'gh api -X POST "repos/$O/$R/transfer" -f new_owner=other',
-        'gh api -X "$M" repos/acme/widget/transfer',
-        'gh -R acme/widget api repos/acme/widget/transfer -f new_owner=other',
-      ])
-    })
-
-    describe('passes', () => {
-      defineAllowRows('transfer', [
-        'gh api repos/acme/widget/transfer',
-        'gh issue transfer 5 acme/other',
-        'gh api -X POST repos/acme/widget/forks -f organization=other',
-        'gh api -X POST repos/acme/widget/dispatches -f event_type=transfer',
-        'gh api -X DELETE repos/acme/widget/labels/transfer',
-      ])
-    })
-  })
-
-  describe('D. changing or renaming the default branch', () => {
-    describe('denied', () => {
-      defineDenyRows('default-branch', [
-        'gh repo edit --default-branch trunk',
-        'gh repo edit --default-branch=trunk',
-        'gh repo edit --default-branch main',
-        'gh repo edit acme/widget --default-branch trunk',
-        'gh -R acme/widget repo edit --default-branch trunk',
-        'gh repo --repo acme/widget edit --default-branch "$B"',
-        'gh $G edit --default-branch trunk',
-        'gh api -X PATCH repos/acme/widget -f default_branch=trunk',
-        'gh api -X PATCH repos/acme/widget -F default_branch=trunk',
-        'gh api --method=PATCH repos/acme/widget --field=default_branch=trunk',
-        'gh api -X PATCH repos/acme/widget -fdefault_branch=trunk',
-        'gh api -X PATCH repos/acme/widget -f=default_branch=trunk',
-        "gh api -X PATCH 'repos/{owner}/{repo}' -f default_branch=trunk",
-        'gh api -X PATCH "repos/$REPO" -f default_branch=trunk',
-        'gh api -X patch https://api.github.com/repos/acme/widget -f default_branch=main',
-        'gh api -X POST repos/acme/widget/branches/main/rename -f new_name=trunk',
-        'gh api repos/acme/widget/branches/main/rename -f new_name=trunk',
-        "gh api -X POST 'repos/{owner}/{repo}/branches/main/rename' -f new_name=trunk",
-        'gh api -X POST "repos/$REPO/branches/main/rename" -f new_name=trunk',
-        // the branch name expands, so it could be the default branch
-        'gh api -X POST "repos/$REPO/branches/$B/rename" -f new_name=x',
-        'gh api -X POST repos/acme/widget/branches/$B/rename -f new_name=x',
-        'gh api -X POST https://api.github.com/repos/acme/widget/branches/main/rename?x=1 --input body.json',
-        // the default branch is not known
-        ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: null }],
-        ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: '' }],
-        // the default branch is not main
-        ['gh api -X POST repos/acme/widget/branches/trunk/rename -f new_name=main', { defaultBranch: 'trunk' }],
-      ])
-    })
-
-    describe('passes', () => {
-      defineAllowRows('default branch', [
-        'gh repo edit --enable-auto-merge',
-        'gh repo edit --delete-branch-on-merge',
-        'gh repo edit --description "default-branch notes"',
-        'gh repo view --json defaultBranchRef',
-        'gh pr edit 12 --base trunk',
-        'gh api -X PATCH repos/acme/widget -f description=default_branch',
-        'gh api repos/acme/widget --jq .default_branch',
-        'gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y',
-        'gh api repos/acme/widget/branches/main/rename',
-        ['gh api -X POST repos/acme/widget/branches/main/rename -f new_name=x', { defaultBranch: 'trunk' }],
-        'gh repo rename widget2 --yes',
-        'gh repo archive acme/widget --yes',
-        'gh api -X PATCH repos/acme/widget -f name=widget2',
-      ])
-    })
-  })
-
   describe('E. the pipeline commands pass', () => {
     defineAllowRows('pipeline', [
       `gh pr merge 12 --squash --auto --match-head-commit ${SHA}`,
