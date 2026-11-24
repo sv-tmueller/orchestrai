@@ -1416,6 +1416,125 @@ describe('merge-rule: delete-repo', () => {
       'rm -rf node_modules',
     ])
   })
+
+  describe('gh flags before the subcommand', () => {
+    describe('denied', () => {
+      defineDenyRows('delete-repo', [
+        'gh -R acme/widget repo delete --yes',
+        'gh repo --repo acme/widget delete --yes',
+        'gh repo --repo=acme/widget delete',
+        'gh -R acme/widget api -X DELETE repos/acme/widget',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('gh flag', [
+        'gh --repo acme/widget repo view',
+        'gh -R acme/widget api repos/acme/widget',
+      ])
+    })
+  })
+
+  describe('gh api with a word the guard cannot read', () => {
+    describe('a path with variables, denied by what it ends in', () => {
+      defineDenyRows('delete-repo', [
+        'gh api -X DELETE "repos/$REPO"',
+        'gh api -X DELETE repos/$REPO',
+        'gh api -X DELETE repos/$OWNER/$REPO',
+        'gh api -X DELETE "repos/${O}/widget"',
+        'gh api -X DELETE repos/acme/$R',
+        'gh api -X "$M" repos/acme/widget',
+        'gh api -X$M repos/acme/widget',
+        'gh api --method="$M" repos/acme/widget',
+        'gh api -X "$M" "repos/$REPO"',
+        'gh api -X "$(echo DELETE)" repos/acme/widget',
+      ])
+    })
+
+    describe('passes: a literal tail that is something else', () => {
+      defineAllowRows('gh api variable', [
+        'gh api "repos/$REPO"',
+        'gh api -X DELETE "repos/$REPO/labels/bug"',
+        'gh api -X "$M" repos/acme/widget/labels',
+        'gh api -X DELETE "repos/$REPO/git/refs/heads/feat/x"',
+      ])
+    })
+  })
+
+  describe('a git or gh subcommand that expands', () => {
+    describe('denied', () => {
+      defineDenyRows('delete-repo', [
+        'gh repo $S acme/widget --yes',
+        'gh $G delete acme/widget --yes',
+      ])
+    })
+  })
+
+  describe('gh api paths whose segments expand', () => {
+    describe('denied', () => {
+      defineDenyRows('delete-repo', [
+        'gh api -X DELETE "repos/$A/$B"',
+      ])
+    })
+  })
+
+  describe('escapes in $\'...\'', () => {
+    defineDenyRows('delete-repo', [
+      "gh api -X DELETE $'\\x72epos/acme/widget'",
+      "gh api -X DELETE $'\\162epos/acme/widget'",
+      "gh api -X $'DELE\\x54E' repos/acme/widget",
+    ])
+    defineAllowRows('ansi-c', [
+      "gh api -X DELETE $'repos/acme/widget/labels/bug'",
+    ])
+  })
+
+  describe("\\u and \\U escapes in $'...'", () => {
+    defineDenyRows('delete-repo', [
+      "gh api -X DELETE $'\\u0072epos/acme/widget'",
+      "gh api -X DELETE $'\\U00000072epos/acme/widget'",
+      "gh api -X DELETE $'\\u72\\u65pos/acme/widget'",
+      "gh api -X DELETE $'\\U72\\U65pos/acme/widget'",
+      "gh api -X $'\\u0044ELETE' repos/acme/widget",
+    ])
+    defineDenyRows('delete-repo', [
+      "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
+    ])
+    defineAllowRows('ansi-c unicode', [
+      "gh api -X DELETE $'\\u0072epos/acme/widget/labels/bug'",
+      "gh api -X DELETE $'\\U00000072epos/acme/widget/labels/bug'",
+    ])
+  })
+
+  describe('wrapper short-option clusters', () => {
+    // The value of a cluster's value letter was read as the command name, so
+    // the real command was never checked.
+    defineDenyRows('delete-repo', [
+      'sudo -nu root gh repo delete acme/widget --yes',
+    ])
+  })
+})
+
+describe('merge-rule: api-unknown', () => {
+  describe('gh api with a word the guard cannot read', () => {
+    describe('an endpoint that is entirely unknown, with a write method', () => {
+      defineDenyRows('api-unknown', [
+        'gh api -X DELETE "$EP"',
+        'gh api -X DELETE $(echo repos/acme/widget)',
+        'gh api -X PUT "$EP" --input -',
+        'gh api "$EP" -f x=y',
+        'gh api -X "$M" "$EP"',
+        'gh api -X POST "$BASE/branches/main/protection" --input r.json',
+      ])
+    })
+
+    describe('passes: a literal tail that is something else', () => {
+      defineAllowRows('gh api variable', [
+        'gh api "$EP"',
+        'gh api -X GET "$EP"',
+      ])
+    })
+  })
 })
 
 describe('merge-rule: the pipeline commands that must keep working', () => {
@@ -1436,63 +1555,6 @@ describe('merge-rule: the pipeline commands that must keep working', () => {
 // covered. The rule behind them: a word the guard cannot read is unknown, and
 // unknown is denied where the worst reading is one of the entries.
 
-describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => {
-  describe('denied', () => {
-    defineDenyRows('delete-repo', [
-      'gh -R acme/widget repo delete --yes',
-      'gh repo --repo acme/widget delete --yes',
-      'gh repo --repo=acme/widget delete',
-      'gh -R acme/widget api -X DELETE repos/acme/widget',
-    ])
-  })
-
-  describe('passes', () => {
-    defineAllowRows('gh flag', [
-      'gh --repo acme/widget repo view',
-      'gh -R acme/widget api repos/acme/widget',
-    ])
-  })
-})
-
-describe('merge-rule round 1, finding 2: gh api with a word the guard cannot read', () => {
-  describe('a path with variables, denied by what it ends in', () => {
-    defineDenyRows('delete-repo', [
-      'gh api -X DELETE "repos/$REPO"',
-      'gh api -X DELETE repos/$REPO',
-      'gh api -X DELETE repos/$OWNER/$REPO',
-      'gh api -X DELETE "repos/${O}/widget"',
-      'gh api -X DELETE repos/acme/$R',
-      'gh api -X "$M" repos/acme/widget',
-      'gh api -X$M repos/acme/widget',
-      'gh api --method="$M" repos/acme/widget',
-      'gh api -X "$M" "repos/$REPO"',
-      'gh api -X "$(echo DELETE)" repos/acme/widget',
-    ])
-  })
-
-  describe('an endpoint that is entirely unknown, with a write method', () => {
-    defineDenyRows('api-unknown', [
-      'gh api -X DELETE "$EP"',
-      'gh api -X DELETE $(echo repos/acme/widget)',
-      'gh api -X PUT "$EP" --input -',
-      'gh api "$EP" -f x=y',
-      'gh api -X "$M" "$EP"',
-      'gh api -X POST "$BASE/branches/main/protection" --input r.json',
-    ])
-  })
-
-  describe('passes: a literal tail that is something else', () => {
-    defineAllowRows('gh api variable', [
-      'gh api "repos/$REPO"',
-      'gh api -X DELETE "repos/$REPO/labels/bug"',
-      'gh api -X "$M" repos/acme/widget/labels',
-      'gh api "$EP"',
-      'gh api -X GET "$EP"',
-      'gh api -X DELETE "repos/$REPO/git/refs/heads/feat/x"',
-    ])
-  })
-})
-
 describe('merge-rule round 1: pipeline commands written with variables still pass', () => {
   defineAllowRows('pipeline', [
     'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
@@ -1509,62 +1571,7 @@ describe('merge-rule round 1: pipeline commands written with variables still pas
 
 // Reviewer round 1 (issue #539).
 
-describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
-  describe('denied', () => {
-    defineDenyRows('delete-repo', [
-      'gh repo $S acme/widget --yes',
-      'gh $G delete acme/widget --yes',
-    ])
-  })
-})
-
-describe('merge-rule review round 1, finding 4: gh api paths whose segments expand', () => {
-  describe('denied', () => {
-    defineDenyRows('delete-repo', [
-      'gh api -X DELETE "repos/$A/$B"',
-    ])
-  })
-})
-
-describe('merge-rule review round 1, finding 5: escapes in $\'...\'', () => {
-  defineDenyRows('delete-repo', [
-    "gh api -X DELETE $'\\x72epos/acme/widget'",
-    "gh api -X DELETE $'\\162epos/acme/widget'",
-    "gh api -X $'DELE\\x54E' repos/acme/widget",
-  ])
-  defineAllowRows('ansi-c', [
-    "gh api -X DELETE $'repos/acme/widget/labels/bug'",
-  ])
-})
-
 // Fix round past the cap (issue #539).
-
-describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
-  defineDenyRows('delete-repo', [
-    "gh api -X DELETE $'\\u0072epos/acme/widget'",
-    "gh api -X DELETE $'\\U00000072epos/acme/widget'",
-    "gh api -X DELETE $'\\u72\\u65pos/acme/widget'",
-    "gh api -X DELETE $'\\U72\\U65pos/acme/widget'",
-    "gh api -X $'\\u0044ELETE' repos/acme/widget",
-  ])
-  defineDenyRows('delete-repo', [
-    "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
-  ])
-  defineAllowRows('ansi-c unicode', [
-    "gh api -X DELETE $'\\u0072epos/acme/widget/labels/bug'",
-    "gh api -X DELETE $'\\U00000072epos/acme/widget/labels/bug'",
-  ])
-})
-
-describe('merge-rule: PR #547 follow-ups (#587)', () => {
-  describe('wrapper short-option clusters', () => {
-    // The value of a cluster's value letter was read as the command name, so
-    // the real command was never checked.
-    defineDenyRows('delete-repo', [
-      'sudo -nu root gh repo delete acme/widget --yes',
-    ])
-  })
-})
 
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
