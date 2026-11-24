@@ -7,6 +7,16 @@
  * `decide` in the two classes where the group applies (personal and set up,
  * and no GitHub repo). Each deny entry has look-alike allow rows next to it.
  *
+ * A word the guard cannot read is unknown, and unknown is denied where the
+ * worst reading is one of the entries.
+ *
+ * The rows are grouped by entry. An entry's block holds its deny rows, the
+ * look-alike allow rows next to them, and the allow rows that pin a known gap.
+ * A set of gap rows that touches two entries stays whole, in the block of the
+ * entry of its first row. A new row goes into its entry's block, not into a
+ * new block per test round. The pipeline commands, the shape of the answer
+ * and the rule file's header close the file.
+ *
  * Every command text below is a string handed to the decision function. None
  * of them is ever run. Repo names are invented (`acme/widget`).
  *
@@ -1628,29 +1638,33 @@ describe('merge-rule: the pipeline commands that must keep working', () => {
     'git add -A && git commit -m "feat: x"',
     'npm test',
   ])
+
+  describe('written with variables, they still pass', () => {
+    defineAllowRows('pipeline', [
+      'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
+      'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
+      'gh pr ready "$PR"',
+      'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/review -f description="ok"',
+      'gh api "repos/$REPO/pulls/$PR" --jq .head.sha',
+      'gh label create "size:S" --color c2e0c6 --force',
+      'git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
+    ])
+  })
+
+  describe('next to the entries of #593', () => {
+    defineAllowRows('pipeline', [
+      `gh pr merge 12 --squash --auto --match-head-commit ${SHA}`,
+      `gh pr merge 12 --squash --match-head-commit ${SHA}`,
+      'gh pr merge 12 --disable-auto',
+      "gh api 'repos/{owner}/{repo}' --jq .default_branch",
+      "gh api 'repos/{owner}/{repo}/branches/main' --jq .protected",
+      "gh api 'repos/{owner}/{repo}/rules/branches/main' --jq length",
+      `gh api 'repos/{owner}/{repo}/commits/${SHA}/status' --jq '[.statuses[] | select(.state=="success")] | length'`,
+      'gh pr view 12 --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName',
+      'gh pr checks 12',
+    ])
+  })
 })
-
-// Tester round 1 (issue #539). Every row below is a spelling no earlier row
-// covered. The rule behind them: a word the guard cannot read is unknown, and
-// unknown is denied where the worst reading is one of the entries.
-
-describe('merge-rule round 1: pipeline commands written with variables still pass', () => {
-  defineAllowRows('pipeline', [
-    'git fetch origin "$BRANCH" && git checkout --detach FETCH_HEAD',
-    'gh pr merge "$PR" --squash --auto --match-head-commit "$SHA"',
-    'gh pr ready "$PR"',
-    'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/review -f description="ok"',
-    'gh api "repos/$REPO/pulls/$PR" --jq .head.sha',
-    'gh label create "size:S" --color c2e0c6 --force',
-    'git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
-  ])
-})
-
-// Tester round 2 (issue #539).
-
-// Reviewer round 1 (issue #539).
-
-// Fix round past the cap (issue #539).
 
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
@@ -1753,24 +1767,8 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     assert.ok(!source.includes('`\\E`, `\\?`) is kept as written'), 'the header still keeps \\E and \\? as written')
     assert.ok(!source.includes('`\\E` is kept as written'), 'the header still keeps \\E as written')
   })
-})
 
-describe('merge-rule: the four kinds taken on from the Not covered list (#593)', () => {
-  describe('E. the pipeline commands pass', () => {
-    defineAllowRows('pipeline', [
-      `gh pr merge 12 --squash --auto --match-head-commit ${SHA}`,
-      `gh pr merge 12 --squash --match-head-commit ${SHA}`,
-      'gh pr merge 12 --disable-auto',
-      "gh api 'repos/{owner}/{repo}' --jq .default_branch",
-      "gh api 'repos/{owner}/{repo}/branches/main' --jq .protected",
-      "gh api 'repos/{owner}/{repo}/rules/branches/main' --jq length",
-      `gh api 'repos/{owner}/{repo}/commits/${SHA}/status' --jq '[.statuses[] | select(.state=="success")] | length'`,
-      'gh pr view 12 --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName',
-      'gh pr checks 12',
-    ])
-  })
-
-  describe('F. the header says what is built and what is left out', () => {
+  describe('the header says what is built and what is left out', () => {
     test('the header names the new entries and keeps only the query-text gap', async () => {
       const { readFileSync } = await import('node:fs')
       const raw = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
