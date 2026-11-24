@@ -541,6 +541,370 @@ describe('merge-rule: push-default', () => {
       ])
     })
   })
+
+  describe('wrapper short-option clusters', () => {
+    // The value of a cluster's value letter was read as the command name, so
+    // the real command was never checked.
+    defineDenyRows('push-default', [
+      'sudo -Eu root git push origin main',
+      'doas -nu root git push origin main',
+      'env -iu FOO git push origin main',
+    ])
+    // The chdir letter inside a cluster moves the push to another folder, so a
+    // bare push is no longer known to be on the current branch.
+    defineDenyRows('push-default', [
+      'env -iC ../o git push',
+      'sudo -nD ../x git push',
+      'env -iC../o git push',
+    ])
+
+    // Still denied before and after the fix. Each is read the way the program
+    // reads it, so the real command is checked.
+    describe('still denied (pass before the fix)', () => {
+      defineDenyRows('push-default', [
+        'sudo -u root -E git push origin main',
+        'sudo -uEu git push origin main',
+        'env -uC git push origin main',
+      ])
+    })
+
+    // The text from the first `$` on is unknown, so no letter after it is read
+    // as an option. The word skips one word, like any flag without a value,
+    // and the next word is the command.
+    describe('a flag word that expands does not swallow the command', () => {
+      defineDenyRows('push-default', [
+        'sudo -$u git push origin main',
+        'env -$u git push origin main',
+        'doas -$u git push origin main',
+        'timeout -$s 5 git push origin main',
+        'sudo -n$u git push origin main',
+        'sudo -u$x git push origin main',
+        'sudo -u $x git push origin main',
+        'env -$S git push origin main',
+      ])
+    })
+
+    // The parser decodes `$'u'` to `u`, so the word reads as `-u` and its
+    // value is the next word, as in the real program.
+    describe("a flag word decoded from $'...' is read as the letters it holds", () => {
+      defineDenyRows('push-default', [
+        "env -$'u' X git push origin main",
+        "sudo -$'u' root git push origin main",
+        "doas -$'u' root git push origin main",
+        "timeout -$'s' KILL 5 git push origin main",
+        "nice -$'n' 5 git push origin main",
+        "ionice -$'c' 3 git push origin main",
+        "stdbuf -$'o' L git push origin main",
+        "env -$'S' 'git push origin main'",
+      ])
+    })
+
+    // The letters before the expansion are read, so a chdir letter still moves
+    // the push to another folder, and `-S` still starts a command line.
+    describe('a flag word with an expansion after a literal letter', () => {
+      defineDenyRows('push-default', [
+        'sudo -D"$d" git push',
+        'sudo -D$d git push',
+        'sudo -D$(pwd) git push',
+        'sudo -D`pwd` git push',
+        'sudo -nD"$d" git push',
+        'env -C$d git push',
+        'env -C"$d" git push',
+        'env -iC"$d" git push',
+        'env -S"git push origin main $x"',
+        'env -S"git push origin main `date`"',
+        'env -<(echo)u git push origin main',
+        'sudo ->(cat)n git push origin main',
+        "sudo -$'\\x24'u git push origin main",
+      ])
+    })
+
+    // Gap: an expansion that is empty at run time. The parser cannot know it is
+    // empty, so it reads the word as written. Attached to a value letter, the
+    // program takes the next word as the value instead. No existing row pinned
+    // this form.
+    describe('a gap: an expansion that is empty at run time, attached to a value letter', () => {
+      defineAllowRows('gap', ['env -u$x -nu git push origin main'])
+    })
+
+    // As a word of its own outside quotes, the shell drops the word and the
+    // program reads each later word one place earlier, so `-Eu` is the value of
+    // `-u` in the first row. The real program runs the push in each row.
+    describe('a gap: an expansion that is empty at run time, as a word of its own', () => {
+      defineAllowRows('gap', [
+        'env -u $x -Eu git push origin main',
+        'env -iu git $x git push origin main',
+        'env -iu git `true` git push origin main',
+        // A new value letter takes `u`, so the program is `$x`. With an empty `x`
+        // the shell drops it and the push runs.
+        'sudo -ru $x git push origin main',
+        'doas -au $x git push origin main',
+      ])
+    })
+
+    // These letters take a value, as a separate word and inside a cluster. In
+    // a cluster that ends in `u` after one of them, that letter takes `u` as
+    // its value and `git` is the program: sudo's `-c` takes `u` as the class,
+    // and the push runs. Main gave `git` to `-u`.
+    describe('sudo -a -c -r -t and doas -a take a value', () => {
+      defineDenyRows('push-default', [
+        'sudo -cu git push origin main',
+        'sudo -au git push origin main',
+        'sudo -ru git push origin main',
+        'sudo -tu git push origin main',
+        'doas -au git push origin main',
+        'sudo -c foo git push origin main',
+        'doas -a foo git push origin main',
+      ])
+      defineAllowRows('wrapper', [
+        // The value of `-c` is `git`, so the program sudo runs is `push`.
+        'sudo -c git push origin main',
+        // A new value letter inside the cluster takes the rest of the word
+        // (`u`), so the program run is `foo`.
+        'sudo -cu foo git push origin main',
+        'doas -au foo git push origin main',
+        // A new value letter takes an option word (`-u`), so the program run is
+        // the word after it.
+        'sudo -c -u foo git push origin main',
+        'doas -a -u foo git push origin main',
+        'sudo -n -t -u root git push origin main',
+        // The new value letter changes the first read, so `env` is not read as a
+        // wrapper that gets `-S`.
+        "sudo -c env -S 'sudo -c' git push origin main",
+        "sudo -c -u foo env -S 'sudo -c' git push origin main",
+      ])
+    })
+
+    // The new letter takes its value (`u`, or the next word `-u`), so the
+    // program sudo or doas runs is `xargs` or `watch`, which runs the push.
+    // The guard does not see into those programs: the entry "What the parser
+    // cannot see into" of the Not covered list in merge-rule.mjs, which stays
+    // out by the owner's decision (batch #592). The same programs are allowed
+    // on main behind the bare wrapper (the last three rows). Main gave `xargs`
+    // or `watch` to `-u` and denied the first four.
+    describe('a gap: a new value letter makes a program the guard does not see into the program', () => {
+      defineAllowRows('gap', [
+        'sudo -cu xargs git push origin main',
+        'sudo -cu watch git push origin main',
+        'sudo -c -u watch git push origin main',
+        'doas -a -u xargs git push origin main',
+        'sudo xargs git push origin main',
+        'sudo watch git push origin main',
+        'doas xargs git push origin main',
+      ])
+    })
+
+    describe('still passes', () => {
+      defineAllowRows('wrapper', [
+        'sudo -Eu root git status',
+        'env -iu FOO git status',
+        'stdbuf -oL git push origin feat/x',
+        'sudo -nu root git push origin feat/x',
+      ])
+    })
+  })
+
+  describe('a command where env gets a split-string option is read as on main', () => {
+    // When `env` gets `-S` or `--split-string` in a command, the wrappers of
+    // that command are read again from its first word with the readers from
+    // before the cluster reading: a dash word is one skipped word, and the `-S`
+    // string is parsed as a line. A letter `S` inside a cluster (`-iS`) counts as
+    // the option, so these are read that way too. The rows are answered as main
+    // answers them.
+    defineDenyRows('push-default', [
+      'env -iS -i git push origin main',
+      'env -u X -iS -S git push origin main',
+      'env -iS -C /tmp git push origin main',
+      'env -iS -- git push origin main',
+      'env -iS -u -S git push origin main',
+      'env -iS -u nice git push origin main',
+      "env -iS -i -u 'X git' git push origin main",
+      "env -iS '-C /tmp' git push",
+      'env -iS-u -iu git push origin main',
+      'env -iu -S env -S-i git push origin main',
+      'env -iu -u -S$x git push origin main',
+      'env -iS -u -S"a $x" git push origin main',
+    ])
+
+    // The line built from the string is not the line the real `env` runs: the
+    // reader drops an option word that stands after the string. So a command
+    // inside the line is read with the whole-word readers too. A cluster reader
+    // would take `git` as the value of `-iu`, and the push would pass.
+    describe('a command inside the built line is read with the whole-word readers', () => {
+      defineDenyRows('push-default', [
+        "env -S 'env -iu' -i git push origin main",
+        "env -S 'env -iu' -- git push origin main",
+        "env -S 'nice env -iu' -i git push origin main",
+        "env -S 'sudo env -iu' -i git push origin main",
+        // The whole-word readers keep main's sudo and doas sets, so the letter
+        // (`-c`, `-a`, `-r`, `-t`) does not take `git` here: it is one skipped
+        // word, and `git` is the program. The real `env` hands `sudo` or
+        // `doas` the dropped `-i` as the value of the letter, and the push
+        // runs.
+        "env -S 'sudo -c' -i git push origin main",
+        "env -S 'sudo -a' -i git push origin main",
+        "env -S 'sudo -r' -i git push origin main",
+        "env -S 'sudo -t' -i git push origin main",
+        "env -S 'doas -a' -i git push origin main",
+      ])
+    })
+
+    // A substitution in the words of the `-S` command is scanned before the mode
+    // is picked, so the cluster readers read it. The whole-word readers read it
+    // again in the built line. The cluster read of `sudo -Eu root git push
+    // origin main` finds the push; the whole-word read takes `root` as the
+    // program.
+    describe('a substitution in the words of the -S command is read with the cluster readers', () => {
+      defineDenyRows('push-default', [
+        'env -S echo $(sudo -Eu root git push origin main)',
+        'env -S echo `sudo -Eu root git push origin main`',
+        'env -S echo <(sudo -Eu root git push origin main)',
+        // The new value letters apply inside such a substitution: `-c` takes
+        // `foo`, so sudo runs the push.
+        'env -S echo $(sudo -c foo git push origin main)',
+      ])
+      // `-c` takes `u`, so sudo runs `foo`.
+      defineAllowRows('wrapper', [
+        'env -S echo $(sudo -cu foo git push origin main)',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('wrapper', [
+        'env -iS -i git status',
+        'env -S -i git push origin feat/x',
+        "env -S '-i ls' -la",
+        // The value of `-u` is `git`, so the program that runs is `push`.
+        'env -iS -u git push origin main',
+        'env -iS -i npm test',
+        // Each `-S` takes the next word as its string, and the line stays within
+        // the nesting limit.
+        'env -S -S -S -S -S git status',
+        // No push in the line, and the `$x` is the value of `-C`, not a git
+        // subcommand.
+        "env -S'-i git' -C \"a $x\" ls -la",
+      ])
+    })
+
+    // Gap: the real `env` reads options from the `-S` string and runs
+    // `git push origin main` for each of these. Main allows them too, so the
+    // guard does too. #600 replaces the fallback and closes them.
+    describe('a gap: the real env runs the push and the guard allows it (#600)', () => {
+      defineAllowRows('gap', [
+        "env -iS 'git push origin main'",
+        'env -iSgit push origin main',
+        'env -S$x git push origin main',
+        'env -iS"git push origin main $x"',
+        'env -S -i git push origin main',
+        'env --split-string=-i git push origin main',
+        'env --split-string -i git push origin main',
+        "env -S '-u X' git push origin main",
+        "env -S '-i' -S 'git push' origin main",
+        'env -S-u X git push origin main',
+        // The cluster reading does not apply here, so `-iu` is one skipped word.
+        "env -S '' -iu FOO git push origin main",
+        // A cluster inside a line read for a `-S` command is read as one skipped
+        // word, so `-Eu` does not take `root` and the command is `root`.
+        "env -S 'sudo -Eu root' git push origin main",
+        "env -iS bash -c 'sudo -Eu root git push origin main'",
+        "env -S '' eval sudo -Eu root git push origin main",
+        // The whole-word readers keep main's sudo set, so `-c` does not take
+        // `foo`.
+        "env -S '' sudo -c foo git push origin main",
+        // A new value letter takes `u`, so `env` is the program and gets `-S`.
+        // Main read `env` as the value of `-u` and denied.
+        'sudo -ru env -S -i git push origin main',
+        'sudo -cu env -S -i git push origin main',
+        'doas -au env -S -i git push origin main',
+        // A new value letter makes `env` the program, so the fallback fires. Its
+        // whole-word readers read the command again from the first word, skip
+        // the cluster before it (`-iu`, `-nu`, `-nD`) as one word, and take the
+        // next word (`x`, `5`, `pam`) as the program. Main read `env` as the
+        // value of `-u` or `-C` and denied.
+        'sudo -iu x -au env -S git push origin main',
+        'sudo -nu x -ru env -S git push origin main',
+        'sudo -nD 5 -aC env -iS git push origin main',
+        'sudo -nD 5 -ru env -iS git push origin main',
+        'sudo -nD pam doas -a -C env -iS git push origin main',
+        // For the five lines above, main has the gap without the new letter:
+        // each of them with the letter and its value removed is allowed on
+        // main too.
+        'sudo -iu x env -S git push origin main',
+        'sudo -nu x env -S git push origin main',
+        'sudo -nD 5 env -iS git push origin main',
+        'sudo -nD pam doas env -iS git push origin main',
+        // The fallback fires for these too. Its whole-word readers read the
+        // command left as `-i git push origin main`, as they do for the row
+        // `env -S -i git push origin main` above, and the guard before PR #597
+        // (77db2cd) allowed them the same way. Main read `env` as the value of
+        // `-C`, `-u` or `-p` and denied. Unlike the five new-letter lines
+        // above, these are denied on main with the new letter and its value
+        // removed.
+        'sudo -ig -D -cC env -S -i git push origin main',
+        'doas -su -C -au env -S -i git push origin main',
+        'sudo -nC -C -tp env -S -i git push origin main',
+        "eval sudo -nC -C -tp env -S '' -i git push origin main",
+      ])
+    })
+  })
+
+  describe('named gap: an export spelling the afterCd rule does not read', () => {
+    // The owner chose to name these gaps in the header of rules/merge-rule.mjs,
+    // not to fix them (issue #539, decision of 2026-11-13). Each row pins
+    // today's answer. A later fix flips the row on purpose.
+    defineAllowRows('named gap', [
+      'export GIT_DIR+=other/.git; git push',
+      'declare -x GIT_DIR+=other/.git; git push',
+      'typeset -x GIT_WORK_TREE+=other; git push',
+      'builtin export GIT_DIR=other/.git; git push',
+      'f() { local -x GIT_DIR=other/.git; git push; }; f',
+      'export $VAR=x; git push',
+    ])
+  })
+
+  describe('gh pr checkout earlier in the line changes the current branch', () => {
+    describe('denied: a push with no named branch after it', () => {
+      defineDenyRows('push-default', [
+        'gh pr checkout 12 && git push',
+        'gh pr checkout 12; git push origin HEAD',
+        'gh pr checkout 12 && git push -u origin @',
+        'gh pr checkout 12 && git push --force-with-lease',
+        'gh pr checkout --detach 12 && git push origin HEAD',
+        'gh -R acme/widget pr checkout 12 && git push',
+        'gh pr --repo acme/widget checkout 12 && git push',
+        'env GH_TOKEN=x gh pr checkout 12 && git push',
+        "bash -c 'gh pr checkout 12 && git push'",
+        'echo $(gh pr checkout 12) && git push',
+        '(gh pr checkout 12) && git push',
+        'gh pr checkout "$PR" && git push',
+        'gh "$G" checkout 12 && git push',
+        'gh pr "$S" 12 && git push',
+        ['gh pr checkout 12 && git push', { currentBranch: 'feat/12-x' }],
+        // `co` is gh's own alias for `checkout` (gh pr checkout --help, ALIASES)
+        'gh pr co 12 && git push',
+        'gh pr co 12; git push origin HEAD',
+        'gh -R acme/widget pr co 12 && git push',
+        'gh "$G" co 12 && git push',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('pr checkout', [
+        'gh pr checkout 12',
+        'gh pr checkout 12 && git push origin feat/12-x',
+        'gh pr checkout 12 && git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
+        'git push && gh pr checkout 12',
+        'gh pr checks 12 && git push',
+        'gh pr view 12 && git push',
+        'gh pr view "$PR" && git push',
+        'gh "$G" view 12 && git push',
+        'gh issue "$S" 12 && git push',
+        'gh pr checkout 12 && git status',
+        'gh pr co 12',
+        'gh pr co 12 && git push origin feat/12-x',
+      ])
+    })
+  })
 })
 
 describe('merge-rule: force-push', () => {
@@ -1028,310 +1392,9 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
   describe('wrapper short-option clusters', () => {
     // The value of a cluster's value letter was read as the command name, so
     // the real command was never checked.
-    defineDenyRows('push-default', [
-      'sudo -Eu root git push origin main',
-      'doas -nu root git push origin main',
-      'env -iu FOO git push origin main',
-    ])
     defineDenyRows('delete-repo', [
       'sudo -nu root gh repo delete acme/widget --yes',
     ])
-    // The chdir letter inside a cluster moves the push to another folder, so a
-    // bare push is no longer known to be on the current branch.
-    defineDenyRows('push-default', [
-      'env -iC ../o git push',
-      'sudo -nD ../x git push',
-      'env -iC../o git push',
-    ])
-
-    // Still denied before and after the fix. Each is read the way the program
-    // reads it, so the real command is checked.
-    describe('still denied (pass before the fix)', () => {
-      defineDenyRows('push-default', [
-        'sudo -u root -E git push origin main',
-        'sudo -uEu git push origin main',
-        'env -uC git push origin main',
-      ])
-    })
-
-    // The text from the first `$` on is unknown, so no letter after it is read
-    // as an option. The word skips one word, like any flag without a value,
-    // and the next word is the command.
-    describe('a flag word that expands does not swallow the command', () => {
-      defineDenyRows('push-default', [
-        'sudo -$u git push origin main',
-        'env -$u git push origin main',
-        'doas -$u git push origin main',
-        'timeout -$s 5 git push origin main',
-        'sudo -n$u git push origin main',
-        'sudo -u$x git push origin main',
-        'sudo -u $x git push origin main',
-        'env -$S git push origin main',
-      ])
-    })
-
-    // The parser decodes `$'u'` to `u`, so the word reads as `-u` and its
-    // value is the next word, as in the real program.
-    describe("a flag word decoded from $'...' is read as the letters it holds", () => {
-      defineDenyRows('push-default', [
-        "env -$'u' X git push origin main",
-        "sudo -$'u' root git push origin main",
-        "doas -$'u' root git push origin main",
-        "timeout -$'s' KILL 5 git push origin main",
-        "nice -$'n' 5 git push origin main",
-        "ionice -$'c' 3 git push origin main",
-        "stdbuf -$'o' L git push origin main",
-        "env -$'S' 'git push origin main'",
-      ])
-    })
-
-    // The letters before the expansion are read, so a chdir letter still moves
-    // the push to another folder, and `-S` still starts a command line.
-    describe('a flag word with an expansion after a literal letter', () => {
-      defineDenyRows('push-default', [
-        'sudo -D"$d" git push',
-        'sudo -D$d git push',
-        'sudo -D$(pwd) git push',
-        'sudo -D`pwd` git push',
-        'sudo -nD"$d" git push',
-        'env -C$d git push',
-        'env -C"$d" git push',
-        'env -iC"$d" git push',
-        'env -S"git push origin main $x"',
-        'env -S"git push origin main `date`"',
-        'env -<(echo)u git push origin main',
-        'sudo ->(cat)n git push origin main',
-        "sudo -$'\\x24'u git push origin main",
-      ])
-    })
-
-    // Gap: an expansion that is empty at run time. The parser cannot know it is
-    // empty, so it reads the word as written. Attached to a value letter, the
-    // program takes the next word as the value instead. No existing row pinned
-    // this form.
-    describe('a gap: an expansion that is empty at run time, attached to a value letter', () => {
-      defineAllowRows('gap', ['env -u$x -nu git push origin main'])
-    })
-
-    // As a word of its own outside quotes, the shell drops the word and the
-    // program reads each later word one place earlier, so `-Eu` is the value of
-    // `-u` in the first row. The real program runs the push in each row.
-    describe('a gap: an expansion that is empty at run time, as a word of its own', () => {
-      defineAllowRows('gap', [
-        'env -u $x -Eu git push origin main',
-        'env -iu git $x git push origin main',
-        'env -iu git `true` git push origin main',
-        // A new value letter takes `u`, so the program is `$x`. With an empty `x`
-        // the shell drops it and the push runs.
-        'sudo -ru $x git push origin main',
-        'doas -au $x git push origin main',
-      ])
-    })
-
-    // These letters take a value, as a separate word and inside a cluster. In
-    // a cluster that ends in `u` after one of them, that letter takes `u` as
-    // its value and `git` is the program: sudo's `-c` takes `u` as the class,
-    // and the push runs. Main gave `git` to `-u`.
-    describe('sudo -a -c -r -t and doas -a take a value', () => {
-      defineDenyRows('push-default', [
-        'sudo -cu git push origin main',
-        'sudo -au git push origin main',
-        'sudo -ru git push origin main',
-        'sudo -tu git push origin main',
-        'doas -au git push origin main',
-        'sudo -c foo git push origin main',
-        'doas -a foo git push origin main',
-      ])
-      defineAllowRows('wrapper', [
-        // The value of `-c` is `git`, so the program sudo runs is `push`.
-        'sudo -c git push origin main',
-        // A new value letter inside the cluster takes the rest of the word
-        // (`u`), so the program run is `foo`.
-        'sudo -cu foo git push origin main',
-        'doas -au foo git push origin main',
-        // A new value letter takes an option word (`-u`), so the program run is
-        // the word after it.
-        'sudo -c -u foo git push origin main',
-        'doas -a -u foo git push origin main',
-        'sudo -n -t -u root git push origin main',
-        // The new value letter changes the first read, so `env` is not read as a
-        // wrapper that gets `-S`.
-        "sudo -c env -S 'sudo -c' git push origin main",
-        "sudo -c -u foo env -S 'sudo -c' git push origin main",
-      ])
-    })
-
-    // The new letter takes its value (`u`, or the next word `-u`), so the
-    // program sudo or doas runs is `xargs` or `watch`, which runs the push.
-    // The guard does not see into those programs: the entry "What the parser
-    // cannot see into" of the Not covered list in merge-rule.mjs, which stays
-    // out by the owner's decision (batch #592). The same programs are allowed
-    // on main behind the bare wrapper (the last three rows). Main gave `xargs`
-    // or `watch` to `-u` and denied the first four.
-    describe('a gap: a new value letter makes a program the guard does not see into the program', () => {
-      defineAllowRows('gap', [
-        'sudo -cu xargs git push origin main',
-        'sudo -cu watch git push origin main',
-        'sudo -c -u watch git push origin main',
-        'doas -a -u xargs git push origin main',
-        'sudo xargs git push origin main',
-        'sudo watch git push origin main',
-        'doas xargs git push origin main',
-      ])
-    })
-
-    describe('still passes', () => {
-      defineAllowRows('wrapper', [
-        'sudo -Eu root git status',
-        'env -iu FOO git status',
-        'stdbuf -oL git push origin feat/x',
-        'sudo -nu root git push origin feat/x',
-      ])
-    })
-  })
-
-  describe('a command where env gets a split-string option is read as on main', () => {
-    // When `env` gets `-S` or `--split-string` in a command, the wrappers of
-    // that command are read again from its first word with the readers from
-    // before the cluster reading: a dash word is one skipped word, and the `-S`
-    // string is parsed as a line. A letter `S` inside a cluster (`-iS`) counts as
-    // the option, so these are read that way too. The rows are answered as main
-    // answers them.
-    defineDenyRows('push-default', [
-      'env -iS -i git push origin main',
-      'env -u X -iS -S git push origin main',
-      'env -iS -C /tmp git push origin main',
-      'env -iS -- git push origin main',
-      'env -iS -u -S git push origin main',
-      'env -iS -u nice git push origin main',
-      "env -iS -i -u 'X git' git push origin main",
-      "env -iS '-C /tmp' git push",
-      'env -iS-u -iu git push origin main',
-      'env -iu -S env -S-i git push origin main',
-      'env -iu -u -S$x git push origin main',
-      'env -iS -u -S"a $x" git push origin main',
-    ])
-
-    // The line built from the string is not the line the real `env` runs: the
-    // reader drops an option word that stands after the string. So a command
-    // inside the line is read with the whole-word readers too. A cluster reader
-    // would take `git` as the value of `-iu`, and the push would pass.
-    describe('a command inside the built line is read with the whole-word readers', () => {
-      defineDenyRows('push-default', [
-        "env -S 'env -iu' -i git push origin main",
-        "env -S 'env -iu' -- git push origin main",
-        "env -S 'nice env -iu' -i git push origin main",
-        "env -S 'sudo env -iu' -i git push origin main",
-        // The whole-word readers keep main's sudo and doas sets, so the letter
-        // (`-c`, `-a`, `-r`, `-t`) does not take `git` here: it is one skipped
-        // word, and `git` is the program. The real `env` hands `sudo` or
-        // `doas` the dropped `-i` as the value of the letter, and the push
-        // runs.
-        "env -S 'sudo -c' -i git push origin main",
-        "env -S 'sudo -a' -i git push origin main",
-        "env -S 'sudo -r' -i git push origin main",
-        "env -S 'sudo -t' -i git push origin main",
-        "env -S 'doas -a' -i git push origin main",
-      ])
-    })
-
-    // A substitution in the words of the `-S` command is scanned before the mode
-    // is picked, so the cluster readers read it. The whole-word readers read it
-    // again in the built line. The cluster read of `sudo -Eu root git push
-    // origin main` finds the push; the whole-word read takes `root` as the
-    // program.
-    describe('a substitution in the words of the -S command is read with the cluster readers', () => {
-      defineDenyRows('push-default', [
-        'env -S echo $(sudo -Eu root git push origin main)',
-        'env -S echo `sudo -Eu root git push origin main`',
-        'env -S echo <(sudo -Eu root git push origin main)',
-        // The new value letters apply inside such a substitution: `-c` takes
-        // `foo`, so sudo runs the push.
-        'env -S echo $(sudo -c foo git push origin main)',
-      ])
-      // `-c` takes `u`, so sudo runs `foo`.
-      defineAllowRows('wrapper', [
-        'env -S echo $(sudo -cu foo git push origin main)',
-      ])
-    })
-
-    describe('passes', () => {
-      defineAllowRows('wrapper', [
-        'env -iS -i git status',
-        'env -S -i git push origin feat/x',
-        "env -S '-i ls' -la",
-        // The value of `-u` is `git`, so the program that runs is `push`.
-        'env -iS -u git push origin main',
-        'env -iS -i npm test',
-        // Each `-S` takes the next word as its string, and the line stays within
-        // the nesting limit.
-        'env -S -S -S -S -S git status',
-        // No push in the line, and the `$x` is the value of `-C`, not a git
-        // subcommand.
-        "env -S'-i git' -C \"a $x\" ls -la",
-      ])
-    })
-
-    // Gap: the real `env` reads options from the `-S` string and runs
-    // `git push origin main` for each of these. Main allows them too, so the
-    // guard does too. #600 replaces the fallback and closes them.
-    describe('a gap: the real env runs the push and the guard allows it (#600)', () => {
-      defineAllowRows('gap', [
-        "env -iS 'git push origin main'",
-        'env -iSgit push origin main',
-        'env -S$x git push origin main',
-        'env -iS"git push origin main $x"',
-        'env -S -i git push origin main',
-        'env --split-string=-i git push origin main',
-        'env --split-string -i git push origin main',
-        "env -S '-u X' git push origin main",
-        "env -S '-i' -S 'git push' origin main",
-        'env -S-u X git push origin main',
-        // The cluster reading does not apply here, so `-iu` is one skipped word.
-        "env -S '' -iu FOO git push origin main",
-        // A cluster inside a line read for a `-S` command is read as one skipped
-        // word, so `-Eu` does not take `root` and the command is `root`.
-        "env -S 'sudo -Eu root' git push origin main",
-        "env -iS bash -c 'sudo -Eu root git push origin main'",
-        "env -S '' eval sudo -Eu root git push origin main",
-        // The whole-word readers keep main's sudo set, so `-c` does not take
-        // `foo`.
-        "env -S '' sudo -c foo git push origin main",
-        // A new value letter takes `u`, so `env` is the program and gets `-S`.
-        // Main read `env` as the value of `-u` and denied.
-        'sudo -ru env -S -i git push origin main',
-        'sudo -cu env -S -i git push origin main',
-        'doas -au env -S -i git push origin main',
-        // A new value letter makes `env` the program, so the fallback fires. Its
-        // whole-word readers read the command again from the first word, skip
-        // the cluster before it (`-iu`, `-nu`, `-nD`) as one word, and take the
-        // next word (`x`, `5`, `pam`) as the program. Main read `env` as the
-        // value of `-u` or `-C` and denied.
-        'sudo -iu x -au env -S git push origin main',
-        'sudo -nu x -ru env -S git push origin main',
-        'sudo -nD 5 -aC env -iS git push origin main',
-        'sudo -nD 5 -ru env -iS git push origin main',
-        'sudo -nD pam doas -a -C env -iS git push origin main',
-        // For the five lines above, main has the gap without the new letter:
-        // each of them with the letter and its value removed is allowed on
-        // main too.
-        'sudo -iu x env -S git push origin main',
-        'sudo -nu x env -S git push origin main',
-        'sudo -nD 5 env -iS git push origin main',
-        'sudo -nD pam doas env -iS git push origin main',
-        // The fallback fires for these too. Its whole-word readers read the
-        // command left as `-i git push origin main`, as they do for the row
-        // `env -S -i git push origin main` above, and the guard before PR #597
-        // (77db2cd) allowed them the same way. Main read `env` as the value of
-        // `-C`, `-u` or `-p` and denied. Unlike the five new-letter lines
-        // above, these are denied on main with the new letter and its value
-        // removed.
-        'sudo -ig -D -cC env -S -i git push origin main',
-        'doas -su -C -au env -S -i git push origin main',
-        'sudo -nC -C -tp env -S -i git push origin main',
-        "eval sudo -nC -C -tp env -S '' -i git push origin main",
-      ])
-    })
   })
 
   describe("\\? and \\E in $'...'", () => {
@@ -1417,17 +1480,6 @@ describe('merge-rule: named gaps from the Not covered list', () => {
       "gh repo edit $'--visibility\\c@' public",
     ])
   })
-
-  describe('an export spelling the afterCd rule does not read', () => {
-    defineAllowRows('named gap', [
-      'export GIT_DIR+=other/.git; git push',
-      'declare -x GIT_DIR+=other/.git; git push',
-      'typeset -x GIT_WORK_TREE+=other; git push',
-      'builtin export GIT_DIR=other/.git; git push',
-      'f() { local -x GIT_DIR=other/.git; git push; }; f',
-      'export $VAR=x; git push',
-    ])
-  })
 })
 
 describe('merge-rule: the rule file says what it does not cover', () => {
@@ -1474,50 +1526,6 @@ describe('merge-rule: the rule file says what it does not cover', () => {
 })
 
 describe('merge-rule: the four kinds taken on from the Not covered list (#593)', () => {
-  describe('A. gh pr checkout earlier in the line changes the current branch', () => {
-    describe('denied: a push with no named branch after it', () => {
-      defineDenyRows('push-default', [
-        'gh pr checkout 12 && git push',
-        'gh pr checkout 12; git push origin HEAD',
-        'gh pr checkout 12 && git push -u origin @',
-        'gh pr checkout 12 && git push --force-with-lease',
-        'gh pr checkout --detach 12 && git push origin HEAD',
-        'gh -R acme/widget pr checkout 12 && git push',
-        'gh pr --repo acme/widget checkout 12 && git push',
-        'env GH_TOKEN=x gh pr checkout 12 && git push',
-        "bash -c 'gh pr checkout 12 && git push'",
-        'echo $(gh pr checkout 12) && git push',
-        '(gh pr checkout 12) && git push',
-        'gh pr checkout "$PR" && git push',
-        'gh "$G" checkout 12 && git push',
-        'gh pr "$S" 12 && git push',
-        ['gh pr checkout 12 && git push', { currentBranch: 'feat/12-x' }],
-        // `co` is gh's own alias for `checkout` (gh pr checkout --help, ALIASES)
-        'gh pr co 12 && git push',
-        'gh pr co 12; git push origin HEAD',
-        'gh -R acme/widget pr co 12 && git push',
-        'gh "$G" co 12 && git push',
-      ])
-    })
-
-    describe('passes', () => {
-      defineAllowRows('pr checkout', [
-        'gh pr checkout 12',
-        'gh pr checkout 12 && git push origin feat/12-x',
-        'gh pr checkout 12 && git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
-        'git push && gh pr checkout 12',
-        'gh pr checks 12 && git push',
-        'gh pr view 12 && git push',
-        'gh pr view "$PR" && git push',
-        'gh "$G" view 12 && git push',
-        'gh issue "$S" 12 && git push',
-        'gh pr checkout 12 && git status',
-        'gh pr co 12',
-        'gh pr co 12 && git push origin feat/12-x',
-      ])
-    })
-  })
-
   describe('B. gh api graphql mutations of branch protection and rulesets', () => {
     describe('denied', () => {
       defineDenyRows('branch-rule', [
