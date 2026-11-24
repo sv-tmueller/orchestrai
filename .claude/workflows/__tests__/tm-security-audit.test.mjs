@@ -2,7 +2,7 @@
  * Lock test for the vendored Cloudflare security-audit skill (issue #450).
  *
  * .claude/skills/tm-security-audit/ is a copy of skills/security-audit/ from
- * cloudflare/security-audit-skill at a pinned commit. Three things are held
+ * cloudflare/security-audit-skill at a pinned commit. These things are held
  * here:
  *
  * 1. The folder holds exactly the 20 upstream files and nothing else.
@@ -11,6 +11,11 @@
  *    the result must match upstream.
  * 3. Upstream's own two test files run as part of this run, so their roughly
  *    65 tests show up by name in `npm test`.
+ * 4. The orchestrai part of SKILL.md is pinned by its own tests: the header
+ *    block by a SHA-256 digest, the header's model table row by row, and the
+ *    frontmatter (user-typed only, no model key).
+ * 5. File modes: the two validators are executable, the other 18 files are not.
+ *    A blob hash does not cover the mode.
  *
  * The digests below are what `gh api
  * 'repos/cloudflare/security-audit-skill/git/trees/<commit>?recursive=1'`
@@ -18,7 +23,7 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -97,6 +102,54 @@ function upstreamSkillText(text) {
   return out.slice(0, start) + out.slice(end);
 }
 
+// The header block: begin marker line through end marker line, both included,
+// each line ending in "\n".
+function headerBlock(text) {
+  const lines = text.split('\n');
+  const begin = lines.indexOf('<!-- orchestrai header: begin -->');
+  const end = lines.indexOf('<!-- orchestrai header: end -->');
+  assert.equal(lines.lastIndexOf('<!-- orchestrai header: begin -->'), begin, 'one begin marker line');
+  assert.equal(lines.lastIndexOf('<!-- orchestrai header: end -->'), end, 'one end marker line');
+  assert(begin >= 0 && end > begin, 'begin marker line must come before the end marker line');
+  return `${lines.slice(begin, end + 1).join('\n')}\n`;
+}
+
+// The lines between the opening and closing `---` of the frontmatter.
+function frontmatterLines(text) {
+  assert(text.startsWith('---\n'), 'SKILL.md must start with frontmatter');
+  const close = text.indexOf('\n---\n', 4);
+  assert(close > 0, 'frontmatter must close with ---');
+  return text.slice(4, close).split('\n');
+}
+
+function fail(message) {
+  throw new Error(`header table: ${message}`);
+}
+
+// Read the model table in the header: header row, separator row, then data
+// rows. Returns { role, model, effort } per data row and throws on a table
+// with no data rows or on a row it cannot read.
+function readHeaderTable(header) {
+  const tableLines = header.split('\n').filter((l) => l.startsWith('|'));
+  const cellsOf = (line) => line.split('|').slice(1, -1).map((c) => c.trim());
+  if (tableLines.length < 3) fail('needs a header row, a separator row and at least one data row');
+  const columns = cellsOf(tableLines[0]);
+  const modelAt = columns.findIndex((c) => /^`?model`?\b/i.test(c));
+  const effortAt = columns.findIndex((c) => /^effort$/i.test(c));
+  if (modelAt < 0 || effortAt < 0) fail('needs a model column and an effort column');
+  if (!/^\|[\s|:-]+\|$/.test(tableLines[1])) fail('second row must be the separator');
+
+  return tableLines.slice(2).map((line) => {
+    const cells = cellsOf(line);
+    if (cells.length !== columns.length) fail(`row has ${cells.length} cells, expected ${columns.length}: ${line}`);
+    const models = cells[modelAt].match(/\b(sonnet|opus)\b/gi) ?? [];
+    if (models.length !== 1) fail(`model cell must name exactly one of sonnet and opus: ${line}`);
+    const effort = cells[effortAt].replaceAll('`', '');
+    if (effort !== 'high' && effort !== 'xhigh') fail(`effort cell must be high or xhigh: ${line}`);
+    return { role: cells[0], model: models[0].toLowerCase(), effort };
+  });
+}
+
 test('tm-security-audit: folder holds exactly the 20 upstream files', () => {
   assert.deepEqual(readdirSync(skillDir).sort(), Object.keys(UPSTREAM_BLOB_SHA1).sort());
 });
@@ -112,4 +165,90 @@ test('tm-security-audit: SKILL.md is upstream plus the three orchestrai changes'
   const text = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
   const upstream = upstreamSkillText(text);
   assert.equal(blobSha1(Buffer.from(upstream, 'utf8')), UPSTREAM_BLOB_SHA1['SKILL.md']);
+});
+
+// The orchestrai header is the one part of SKILL.md that is ours, so the
+// byte-identity tests above do not cover it. These tests pin it.
+
+// SHA-256 of the header block: the begin marker line through the end marker
+// line, both included, each line ending in "\n". Reproduce it with
+//   sed -n '/orchestrai header: begin/,/orchestrai header: end/p' SKILL.md | sha256sum
+// An edit to the header needs this digest updated on purpose, in the same
+// commit, after a person has read the edit.
+const HEADER_SHA256 = '18719988ba8de4769866068819f886fb72ba9e8a2a719c7ece029f092d82d3e1';
+
+const skillText = () => readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
+
+test('tm-security-audit: SKILL.md header block matches its recorded digest', () => {
+  const digest = createHash('sha256').update(headerBlock(skillText())).digest('hex');
+  assert.equal(digest, HEADER_SHA256);
+});
+
+// Role, model and effort the header must assign. The role is the first cell of
+// the header's table. Reconnaissance agents and hunters do the work, so they
+// run on the cheaper model. Critics and verifiers judge, so they run on opus.
+const EXPECTED_ROWS = [
+  { role: /^Reconnaissance agents$/, model: 'sonnet', effort: 'high' },
+  { role: /^Hunters$/, model: 'sonnet', effort: 'high' },
+  { role: /^Coverage critics\b/, model: 'opus', effort: 'xhigh' },
+  { role: /^Candidate verifiers$/, model: 'opus', effort: 'xhigh' },
+  { role: /^Record verifiers\b/, model: 'opus', effort: 'xhigh' },
+];
+
+test('tm-security-audit: header table gives each role its model and effort', () => {
+  const rows = readHeaderTable(headerBlock(skillText()));
+  assert.equal(rows.length, EXPECTED_ROWS.length, 'every table row must be one of the expected roles');
+  for (const want of EXPECTED_ROWS) {
+    const hits = rows.filter((r) => want.role.test(r.role));
+    assert.equal(hits.length, 1, `expected exactly one row for ${want.role}`);
+    assert.equal(hits[0].model, want.model, `${hits[0].role}: model`);
+    assert.equal(hits[0].effort, want.effort, `${hits[0].role}: effort`);
+  }
+});
+
+const TABLE_HEAD = '| Upstream role | Agent type | Defined in | `model` (tier) | Effort |\n|---|---|---|---|---|\n';
+const BAD_TABLES = {
+  'no data rows': TABLE_HEAD,
+  'no table': 'plain text\n',
+  'a row with a missing cell': `${TABLE_HEAD}| Hunters | \`general\` | HUNTING.md | \`sonnet\` |\n`,
+  'a model cell that names both models': `${TABLE_HEAD}| Hunters | \`general\` | HUNTING.md | \`sonnet\` or \`opus\` | \`high\` |\n`,
+  'a model cell outside sonnet and opus': `${TABLE_HEAD}| Hunters | \`general\` | HUNTING.md | \`fable\` | \`high\` |\n`,
+  'an effort cell of max': `${TABLE_HEAD}| Hunters | \`general\` | HUNTING.md | \`sonnet\` | \`max\` |\n`,
+};
+for (const [label, table] of Object.entries(BAD_TABLES)) {
+  test(`tm-security-audit: header table reader rejects ${label}`, () => {
+    // The message check keeps a broken reader (for example a ReferenceError)
+    // from passing as a rejection.
+    assert.throws(() => readHeaderTable(table), /^Error: header table: /);
+  });
+}
+
+test('tm-security-audit: SKILL.md frontmatter is user-typed only', () => {
+  const lines = frontmatterLines(skillText());
+  assert(lines.includes('disable-model-invocation: true'), 'frontmatter needs disable-model-invocation: true');
+});
+
+test('tm-security-audit: SKILL.md frontmatter has no model key', () => {
+  const lines = frontmatterLines(skillText());
+  assert.deepEqual(
+    lines.filter((l) => /^model\s*:/.test(l)),
+    [],
+    'a model: key would pin the skill to a model; the header table assigns models per role',
+  );
+});
+
+const VALIDATORS = ['validate-findings.cjs', 'validate-coverage-ledger.cjs'];
+
+test('tm-security-audit: the two validators have an executable bit', () => {
+  for (const name of VALIDATORS) {
+    assert.notEqual(statSync(join(skillDir, name)).mode & 0o111, 0, `${name} must be executable`);
+  }
+});
+
+test('tm-security-audit: the other 18 files have no executable bit', () => {
+  const others = Object.keys(UPSTREAM_BLOB_SHA1).filter((n) => !VALIDATORS.includes(n));
+  assert.equal(others.length, 18);
+  for (const name of others) {
+    assert.equal(statSync(join(skillDir, name)).mode & 0o111, 0, `${name} must not be executable`);
+  }
 });
