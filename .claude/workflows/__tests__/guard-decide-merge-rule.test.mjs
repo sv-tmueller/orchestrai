@@ -1103,6 +1103,10 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'env -u $x -Eu git push origin main',
         'env -iu git $x git push origin main',
         'env -iu git `true` git push origin main',
+        // A new value letter takes `u`, so the program is `$x`. With an empty `x`
+        // the shell drops it and the push runs.
+        'sudo -ru $x git push origin main',
+        'doas -au $x git push origin main',
       ])
     })
 
@@ -1252,6 +1256,11 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         // The whole-word readers keep main's sudo set, so `-c` does not take
         // `foo`.
         "env -S '' sudo -c foo git push origin main",
+        // A new value letter takes `u`, so `env` is the program and gets `-S`.
+        // Main read `env` as the value of `-u` and denied.
+        'sudo -ru env -S -i git push origin main',
+        'sudo -cu env -S -i git push origin main',
+        'doas -au env -S -i git push origin main',
       ])
     })
   })
