@@ -246,7 +246,10 @@ for it. `runPipeline` with `dryRun` uses placeholders in place of seat
 output instead, so the dry-run tests complete.
 
 stdout carries the gate lines, the wave plan and one result line per package.
-Progress, dry-run notes and errors go to stderr.
+A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
+does not stop the others: its line reads `#<n> error: <first line of the
+message>`, and every other package still runs and reports. Progress, dry-run
+notes and errors go to stderr.
 
 `DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
 it creates no label, posts no comment, makes no worktree and starts no seat.
@@ -254,9 +257,10 @@ Each skipped write is named on stderr. A run without `DRY_RUN` is the
 confirmed run and asks no questions.
 
 Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
-packages are outcomes, not failures), 1 when a `gh` or `git` call failed or
-something unexpected happened (a mistyped issue number ends here), and 2 for
-a usage error, before any GitHub call.
+packages are outcomes, not failures), 1 when a `gh` or `git` call failed at
+the gate, when any package ended with an `error` line, or when something
+unexpected happened (a mistyped issue number ends here), and 2 for a usage
+error, before any GitHub call.
 
 ## Workflow rendering
 

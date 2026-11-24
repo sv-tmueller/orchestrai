@@ -198,7 +198,9 @@ export async function runPipeline(issueNumber, opts = {}) {
       return state
     }
 
-    state.subPlan = archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
+    // A live seat comes back from parseReport(), with its text in `raw`.
+    // `output` and `summary` are the dry-run shape.
+    state.subPlan = archReport?.raw || archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
     if (!state.subPlan) return noReport('architect')
     log('sub-plan received')
 
@@ -241,7 +243,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   }
 
   // No seat prompt is built with a null PR, and a package with no PR cannot ship.
-  if (!state.pr && runs('reviewer')) {
+  if (!state.pr) {
     state.parked = 'no PR to mark ready'
     log(`parked: ${state.parked}`)
     return state
@@ -318,11 +320,6 @@ export async function runPipeline(issueNumber, opts = {}) {
 
   // --- Stage 5: Ship ---
   if (state.reviewerVerdict === 'APPROVE' && state.testerVerdict === 'PASS') {
-    if (!state.pr) {
-      state.parked = 'no PR to mark ready'
-      log(`parked: ${state.parked}`)
-      return state
-    }
     log('stage 5: ship')
     state.done = true
     await ensureInProgress()
@@ -350,13 +347,23 @@ export async function runWave(packages, opts = {}) {
 
   for (let i = 0; i < packages.length; i += MAX_CONCURRENT) {
     const batch = packages.slice(i, i + MAX_CONCURRENT)
-    const batchResults = await Promise.all(
+    // One package throwing (a failed git or gh call) must not hide the
+    // others, so each is settled on its own.
+    const settled = await Promise.allSettled(
       batch.map((p) => {
         const { issue, resume } = typeof p === 'number' ? { issue: p } : p
         return runPipeline(issue, { ...opts, resume })
       })
     )
-    results.push(...batchResults)
+    settled.forEach((s, k) => {
+      if (s.status === 'fulfilled') {
+        results.push(s.value)
+      } else {
+        const p = batch[k]
+        const issue = typeof p === 'number' ? p : p.issue
+        results.push({ issue, done: false, parked: null, error: firstLine(s.reason?.message || s.reason) })
+      }
+    })
   }
 
   return results
@@ -663,9 +670,10 @@ export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.de
 /**
  * main(argv, { env, run, spawn, out, err, cwd }) -> exit code
  *
- * Exit 0: the run finished, whatever the packages' outcomes. Exit 1: a gh or
- * git call failed, or an unexpected error. Exit 2: a usage error, before any
- * GitHub call. stdout (out) carries the gate, the wave plan and the results;
+ * Exit 0: the run finished, whatever the packages' parked outcomes. Exit 1: a
+ * gh or git call failed at the gate, or a package threw (its line reads
+ * `#n error: <first line>`, and the other packages still finish and report).
+ * Exit 2: a usage error, before any GitHub call. stdout (out) carries the gate, the wave plan and the results;
  * progress, dry-run notes and errors go to stderr (err).
  */
 export async function main(argv, { env = process.env, run = defaultRun, spawn: spawnSeat, out = console.log, err = console.warn, cwd = process.cwd() } = {}) {
@@ -705,9 +713,9 @@ export async function main(argv, { env = process.env, run = defaultRun, spawn: s
     const packages = waves[0].map((n) => ({ issue: n, resume: entries.find((e) => e.issue === n).resume }))
     const results = await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd })
     for (const r of results) {
-      out(r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)
+      out(r.error !== undefined ? `#${r.issue} error: ${r.error}` : r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)
     }
-    return 0
+    return results.some((r) => r.error !== undefined) ? 1 : 0
   } catch (e) {
     err(firstLine(e?.message || e))
     return 1

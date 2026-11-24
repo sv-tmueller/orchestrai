@@ -10,7 +10,7 @@
 
 import { test, describe, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -86,6 +86,7 @@ describe('hermes pipeline driver', () => {
 // ---------------------------------------------------------------------------
 
 const driver = await import('../../adapters/hermes-pipeline.mjs')
+const { parseReport } = await import('../../adapters/role-contract-parser.mjs')
 
 describe('parseArgs', () => {
   const { parseArgs } = driver
@@ -870,6 +871,34 @@ describe('main', () => {
     })
   })
 
+  describe('a package that throws', () => {
+    // 201 and 204 are both wave 1. The worktree add for 201 fails.
+    const failing = (run) => async (cmd, args, opts) =>
+      cmd === 'git' && args[0] === 'worktree' && args[1] === 'add' && args[2].endsWith('pkg-201')
+        ? { code: 1, stdout: '', stderr: "fatal: '/repo/.worktrees/pkg-201' already exists\nhint: more" }
+        : run(cmd, args, opts)
+
+    test('every package gets a result line, the thrown one as an error line, and the exit is 1', async () => {
+      const r = await runMain(['201', '204'], 'main-live', { wrap: failing })
+      assert.equal(r.code, 1)
+      assert.deepEqual(r.stdout.slice(3), [
+        "#201 error: git worktree add /repo/.worktrees/pkg-201 -b feat/201-pending HEAD: fatal: '/repo/.worktrees/pkg-201' already exists",
+        '#204 done: PR https://github.com/o/r/pull/900',
+      ])
+    })
+
+    test('the sibling package runs to the end and ships', async () => {
+      const r = await runMain(['201', '204'], 'main-live', { wrap: failing })
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn' && c.cwd.includes('pkg-201')), [])
+      assert.ok(keysOf(r.calls, 'write').includes('gh pr ready https://github.com/o/r/pull/900'))
+    })
+
+    test('with no error the exit stays 0', async () => {
+      const r = await runMain(['201', '204'], 'main-live')
+      assert.equal(r.code, 0)
+    })
+  })
+
   describe('failures', () => {
     test('a failed gh read exits 1 with one stderr line naming the command', async () => {
       const r = await runMain(['404'], 'github-reads')
@@ -959,6 +988,14 @@ describe('runPipeline with resume', () => {
     const { state, calls } = await pipeline(7, { resume: { stage: 'tester', branch: 'feat/7-work' } })
     assert.equal(state.done, false)
     assert.match(state.parked, /no PR/)
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('gh pr ready')))
+  })
+
+  test('a resume at ship with no PR parks and does not call gh pr ready', async () => {
+    const { state, calls } = await pipeline(7, { resume: { stage: 'ship', branch: 'feat/7-work' } })
+    assert.equal(state.done, false)
+    assert.match(state.parked, /no PR/)
+    assert.deepEqual(calls.filter((c) => c.kind === 'spawn'), [])
     assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('gh pr ready')))
   })
 
@@ -1083,6 +1120,46 @@ describe('a seat that returns no usable report', () => {
     const { state, calls } = await pipeline(7, { architect: null, developer: null, tester: null, reviewer: null })
     assert.equal(state.done, false)
     assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), [])
+  })
+
+  // What the live adapter returns: parseReport() output, with the text in
+  // `raw` and no `output` or `summary` field.
+  const LIVE = {
+    architect: parseReport('architect', 'SUB_PLAN\n\nApproach: do the thing.\n- step one'),
+    developer: parseReport('developer', [
+      'STATUS: DONE', 'BRANCH: feat/7-work', 'PR: https://github.com/o/r/pull/901', 'CHECKS: `npm test` -> 0',
+      'DEVIATIONS: none', 'NOTES: none',
+    ].join('\n')),
+    tester: parseReport('tester', 'VERDICT: PASS\nCOMMIT: abc123\nFINDINGS: none\nUNTESTED CLAIMS: none'),
+    reviewer: parseReport('reviewer', 'VERDICT: APPROVE\nSTAGE: both clean\nFINDINGS: none\nCLAIMS: none\nCHECKS: n/a'),
+  }
+
+  test('live: reports shaped by the real parser run the whole pipeline', async () => {
+    const { state, calls } = await pipeline(7, LIVE)
+    assert.equal(state.parked, null)
+    assert.deepEqual(roles(state), ['architect', 'developer', 'tester', 'reviewer'])
+    assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.\n- step one'))
+    assert.equal(state.pr, 'https://github.com/o/r/pull/901')
+    assert.equal(state.testerVerdict, 'PASS')
+    assert.equal(state.reviewerVerdict, 'APPROVE')
+    assert.equal(state.done, true)
+    assert.ok(keysOf(calls, 'write').includes('gh pr ready https://github.com/o/r/pull/901'))
+  })
+
+  test('live: a parser-shaped architect report is posted and the developer runs', async () => {
+    const { state, calls } = await pipeline(7, { architect: LIVE.architect })
+    assert.ok(keysOf(calls, 'write').some((k) => k.startsWith('gh issue comment 7 --body SUB_PLAN')))
+    assert.ok(roles(state).includes('developer'))
+  })
+
+  test('live: parser-shaped FAIL and CHANGES_REQUESTED verdicts route to fix rounds', async () => {
+    const { state } = await pipeline(7, {
+      ...LIVE,
+      tester: [parseReport('tester', 'VERDICT: FAIL\nFINDINGS: 1. a'), LIVE.tester, LIVE.tester],
+      reviewer: [parseReport('reviewer', 'VERDICT: CHANGES_REQUESTED\nFINDINGS: 1. b'), LIVE.reviewer],
+    })
+    assert.deepEqual(state.fixRounds, { tester: 1, reviewer: 1 })
+    assert.equal(state.done, true)
   })
 
   test('dry run: the placeholders still stand in, so an empty-seat run completes', async () => {
@@ -1217,11 +1294,32 @@ describe('the script entry point', () => {
       writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${marker}"\nexit 1\n`)
       chmodSync(join(bin, name), 0o755)
     }
-    const r = spawnSync(process.execPath, [script], { env: { PATH: bin }, encoding: 'utf8' })
-    assert.equal(r.status, 2)
-    assert.ok(r.stderr.includes(driver.USAGE), `stderr: ${r.stderr}`)
-    assert.equal(r.stdout, '')
-    assert.equal(existsSync(marker), false, 'a gh or git call was made')
+    try {
+      const r = spawnSync(process.execPath, [script], { env: { PATH: bin }, encoding: 'utf8' })
+      assert.equal(r.status, 2)
+      assert.ok(r.stderr.includes(driver.USAGE), `stderr: ${r.stderr}`)
+      assert.equal(r.stdout, '')
+      assert.equal(existsSync(marker), false, 'a gh or git call was made')
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('runWave when a package throws', () => {
+  test('the other packages still finish and the failure comes back as an error entry', async () => {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+    const run = async (cmd, args, opts) =>
+      cmd === 'git' && args[0] === 'worktree' && args[1] === 'add' && args[2].endsWith('pkg-5')
+        ? { code: 1, stdout: '', stderr: 'fatal: boom\nmore' }
+        : fake.run(cmd, args, opts)
+    const results = await driver.runWave([5, 6, 7, 8], {
+      dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo',
+    })
+    assert.deepEqual(results.map((r) => r.issue), [5, 6, 7, 8])
+    assert.match(results[0].error, /^git worktree add .*pkg-5.*: fatal: boom$/)
+    assert.equal(results[0].done, false)
+    assert.deepEqual(results.slice(1).map((r) => r.done), [true, true, true], 'the next chunk still starts')
   })
 })
 
