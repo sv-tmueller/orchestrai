@@ -2,7 +2,7 @@
  * Merge-rule group of the guard (issue #539, batch #538).
  *
  * Denies the shell commands that go around the merge rule on the default
- * branch. Seven entries:
+ * branch. Nine entries:
  *
  *   push-default  a push to the default branch, in any spelling, or a push
  *                 whose destination cannot be known
@@ -13,11 +13,19 @@
  *                 a push-default.
  *   admin-merge   `gh pr merge --admin`
  *   branch-rule   a write to branch protection or to rulesets, through `gh api`
+ *                 (a REST path, or one of six GraphQL mutations)
  *   visibility    `gh repo edit --visibility`, or a PATCH of the repo that
  *                 sets visibility or private (or sends a body it cannot read)
  *   delete-repo   `gh repo delete`, or a DELETE of the repo through `gh api`
  *   api-unknown   a write through `gh api` to an endpoint the guard cannot
  *                 read because it starts with a variable or a substitution
+ *   transfer-repo a write through `gh api` to the transfer endpoint of a repo
+ *                 (transferring a repo to another owner)
+ *   default-branch `gh repo edit --default-branch`, a PATCH of the repo with a
+ *                 `default_branch` field, or a rename of the default branch
+ *                 through `gh api`. A PATCH that sends a body from `--input`,
+ *                 or a field name the guard cannot read, is a visibility hit
+ *                 instead.
  *
  * The group reads commands, not text, so wrappers, substitutions and
  * `bash -c` are seen through (see shell.mjs). It only looks at Bash calls.
@@ -35,7 +43,8 @@
  *
  * A git subcommand that expands is read as a possible push. A gh group that
  * expands is read as both `pr` and `repo`, and a gh subcommand that expands
- * as `merge`, `edit` and `delete`.
+ * as `merge`, `edit` and `delete`. For the branch tracking below, a gh
+ * subcommand that expands is also read as `checkout`.
  *
  * A dash word that expands in `gh pr merge` (`--$F`, `"--adm$in"`) is denied
  * as an admin merge, and in `gh repo edit` as a visibility change. A value
@@ -51,11 +60,15 @@
  * format-patch, apply, am, gc, notes, shortlog, cat-file, diff-tree,
  * for-each-ref, rev-list, merge-base, update-index, push. A git command with
  * no readable subcommand, or one whose subcommand expands, makes it unknown
- * too. Then a push with no refspec, or of HEAD or @, is denied. A push that
- * names its destination is judged by that name. A word in the remote position
- * of a push that expands is unknown as well: an unquoted `$REMOTE` can hold
- * "origin main", and the parser does not record whether a word was quoted, so
- * a quoted one is denied too.
+ * too. An earlier `gh pr checkout`, or `gh pr co`, gh's own alias for it,
+ * makes it unknown as well. So does a gh command whose group or subcommand
+ * expands, when the rest could still read as `pr checkout` (`gh "$G" checkout
+ * 12`, `gh pr "$S" 12`); `gh pr view` and `gh "$G" view` do not. When the
+ * branch is unknown, a push with no refspec, or of HEAD or @, is denied. A
+ * push that names its destination is judged by that name. A word in the
+ * remote position of a push that expands is unknown as well: an unquoted
+ * `$REMOTE` can hold "origin main", and the parser does not record whether a
+ * word was quoted, so a quoted one is denied too.
  *
  * The folder of a push is unknown after a `cd`, `-C`, `--git-dir`,
  * `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` assigned in front of the
@@ -81,6 +94,42 @@
  * literal owner (and after the name, or after an expanding name) expands, or
  * for `orgs` right after the org.
  *
+ * A `gh api graphql` call is denied as branch-rule when the text of a field
+ * (name and value) holds one of these names as a whole word:
+ * createBranchProtectionRule, updateBranchProtectionRule,
+ * deleteBranchProtectionRule, createRepositoryRuleset,
+ * updateRepositoryRuleset, deleteRepositoryRuleset. A field is read in these
+ * spellings: `-f a=b`, `-fa=b`, `-f=a=b`, the same three with `-F`,
+ * `--raw-field a=b`, `--raw-field=a=b`, `--field a=b` and `--field=a=b`. A
+ * short flag written in a cluster with another one (`-if a=b`, `-iX PATCH`)
+ * is not read, here or for any other `gh api` entry.
+ * The method word does not matter. The endpoint is `graphql`, also written
+ * `/graphql` or `https://<host>/graphql`. The names are case-sensitive, as in
+ * GraphQL. The text is the word as the parser keeps it, so a name inside a
+ * `$(...)` or a decoded `$'...'` counts. A call whose query text is not on the
+ * line is not read (see Not covered).
+ *
+ * A `gh api` write to `repos/<owner>/<name>/transfer`, or to `repos/<one word
+ * that expands>/transfer`, is denied as transfer-repo. A DELETE, or a method
+ * that expands, on the second form is a delete-repo instead. A PATCH on the
+ * second form is first judged as a PATCH of the repo, so it is a visibility
+ * hit or a default-branch hit where those entries apply, and a transfer-repo
+ * otherwise. As of gh 2.103.3 there is no `gh repo transfer`, so only the API
+ * write is read; `gh issue transfer` moves an issue and passes.
+ *
+ * `gh repo edit` with `--default-branch` or `--default-branch=...` is denied
+ * whatever branch it names, the current default included. A dash word that
+ * expands in the same command makes it a visibility hit first. A write to
+ * `repos/<owner>/<name>/branches/<branch>/rename`, or to the same path with
+ * one word that expands for the owner and name, is denied when the branch is
+ * the default branch, when a segment of the branch name expands, or when the
+ * default branch is not known. The branch is every segment between `branches`
+ * and `rename`. Renaming another branch passes, when the default branch is
+ * known and the branch name is written out, unless the path is a branch-rule
+ * already: a branch name with a `protection` segment, or one that starts with
+ * the segment `rulesets` on the form with one word that expands for the owner
+ * and name. The repo in the path is not compared with the current repo.
+ *
  * The guard stops carelessness, not intent. GitHub's own rule is the hard
  * stop on a set-up repo.
  *
@@ -94,10 +143,10 @@
  *   The group reads Bash calls only. It looks at a command only when its name
  *   is git or gh once the wrappers and shells in shell.mjs are taken off, and
  *   it reads the words as written. A word that expands is denied only where
- *   this header says so; anywhere else it passes. The owner decided each
- *   entry below at the sign-off of batch #592. An entry marked "Taken on"
- *   stays listed until #593 builds it; the rest stay out. The reasons are in
- *   section 4.4 of docs/superpowers/specs/2026-11-10-autonomous-runs-design.md.
+ *   this header says so; anywhere else it passes. Each entry below stays out.
+ *   The owner decided each at the sign-off of batch #592, except the GraphQL
+ *   query-text entry, decided at batch #603. The reasons are in section 4.4 of
+ *   docs/superpowers/specs/2026-11-10-autonomous-runs-design.md.
  *   These are not covered:
  *   - MCP tools (`mcp__*`) and the PowerShell tool.
  *   - A flag hidden entirely inside a variable or substitution, such as
@@ -117,21 +166,17 @@
  *     `local -x GIT_DIR=other/.git` inside a function, and a name held in a
  *     variable (`export $VAR=x`). A bare push after one of them is not read as
  *     running in another repository.
- *   - `gh pr checkout` earlier in the line, which changes the current branch
- *     the way `git checkout` does. Only git commands are tracked. Taken on:
- *     #593 builds it.
  *   - `gh api` writes to a path that has a variable where a resource word
  *     would stand when the owner and name are one variable (`repos/$REPO/$X`),
  *     or the owner is a variable and the name a literal (`repos/$O/widget/$X`).
  *   - REST calls outside `gh api` (curl, wget, httpie), REST pulls/<n>/merge,
  *     and `gh api graphql` mutations other than those of branch protection
  *     and rulesets.
- *   - `gh api graphql` mutations of branch protection and rulesets, and
- *     transferring a repo. Taken on: #593 builds them.
+ *   - A `gh api graphql` call whose query text is not on the line: from a file
+ *     (`-F query=@q.graphql`, `--input q.json`), from stdin (`--input -`, a
+ *     pipe, `<<<`), or held in a variable or substitution (`-f query="$Q"`).
  *   - REST ways to write to the default branch (git/refs, contents, merges).
  *     GitHub's rule stops these on a set-up repo.
- *   - Changing or renaming the default branch, which can move the branch out
- *     from under the rule. Taken on: #593 builds it.
  *   - Renaming or archiving a repo.
  *   - What the parser cannot see into: scripts, aliases and functions; xargs,
  *     find -exec and git submodule foreach; programs shell.mjs does not unwrap
@@ -319,7 +364,7 @@ function readApi(words, from) {
   // `name=value`, `=name=value` (from -f=name=value) or a bare name.
   const addField = (word, value) => {
     const name = (value ?? '').replace(/^=/, '').split('=')[0]
-    fields.push({ name, unknown: word?.expands === true && holdsVariable(name) })
+    fields.push({ name, text: value ?? '', unknown: word?.expands === true && holdsVariable(name) })
   }
 
   for (let j = from; j < words.length; j++) {
@@ -397,9 +442,45 @@ function classifyPath(path, expands) {
   return 'other'
 }
 
-function checkApi(words, from) {
+// `repos/<owner>/<name>/transfer`, or `repos/<one expanding word>/transfer`.
+function isTransferPath(path, expands) {
+  const segments = path.split('/')
+  if (segments[0] !== 'repos') return false
+  if (segments.length === 4) return segments[3] === 'transfer'
+  return segments.length === 3 && segments[2] === 'transfer' && expands && holdsVariable(segments[1])
+}
+
+// The branch of `repos/<owner>/<name>/branches/<branch>/rename`, or of
+// `repos/<one expanding word>/branches/<branch>/rename`, as lists of segments
+// (a branch name can hold slashes). A path can read both ways when it has a
+// second `branches` segment, so there can be two. Empty when it is no rename.
+function renamedBranches(path, expands) {
+  const segments = path.split('/')
+  if (segments[0] !== 'repos' || segments[segments.length - 1] !== 'rename') return []
+  const starts = []
+  if (segments[3] === 'branches') starts.push(4)
+  if (segments[2] === 'branches' && expands && holdsVariable(segments[1])) starts.push(3)
+  return starts.filter((from) => from < segments.length - 1).map((from) => segments.slice(from, -1))
+}
+
+// The six GraphQL mutations that change branch protection or a ruleset. GraphQL
+// names are case-sensitive, so the match is too.
+const GRAPHQL_RULE_MUTATION = /\b(?:create|update|delete)(?:BranchProtectionRule|RepositoryRuleset)\b/
+
+function checkApi(words, from, facts) {
   const { verb, path, pathExpands, fields, input } = readApi(words, from)
-  if (path === null || verb === 'GET' || verb === 'HEAD') return null
+  if (path === null) return null
+
+  // The method word does not matter for GraphQL (#593, decision 4), so a
+  // mutation sent with -X GET is still denied; this comes before the GET and
+  // HEAD return. Query text that is not on the line is not read.
+  if (path === 'graphql') {
+    if (fields.some((f) => GRAPHQL_RULE_MUTATION.test(f.text))) {
+      return hit('branch-rule', 'This GraphQL call changes branch protection or a ruleset, which is the merge rule itself. Ask the owner to change it.')
+    }
+    return null
+  }
+  if (verb === 'GET' || verb === 'HEAD') return null
 
   const kind = classifyPath(path, pathExpands)
   if (kind === 'unknown') {
@@ -416,6 +497,19 @@ function checkApi(words, from) {
     if (verb === 'PATCH' && (input || touchesVisibility)) {
       return hit('visibility', 'This may change the repo visibility (or sends a body or a field name the guard cannot read). Only the owner does that, by hand.')
     }
+    if (verb === 'PATCH' && fields.some((f) => f.name === 'default_branch')) {
+      return hit('default-branch', 'This changes the default branch, which can move it out from under the merge rule. Only the owner does that, by hand.')
+    }
+  }
+  // After the repo block, so a DELETE of `repos/$REPO/transfer` stays delete-repo.
+  if (isTransferPath(path, pathExpands)) {
+    return hit('transfer-repo', 'This transfers the repo to another owner. Only the owner does that, by hand.')
+  }
+  const def = branchName(facts.defaultBranch)
+  const renamed = renamedBranches(path, pathExpands).find((segments) =>
+    def === null || segments.join('/') === def || (pathExpands && segments.some(holdsVariable)))
+  if (renamed !== undefined) {
+    return hit('default-branch', 'This renames a branch that is, or could be, the default branch (or the default branch is not known), which can move it out from under the merge rule. Only the owner does that, by hand.')
   }
   return null
 }
@@ -429,15 +523,18 @@ function checkGhPair(group, sub, command, hiddenFlag) {
   if (group === 'repo' && sub === 'edit' && (hiddenFlag || all.some((t) => t === '--visibility' || t.startsWith('--visibility=')))) {
     return hit('visibility', 'This changes the repo visibility (or a flag here is a variable that could be --visibility). Only the owner does that, by hand.')
   }
+  if (group === 'repo' && sub === 'edit' && all.some((t) => t === '--default-branch' || t.startsWith('--default-branch='))) {
+    return hit('default-branch', 'This changes the default branch, which can move it out from under the merge rule. Only the owner does that, by hand.')
+  }
   if (group === 'repo' && sub === 'delete') {
     return hit('delete-repo', 'This deletes the repo. Only the owner does that, by hand.')
   }
   return null
 }
 
-function checkGh(command) {
+function checkGh(command, facts) {
   const gh = readGh(command.words)
-  if (gh.group === 'api') return checkApi(command.words, gh.next)
+  if (gh.group === 'api') return checkApi(command.words, gh.next, facts)
 
   // A word that starts with a dash and whose flag name expands (--$F, "--adm$in")
   // could be the flag that matters. A value that expands after a literal flag
@@ -470,7 +567,12 @@ export const mergeRule = {
         if (git.sub === 'push' || git.subExpands) found = checkPush(command, git, ctx.facts, switched || git.subExpands)
         if (!keepsBranch(git, command)) switched = true
       } else if (name === 'gh') {
-        found = checkGh(command)
+        found = checkGh(command, ctx.facts)
+        // `gh pr checkout` switches the branch like `git checkout`, and `co` is
+        // gh's own alias for it. A group or subcommand that expands could be
+        // `pr` or `checkout`.
+        const gh = readGh(command.words)
+        if ((gh.group === 'pr' || gh.groupExpands) && (gh.sub === 'checkout' || gh.sub === 'co' || gh.subExpands)) switched = true
       }
       if (found) return found
     }

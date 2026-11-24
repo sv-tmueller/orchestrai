@@ -8,6 +8,7 @@ Sections 4, 7 and 8 were revised on 2026-11-11, after the probe and the
 owner's decisions in batch #538.
 Section 6 was revised on 2026-11-12 (#555), after `tm-new-project` was removed.
 Section 4.4 was added on 2026-11-21 (#588), with the owner's decisions in batch #592.
+Section 4.4 was revised on 2026-11-24 (#593), when the four kinds taken on were built.
 
 ## 1. Goal
 
@@ -150,8 +151,8 @@ The merge-rule group is the first entry of the deny list (4.3). It reads
 not read. The header is the source for the exact spellings.
 
 The owner decided each kind on that list on 2026-11-21, at the sign-off of
-batch #592. A kind that is taken on is built by #593, and it stays on the
-header's list until then.
+batch #592. The four kinds taken on are built (#593) and are no longer on the
+header's list. The rest stay out.
 
 | Kind | Decision | Reason |
 |---|---|---|
@@ -159,14 +160,14 @@ header's list until then.
 | Flag or whole command hidden in a variable or substitution | stays out | Hiding a flag is intent, not carelessness. |
 | `set -a`, sourced exports, unread export spellings | stays out | Rare. The worst case is a bare push judged against the wrong folder, and GitHub's rule still stops it. |
 | `\cX` escapes | stays out | Intent. |
-| `gh pr checkout` earlier in the line | take on (#593) | Same case as `git checkout`, which is already read. |
+| `gh pr checkout` earlier in the line | built (#593) | Same case as `git checkout`, which is already read. |
 | `gh api` with a variable where the resource word stands | stays out | Denying it would also catch harmless paths built from variables. |
 | REST through curl, wget, httpie | stays out | Needs a hand-built token header. Agents use `gh`. |
-| `gh api graphql` mutations | take on (#593), branch protection and ruleset mutations only | Same branch-rule entry by the other API. Removing the rule is what switches off GitHub's hard stop. |
+| `gh api graphql` mutations | built (#593), branch protection and ruleset mutations only | Same branch-rule entry by the other API. Removing the rule is what switches off GitHub's hard stop. A call whose query text the guard cannot read (a file, stdin, a variable) stays out (batch #603). |
 | REST `pulls/<n>/merge` | stays out | A normal merge. GitHub applies the rule, as with `gh pr merge`. |
-| Transferring a repo | take on (#593) | As hard to undo as a delete. |
+| Transferring a repo | built (#593) | As hard to undo as a delete. |
 | REST writes to the default branch | stays out | GitHub's rule stops them on a set-up repo. A repo that is not set up refuses every shell command already. |
-| Changing or renaming the default branch | take on (#593) | orchestrai protects `main` by name (classic protection, no rulesets), so a new default branch would have no rule. |
+| Changing or renaming the default branch | built (#593) | orchestrai protects `main` by name (classic protection, no rulesets), so a new default branch would have no rule. |
 | Renaming or archiving a repo | stays out | Both can be undone, and neither goes around the merge rule. |
 | What the parser cannot see into | stays out | There is no bounded list to build. |
 
