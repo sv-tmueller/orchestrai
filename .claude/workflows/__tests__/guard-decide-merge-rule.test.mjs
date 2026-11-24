@@ -1271,12 +1271,24 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'sudo -nD 5 -aC env -iS git push origin main',
         'sudo -nD 5 -ru env -iS git push origin main',
         'sudo -nD pam doas -a -C env -iS git push origin main',
-        // Main has this gap without the new letter: the same lines with the
-        // letter and its value removed are allowed on main too.
+        // For the five lines above, main has the gap without the new letter:
+        // each of them with the letter and its value removed is allowed on
+        // main too.
         'sudo -iu x env -S git push origin main',
         'sudo -nu x env -S git push origin main',
         'sudo -nD 5 env -iS git push origin main',
         'sudo -nD pam doas env -iS git push origin main',
+        // The fallback fires for these too. Its whole-word readers read the
+        // command left as `-i git push origin main`, as they do for the row
+        // `env -S -i git push origin main` above, and the guard before PR #597
+        // (77db2cd) allowed them the same way. Main read `env` as the value of
+        // `-C`, `-u` or `-p` and denied. Unlike the five new-letter lines
+        // above, these are denied on main with the new letter and its value
+        // removed.
+        'sudo -ig -D -cC env -S -i git push origin main',
+        'doas -su -C -au env -S -i git push origin main',
+        'sudo -nC -C -tp env -S -i git push origin main',
+        "eval sudo -nC -C -tp env -S '' -i git push origin main",
       ])
     })
   })
