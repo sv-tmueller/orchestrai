@@ -1,11 +1,11 @@
 /**
  * Tests for the merge-rule group of the guard (issue #539, batch #538).
  *
- * The group lives in `.claude/guard/rules/merge-rule.mjs` and has seven entries:
- * push-default, force-push, admin-merge, branch-rule, visibility, delete-repo
- * and api-unknown. Every row runs through `decide` in the two classes where the
- * group applies (personal and set up, and no GitHub repo). Each deny entry has
- * look-alike allow rows next to it.
+ * The group lives in `.claude/guard/rules/merge-rule.mjs` and has nine entries:
+ * push-default, force-push, admin-merge, branch-rule, visibility, delete-repo,
+ * api-unknown, transfer-repo and default-branch. Every row runs through
+ * `decide` in the two classes where the group applies (personal and set up,
+ * and no GitHub repo). Each deny entry has look-alike allow rows next to it.
  *
  * Every command text below is a string handed to the decision function. None
  * of them is ever run. Repo names are invented (`acme/widget`).
@@ -785,7 +785,7 @@ describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
   describe('passes', () => {
     defineAllowRows('protection', [
       'gh api "repos/$REPO/branches/$B"',
-      'gh api -X POST "repos/$REPO/branches/$B/rename" -f new_name=x',
+      'gh api -X POST "repos/$REPO/branches/feat/x/rename" -f new_name=x',
       'gh api "repos/$REPO/branches/main/protection"',
       'gh api "repos/$REPO/$X/main/protection"',
       'gh api "repos/$REPO/$X" --method PUT',
@@ -1316,10 +1316,6 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       // sentences narrowed to what the code reads
       'A NUL from `\\x`, octal, `\\u` or `\\U` ends the string', 'with or without a value',
       // owner decisions of 2026-11-21 (batch #592)
-      'An entry marked "Taken on" stays listed until #593 builds it',
-      'Only git commands are tracked. Taken on: #593 builds it.',
-      'mutations of branch protection and rulesets, and transferring a repo. Taken on: #593 builds them.',
-      'out from under the rule. Taken on: #593 builds it.',
       '`env --unse X git push origin main`',
     ]
     for (const topic of topics) {
@@ -1334,5 +1330,222 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     assert.ok(source.includes("\\e \\E \\f \\v \\?"), 'the decoded list does not name \\E and \\?')
     assert.ok(!source.includes('`\\E`, `\\?`) is kept as written'), 'the header still keeps \\E and \\? as written')
     assert.ok(!source.includes('`\\E` is kept as written'), 'the header still keeps \\E as written')
+  })
+})
+
+describe('merge-rule: the four kinds taken on from the Not covered list (#593)', () => {
+  describe('A. gh pr checkout earlier in the line changes the current branch', () => {
+    describe('denied: a push with no named branch after it', () => {
+      defineDenyRows('push-default', [
+        'gh pr checkout 12 && git push',
+        'gh pr checkout 12; git push origin HEAD',
+        'gh pr checkout 12 && git push -u origin @',
+        'gh pr checkout 12 && git push --force-with-lease',
+        'gh pr checkout --detach 12 && git push origin HEAD',
+        'gh -R acme/widget pr checkout 12 && git push',
+        'gh pr --repo acme/widget checkout 12 && git push',
+        'env GH_TOKEN=x gh pr checkout 12 && git push',
+        "bash -c 'gh pr checkout 12 && git push'",
+        'echo $(gh pr checkout 12) && git push',
+        '(gh pr checkout 12) && git push',
+        'gh pr checkout "$PR" && git push',
+        'gh "$G" checkout 12 && git push',
+        'gh pr "$S" 12 && git push',
+        ['gh pr checkout 12 && git push', { currentBranch: 'feat/12-x' }],
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('pr checkout', [
+        'gh pr checkout 12',
+        'gh pr checkout 12 && git push origin feat/12-x',
+        'gh pr checkout 12 && git push --force-with-lease origin HEAD:refs/heads/feat/12-x',
+        'git push && gh pr checkout 12',
+        'gh pr checks 12 && git push',
+        'gh pr view 12 && git push',
+        'gh pr view "$PR" && git push',
+        'gh "$G" view 12 && git push',
+        'gh issue "$S" 12 && git push',
+        'gh pr checkout 12 && git status',
+      ])
+    })
+  })
+
+  describe('B. gh api graphql mutations of branch protection and rulesets', () => {
+    describe('denied', () => {
+      defineDenyRows('branch-rule', [
+        `gh api graphql -f query='mutation { createBranchProtectionRule(input: {repositoryId: "R_1", pattern: "main"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1", requiresApprovingReviews: false}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { createRepositoryRuleset(input: {sourceId: "R_1", name: "x", target: BRANCH, enforcement: DISABLED, rules: []}) { clientMutationId } }'`,
+        `gh api graphql -F query='mutation { updateRepositoryRuleset(input: {repositoryRulesetId: "RRS_1", enforcement: DISABLED}) { clientMutationId } }'`,
+        `gh api graphql --raw-field query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api graphql --field=query='mutation($id: ID!) { deleteBranchProtectionRule(input: {branchProtectionRuleId: $id}) { clientMutationId } }' -f id=BPR_1`,
+        `gh api graphql -fquery='mutation{x:deleteBranchProtectionRule(input:{branchProtectionRuleId:"BPR_1"}){clientMutationId}}'`,
+        `gh api /graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api https://api.github.com/graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api -X GET graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query=$'mutation { delete\\x42ranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "'"$ID"'"}) { clientMutationId } }'`,
+        `gh api graphql -f query="$(cat <<'EOF'\nmutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }\nEOF\n)"`,
+        `bash -c 'gh api graphql -f query="mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"'`,
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('graphql', [
+        `gh api graphql -f query='query { viewer { login } }'`,
+        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { branchProtectionRules(first: 10) { nodes { pattern } } } }'`,
+        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { rulesets(first: 10) { nodes { name enforcement } } } }'`,
+        `gh api graphql -f query='query { node(id: "BPR_1") { ... on BranchProtectionRule { pattern } } }'`,
+        `gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { updateRepository(input: {repositoryId: "R_1", description: "rulesets"}) { clientMutationId } }'`,
+        // GraphQL names are case-sensitive, so GitHub rejects this one.
+        `gh api graphql -f query='mutation { DeleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+      ])
+    })
+
+    describe('not covered: the query text is not on the line (batch #603)', () => {
+      defineAllowRows('graphql query text', [
+        'gh api graphql -F query=@m.graphql',
+        'gh api graphql -f query="$Q"',
+        'gh api graphql -f query="$(cat m.graphql)"',
+        'gh api graphql --input body.json',
+        `gh api graphql --input - <<'EOF'\n{"query":"mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \\"BPR_1\\"}) { clientMutationId } }"}\nEOF`,
+        `echo '{"query":"mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"}' | gh api graphql --input -`,
+        `gh api graphql -F query=@- <<< 'mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        // a gh alias: "aliases" is in the cannot-see-into entry of the header
+        'gh co 12 && git push',
+      ])
+    })
+  })
+
+  describe('C. transferring a repo', () => {
+    describe('denied', () => {
+      defineDenyRows('transfer-repo', [
+        'gh api -X POST repos/acme/widget/transfer -f new_owner=other',
+        'gh api repos/acme/widget/transfer -f new_owner=other',
+        "gh api --method POST 'repos/{owner}/{repo}/transfer' -f new_owner=other",
+        'gh api -X POST /repos/acme/widget/transfer/ --input body.json',
+        'gh api -X POST https://api.github.com/repos/acme/widget/transfer -f new_owner=other',
+        'gh api -X POST "repos/$REPO/transfer" -f new_owner=other',
+        'gh api -X POST "repos/$O/$R/transfer" -f new_owner=other',
+        'gh api -X "$M" repos/acme/widget/transfer',
+        'gh -R acme/widget api repos/acme/widget/transfer -f new_owner=other',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('transfer', [
+        'gh api repos/acme/widget/transfer',
+        'gh issue transfer 5 acme/other',
+        'gh api -X POST repos/acme/widget/forks -f organization=other',
+        'gh api -X POST repos/acme/widget/dispatches -f event_type=transfer',
+        'gh api -X DELETE repos/acme/widget/labels/transfer',
+      ])
+    })
+  })
+
+  describe('D. changing or renaming the default branch', () => {
+    describe('denied', () => {
+      defineDenyRows('default-branch', [
+        'gh repo edit --default-branch trunk',
+        'gh repo edit --default-branch=trunk',
+        'gh repo edit --default-branch main',
+        'gh repo edit acme/widget --default-branch trunk',
+        'gh -R acme/widget repo edit --default-branch trunk',
+        'gh repo --repo acme/widget edit --default-branch "$B"',
+        'gh $G edit --default-branch trunk',
+        'gh api -X PATCH repos/acme/widget -f default_branch=trunk',
+        'gh api -X PATCH repos/acme/widget -F default_branch=trunk',
+        'gh api --method=PATCH repos/acme/widget --field=default_branch=trunk',
+        'gh api -X PATCH repos/acme/widget -fdefault_branch=trunk',
+        'gh api -X PATCH repos/acme/widget -f=default_branch=trunk',
+        "gh api -X PATCH 'repos/{owner}/{repo}' -f default_branch=trunk",
+        'gh api -X PATCH "repos/$REPO" -f default_branch=trunk',
+        'gh api -X patch https://api.github.com/repos/acme/widget -f default_branch=main',
+        'gh api -X POST repos/acme/widget/branches/main/rename -f new_name=trunk',
+        'gh api repos/acme/widget/branches/main/rename -f new_name=trunk',
+        "gh api -X POST 'repos/{owner}/{repo}/branches/main/rename' -f new_name=trunk",
+        'gh api -X POST "repos/$REPO/branches/main/rename" -f new_name=trunk',
+        // the branch name expands, so it could be the default branch
+        'gh api -X POST "repos/$REPO/branches/$B/rename" -f new_name=x',
+        'gh api -X POST repos/acme/widget/branches/$B/rename -f new_name=x',
+        'gh api -X POST https://api.github.com/repos/acme/widget/branches/main/rename?x=1 --input body.json',
+        // the default branch is not known
+        ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: null }],
+        ['gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y', { defaultBranch: '' }],
+        // the default branch is not main
+        ['gh api -X POST repos/acme/widget/branches/trunk/rename -f new_name=main', { defaultBranch: 'trunk' }],
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('default branch', [
+        'gh repo edit --enable-auto-merge',
+        'gh repo edit --delete-branch-on-merge',
+        'gh repo edit --description "default-branch notes"',
+        'gh repo view --json defaultBranchRef',
+        'gh pr edit 12 --base trunk',
+        'gh api -X PATCH repos/acme/widget -f description=default_branch',
+        'gh api repos/acme/widget --jq .default_branch',
+        'gh api -X POST repos/acme/widget/branches/feat/x/rename -f new_name=feat/y',
+        'gh api repos/acme/widget/branches/main/rename',
+        ['gh api -X POST repos/acme/widget/branches/main/rename -f new_name=x', { defaultBranch: 'trunk' }],
+        'gh repo rename widget2 --yes',
+        'gh repo archive acme/widget --yes',
+        'gh api -X PATCH repos/acme/widget -f name=widget2',
+      ])
+    })
+  })
+
+  describe('E. the pipeline commands pass', () => {
+    defineAllowRows('pipeline', [
+      `gh pr merge 12 --squash --auto --match-head-commit ${SHA}`,
+      `gh pr merge 12 --squash --match-head-commit ${SHA}`,
+      'gh pr merge 12 --disable-auto',
+      "gh api 'repos/{owner}/{repo}' --jq .default_branch",
+      "gh api 'repos/{owner}/{repo}/branches/main' --jq .protected",
+      "gh api 'repos/{owner}/{repo}/rules/branches/main' --jq length",
+      `gh api 'repos/{owner}/{repo}/commits/${SHA}/status' --jq '[.statuses[] | select(.state=="success")] | length'`,
+      'gh pr view 12 --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName',
+      'gh pr checks 12',
+    ])
+  })
+
+  describe('F. the header says what is built and what is left out', () => {
+    test('the header names the new entries and keeps only the query-text gap', async () => {
+      const { readFileSync } = await import('node:fs')
+      const raw = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
+      // Header lines wrap, so the comment markers are folded into single spaces.
+      const fold = (text) => text.replace(/\s*\n\s*\*\s*/g, ' ')
+      const source = fold(raw)
+      const start = raw.indexOf('Not covered:')
+      assert.ok(start >= 0, 'no Not covered section')
+      const notCovered = fold(raw.slice(start, raw.indexOf('*/', start)))
+
+      assert.ok(!source.includes('Taken on'), 'the header still lists an entry as taken on')
+      for (const gone of [
+        'gh pr checkout',
+        'transferring a repo',
+        'Changing or renaming the default branch',
+        'mutations of branch protection and rulesets, and',
+      ]) {
+        assert.ok(!notCovered.includes(gone), `the Not covered list still names ${gone}`)
+      }
+      for (const kept of [
+        'mutations other than those of branch protection and rulesets',
+        'query text',
+      ]) {
+        assert.ok(notCovered.includes(kept), `the Not covered list does not name ${kept}`)
+      }
+      for (const named of [
+        'transfer-repo', 'default-branch', 'gh pr checkout', '--default-branch', 'default_branch', '/rename',
+        'createBranchProtectionRule', 'updateBranchProtectionRule', 'deleteBranchProtectionRule',
+        'createRepositoryRuleset', 'updateRepositoryRuleset', 'deleteRepositoryRuleset',
+      ]) {
+        assert.ok(source.includes(named), `the rule file does not name ${named}`)
+      }
+    })
   })
 })
