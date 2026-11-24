@@ -1,7 +1,32 @@
 ---
-name: security-audit
+name: tm-security-audit
 description: Security guidance and vulnerability review for codebases, APIs, services, CLI tools, libraries, and daemons. Use for security questions, focused reviews, vulnerability research, security audits, or pen tests. Run the complete workflow only for explicit codebase audit or pen-test requests, full/comprehensive/end-to-end reviews, or requested report artifacts.
+disable-model-invocation: true
 ---
+
+<!-- orchestrai header: begin -->
+**orchestrai header.** This block and two frontmatter lines (`name: tm-security-audit` and `disable-model-invocation: true`) are the only orchestrai text in this folder. Everything else is Cloudflare's `skills/security-audit/` from https://github.com/cloudflare/security-audit-skill at commit `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, byte for byte, under the MIT License, Copyright (c) 2025-2026 Cloudflare, Inc. The full notice is in `THIRD_PARTY_NOTICES.md` at the orchestrai repo root. Upstream wording is kept as is, also where it departs from orchestrai's writing style. Nothing updates it automatically; moving to a newer upstream commit is a new issue.
+
+**User-typed only.** This skill runs only when the user types its slash command. No other skill, agent, workflow or pipeline stage starts it.
+
+**How upstream's terms map here.**
+
+- Parent: the session the user typed the command in. This skill does not change that session's model or effort.
+- Task tool: the Agent tool, with `subagent_type: "general-purpose"` for both the `research` and the `general` agent. Do not dispatch orchestrai's role agents (architect, developer, tester, reviewer, fact-checker, docs-writer, perf-investigator); their report contracts do not fit this workflow.
+- Model: set the Agent tool's `model` on every dispatch. The role decides it, not the agent type:
+
+| Upstream role | Agent type | Defined in | `model` (tier) | Effort |
+|---|---|---|---|---|
+| Reconnaissance agents | `research` | RECONNAISSANCE.md, Phase 1 | `sonnet` (worker) | `high` |
+| Hunters | `general` | HUNTING.md, Phase 2 | `sonnet` (worker) | `high` |
+| Coverage critics, post-wave and final-clean | `research` | HUNTING.md, "Coverage-critic waves" | `opus` (judgment) | `xhigh` |
+| Candidate verifiers | `general` | VALIDATION-AND-REPORTING.md, Phase 3 | `opus` (judgment) | `xhigh` |
+| Record verifiers, and the fresh verifier for a material replacement | `research` | VALIDATION-AND-REPORTING.md, Phase 5 | `opus` (judgment) | `xhigh` |
+
+Pass the effort with the model where the Agent tool takes an `effort` parameter. A dispatch without one inherits the session's effort, so run this skill from a session at `xhigh` or lower. Never use `max`, and never a `model` value other than `sonnet` or `opus`. If an `opus` dispatch dies on a usage limit, send it and every later `opus` dispatch of this audit to `sonnet` at `xhigh`, and say so in the final message to the user (orchestrai `.claude/team-guide.md`, "Model policy").
+
+**Cost.** The number of `opus` verifiers grows with the number of candidates. Upstream's agent budget ("Cost budget" below) is the only cap, so propose one before a full audit of a large target.
+<!-- orchestrai header: end -->
 
 # Security Audit
 
