@@ -17,6 +17,9 @@ section 4 Phase C for the design.
   (see "OpenRouter variant (Kimi K3.1 Pro)").
 - `.claude/adapters/hermes-adapter.mjs` -- the adapter module exporting
   `spawn`, `detectFailure`, `retry`, `resolveTier`, and `resolveRole`.
+- `.claude/adapters/hermes-pipeline.mjs` -- the pipeline driver: a command
+  line (see "Driver command line"), the gate, and the per-package stage
+  loop that runs architect, developer, tester, reviewer and ship.
 - `.claude/adapters/hermes-renderer.mjs` -- the workflow renderer that
   reads JSON spec files from `.claude/workflows/specs/` and drives the
   adapter's spawn/parallel operations.
@@ -167,8 +170,9 @@ with fallback) can be tested offline.
 DRY_RUN=true npm test
 ```
 
-The test suite always runs in dry-run mode; live runs require a Hermes
-session with the model provider configured.
+The test suite makes no live calls: it runs in dry-run mode, against stubs,
+or against saved fixtures. Live runs require a Hermes session with the model
+provider configured.
 
 ## Live mode
 
@@ -205,6 +209,40 @@ needs `terminal` for git, gh, and the check suite, and terminal implies
 write capability. Read-only stays a prompt-level contract on this host.
 What `-t` does enforce is flat-star: no seat gets the `delegation`
 toolset, so no seat can re-delegate.
+
+## Driver command line
+
+```
+node .claude/adapters/hermes-pipeline.mjs <arg>...
+```
+
+Each argument is an issue number or `label:<name>`. A label selects the open
+issues carrying it (the first 100). Numbers and labels mix, and the package
+list is all of them in argument order with duplicates dropped. The driver
+works on the repo in the current directory, since `gh` and `git` find the
+repo from there. It never merges.
+
+The gate reads each issue and decides one outcome per package: `run`,
+`resume`, `wait`, `complete`, `park`, `stop` or `skip`. The first matching
+rule wins: closed, `needs-human`, `size:L` or `size:XL`, no size label,
+a ready PR, a draft PR, `in-progress` with no PR, and then a plain run. A run
+starts at the developer when the issue has a sub-plan comment (a comment with
+a line that is exactly `SUB_PLAN`), and at the architect when it has none. An
+unmerged `Blocked by: #N` blocker turns a run or resume into a wait. Only
+wave 1 runs, because a later wave's blocker cannot be merged during the run.
+
+stdout carries the gate lines, the wave plan and one result line per package.
+Progress, dry-run notes and errors go to stderr.
+
+`DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
+it creates no label, posts no comment, makes no worktree and starts no seat.
+Each skipped write is named on stderr. A run without `DRY_RUN` is the
+confirmed run and asks no questions.
+
+Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
+packages are outcomes, not failures), 1 when a `gh` or `git` call failed or
+something unexpected happened (a mistyped issue number ends here), and 2 for
+a usage error, before any GitHub call.
 
 ## Workflow rendering
 

@@ -18,6 +18,11 @@
  * In dry-run mode (DRY_RUN=true), spawn returns synthetic reports, so the
  * full pipeline exercises without live API calls or GitHub writes.
  *
+ * Run as a script, `main` is the command line (issue #355): it takes issue
+ * numbers or `label:<name>`, gates them, and runs wave 1. `DRY_RUN=true`
+ * prints the gate and the wave plan and writes nothing. See
+ * docs/architecture/hermes-adapter.md, "Driver command line".
+ *
  * In live mode the driver runs as an ordinary Node process. It creates one
  * git worktree per package and spawns each seat as a `hermes` subprocess,
  * so it needs no Hermes lead session: `node hermes-pipeline.mjs` plus the
