@@ -73,183 +73,185 @@ const SHA = '0a1b2c3d4e5f60718293a4b5c6d7e8f901234567'
 const API = 'repos/acme/widget'
 const TEMPLATE_API = "'repos/{owner}/{repo}'"
 
-describe('merge-rule: push-default, denied', () => {
-  describe('the default branch by name', () => {
-    defineDenyRows('push-default', [
-      'git push origin main',
-      'git push -u origin main',
-      'git push origin refs/heads/main',
-      'git push origin main:main',
-      'git push origin HEAD:main',
-      'git push origin HEAD:refs/heads/main',
-      'git push origin feat/x:main',
-      'git push origin 0a1b2c3:main',
-      'git push origin @:main',
-      'git push --force-with-lease origin main',
-      'git push --force-with-lease --force-if-includes origin main',
-      'git push --force-with-lease origin HEAD:refs/heads/main',
-    ])
+describe('merge-rule: push-default', () => {
+  describe('denied', () => {
+    describe('the default branch by name', () => {
+      defineDenyRows('push-default', [
+        'git push origin main',
+        'git push -u origin main',
+        'git push origin refs/heads/main',
+        'git push origin main:main',
+        'git push origin HEAD:main',
+        'git push origin HEAD:refs/heads/main',
+        'git push origin feat/x:main',
+        'git push origin 0a1b2c3:main',
+        'git push origin @:main',
+        'git push --force-with-lease origin main',
+        'git push --force-with-lease --force-if-includes origin main',
+        'git push --force-with-lease origin HEAD:refs/heads/main',
+      ])
+    })
+
+    describe('deleting the default branch', () => {
+      defineDenyRows('push-default', [
+        'git push origin :main',
+        'git push origin --delete main',
+        'git push -d origin main',
+        'git push origin :refs/heads/main',
+      ])
+    })
+
+    describe('all branches', () => {
+      defineDenyRows('push-default', [
+        'git push --all',
+        'git push --branches origin',
+        "git push origin 'refs/heads/*:refs/heads/*'",
+        'git push --all origin feat/x',
+      ])
+    })
+
+    describe('a push with no branch named, while on the default branch', () => {
+      defineDenyRows('push-default', [
+        ['git push', ON_MAIN],
+        ['git push origin', ON_MAIN],
+        ['git push origin HEAD', ON_MAIN],
+        ['git push origin HEAD:', ON_MAIN],
+        ['git push --follow-tags', ON_MAIN],
+        ['git push -u origin HEAD', ON_MAIN],
+      ])
+    })
+
+    describe('a destination the guard cannot know', () => {
+      defineDenyRows('push-default', [
+        ['git push', { currentBranch: null }],
+        ['git push origin HEAD', { currentBranch: null }],
+        'git push origin "$BRANCH"',
+        'git push origin $(echo main)',
+        'git push origin HEAD:$TARGET',
+        'git -C ../other push',
+        'cd ../other && git push',
+        'git --git-dir=../other/.git push',
+        'git --work-tree ../other push',
+        ['git push origin feat/x', { defaultBranch: null }],
+        ['git push', { defaultBranch: null }],
+      ])
+    })
+
+    describe('a default branch with another name', () => {
+      defineDenyRows('push-default', [
+        ['git push origin trunk', { defaultBranch: 'trunk' }],
+        ['git push origin HEAD:refs/heads/trunk', { defaultBranch: 'trunk' }],
+      ])
+    })
+
+    describe('the same push in every spelling', () => {
+      defineDenyRows('push-default', [
+        '/usr/bin/git push origin main',
+        'git --no-pager push origin main',
+        'git -c core.askpass=x push origin main',
+        'git -C . push origin main',
+        'GIT_TRACE=1 git push origin main',
+        'env GIT_TRACE=1 git push origin main',
+        'timeout 60 git push origin main',
+        'git add -A && git commit -m x && git push origin main',
+        'git status; git push origin main',
+        'git status || git push origin main',
+        'git status | git push origin main',
+        '(git push origin main)',
+        '{ git push origin main; }',
+        'echo $(git push origin main)',
+        'echo `git push origin main`',
+        'bash -c "git push origin main"',
+        "sh -c 'git push origin main'",
+        'eval git push origin main',
+        'git push origin \\\nmain',
+        'git pu\\\nsh origin main',
+        'if git push origin main; then echo ok; fi',
+        'git push "origin" "main"',
+        "git push 'origin' 'main'",
+        'git push -- origin main',
+        'git push --no-verify origin main',
+        'git push --repo=origin origin main',
+        'git push -o ci.skip origin main',
+      ])
+    })
   })
 
-  describe('deleting the default branch', () => {
-    defineDenyRows('push-default', [
-      'git push origin :main',
-      'git push origin --delete main',
-      'git push -d origin main',
-      'git push origin :refs/heads/main',
-    ])
-  })
+  describe('passes', () => {
+    describe('to another branch', () => {
+      defineAllowRows('push', [
+        'git push origin feat/x',
+        'git push -u origin feat/x',
+        'git push',
+        'git push origin',
+        'git push origin HEAD',
+        'git push origin HEAD:refs/heads/feat/x',
+        'git push origin main:feat/x',
+        'git push origin feat/x:feat/y',
+        'git push --follow-tags',
+        'git push origin refs/heads/feat/x',
+        'git push --no-verify origin feat/x',
+        'git push -o ci.skip origin feat/x',
+        'git push --repo=origin feat/x',
+      ])
+    })
 
-  describe('all branches', () => {
-    defineDenyRows('push-default', [
-      'git push --all',
-      'git push --branches origin',
-      "git push origin 'refs/heads/*:refs/heads/*'",
-      'git push --all origin feat/x',
-    ])
-  })
+    describe('to a name that only contains the default branch name', () => {
+      defineAllowRows('push', [
+        'git push origin feat/main-fix',
+        'git push origin mainline',
+        'git push origin main-fix',
+        'git push origin refs/heads/main2',
+      ])
+    })
 
-  describe('a push with no branch named, while on the default branch', () => {
-    defineDenyRows('push-default', [
-      ['git push', ON_MAIN],
-      ['git push origin', ON_MAIN],
-      ['git push origin HEAD', ON_MAIN],
-      ['git push origin HEAD:', ON_MAIN],
-      ['git push --follow-tags', ON_MAIN],
-      ['git push -u origin HEAD', ON_MAIN],
-    ])
-  })
+    describe('tags', () => {
+      defineAllowRows('push', [
+        'git push origin v1.2.0',
+        'git push origin refs/tags/v1.2.0',
+        'git push origin tag v1.2.0',
+        ['git push --tags', ON_MAIN],
+        ['git push --tags origin', ON_MAIN],
+      ])
+    })
 
-  describe('a destination the guard cannot know', () => {
-    defineDenyRows('push-default', [
-      ['git push', { currentBranch: null }],
-      ['git push origin HEAD', { currentBranch: null }],
-      'git push origin "$BRANCH"',
-      'git push origin $(echo main)',
-      'git push origin HEAD:$TARGET',
-      'git -C ../other push',
-      'cd ../other && git push',
-      'git --git-dir=../other/.git push',
-      'git --work-tree ../other push',
-      ['git push origin feat/x', { defaultBranch: null }],
-      ['git push', { defaultBranch: null }],
-    ])
-  })
+    describe('deleting another branch', () => {
+      defineAllowRows('push', [
+        'git push origin --delete feat/x',
+        'git push origin :feat/x',
+        'git push -d origin feat/x',
+      ])
+    })
 
-  describe('a default branch with another name', () => {
-    defineDenyRows('push-default', [
-      ['git push origin trunk', { defaultBranch: 'trunk' }],
-      ['git push origin HEAD:refs/heads/trunk', { defaultBranch: 'trunk' }],
-    ])
-  })
+    describe('a named branch from another folder', () => {
+      defineAllowRows('push', [
+        'git -C ../wt push origin HEAD:refs/heads/feat/x',
+        'cd ../wt && git push origin feat/x',
+      ])
+    })
 
-  describe('the same push in every spelling', () => {
-    defineDenyRows('push-default', [
-      '/usr/bin/git push origin main',
-      'git --no-pager push origin main',
-      'git -c core.askpass=x push origin main',
-      'git -C . push origin main',
-      'GIT_TRACE=1 git push origin main',
-      'env GIT_TRACE=1 git push origin main',
-      'timeout 60 git push origin main',
-      'git add -A && git commit -m x && git push origin main',
-      'git status; git push origin main',
-      'git status || git push origin main',
-      'git status | git push origin main',
-      '(git push origin main)',
-      '{ git push origin main; }',
-      'echo $(git push origin main)',
-      'echo `git push origin main`',
-      'bash -c "git push origin main"',
-      "sh -c 'git push origin main'",
-      'eval git push origin main',
-      'git push origin \\\nmain',
-      'git pu\\\nsh origin main',
-      'if git push origin main; then echo ok; fi',
-      'git push "origin" "main"',
-      "git push 'origin' 'main'",
-      'git push -- origin main',
-      'git push --no-verify origin main',
-      'git push --repo=origin origin main',
-      'git push -o ci.skip origin main',
-    ])
-  })
-})
+    describe('a different default branch', () => {
+      defineAllowRows('push', [
+        ['git push origin main', { defaultBranch: 'trunk' }],
+        ['git push', { defaultBranch: 'trunk', currentBranch: 'main' }],
+      ])
+    })
 
-describe('merge-rule: pushes that pass', () => {
-  describe('to another branch', () => {
-    defineAllowRows('push', [
-      'git push origin feat/x',
-      'git push -u origin feat/x',
-      'git push',
-      'git push origin',
-      'git push origin HEAD',
-      'git push origin HEAD:refs/heads/feat/x',
-      'git push origin main:feat/x',
-      'git push origin feat/x:feat/y',
-      'git push --follow-tags',
-      'git push origin refs/heads/feat/x',
-      'git push --no-verify origin feat/x',
-      'git push -o ci.skip origin feat/x',
-      'git push --repo=origin feat/x',
-    ])
-  })
-
-  describe('to a name that only contains the default branch name', () => {
-    defineAllowRows('push', [
-      'git push origin feat/main-fix',
-      'git push origin mainline',
-      'git push origin main-fix',
-      'git push origin refs/heads/main2',
-    ])
-  })
-
-  describe('tags', () => {
-    defineAllowRows('push', [
-      'git push origin v1.2.0',
-      'git push origin refs/tags/v1.2.0',
-      'git push origin tag v1.2.0',
-      ['git push --tags', ON_MAIN],
-      ['git push --tags origin', ON_MAIN],
-    ])
-  })
-
-  describe('deleting another branch', () => {
-    defineAllowRows('push', [
-      'git push origin --delete feat/x',
-      'git push origin :feat/x',
-      'git push -d origin feat/x',
-    ])
-  })
-
-  describe('a named branch from another folder', () => {
-    defineAllowRows('push', [
-      'git -C ../wt push origin HEAD:refs/heads/feat/x',
-      'cd ../wt && git push origin feat/x',
-    ])
-  })
-
-  describe('a different default branch', () => {
-    defineAllowRows('push', [
-      ['git push origin main', { defaultBranch: 'trunk' }],
-      ['git push', { defaultBranch: 'trunk', currentBranch: 'main' }],
-    ])
-  })
-
-  describe('text that looks like a push but is not one', () => {
-    defineAllowRows('push', [
-      'git stash push -m main',
-      'git commit -m "git push origin main"',
-      'echo "git push origin main"',
-      'grep -rn "git push origin main" docs',
-      'git status # git push origin main',
-      "echo 'git push origin main'",
-      'git log --grep "git push origin main"',
-      'gh pr create --title t --body "$(cat <<\'EOF\'\n## Summary\ngit push origin main\nEOF\n)"',
-      'cat <<EOF\ngit push origin main\nEOF',
-      'git push-fake origin main',
-      'echo git push origin main',
-    ])
+    describe('text that looks like a push but is not one', () => {
+      defineAllowRows('push', [
+        'git stash push -m main',
+        'git commit -m "git push origin main"',
+        'echo "git push origin main"',
+        'grep -rn "git push origin main" docs',
+        'git status # git push origin main',
+        "echo 'git push origin main'",
+        'git log --grep "git push origin main"',
+        'gh pr create --title t --body "$(cat <<\'EOF\'\n## Summary\ngit push origin main\nEOF\n)"',
+        'cat <<EOF\ngit push origin main\nEOF',
+        'git push-fake origin main',
+        'echo git push origin main',
+      ])
+    })
   })
 })
 
