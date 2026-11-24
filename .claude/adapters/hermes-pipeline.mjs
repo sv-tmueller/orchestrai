@@ -70,7 +70,7 @@ export function worktreePlan(repoRoot, issueNumber, slug = 'pending', opts = {})
 export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { run = defaultRun, resumeBranch } = {}) {
   const git = async (args) => {
     const r = await run('git', args, { cwd: repoRoot })
-    if (r.code !== 0) throw new Error(`git ${args.join(' ')}: ${firstLine(r.stderr) || `exit ${r.code}`}`)
+    if (r.code !== 0) throw commandError('git', args, r)
     return r.stdout
   }
   try {
@@ -173,7 +173,30 @@ export async function runPipeline(issueNumber, opts = {}) {
     log(`parked: ${state.parked}`)
     return state
   }
-  const verdictOf = (report, dryFallback) => report?.VERDICT || report?.verdict || (dryRun ? dryFallback : null)
+  // Each seat is read as its contract prescribes. A live run accepts the exact
+  // words only; a dry run keeps the old lenient read and the placeholders.
+  const verdictOf = (report, valid, dryFallback) => {
+    if (dryRun) return report?.VERDICT || report?.verdict || dryFallback
+    return valid.includes(report?.VERDICT) ? report.VERDICT : null
+  }
+  const testerVerdict = (report) => verdictOf(report, ['PASS', 'FAIL'], 'PASS')
+  const reviewerVerdict = (report) => verdictOf(report, ['APPROVE', 'CHANGES_REQUESTED'], 'APPROVE')
+
+  // True when a developer report lets the run go on. BLOCKED and NEEDS_CONTEXT
+  // park. In a live run any status but DONE and DONE_WITH_CONCERNS stops.
+  const developerOk = (report) => {
+    const status = report?.STATUS
+    if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
+      state.parked = `developer ${status}: ${report.NOTES}`
+      log(`parked: ${state.parked}`)
+      return false
+    }
+    if (!dryRun && status !== 'DONE' && status !== 'DONE_WITH_CONCERNS') {
+      noReport('developer')
+      return false
+    }
+    return true
+  }
 
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact.
@@ -192,15 +215,19 @@ export async function runPipeline(issueNumber, opts = {}) {
     const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets.`
     const archReport = await dispatch('architect', archTask, 'judgment')
 
-    if (archReport && archReport.NEEDS_DECISION) {
-      state.parked = `architect NEEDS_DECISION: ${archReport.NEEDS_DECISION}`
+    if (archReport?.KIND === 'NEEDS_DECISION') {
+      const question = decisionQuestion(archReport)
+      state.parked = question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION'
       log(`parked: ${state.parked}`)
       return state
     }
+    // Only a SUB_PLAN is a sub-plan. A SPLIT_PROPOSAL or an ARBITRATION is not
+    // posted as one, and neither is text with no header.
+    if (!dryRun && archReport?.KIND !== 'SUB_PLAN') return noReport('architect')
 
     // A live seat comes back from parseReport(), with its text in `raw`.
     // `output` and `summary` are the dry-run shape.
-    state.subPlan = archReport?.raw || archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
+    state.subPlan = archReport?.raw?.trim() || archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
     if (!state.subPlan) return noReport('architect')
     log('sub-plan received')
 
@@ -225,19 +252,13 @@ export async function runPipeline(issueNumber, opts = {}) {
     await ensureInProgress()
     const devReport = await dispatch('developer', devTask, 'worker')
 
-    if (devReport?.STATUS === 'BLOCKED') {
-      state.parked = `developer BLOCKED: ${devReport.NOTES}`
-      log(`parked: ${state.parked}`)
-      return state
-    }
-    if (devReport?.STATUS === 'NEEDS_CONTEXT') {
-      state.parked = `developer NEEDS_CONTEXT: ${devReport.NOTES}`
-      log(`parked: ${state.parked}`)
-      return state
-    }
+    if (!developerOk(devReport)) return state
 
-    if (!devReport && !dryRun) return noReport('developer')
-    state.pr = devReport?.pr || devReport?.PR || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
+    // A PR the report names must be a pull request URL or a number. An empty
+    // or missing one falls back to the gate's.
+    const reported = devReport?.pr || devReport?.PR
+    if (!dryRun && reported && !isPullRequest(reported)) return noReport('developer')
+    state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
   }
@@ -255,7 +276,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     log('stage 3: tester verify')
     await ensureInProgress()
     const testReport = await dispatch('tester', testTask, 'worker')
-    state.testerVerdict = verdictOf(testReport, 'PASS')
+    state.testerVerdict = testerVerdict(testReport)
     if (!state.testerVerdict) return noReport('tester')
 
     if (state.testerVerdict === 'FAIL') {
@@ -268,10 +289,10 @@ export async function runPipeline(issueNumber, opts = {}) {
       // Fix round: send findings back to developer, then re-test
       log(`tester FAIL, fix round ${state.fixRounds.tester}/3`)
       const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${testReport?.FINDINGS || testReport?.findings || 'findings'}`
-      if (!(await dispatch('developer', fixTask, 'worker')) && !dryRun) return noReport('developer')
+      if (!developerOk(await dispatch('developer', fixTask, 'worker'))) return state
       // Re-test
       const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = verdictOf(reTestReport, 'PASS')
+      state.testerVerdict = testerVerdict(reTestReport)
       if (!state.testerVerdict) return noReport('tester')
       if (state.testerVerdict === 'FAIL') {
         state.parked = 'tester FAIL after fix round'
@@ -287,7 +308,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   if (runs('reviewer')) {
     log('stage 4: reviewer review')
     const reviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-    state.reviewerVerdict = verdictOf(reviewReport, 'APPROVE')
+    state.reviewerVerdict = reviewerVerdict(reviewReport)
     if (!state.reviewerVerdict) return noReport('reviewer')
 
     if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
@@ -300,14 +321,14 @@ export async function runPipeline(issueNumber, opts = {}) {
       // Fix round: send must-fix findings to developer, re-test, re-review
       log(`reviewer CHANGES_REQUESTED, fix round ${state.fixRounds.reviewer}/3`)
       const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these must-fix findings:\n${reviewReport?.FINDINGS || reviewReport?.findings || 'findings'}`
-      if (!(await dispatch('developer', fixTask, 'worker')) && !dryRun) return noReport('developer')
+      if (!developerOk(await dispatch('developer', fixTask, 'worker'))) return state
       // Re-test
       const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = verdictOf(reTestReport, 'PASS')
+      state.testerVerdict = testerVerdict(reTestReport)
       if (!state.testerVerdict) return noReport('tester')
       // Re-review
       const reReviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-      state.reviewerVerdict = verdictOf(reReviewReport, 'APPROVE')
+      state.reviewerVerdict = reviewerVerdict(reReviewReport)
       if (!state.reviewerVerdict) return noReport('reviewer')
       if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
         state.parked = 'reviewer CHANGES_REQUESTED after fix round'
@@ -361,7 +382,7 @@ export async function runWave(packages, opts = {}) {
       } else {
         const p = batch[k]
         const issue = typeof p === 'number' ? p : p.issue
-        results.push({ issue, done: false, parked: null, error: firstLine(s.reason?.message || s.reason) })
+        results.push({ issue, done: false, parked: null, error: s.reason?.reason ?? firstLine(s.reason?.message || s.reason) })
       }
     })
   }
@@ -503,6 +524,29 @@ export const LABELS = [
 ]
 
 const firstLine = (text) => String(text || '').trim().split('\n')[0]
+
+/**
+ * The error for a gh or git call that exited nonzero. The message names the
+ * command on one line (a newline in an argument shows as a space) and ends
+ * with the first line of its stderr. `reason` is that stderr line alone, which
+ * is what a package's error line prints.
+ */
+function commandError(cmd, args, r) {
+  const reason = firstLine(r.stderr) || `exit ${r.code}`
+  const command = [cmd, ...args].join(' ').replace(/\r?\n/g, ' ')
+  return Object.assign(new Error(`${command}: ${reason}`), { reason })
+}
+
+// A pull request URL (it holds /pull/<digits>) or a bare number.
+const isPullRequest = (value) => /\/pull\/\d+/.test(String(value)) || /^\d+$/.test(String(value).trim())
+
+// The question of an architect NEEDS_DECISION report: the field when it has
+// text, else the first non-empty line after the header line.
+function decisionQuestion(report) {
+  if (report.NEEDS_DECISION) return report.NEEDS_DECISION
+  const lines = String(report.raw || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  return lines[1] || ''
+}
 const shorten = (arg) => (arg.length > 60 ? `${arg.slice(0, 57)}...` : arg)
 
 /**
@@ -515,9 +559,7 @@ const shorten = (arg) => (arg.length > 60 ? `${arg.slice(0, 57)}...` : arg)
 export function createGitHub({ run = defaultRun, dryRun = false, log = () => {}, cwd } = {}) {
   const exec = async (cmd, args) => {
     const r = await run(cmd, args, { cwd })
-    if (r.code !== 0) {
-      throw new Error(`${[cmd, ...args].join(' ')}: ${firstLine(r.stderr) || `exit ${r.code}`}`)
-    }
+    if (r.code !== 0) throw commandError(cmd, args, r)
     return r.stdout
   }
   const readJson = async (cmd, args) => {
@@ -672,7 +714,7 @@ export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.de
  *
  * Exit 0: the run finished, whatever the packages' parked outcomes. Exit 1: a
  * gh or git call failed at the gate, or a package threw (its line reads
- * `#n error: <first line>`, and the other packages still finish and report).
+ * `#n error: <reason>`, see commandError, and the other packages still finish and report).
  * Exit 2: a usage error, before any GitHub call. stdout (out) carries the gate, the wave plan and the results;
  * progress, dry-run notes and errors go to stderr (err).
  */

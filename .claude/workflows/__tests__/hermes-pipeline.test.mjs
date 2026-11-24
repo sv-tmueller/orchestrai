@@ -276,7 +276,7 @@ const WRITE_PREFIXES = [
 ]
 
 const DEFAULT_REPORTS = {
-  architect: { output: 'SUB_PLAN\n\nApproach: do the thing.' },
+  architect: parseReport('architect', 'SUB_PLAN\n\nApproach: do the thing.'),
   developer: { STATUS: 'DONE', PR: 'https://github.com/o/r/pull/900' },
   tester: { VERDICT: 'PASS' },
   reviewer: { VERDICT: 'APPROVE' },
@@ -858,7 +858,7 @@ describe('main', () => {
 
     test('a package that parks is reported as parked with its reason', async () => {
       const r = await runMain(['201'], 'main-live', {
-        reports: { architect: { NEEDS_DECISION: 'which cache?' } },
+        reports: { architect: parseReport('architect', 'NEEDS_DECISION: which cache?') },
       })
       assert.equal(r.code, 0)
       assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
@@ -882,7 +882,7 @@ describe('main', () => {
       const r = await runMain(['201', '204'], 'main-live', { wrap: failing })
       assert.equal(r.code, 1)
       assert.deepEqual(r.stdout.slice(3), [
-        "#201 error: git worktree add /repo/.worktrees/pkg-201 -b feat/201-pending HEAD: fatal: '/repo/.worktrees/pkg-201' already exists",
+        "#201 error: fatal: '/repo/.worktrees/pkg-201' already exists",
         '#204 done: PR https://github.com/o/r/pull/900',
       ])
     })
@@ -1040,13 +1040,13 @@ describe('runPipeline with resume', () => {
     assert.equal(keysOf(calls, 'write').filter((k) => k.includes('--add-label')).length, 1)
   })
 
-  test('the sub-plan is posted with a SUB_PLAN line, added when the architect omitted it', async () => {
-    const { calls } = await pipeline(7, {}, { architect: { output: 'Approach: do the thing.' } })
-    assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.'))
+  test('the sub-plan is posted with a SUB_PLAN line, added when the report only opens with SUB_PLAN: on one line', async () => {
+    const { calls } = await pipeline(7, {}, { architect: parseReport('architect', 'SUB_PLAN: do the thing.') })
+    assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nSUB_PLAN: do the thing.'))
   })
 
   test('a sub-plan that already has its SUB_PLAN line is posted as it is', async () => {
-    const { calls } = await pipeline(7, {}, { architect: { output: 'SUB_PLAN\n\nApproach.' } })
+    const { calls } = await pipeline(7, {}, { architect: parseReport('architect', 'SUB_PLAN\n\nApproach.') })
     assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach.'))
   })
 
@@ -1191,6 +1191,338 @@ describe('a seat that returns no usable report', () => {
   })
 })
 
+describe('each seat accepts only the report its contract prescribes', () => {
+  const { runPipeline } = driver
+
+  async function pipeline(reports, opts = {}) {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, reports)
+    const state = await runPipeline(7, {
+      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+    })
+    return { state, calls: fake.calls }
+  }
+  const roles = (state) => state.dispatches.map((d) => d.role)
+  const arch = (text) => parseReport('architect', text)
+  const dev = (status, extra = 'PR: https://github.com/o/r/pull/901') =>
+    parseReport('developer', `STATUS: ${status}\nBRANCH: feat/7-work\n${extra}\nCHECKS: \`npm test\` -> 0\nDEVIATIONS: none\nNOTES: none`)
+  const tester = (verdict) => parseReport('tester', `VERDICT: ${verdict}\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none`)
+  const reviewer = (verdict) => parseReport('reviewer', `VERDICT: ${verdict}\nSTAGE: both clean\nFINDINGS: 1. one\nCLAIMS: none\nCHECKS: n/a`)
+
+  const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress']
+
+  // The stop: the reason, the seats that ran, nothing after the last seat, and
+  // no write beyond the setup ones that came before it.
+  function assertStopped({ state, calls }, role, dispatched) {
+    assert.equal(state.parked, `${role} seat returned no usable report`)
+    assert.equal(state.done, false)
+    assert.deepEqual(roles(state), dispatched)
+    assert.deepEqual(calls.filter((c) => c.kind === 'spawn').map((c) => c.role), dispatched)
+    assert.equal(calls.at(-1).kind, 'spawn', 'nothing follows the last seat')
+    assert.equal(calls.at(-1).role, dispatched.at(-1))
+    const stray = keysOf(calls, 'write').filter((k) => !ALLOWED_WRITES.some((p) => k.startsWith(p)))
+    assert.deepEqual(stray, [])
+  }
+  const ALL = ['architect', 'developer', 'tester', 'reviewer']
+
+  describe('architect', () => {
+    test('a multi-line SUB_PLAN is posted as it is and the developer runs', async () => {
+      const r = await pipeline({ architect: arch('SUB_PLAN\n\nApproach: do the thing.\n- step one\n- step two') })
+      assert.ok(keysOf(r.calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.\n- step one\n- step two'))
+      assert.deepEqual(roles(r.state), ALL)
+      assert.equal(r.state.done, true)
+    })
+
+    test('a single-line SUB_PLAN is posted under a SUB_PLAN line and the developer runs', async () => {
+      const r = await pipeline({ architect: arch('SUB_PLAN: one line plan') })
+      assert.ok(keysOf(r.calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nSUB_PLAN: one line plan'))
+      assert.deepEqual(roles(r.state), ALL)
+    })
+
+    for (const [form, text] of [
+      ['on the same line', 'NEEDS_DECISION: which one, A or B'],
+      ['on the next line', 'NEEDS_DECISION:\nwhich one, A or B\nmore detail'],
+      ['after the bare word', 'NEEDS_DECISION\n\nwhich one, A or B\nmore detail'],
+      ['after leading blank lines', '\n\nNEEDS_DECISION\nwhich one, A or B'],
+    ]) {
+      test(`NEEDS_DECISION with the question ${form} parks with the question and posts nothing`, async () => {
+        const r = await pipeline({ architect: arch(text) })
+        assert.equal(r.state.parked, 'architect NEEDS_DECISION: which one, A or B')
+        assert.equal(r.state.done, false)
+        assert.deepEqual(roles(r.state), ['architect'])
+        assert.equal(r.calls.at(-1).kind, 'spawn')
+        assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+      })
+    }
+
+    test('NEEDS_DECISION with no question at all still parks, and ships nothing', async () => {
+      const r = await pipeline({ architect: arch('NEEDS_DECISION') })
+      assert.match(r.state.parked, /^architect NEEDS_DECISION/)
+      assert.deepEqual(roles(r.state), ['architect'])
+      assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+    })
+
+    for (const [name, text] of [
+      ['SPLIT_PROPOSAL', 'SPLIT_PROPOSAL\n\n1. issue A\n2. issue B'],
+      ['ARBITRATION', 'ARBITRATION\n\nRuling: the tester is right.'],
+      ['free text with no header', 'Here is my plan: do the thing first.'],
+      ['an empty report', ''],
+    ]) {
+      test(`${name} is no sub-plan: the package stops and nothing is posted`, async () => {
+        assertStopped(await pipeline({ architect: arch(text) }), 'architect', ['architect'])
+      })
+    }
+  })
+
+  describe('developer', () => {
+    test('DONE with a pull request URL goes on and ships that PR', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'PR: https://github.com/o/r/pull/901') })
+      assert.equal(r.state.pr, 'https://github.com/o/r/pull/901')
+      assert.ok(keysOf(r.calls, 'write').includes('gh pr ready https://github.com/o/r/pull/901'))
+    })
+
+    test('DONE with a PR number goes on', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'PR: 901') })
+      assert.equal(r.state.pr, '901')
+      assert.ok(keysOf(r.calls, 'write').includes('gh pr ready 901'))
+    })
+
+    test('DONE_WITH_CONCERNS goes on', async () => {
+      const r = await pipeline({ developer: dev('DONE_WITH_CONCERNS') })
+      assert.equal(r.state.done, true)
+      assert.deepEqual(roles(r.state), ALL)
+    })
+
+    for (const [name, extra] of [
+      ['none', 'PR: none'],
+      ['free text', 'PR: the draft one on the branch'],
+      ['an issue URL', 'PR: https://github.com/o/r/issues/901'],
+      ['a number with a suffix', 'PR: 901x'],
+    ]) {
+      test(`DONE with PR ${name} stops and ships nothing`, async () => {
+        assertStopped(await pipeline({ developer: dev('DONE', extra) }), 'developer', ['architect', 'developer'])
+      })
+    }
+
+    test('DONE with PR none stops even when the gate knows a PR', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'PR: none') }, { resume: { stage: 'developer', branch: 'feat/7-work', pr: 12 } })
+      assert.equal(r.state.parked, 'developer seat returned no usable report')
+      assert.deepEqual(roles(r.state), ['developer'])
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('DONE with no PR line takes the PR from the gate on a resume', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'NOTES: none') }, { resume: { stage: 'developer', branch: 'feat/7-work', pr: 12 } })
+      assert.equal(r.state.pr, 12)
+      assert.equal(r.state.done, true)
+    })
+
+    for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+      test(`${status} parks with the notes, even with PR none`, async () => {
+        const report = parseReport('developer', `STATUS: ${status}\nBRANCH: feat/7-work\nPR: none\nNOTES: the base is wrong`)
+        const r = await pipeline({ developer: report })
+        assert.equal(r.state.parked, `developer ${status}: the base is wrong`)
+        assert.deepEqual(roles(r.state), ['architect', 'developer'])
+        assert.equal(r.calls.at(-1).kind, 'spawn')
+        assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+      })
+    }
+
+    for (const [name, text] of [
+      ['an unknown status', 'STATUS: FINISHED\nPR: https://github.com/o/r/pull/901'],
+      ['a lower-case status', 'STATUS: done\nPR: https://github.com/o/r/pull/901'],
+      ['a status with trailing text', 'STATUS: DONE, mostly\nPR: https://github.com/o/r/pull/901'],
+      ['free text', 'I implemented it and opened https://github.com/o/r/pull/901'],
+    ]) {
+      test(`${name} stops with no usable report`, async () => {
+        assertStopped(await pipeline({ developer: parseReport('developer', text) }), 'developer', ['architect', 'developer'])
+      })
+    }
+
+    describe('in a tester fix round', () => {
+      const FAIL = tester('FAIL')
+      test('DONE_WITH_CONCERNS goes on to the re-test', async () => {
+        const r = await pipeline({ tester: [FAIL, tester('PASS')], developer: [dev('DONE'), dev('DONE_WITH_CONCERNS', 'PR: none')] })
+        assert.deepEqual(roles(r.state), [...ALL.slice(0, 3), 'developer', 'tester', 'reviewer'])
+        assert.equal(r.state.done, true)
+      })
+      for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+        test(`${status} parks and the re-test does not run`, async () => {
+          const report = parseReport('developer', `STATUS: ${status}\nNOTES: stuck`)
+          const r = await pipeline({ tester: [FAIL], developer: [dev('DONE'), report] })
+          assert.equal(r.state.parked, `developer ${status}: stuck`)
+          assert.deepEqual(roles(r.state), ['architect', 'developer', 'tester', 'developer'])
+          assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+        })
+      }
+      test('an unknown status stops and the re-test does not run', async () => {
+        const r = await pipeline({ tester: [FAIL], developer: [dev('DONE'), parseReport('developer', 'STATUS: MAYBE')] })
+        assertStopped(r, 'developer', ['architect', 'developer', 'tester', 'developer'])
+      })
+    })
+
+    describe('in a reviewer fix round', () => {
+      const CHANGES = reviewer('CHANGES_REQUESTED')
+      test('DONE_WITH_CONCERNS goes on to the re-test', async () => {
+        const r = await pipeline({ reviewer: [CHANGES, reviewer('APPROVE')], developer: [dev('DONE'), dev('DONE_WITH_CONCERNS', 'PR: none')] })
+        assert.equal(r.state.done, true)
+      })
+      test('BLOCKED parks and the re-test does not run', async () => {
+        const report = parseReport('developer', 'STATUS: BLOCKED\nNOTES: stuck')
+        const r = await pipeline({ reviewer: [CHANGES], developer: [dev('DONE'), report] })
+        assert.equal(r.state.parked, 'developer BLOCKED: stuck')
+        assert.deepEqual(roles(r.state), ['architect', 'developer', 'tester', 'reviewer', 'developer'])
+      })
+      test('an unknown status stops and the re-test does not run', async () => {
+        const r = await pipeline({ reviewer: [CHANGES], developer: [dev('DONE'), parseReport('developer', 'STATUS: MAYBE')] })
+        assertStopped(r, 'developer', ['architect', 'developer', 'tester', 'reviewer', 'developer'])
+      })
+    })
+
+    test('a resume with findings reads the status too: an unknown one stops', async () => {
+      const r = await pipeline(
+        { developer: parseReport('developer', 'STATUS: MAYBE') },
+        { resume: { stage: 'developer', branch: 'feat/7-work', pr: 12, findings: '1. a' } }
+      )
+      assert.equal(r.state.parked, 'developer seat returned no usable report')
+      assert.deepEqual(roles(r.state), ['developer'])
+    })
+  })
+
+  const BAD_VERDICTS = [
+    ['a lower-case verdict', (v) => v.toLowerCase()],
+    ['a verdict with trailing text', (v) => `${v} (mostly)`],
+    ['an unknown word', () => 'MAYBE'],
+  ]
+
+  describe('tester', () => {
+    test('PASS goes on to the reviewer', async () => {
+      const r = await pipeline({ tester: tester('PASS') })
+      assert.deepEqual(roles(r.state), ALL)
+    })
+
+    test('FAIL goes to a fix round', async () => {
+      const r = await pipeline({ tester: [tester('FAIL'), tester('PASS')] })
+      assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 0 })
+      assert.equal(r.state.done, true)
+    })
+
+    for (const [name, bad] of [...BAD_VERDICTS, ['a reviewer verdict', () => 'APPROVE']]) {
+      test(`${name} in the first test stops and the reviewer does not run`, async () => {
+        assertStopped(await pipeline({ tester: tester(bad('PASS')) }), 'tester', ALL.slice(0, 3))
+      })
+      test(`${name} in the re-test after a tester fix round stops`, async () => {
+        const r = await pipeline({ tester: [tester('FAIL'), tester(bad('PASS'))] })
+        assertStopped(r, 'tester', [...ALL.slice(0, 3), 'developer', 'tester'])
+      })
+      test(`${name} in the re-test after a reviewer fix round stops`, async () => {
+        const r = await pipeline({ reviewer: [reviewer('CHANGES_REQUESTED')], tester: [tester('PASS'), tester(bad('PASS'))] })
+        assertStopped(r, 'tester', [...ALL, 'developer', 'tester'])
+      })
+    }
+  })
+
+  describe('reviewer', () => {
+    test('APPROVE ships', async () => {
+      const r = await pipeline({ reviewer: reviewer('APPROVE') })
+      assert.equal(r.state.done, true)
+    })
+
+    test('CHANGES_REQUESTED goes to a fix round', async () => {
+      const r = await pipeline({ reviewer: [reviewer('CHANGES_REQUESTED'), reviewer('APPROVE')] })
+      assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 1 })
+      assert.equal(r.state.done, true)
+    })
+
+    for (const [name, bad] of [...BAD_VERDICTS, ['a tester verdict', () => 'PASS']]) {
+      test(`${name} in the first review stops and ships nothing`, async () => {
+        assertStopped(await pipeline({ reviewer: reviewer(bad('APPROVE')) }), 'reviewer', ALL)
+      })
+      test(`${name} in the re-review after a fix round stops`, async () => {
+        const r = await pipeline({ reviewer: [reviewer('CHANGES_REQUESTED'), reviewer(bad('APPROVE'))] })
+        assertStopped(r, 'reviewer', [...ALL, 'developer', 'tester', 'reviewer'])
+      })
+    }
+  })
+
+  describe('a dry run keeps its placeholders', () => {
+    test('the dry-run stub shapes still complete the pipeline', async () => {
+      const fake = fakeRunner({ reads: {} }, {
+        architect: { KIND: 'SUB_PLAN', output: 'SUB_PLAN: approach.' },
+        developer: { STATUS: 'DONE', PR: 'https://github.com/example/dry-run' },
+        tester: { VERDICT: 'PASS' },
+        reviewer: { VERDICT: 'APPROVE' },
+      })
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(state.done, true)
+    })
+  })
+})
+
+describe('the error line of a package that threw', () => {
+  const { main, runWave, createGitHub } = driver
+
+  async function runMain(argv, { wrap, spawn } = {}) {
+    const fake = fakeRunner(loadFixture('main-live'))
+    const stdout = []
+    const stderr = []
+    const code = await main(argv, {
+      env: {}, run: wrap ? wrap(fake.run) : fake.run, spawn: spawn || fake.spawn,
+      out: (l) => stdout.push(l), err: (l) => stderr.push(l), cwd: '/repo',
+    })
+    return { code, stdout, stderr, calls: fake.calls }
+  }
+  const failsSubPlanComment = (stderr) => (run) => async (cmd, args, opts) =>
+    cmd === 'gh' && args[1] === 'comment' && args[2] === '201'
+      ? { code: 1, stdout: '', stderr }
+      : run(cmd, args, opts)
+
+  test('a failed command whose argument holds a newline gives the first line of its stderr', async () => {
+    const r = await runMain(['201'], { wrap: failsSubPlanComment('HTTP 422: body is too long\nsecond line') })
+    assert.equal(r.code, 1)
+    assert.ok(r.calls.some((c) => c.kind === 'spawn' && c.role === 'architect'), 'the sub-plan was written by a real run')
+    assert.deepEqual(r.stdout.slice(2), ['#201 error: HTTP 422: body is too long'])
+  })
+
+  test('a failed command with an empty stderr falls back to its exit status', async () => {
+    const r = await runMain(['201'], { wrap: failsSubPlanComment('') })
+    assert.deepEqual(r.stdout.slice(2), ['#201 error: exit 1'])
+  })
+
+  test('an error that is not a failed command gives the first line of its message', async () => {
+    const spawn = async () => { throw new Error('seat crashed\nstack detail') }
+    const r = await runMain(['201'], { spawn })
+    assert.equal(r.code, 1)
+    assert.deepEqual(r.stdout.slice(2), ['#201 error: seat crashed'])
+  })
+
+  test('runWave carries the same line on the error entry', async () => {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+    const run = async (cmd, args, opts) =>
+      args[1] === 'comment' ? { code: 1, stdout: '', stderr: 'HTTP 422: nope\nmore' } : fake.run(cmd, args, opts)
+    const [result] = await runWave([9], { dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+    assert.equal(result.error, 'HTTP 422: nope')
+  })
+
+  test('a failed command still names itself in the thrown message, arguments on one line', async () => {
+    const run = async () => ({ code: 1, stdout: '', stderr: 'HTTP 422: nope\nmore' })
+    const gh = createGitHub({ run, dryRun: false, log: () => {}, cwd: '/repo' })
+    await assert.rejects(gh.comment(7, 'SUB_PLAN\n\nline two'), (e) => {
+      assert.equal(e.message, 'gh issue comment 7 --body SUB_PLAN  line two: HTTP 422: nope')
+      return true
+    })
+  })
+
+  test('a gate-time failure prints one stderr line naming the command, then the first stderr line', async () => {
+    const wrap = (run) => async (cmd, args, opts) =>
+      args[0] === 'label' ? { code: 1, stdout: '', stderr: 'HTTP 403: no access\nmore' } : run(cmd, args, opts)
+    const r = await runMain(['201'], { wrap })
+    assert.equal(r.code, 1)
+    const line = r.stderr.find((l) => l.startsWith('gh label create'))
+    assert.ok(line.endsWith(': HTTP 403: no access'))
+    assert.ok(!line.includes('\n'))
+  })
+})
+
 describe('the resume worktree', () => {
   const { runPipeline, ensureWorktree, worktreePlan, main } = driver
   const WT_ADD_FRESH = 'git worktree add /repo/.worktrees/pkg-7 -b feat/7-pending origin/main'
@@ -1317,7 +1649,7 @@ describe('runWave when a package throws', () => {
       dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo',
     })
     assert.deepEqual(results.map((r) => r.issue), [5, 6, 7, 8])
-    assert.match(results[0].error, /^git worktree add .*pkg-5.*: fatal: boom$/)
+    assert.equal(results[0].error, 'fatal: boom')
     assert.equal(results[0].done, false)
     assert.deepEqual(results.slice(1).map((r) => r.done), [true, true, true], 'the next chunk still starts')
   })

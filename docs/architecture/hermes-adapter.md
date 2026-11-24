@@ -238,18 +238,38 @@ branch the package runs from the developer. The tester's and reviewer's
 reports belong on a PR, so a package with no PR is never resumed past the
 developer.
 
-In a live run, a seat that returns nothing, or a report without the field its
-stage reads (the architect's text, the developer's PR, the tester's or
-reviewer's verdict), stops the package: the result line reads
-`parked: <role> seat returned no usable report` and nothing more is written
-for it. `runPipeline` with `dryRun` uses placeholders in place of seat
+In a live run each stage accepts only the report its contract prescribes:
+
+- The architect's report is a sub-plan only when it opens with `SUB_PLAN` and
+  has text. It is then posted on the issue. `NEEDS_DECISION` parks the
+  package, in all three forms (the question on the same line, on the next
+  line, or the bare word): the result line reads
+  `parked: architect NEEDS_DECISION: <the question>`. A `SPLIT_PROPOSAL`, an
+  `ARBITRATION` or text with no header is not a sub-plan.
+- The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
+  that is a pull request URL (it holds `/pull/<digits>`) or a number. The PR
+  comes from the report, or from the gate on a resume when the report names
+  none. `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
+  holds in a fix round too, as far as the `STATUS` goes.
+- The tester's `VERDICT` is exactly `PASS` or `FAIL`, and the reviewer's is
+  exactly `APPROVE` or `CHANGES_REQUESTED`, in the first pass and in every
+  re-test and re-review. A lower-case word, a word with trailing text or any
+  other word is not a verdict.
+
+Anything else, and a seat that returns nothing, stops the package: the result
+line reads `parked: <role> seat returned no usable report` and nothing more is
+written for it. `runPipeline` with `dryRun` uses placeholders in place of seat
 output instead, so the dry-run tests complete.
 
 stdout carries the gate lines, the wave plan and one result line per package.
 A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
-does not stop the others: its line reads `#<n> error: <first line of the
-message>`, and every other package still runs and reports. Progress, dry-run
-notes and errors go to stderr.
+does not stop the others: its line reads `#<n> error: <reason>`, and every
+other package still runs and reports. The reason is the first line of the
+failed command's stderr. When the error is not a failed command, it is the
+first line of the error's message. A failure at the gate prints one line on
+stderr instead: the command with its arguments on one line (a newline in an
+argument shows as a space), then the first line of its stderr. Progress,
+dry-run notes and errors go to stderr.
 
 `DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
 it creates no label, posts no comment, makes no worktree and starts no seat.
