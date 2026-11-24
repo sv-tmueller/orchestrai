@@ -1103,6 +1103,62 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'env -u $x -Eu git push origin main',
         'env -iu git $x git push origin main',
         'env -iu git `true` git push origin main',
+        // A new value letter takes `u`, so the program is `$x`. With an empty `x`
+        // the shell drops it and the push runs.
+        'sudo -ru $x git push origin main',
+        'doas -au $x git push origin main',
+      ])
+    })
+
+    // These letters take a value, as a separate word and inside a cluster. In
+    // a cluster that ends in `u` after one of them, that letter takes `u` as
+    // its value and `git` is the program: sudo's `-c` takes `u` as the class,
+    // and the push runs. Main gave `git` to `-u`.
+    describe('sudo -a -c -r -t and doas -a take a value', () => {
+      defineDenyRows('push-default', [
+        'sudo -cu git push origin main',
+        'sudo -au git push origin main',
+        'sudo -ru git push origin main',
+        'sudo -tu git push origin main',
+        'doas -au git push origin main',
+        'sudo -c foo git push origin main',
+        'doas -a foo git push origin main',
+      ])
+      defineAllowRows('wrapper', [
+        // The value of `-c` is `git`, so the program sudo runs is `push`.
+        'sudo -c git push origin main',
+        // A new value letter inside the cluster takes the rest of the word
+        // (`u`), so the program run is `foo`.
+        'sudo -cu foo git push origin main',
+        'doas -au foo git push origin main',
+        // A new value letter takes an option word (`-u`), so the program run is
+        // the word after it.
+        'sudo -c -u foo git push origin main',
+        'doas -a -u foo git push origin main',
+        'sudo -n -t -u root git push origin main',
+        // The new value letter changes the first read, so `env` is not read as a
+        // wrapper that gets `-S`.
+        "sudo -c env -S 'sudo -c' git push origin main",
+        "sudo -c -u foo env -S 'sudo -c' git push origin main",
+      ])
+    })
+
+    // The new letter takes its value (`u`, or the next word `-u`), so the
+    // program sudo or doas runs is `xargs` or `watch`, which runs the push.
+    // The guard does not see into those programs: the entry "What the parser
+    // cannot see into" of the Not covered list in merge-rule.mjs, which stays
+    // out by the owner's decision (batch #592). The same programs are allowed
+    // on main behind the bare wrapper (the last three rows). Main gave `xargs`
+    // or `watch` to `-u` and denied the first four.
+    describe('a gap: a new value letter makes a program the guard does not see into the program', () => {
+      defineAllowRows('gap', [
+        'sudo -cu xargs git push origin main',
+        'sudo -cu watch git push origin main',
+        'sudo -c -u watch git push origin main',
+        'doas -a -u xargs git push origin main',
+        'sudo xargs git push origin main',
+        'sudo watch git push origin main',
+        'doas xargs git push origin main',
       ])
     })
 
@@ -1148,6 +1204,36 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         "env -S 'env -iu' -- git push origin main",
         "env -S 'nice env -iu' -i git push origin main",
         "env -S 'sudo env -iu' -i git push origin main",
+        // The whole-word readers keep main's sudo and doas sets, so the letter
+        // (`-c`, `-a`, `-r`, `-t`) does not take `git` here: it is one skipped
+        // word, and `git` is the program. The real `env` hands `sudo` or
+        // `doas` the dropped `-i` as the value of the letter, and the push
+        // runs.
+        "env -S 'sudo -c' -i git push origin main",
+        "env -S 'sudo -a' -i git push origin main",
+        "env -S 'sudo -r' -i git push origin main",
+        "env -S 'sudo -t' -i git push origin main",
+        "env -S 'doas -a' -i git push origin main",
+      ])
+    })
+
+    // A substitution in the words of the `-S` command is scanned before the mode
+    // is picked, so the cluster readers read it. The whole-word readers read it
+    // again in the built line. The cluster read of `sudo -Eu root git push
+    // origin main` finds the push; the whole-word read takes `root` as the
+    // program.
+    describe('a substitution in the words of the -S command is read with the cluster readers', () => {
+      defineDenyRows('push-default', [
+        'env -S echo $(sudo -Eu root git push origin main)',
+        'env -S echo `sudo -Eu root git push origin main`',
+        'env -S echo <(sudo -Eu root git push origin main)',
+        // The new value letters apply inside such a substitution: `-c` takes
+        // `foo`, so sudo runs the push.
+        'env -S echo $(sudo -c foo git push origin main)',
+      ])
+      // `-c` takes `u`, so sudo runs `foo`.
+      defineAllowRows('wrapper', [
+        'env -S echo $(sudo -cu foo git push origin main)',
       ])
     })
 
@@ -1190,6 +1276,42 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         "env -S 'sudo -Eu root' git push origin main",
         "env -iS bash -c 'sudo -Eu root git push origin main'",
         "env -S '' eval sudo -Eu root git push origin main",
+        // The whole-word readers keep main's sudo set, so `-c` does not take
+        // `foo`.
+        "env -S '' sudo -c foo git push origin main",
+        // A new value letter takes `u`, so `env` is the program and gets `-S`.
+        // Main read `env` as the value of `-u` and denied.
+        'sudo -ru env -S -i git push origin main',
+        'sudo -cu env -S -i git push origin main',
+        'doas -au env -S -i git push origin main',
+        // A new value letter makes `env` the program, so the fallback fires. Its
+        // whole-word readers read the command again from the first word, skip
+        // the cluster before it (`-iu`, `-nu`, `-nD`) as one word, and take the
+        // next word (`x`, `5`, `pam`) as the program. Main read `env` as the
+        // value of `-u` or `-C` and denied.
+        'sudo -iu x -au env -S git push origin main',
+        'sudo -nu x -ru env -S git push origin main',
+        'sudo -nD 5 -aC env -iS git push origin main',
+        'sudo -nD 5 -ru env -iS git push origin main',
+        'sudo -nD pam doas -a -C env -iS git push origin main',
+        // For the five lines above, main has the gap without the new letter:
+        // each of them with the letter and its value removed is allowed on
+        // main too.
+        'sudo -iu x env -S git push origin main',
+        'sudo -nu x env -S git push origin main',
+        'sudo -nD 5 env -iS git push origin main',
+        'sudo -nD pam doas env -iS git push origin main',
+        // The fallback fires for these too. Its whole-word readers read the
+        // command left as `-i git push origin main`, as they do for the row
+        // `env -S -i git push origin main` above, and the guard before PR #597
+        // (77db2cd) allowed them the same way. Main read `env` as the value of
+        // `-C`, `-u` or `-p` and denied. Unlike the five new-letter lines
+        // above, these are denied on main with the new letter and its value
+        // removed.
+        'sudo -ig -D -cC env -S -i git push origin main',
+        'doas -su -C -au env -S -i git push origin main',
+        'sudo -nC -C -tp env -S -i git push origin main',
+        "eval sudo -nC -C -tp env -S '' -i git push origin main",
       ])
     })
   })
