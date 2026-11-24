@@ -65,9 +65,10 @@
  * expands, when the rest could still read as `pr checkout` (`gh "$G" checkout
  * 12`, `gh pr "$S" 12`); `gh pr view` and `gh "$G" view` do not. When the
  * branch is unknown, a push with no refspec, or of HEAD or @, is denied. A
- * push that names its destination is judged by that name. A word in the remote position of a push that expands is unknown
- * as well: an unquoted `$REMOTE` can hold "origin main", and the parser does
- * not record whether a word was quoted, so a quoted one is denied too.
+ * push that names its destination is judged by that name. A word in the
+ * remote position of a push that expands is unknown as well: an unquoted
+ * `$REMOTE` can hold "origin main", and the parser does not record whether a
+ * word was quoted, so a quoted one is denied too.
  *
  * The folder of a push is unknown after a `cd`, `-C`, `--git-dir`,
  * `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` assigned in front of the
@@ -110,9 +111,11 @@
  *
  * A `gh api` write to `repos/<owner>/<name>/transfer`, or to `repos/<one word
  * that expands>/transfer`, is denied as transfer-repo. A DELETE, or a method
- * that expands, on the second form is a delete-repo instead. As of gh 2.103.3 there is no `gh repo
- * transfer`, so only the API write is read; `gh issue transfer` moves an issue
- * and passes.
+ * that expands, on the second form is a delete-repo instead. A PATCH on the
+ * second form is first judged as a PATCH of the repo, so it is a visibility
+ * hit or a default-branch hit where those entries apply, and a transfer-repo
+ * otherwise. As of gh 2.103.3 there is no `gh repo transfer`, so only the API
+ * write is read; `gh issue transfer` moves an issue and passes.
  *
  * `gh repo edit` with `--default-branch` or `--default-branch=...` is denied
  * whatever branch it names, the current default included. A dash word that
@@ -122,8 +125,10 @@
  * the default branch, when a segment of the branch name expands, or when the
  * default branch is not known. The branch is every segment between `branches`
  * and `rename`. Renaming another branch passes, when the default branch is
- * known and the branch name is written out. The repo in the path is not
- * compared with the current repo.
+ * known and the branch name is written out, unless the path is a branch-rule
+ * already: a branch name with a `protection` segment, or one that starts with
+ * the segment `rulesets` on the form with one word that expands for the owner
+ * and name. The repo in the path is not compared with the current repo.
  *
  * The guard stops carelessness, not intent. GitHub's own rule is the hard
  * stop on a set-up repo.
@@ -466,8 +471,9 @@ function checkApi(words, from, facts) {
   const { verb, path, pathExpands, fields, input } = readApi(words, from)
   if (path === null) return null
 
-  // GraphQL is a POST whatever the method word says, so this comes before the
-  // GET and HEAD return. Query text that is not on the line is not read.
+  // The method word does not matter for GraphQL (#593, decision 4), so a
+  // mutation sent with -X GET is still denied; this comes before the GET and
+  // HEAD return. Query text that is not on the line is not read.
   if (path === 'graphql') {
     if (fields.some((f) => GRAPHQL_RULE_MUTATION.test(f.text))) {
       return hit('branch-rule', 'This GraphQL call changes branch protection or a ruleset, which is the merge rule itself. Ask the owner to change it.')

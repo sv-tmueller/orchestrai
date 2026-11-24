@@ -1521,7 +1521,10 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
   })
 
   describe('a gap main already has: a gh short flag in a cluster is not read', () => {
-    // gh accepts short flags written together (`-i` takes no value). `readApi` reads a field flag or `-X` only as a word of its own, so these pass, as the same forms do on main for visibility. Not built here; deferred for the owner (batch #603).
+    // gh accepts short flags written together (`-i` takes no value).
+    // `readApi` reads a field flag or `-X` only as a word of its own, so these
+    // pass, as the same forms do on main for visibility. Not built here;
+    // deferred for the owner (batch #603).
     defineAllowRows('gh short flag in a cluster', [
       `gh api graphql -if query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
       'gh api -iX PATCH repos/acme/widget -f default_branch=trunk',
