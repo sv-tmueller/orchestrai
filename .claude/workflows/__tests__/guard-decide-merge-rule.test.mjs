@@ -1126,6 +1126,15 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         // (`u`), so the program run is `foo`.
         'sudo -cu foo git push origin main',
         'doas -au foo git push origin main',
+        // A new value letter takes an option word (`-u`), so the program run is
+        // the word after it.
+        'sudo -c -u foo git push origin main',
+        'doas -a -u foo git push origin main',
+        'sudo -n -t -u root git push origin main',
+        // The new value letter changes the first read, so `env` is not read as a
+        // wrapper that gets `-S`.
+        "sudo -c env -S 'sudo -c' git push origin main",
+        "sudo -c -u foo env -S 'sudo -c' git push origin main",
       ])
     })
 
