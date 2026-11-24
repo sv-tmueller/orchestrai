@@ -26,6 +26,8 @@
 
 import { spawn, detectFailure, retry, resolveRole, resolveTier, loadPrompt } from './hermes-adapter.mjs'
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -59,11 +61,16 @@ export function worktreePlan(repoRoot, issueNumber, slug = 'pending', opts = {})
  * `.worktreeinclude`. A driver-created worktree does not get that for
  * free, so a seat needing a gitignored file needs it copied here.
  */
-export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main') {
-  const git = (args, cwd = repoRoot) => execFileAsync('git', args, { cwd, encoding: 'utf8' })
+export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { run = defaultRun } = {}) {
+  const git = async (args) => {
+    const r = await run('git', args, { cwd: repoRoot })
+    if (r.code !== 0) throw new Error(`git ${args.join(' ')}: ${firstLine(r.stderr) || `exit ${r.code}`}`)
+    return r.stdout
+  }
   try {
-    const { stdout } = await git(['worktree', 'list', '--porcelain'])
-    if (stdout.includes(plan.path)) return { created: false, path: plan.path }
+    if ((await git(['worktree', 'list', '--porcelain'])).includes(plan.path)) {
+      return { created: false, path: plan.path }
+    }
   } catch {
     // No worktree list means no repo or no worktrees; let the add below fail loudly.
   }
@@ -76,6 +83,8 @@ export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main') {
   return { created: true, path: plan.path }
 }
 
+const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
+
 /**
  * runPipeline(issueNumber, opts) -> result
  *
@@ -87,13 +96,23 @@ export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main') {
  * - repoOwner: the GitHub org/user (for gh commands)
  * - repoName: the GitHub repo name
  * - dryRun: override DRY_RUN env var
+ * - run: the gh and git runner (default: defaultRun)
+ * - spawn: the seat dispatcher (default: the adapter's spawn)
+ * - log: sink for progress lines (default: console.warn)
+ * - resume: { stage, branch, pr, findings }. Stages before resume.stage are
+ *   skipped. The order is architect, developer, tester, reviewer, ship.
+ *   findings, when set, go to the developer verbatim as the fix prompt.
  */
 export async function runPipeline(issueNumber, opts = {}) {
   const dryRun = opts.dryRun !== undefined ? opts.dryRun : process.env.DRY_RUN === 'true'
-  const log = (msg) => console.warn(`[pipeline:#${issueNumber}] ${msg}`)
+  const sink = opts.log || ((line) => console.warn(line))
+  const log = (msg) => sink(`[pipeline:#${issueNumber}] ${msg}`)
+  const run = opts.run || defaultRun
+  const spawnSeat = opts.spawn || spawn
 
   const repoRoot = opts.repoRoot || process.cwd()
   const plan = worktreePlan(repoRoot, issueNumber)
+  const gh = createGitHub({ run, dryRun, log, cwd: repoRoot })
 
   const state = {
     issue: issueNumber,
@@ -109,127 +128,162 @@ export async function runPipeline(issueNumber, opts = {}) {
     done: false,
   }
 
+  const resume = opts.resume
+  const start = resume ? STAGES.indexOf(resume.stage) : 0
+  const runs = (stage) => STAGES.indexOf(stage) >= start
+  if (resume) {
+    state.branch = resume.branch || null
+    state.pr = resume.pr || null
+    // A stage that was skipped passed before: the tester before the reviewer, both before ship.
+    if (start > STAGES.indexOf('tester')) state.testerVerdict = 'PASS'
+    if (start > STAGES.indexOf('reviewer')) state.reviewerVerdict = 'APPROVE'
+  }
+
+  // The label goes on before the first seat from the developer on, once.
+  // Adding is idempotent, and ship removes it, so a resume past the
+  // developer sets it too.
+  let labeled = false
+  const ensureInProgress = async () => {
+    if (labeled) return
+    labeled = true
+    await gh.addLabel(issueNumber, 'in-progress')
+  }
+
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact.
   const dispatch = async (role, task, tier) => {
     state.dispatches.push({ role, tier, cwd: plan.path })
-    return spawn(role, task, { tier, cwd: plan.path })
+    return spawnSeat(role, task, { tier, cwd: plan.path })
   }
 
   if (!dryRun) {
-    await ensureWorktree(repoRoot, plan, opts.baseRef)
+    await ensureWorktree(repoRoot, plan, opts.baseRef, { run })
   }
 
   // --- Stage 1: Architect (SUB_PLAN) ---
-  log('stage 1: architect SUB_PLAN')
-  const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets.`
-  const archReport = await dispatch('architect', archTask, 'judgment')
+  if (runs('architect')) {
+    log('stage 1: architect SUB_PLAN')
+    const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets.`
+    const archReport = await dispatch('architect', archTask, 'judgment')
 
-  if (archReport && archReport.NEEDS_DECISION) {
-    state.parked = `architect NEEDS_DECISION: ${archReport.NEEDS_DECISION}`
-    log(`parked: ${state.parked}`)
-    return state
+    if (archReport && archReport.NEEDS_DECISION) {
+      state.parked = `architect NEEDS_DECISION: ${archReport.NEEDS_DECISION}`
+      log(`parked: ${state.parked}`)
+      return state
+    }
+
+    state.subPlan = archReport?.output || archReport?.summary || 'sub-plan generated'
+    log('sub-plan received')
+
+    // The gate finds a sub-plan by a line that is exactly SUB_PLAN, so the
+    // posted comment always carries one.
+    await gh.comment(issueNumber, hasSubPlan([{ body: state.subPlan }]) ? state.subPlan : `SUB_PLAN\n\n${state.subPlan}`)
   }
 
-  state.subPlan = archReport?.output || archReport?.summary || 'sub-plan generated'
-  log('sub-plan received')
+  // --- Stage 2: Developer (implement, or fix the findings of a resume) ---
+  if (runs('developer')) {
+    log('stage 2: developer implement')
+    const slug = state.subPlan?.slice(0, 30)?.replace(/\s+/g, '-').toLowerCase() || 'impl'
+    state.branch = resume?.branch || worktreePlan(repoRoot, issueNumber, slug, { type: opts.branchType }).branch
 
-  if (!dryRun) {
-    // Post sub-plan as issue comment
-    await ghComment(issueNumber, state.subPlan)
+    const devTask = resume?.findings !== undefined
+      ? `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${resume.findings}`
+      : `Issue #${issueNumber}, branch ${state.branch}: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
+    await ensureInProgress()
+    const devReport = await dispatch('developer', devTask, 'worker')
+
+    if (devReport?.STATUS === 'BLOCKED') {
+      state.parked = `developer BLOCKED: ${devReport.NOTES}`
+      log(`parked: ${state.parked}`)
+      return state
+    }
+    if (devReport?.STATUS === 'NEEDS_CONTEXT') {
+      state.parked = `developer NEEDS_CONTEXT: ${devReport.NOTES}`
+      log(`parked: ${state.parked}`)
+      return state
+    }
+
+    state.pr = devReport?.pr || devReport?.PR || resume?.pr || `https://github.com/example/repo/pull/${issueNumber}`
+    log(`developer done, PR: ${state.pr}`)
   }
-
-  // --- Stage 2: Developer (implement) ---
-  log('stage 2: developer implement')
-  const slug = state.subPlan?.slice(0, 30)?.replace(/\s+/g, '-').toLowerCase() || 'impl'
-  state.branch = worktreePlan(repoRoot, issueNumber, slug, { type: opts.branchType }).branch
-
-  const devTask = `Issue #${issueNumber}, branch ${state.branch}: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
-  const devReport = await dispatch('developer', devTask, 'worker')
-
-  if (devReport?.STATUS === 'BLOCKED') {
-    state.parked = `developer BLOCKED: ${devReport.NOTES}`
-    log(`parked: ${state.parked}`)
-    return state
-  }
-  if (devReport?.STATUS === 'NEEDS_CONTEXT') {
-    state.parked = `developer NEEDS_CONTEXT: ${devReport.NOTES}`
-    log(`parked: ${state.parked}`)
-    return state
-  }
-
-  state.pr = devReport?.pr || devReport?.PR || `https://github.com/example/repo/pull/${issueNumber}`
-  log(`developer done, PR: ${state.pr}`)
 
   // --- Stage 3: Tester (verify) ---
-  log('stage 3: tester verify')
   const testTask = `Branch ${state.branch}, issue #${issueNumber}: verify the change. Run the full check suite and attack the change.`
-  const testReport = await dispatch('tester', testTask, 'worker')
-  state.testerVerdict = testReport?.VERDICT || testReport?.verdict || 'PASS'
+  if (runs('tester')) {
+    log('stage 3: tester verify')
+    await ensureInProgress()
+    const testReport = await dispatch('tester', testTask, 'worker')
+    state.testerVerdict = testReport?.VERDICT || testReport?.verdict || 'PASS'
 
-  if (state.testerVerdict === 'FAIL') {
-    state.fixRounds.tester++
-    if (state.fixRounds.tester > 3) {
-      state.parked = 'tester fix rounds exhausted (3/3)'
-      log(`parked: ${state.parked}`)
-      return state
-    }
-    // Fix round: send findings back to developer, then re-test
-    log(`tester FAIL, fix round ${state.fixRounds.tester}/3`)
-    const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${testReport?.FINDINGS || testReport?.findings || 'findings'}`
-    await dispatch('developer', fixTask, 'worker')
-    // Re-test
-    const reTestReport = await dispatch('tester', testTask, 'worker')
-    state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
     if (state.testerVerdict === 'FAIL') {
-      state.parked = 'tester FAIL after fix round'
-      log(`parked: ${state.parked}`)
-      return state
+      state.fixRounds.tester++
+      if (state.fixRounds.tester > 3) {
+        state.parked = 'tester fix rounds exhausted (3/3)'
+        log(`parked: ${state.parked}`)
+        return state
+      }
+      // Fix round: send findings back to developer, then re-test
+      log(`tester FAIL, fix round ${state.fixRounds.tester}/3`)
+      const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${testReport?.FINDINGS || testReport?.findings || 'findings'}`
+      await dispatch('developer', fixTask, 'worker')
+      // Re-test
+      const reTestReport = await dispatch('tester', testTask, 'worker')
+      state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
+      if (state.testerVerdict === 'FAIL') {
+        state.parked = 'tester FAIL after fix round'
+        log(`parked: ${state.parked}`)
+        return state
+      }
     }
+    log(`tester ${state.testerVerdict}`)
   }
-  log(`tester ${state.testerVerdict}`)
 
   // --- Stage 4: Reviewer (review) ---
-  log('stage 4: reviewer review')
   const reviewTask = `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue and sub-plan. Two passes: spec compliance then code quality.`
-  const reviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-  state.reviewerVerdict = reviewReport?.VERDICT || reviewReport?.verdict || 'APPROVE'
+  if (runs('reviewer')) {
+    log('stage 4: reviewer review')
+    const reviewReport = await dispatch('reviewer', reviewTask, 'judgment')
+    state.reviewerVerdict = reviewReport?.VERDICT || reviewReport?.verdict || 'APPROVE'
 
-  if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
-    state.fixRounds.reviewer++
-    if (state.fixRounds.reviewer > 3) {
-      state.parked = 'reviewer fix rounds exhausted (3/3)'
-      log(`parked: ${state.parked}`)
-      return state
-    }
-    // Fix round: send must-fix findings to developer, re-test, re-review
-    log(`reviewer CHANGES_REQUESTED, fix round ${state.fixRounds.reviewer}/3`)
-    const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these must-fix findings:\n${reviewReport?.FINDINGS || reviewReport?.findings || 'findings'}`
-    await dispatch('developer', fixTask, 'worker')
-    // Re-test
-    const reTestReport = await dispatch('tester', testTask, 'worker')
-    state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
-    // Re-review
-    const reReviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-    state.reviewerVerdict = reReviewReport?.VERDICT || reReviewReport?.verdict || 'APPROVE'
     if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
-      state.parked = 'reviewer CHANGES_REQUESTED after fix round'
-      log(`parked: ${state.parked}`)
-      return state
+      state.fixRounds.reviewer++
+      if (state.fixRounds.reviewer > 3) {
+        state.parked = 'reviewer fix rounds exhausted (3/3)'
+        log(`parked: ${state.parked}`)
+        return state
+      }
+      // Fix round: send must-fix findings to developer, re-test, re-review
+      log(`reviewer CHANGES_REQUESTED, fix round ${state.fixRounds.reviewer}/3`)
+      const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these must-fix findings:\n${reviewReport?.FINDINGS || reviewReport?.findings || 'findings'}`
+      await dispatch('developer', fixTask, 'worker')
+      // Re-test
+      const reTestReport = await dispatch('tester', testTask, 'worker')
+      state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
+      // Re-review
+      const reReviewReport = await dispatch('reviewer', reviewTask, 'judgment')
+      state.reviewerVerdict = reReviewReport?.VERDICT || reReviewReport?.verdict || 'APPROVE'
+      if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
+        state.parked = 'reviewer CHANGES_REQUESTED after fix round'
+        log(`parked: ${state.parked}`)
+        return state
+      }
     }
+    log(`reviewer ${state.reviewerVerdict}`)
   }
-  log(`reviewer ${state.reviewerVerdict}`)
 
   // --- Stage 5: Ship ---
   if (state.reviewerVerdict === 'APPROVE' && state.testerVerdict === 'PASS') {
+    if (!state.pr) {
+      state.parked = 'no PR to mark ready'
+      log(`parked: ${state.parked}`)
+      return state
+    }
     log('stage 5: ship')
     state.done = true
-    if (!dryRun) {
-      // Mark PR ready, remove in-progress label, post summary
-      await ghPrReady(state.pr)
-      await ghRemoveLabel(issueNumber, 'in-progress')
-      await ghComment(issueNumber, `Pipeline complete. PR ready: ${state.pr}`)
-    }
+    await ensureInProgress()
+    await gh.prReady(state.pr)
+    await gh.removeLabel(issueNumber, 'in-progress')
+    await gh.comment(issueNumber, `Pipeline complete. PR ready: ${state.pr}`)
   } else {
     state.parked = `unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`
   }
@@ -238,19 +292,24 @@ export async function runPipeline(issueNumber, opts = {}) {
 }
 
 /**
- * runWave(issueNumbers, opts) -> results[]
+ * runWave(packages, opts) -> results[]
  *
  * Runs the pipeline for multiple issues concurrently (up to 3 at a time).
- * Returns an array of state objects, one per issue.
+ * A package is an issue number, or { issue, resume } for a gate outcome
+ * that does not start at the architect. Returns an array of state objects,
+ * one per package.
  */
-export async function runWave(issueNumbers, opts = {}) {
+export async function runWave(packages, opts = {}) {
   const MAX_CONCURRENT = 3
   const results = []
 
-  for (let i = 0; i < issueNumbers.length; i += MAX_CONCURRENT) {
-    const batch = issueNumbers.slice(i, i + MAX_CONCURRENT)
+  for (let i = 0; i < packages.length; i += MAX_CONCURRENT) {
+    const batch = packages.slice(i, i + MAX_CONCURRENT)
     const batchResults = await Promise.all(
-      batch.map((n) => runPipeline(n, opts))
+      batch.map((p) => {
+        const { issue, resume } = typeof p === 'number' ? { issue: p } : p
+        return runPipeline(issue, { ...opts, resume })
+      })
     )
     results.push(...batchResults)
   }
@@ -553,26 +612,63 @@ async function gateIssue(issue, gh, view) {
 export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.detail}`
 
 // ---------------------------------------------------------------------------
-// GitHub helpers (no-ops in dry-run mode; terminal calls in live mode).
+// The command line.
 // ---------------------------------------------------------------------------
 
-async function ghComment(issueNumber, body) {
-  if (process.env.DRY_RUN === 'true') return
-  // In live mode, the lead session has the terminal tool. This function
-  // would invoke it. For now, it is a placeholder that the lead session
-  // fills in when hosting the driver.
-  console.log(`[gh] issue comment on #${issueNumber}: ${body.slice(0, 80)}...`)
-}
+/**
+ * main(argv, { env, run, spawn, out, err, cwd }) -> exit code
+ *
+ * Exit 0: the run finished, whatever the packages' outcomes. Exit 1: a gh or
+ * git call failed, or an unexpected error. Exit 2: a usage error, before any
+ * GitHub call. stdout (out) carries the gate, the wave plan and the results;
+ * progress, dry-run notes and errors go to stderr (err).
+ */
+export async function main(argv, { env = process.env, run = defaultRun, spawn: spawnSeat, out = console.log, err = console.warn, cwd = process.cwd() } = {}) {
+  const parsed = parseArgs(argv)
+  if (parsed.error) {
+    err(parsed.error)
+    err(USAGE)
+    return 2
+  }
+  const dryRun = env.DRY_RUN === 'true'
+  const gh = createGitHub({ run, dryRun, log: err, cwd })
 
-async function ghPrReady(prUrl) {
-  if (process.env.DRY_RUN === 'true') return
-  const prNumber = prUrl.match(/\/pull\/(\d+)/)?.[1]
-  if (prNumber) {
-    console.log(`[gh] gh pr ready ${prNumber}`)
+  try {
+    for (const label of LABELS) await gh.createLabel(label)
+
+    const numbers = []
+    for (const item of parsed.items) {
+      const found = item.issue !== undefined ? [item.issue] : await gh.issueList(item.label)
+      for (const n of found) if (!numbers.includes(n)) numbers.push(n)
+    }
+
+    const entries = await runGate(numbers, gh)
+    for (const e of entries) {
+      if (e.outcome === 'park') await gh.park(e.issue, e.detail, { inProgress: e.inProgress })
+    }
+
+    const { waves, waiting } = planWaves(entries)
+    entries.forEach((e) => out(formatGateLine(e)))
+    waves.forEach((w, k) => out(`wave ${k + 1}: ${w.map((n) => `#${n}`).join(' ')}`))
+    for (const w of waiting) out(`waiting: #${w.issue} (blocked by ${w.blockers.map((b) => `#${b}`).join(', ')})`)
+
+    // The dry run stands in for a confirmation step: it shows the plan and stops.
+    if (dryRun || waves.length === 0) return 0
+
+    // Only wave 1 runs. The driver never merges, so a later wave's blocker
+    // cannot be merged during this run; the next run picks the later waves up.
+    const packages = waves[0].map((n) => ({ issue: n, resume: entries.find((e) => e.issue === n).resume }))
+    const results = await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd })
+    for (const r of results) {
+      out(r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)
+    }
+    return 0
+  } catch (e) {
+    err(firstLine(e?.message || e))
+    return 1
   }
 }
 
-async function ghRemoveLabel(issueNumber, label) {
-  if (process.env.DRY_RUN === 'true') return
-  console.log(`[gh] gh issue edit ${issueNumber} --remove-label ${label}`)
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  process.exitCode = await main(process.argv.slice(2))
 }

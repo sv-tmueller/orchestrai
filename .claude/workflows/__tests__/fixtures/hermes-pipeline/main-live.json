@@ -73,28 +73,6 @@
       "stateReason": "",
       "title": "Issue 204 title"
     },
-    "gh issue view 205 --json body,comments,labels,number,state,stateReason,title": {
-      "body": "Issue 205",
-      "comments": [],
-      "labels": [
-        {
-          "id": "LA_size:M",
-          "name": "size:M",
-          "description": "",
-          "color": "ededed"
-        },
-        {
-          "id": "LA_in-progress",
-          "name": "in-progress",
-          "description": "",
-          "color": "ededed"
-        }
-      ],
-      "number": 205,
-      "state": "OPEN",
-      "stateReason": "",
-      "title": "Issue 205 title"
-    },
     "gh issue list --state open --label size:M --limit 100 --json number": [
       {
         "number": 203
@@ -103,6 +81,7 @@
         "number": 201
       }
     ],
+    "gh issue list --state open --label nothing --limit 100 --json number": [],
     "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [],
     "git ls-remote --heads origin": "1111111111111111111111111111111111111111\trefs/heads/main\n",
     "git worktree list --porcelain": ""

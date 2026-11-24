@@ -10,7 +10,9 @@
 
 import { test, describe, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -693,5 +695,325 @@ describe('the gate', () => {
     const fake = fakeRunner(loadFixture('github-reads'))
     const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
     await assert.rejects(runGate([404], gh), /^Error: gh issue view 404 /)
+  })
+})
+
+describe('main', () => {
+  const { main, LABELS, USAGE } = driver
+
+  // Runs main against a fixture. env is explicit, so the test process's own
+  // DRY_RUN=true does not leak in.
+  async function runMain(argv, fixtureName, { dryRun = false, reports, wrap } = {}) {
+    const fake = fakeRunner(loadFixture(fixtureName), reports)
+    const stdout = []
+    const stderr = []
+    const code = await main(argv, {
+      env: dryRun ? { DRY_RUN: 'true' } : {},
+      run: wrap ? wrap(fake.run) : fake.run,
+      spawn: fake.spawn,
+      out: (l) => stdout.push(l),
+      err: (l) => stderr.push(l),
+      cwd: '/repo',
+    })
+    return { code, stdout, stderr, calls: fake.calls }
+  }
+
+  describe('usage errors', () => {
+    for (const argv of [[], ['label:'], ['abc'], ['--issues', '1,2']]) {
+      test(`${JSON.stringify(argv)} exits 2 with the usage line and makes no call`, async () => {
+        const r = await runMain(argv, 'main-live')
+        assert.equal(r.code, 2)
+        assert.ok(r.stderr.some((l) => l.includes(USAGE)))
+        assert.deepEqual(r.stdout, [])
+        assert.deepEqual(r.calls, [])
+      })
+    }
+  })
+
+  describe('with DRY_RUN=true', () => {
+    const argv = ['label:size:M', '204', '202', '201']
+
+    test('exits 0, makes no write call and spawns no seat', async () => {
+      const r = await runMain(argv, 'main-live', { dryRun: true })
+      assert.equal(r.code, 0)
+      assert.deepEqual(keysOf(r.calls, 'write'), [])
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+    })
+
+    test('stdout is the gate in package order and then the wave plan, nothing else', async () => {
+      const r = await runMain(argv, 'main-live', { dryRun: true })
+      assert.equal(r.stdout.length, 6)
+      assert.match(r.stdout[0], /^#201 size:M run: /)
+      assert.match(r.stdout[1], /^#203 size:M wait: blocked by #201$/)
+      assert.match(r.stdout[2], /^#204 size:S run: /)
+      assert.match(r.stdout[3], /^#202 unsized park: /)
+      assert.deepEqual(r.stdout.slice(4), ['wave 1: #201 #204', 'wave 2: #203'])
+    })
+
+    test('every skipped write is named on stderr, the labels and the park among them', async () => {
+      const r = await runMain(argv, 'main-live', { dryRun: true })
+      for (const l of LABELS) {
+        assert.ok(r.stderr.some((s) => s.includes(`gh label create ${l.name} `)), `label ${l.name}`)
+      }
+      assert.ok(r.stderr.some((s) => s.includes('gh issue comment 202 --body Parked: ')))
+      assert.ok(r.stderr.some((s) => s.includes('gh issue edit 202 --add-label needs-human')))
+    })
+
+    test('a label expands to the open issues carrying it, and a repeated number is one package', async () => {
+      const r = await runMain(['label:size:M', '201'], 'main-live', { dryRun: true })
+      assert.ok(keysOf(r.calls, 'read').includes('gh issue list --state open --label size:M --limit 100 --json number'))
+      assert.deepEqual(r.stdout.filter((l) => l.startsWith('#')).map((l) => l.split(' ')[0]), ['#201', '#203'])
+    })
+
+    test('waiting issues get a waiting line', async () => {
+      const r = await runMain(['203'], 'main-live', { dryRun: true })
+      assert.deepEqual(r.stdout.slice(1), ['waiting: #203 (blocked by #201)'])
+    })
+
+    test('a label with no open issues prints nothing and exits 0', async () => {
+      const r = await runMain(['label:nothing'], 'main-live', { dryRun: true })
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout, [])
+    })
+  })
+
+  describe('live', () => {
+    const argv = ['label:size:M', '204', '202']
+    const index = (calls, pred) => calls.findIndex(pred)
+
+    test('the six label creates come first, before any other write and any seat', async () => {
+      const r = await runMain(argv, 'main-live')
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.calls.slice(0, 6).map((c) => c.key), LABELS.map(
+        (l) => `gh label create ${l.name} --color ${l.color} --description ${l.description} --force`
+      ))
+      assert.ok(index(r.calls, (c) => c.kind === 'spawn') > 5)
+    })
+
+    test('an unsized issue gets the park writes and does not run', async () => {
+      const r = await runMain(['202'], 'main-live')
+      const writes = keysOf(r.calls, 'write').slice(6)
+      assert.deepEqual(writes, [
+        'gh issue comment 202 --body Parked: no size label, not guessing a size',
+        'gh issue edit 202 --add-label needs-human',
+      ])
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+      assert.match(r.stdout[0], /^#202 unsized park: /)
+    })
+
+    test('a parked issue that carries in-progress has it removed', async () => {
+      const r = await runMain(['206'], 'main-park-in-progress')
+      assert.ok(keysOf(r.calls, 'write').includes('gh issue edit 206 --remove-label in-progress'))
+    })
+
+    test('in-progress is added before the developer is spawned', async () => {
+      const r = await runMain(['204'], 'main-live')
+      const added = index(r.calls, (c) => c.key === 'gh issue edit 204 --add-label in-progress')
+      const developer = index(r.calls, (c) => c.kind === 'spawn' && c.role === 'developer')
+      assert.ok(added > 5, 'the label is added')
+      assert.ok(added < developer, 'before the developer dispatch')
+    })
+
+    test('the architect runs only when there is no sub-plan comment, and the developer after it', async () => {
+      const r = await runMain(['201', '204'], 'main-live')
+      const roles = (cwd) => r.calls.filter((c) => c.kind === 'spawn' && c.cwd === cwd).map((c) => c.role)
+      assert.deepEqual(roles('/repo/.worktrees/pkg-201'), ['architect', 'developer', 'tester', 'reviewer'])
+      assert.deepEqual(roles('/repo/.worktrees/pkg-204'), ['developer', 'tester', 'reviewer'])
+    })
+
+    test('only wave 1 runs: a wave 2 issue is never spawned and gets no worktree', async () => {
+      const r = await runMain(['label:size:M'], 'main-live')
+      assert.equal(r.code, 0)
+      assert.ok(r.calls.some((c) => c.kind === 'spawn' && c.cwd === '/repo/.worktrees/pkg-201'))
+      assert.ok(!r.calls.some((c) => c.kind === 'spawn' && c.cwd.includes('pkg-203')))
+      assert.ok(!r.calls.some((c) => c.key && c.key.includes('pkg-203')))
+      assert.ok(r.stdout.includes('wave 2: #203'))
+    })
+
+    test('stdout is the gate, the wave plan and one result line per package; progress is on stderr', async () => {
+      const r = await runMain(['201', '204'], 'main-live')
+      assert.match(r.stdout[0], /^#201 size:M run: /)
+      assert.match(r.stdout[1], /^#204 size:S run: /)
+      assert.equal(r.stdout[2], 'wave 1: #201 #204')
+      assert.deepEqual(r.stdout.slice(3), [
+        '#201 done: PR https://github.com/o/r/pull/900',
+        '#204 done: PR https://github.com/o/r/pull/900',
+      ])
+      assert.ok(r.stdout.every((l) => !l.includes('[pipeline')))
+      assert.ok(r.stderr.some((l) => l.includes('[pipeline:#201]')))
+    })
+
+    test('a package that parks is reported as parked with its reason', async () => {
+      const r = await runMain(['201'], 'main-live', {
+        reports: { architect: { NEEDS_DECISION: 'which cache?' } },
+      })
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
+    })
+
+    test('with no wave 1 package nothing runs and the run exits 0', async () => {
+      const r = await runMain(['203'], 'main-live')
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+    })
+  })
+
+  describe('failures', () => {
+    test('a failed gh read exits 1 with one stderr line naming the command', async () => {
+      const r = await runMain(['404'], 'github-reads')
+      assert.equal(r.code, 1)
+      assert.equal(r.stderr.filter((l) => l.startsWith('gh issue view 404')).length, 1)
+      assert.deepEqual(r.stdout, [])
+    })
+
+    test('a failed label create exits 1 before anything else runs', async () => {
+      const wrap = (run) => async (cmd, args, opts) =>
+        args[0] === 'label' ? { code: 1, stdout: '', stderr: 'HTTP 403: no access\nmore' } : run(cmd, args, opts)
+      const r = await runMain(['201'], 'main-live', { wrap })
+      assert.equal(r.code, 1)
+      assert.ok(r.stderr.some((l) => l.startsWith('gh label create size:S') && l.includes('HTTP 403: no access')))
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+    })
+
+    test('an unexpected error exits 1 and names itself on stderr', async () => {
+      const r = await runMain(['999'], 'main-live')
+      assert.equal(r.code, 1)
+      assert.ok(r.stderr.some((l) => l.includes('no fixture for: gh issue view 999')))
+    })
+  })
+})
+
+describe('runPipeline with resume', () => {
+  const { runPipeline } = driver
+
+  async function pipeline(n, opts = {}, reports) {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, reports)
+    const state = await runPipeline(n, {
+      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+    })
+    return { state, calls: fake.calls }
+  }
+  const roles = (state) => state.dispatches.map((d) => d.role)
+  const resume = (stage, extra = {}) => ({ stage, branch: 'feat/7-work', pr: 12, ...extra })
+
+  test('without resume the pipeline starts at the architect', async () => {
+    const { state } = await pipeline(7)
+    assert.deepEqual(roles(state), ['architect', 'developer', 'tester', 'reviewer'])
+  })
+
+  test('resume at the developer skips the architect and posts no sub-plan', async () => {
+    const { state, calls } = await pipeline(7, { resume: { stage: 'developer' } })
+    assert.deepEqual(roles(state), ['developer', 'tester', 'reviewer'])
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('gh issue comment 7 --body SUB_PLAN')))
+    assert.equal(state.done, true)
+  })
+
+  test('resume at the developer with findings sends them verbatim in the fix prompt', async () => {
+    const findings = '**Tester report**\n\nVERDICT: FAIL\nFINDINGS: 1. a\n2. b'
+    const { state, calls } = await pipeline(
+      7, { resume: resume('developer', { findings }) }, { developer: { STATUS: 'DONE' } }
+    )
+    assert.deepEqual(roles(state), ['developer', 'tester', 'reviewer'])
+    const task = calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.ok(task.includes(`fix exactly these findings:\n${findings}`))
+    assert.ok(task.includes('branch feat/7-work'))
+    assert.equal(state.pr, 12, 'the PR carries over when the fix report names none')
+    assert.equal(state.done, true)
+  })
+
+  test('resume at the tester skips the architect and the developer', async () => {
+    const { state } = await pipeline(7, { resume: resume('tester') })
+    assert.deepEqual(roles(state), ['tester', 'reviewer'])
+    assert.equal(state.branch, 'feat/7-work')
+    assert.equal(state.pr, 12)
+    assert.equal(state.done, true)
+  })
+
+  test('resume at the reviewer dispatches only the reviewer, with the tester already PASS', async () => {
+    const { state } = await pipeline(7, { resume: resume('reviewer') })
+    assert.deepEqual(roles(state), ['reviewer'])
+    assert.equal(state.testerVerdict, 'PASS')
+    assert.equal(state.done, true)
+  })
+
+  test('resume at ship dispatches no seat and marks the PR ready', async () => {
+    const { state, calls } = await pipeline(7, { resume: resume('ship') })
+    assert.deepEqual(roles(state), [])
+    assert.equal(state.done, true)
+    assert.ok(keysOf(calls, 'write').includes('gh pr ready 12'))
+  })
+
+  test('a resume with no PR cannot ship and parks with a reason', async () => {
+    const { state, calls } = await pipeline(7, { resume: { stage: 'tester', branch: 'feat/7-work' } })
+    assert.equal(state.done, false)
+    assert.match(state.parked, /no PR/)
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('gh pr ready')))
+  })
+
+  test('in-progress is added before the first seat of a resume past the developer, and once', async () => {
+    const { calls } = await pipeline(7, { resume: resume('tester') })
+    const added = calls.findIndex((c) => c.key === 'gh issue edit 7 --add-label in-progress')
+    const tester = calls.findIndex((c) => c.kind === 'spawn' && c.role === 'tester')
+    assert.ok(added >= 0 && added < tester)
+    assert.equal(keysOf(calls, 'write').filter((k) => k.includes('--add-label')).length, 1)
+  })
+
+  test('a run from the architect adds in-progress once, before the developer and not before the architect', async () => {
+    const { calls } = await pipeline(7)
+    const added = calls.findIndex((c) => c.key === 'gh issue edit 7 --add-label in-progress')
+    assert.ok(added > calls.findIndex((c) => c.kind === 'spawn' && c.role === 'architect'))
+    assert.ok(added < calls.findIndex((c) => c.kind === 'spawn' && c.role === 'developer'))
+    assert.equal(keysOf(calls, 'write').filter((k) => k.includes('--add-label')).length, 1)
+  })
+
+  test('the sub-plan is posted with a SUB_PLAN line, added when the architect omitted it', async () => {
+    const { calls } = await pipeline(7, {}, { architect: { output: 'Approach: do the thing.' } })
+    assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.'))
+  })
+
+  test('a sub-plan that already has its SUB_PLAN line is posted as it is', async () => {
+    const { calls } = await pipeline(7, {}, { architect: { output: 'SUB_PLAN\n\nApproach.' } })
+    assert.ok(keysOf(calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nApproach.'))
+  })
+
+  test('a dry run makes no runner call at all', async () => {
+    const fake = fakeRunner({ reads: {} })
+    const state = await runPipeline(7, {
+      dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', resume: resume('reviewer'),
+    })
+    assert.equal(state.done, true)
+    assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+  })
+})
+
+describe('the script entry point', () => {
+  const script = fileURLToPath(new URL('../../adapters/hermes-pipeline.mjs', import.meta.url))
+
+  test('no arguments exits 2 with the usage line and makes no gh call', () => {
+    // A stub gh and git first on PATH record any call. The real ones are out of reach.
+    const bin = mkdtempSync(join(tmpdir(), 'hermes-stub-'))
+    const marker = join(bin, 'called')
+    for (const name of ['gh', 'git']) {
+      writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${marker}"\nexit 1\n`)
+      chmodSync(join(bin, name), 0o755)
+    }
+    const r = spawnSync(process.execPath, [script], { env: { PATH: bin }, encoding: 'utf8' })
+    assert.equal(r.status, 2)
+    assert.ok(r.stderr.includes(driver.USAGE), `stderr: ${r.stderr}`)
+    assert.equal(r.stdout, '')
+    assert.equal(existsSync(marker), false, 'a gh or git call was made')
+  })
+})
+
+describe('runWave with resume', () => {
+  test('a package is a number or { issue, resume }', async () => {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+    const results = await driver.runWave(
+      [5, { issue: 6, resume: { stage: 'reviewer', branch: 'feat/6-x', pr: 20 } }],
+      { dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' }
+    )
+    assert.deepEqual(results.map((r) => r.issue), [5, 6])
+    assert.deepEqual(results[1].dispatches.map((d) => d.role), ['reviewer'])
+    assert.deepEqual(results[0].dispatches.map((d) => d.role), ['architect', 'developer', 'tester', 'reviewer'])
   })
 })
