@@ -1106,6 +1106,25 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
+    // These letters take a value, as a separate word and inside a cluster. A
+    // cluster that ends in `-u` after one of them gives `git` to the letter
+    // before it: sudo's `-c` takes `u` as the class, and the push runs.
+    describe('sudo -a -c -r -t and doas -a take a value', () => {
+      defineDenyRows('push-default', [
+        'sudo -cu git push origin main',
+        'sudo -au git push origin main',
+        'sudo -ru git push origin main',
+        'sudo -tu git push origin main',
+        'doas -au git push origin main',
+        'sudo -c foo git push origin main',
+        'doas -a foo git push origin main',
+      ])
+      defineAllowRows('wrapper', [
+        // The value of `-c` is `git`, so the program sudo runs is `push`.
+        'sudo -c git push origin main',
+      ])
+    })
+
     describe('still passes', () => {
       defineAllowRows('wrapper', [
         'sudo -Eu root git status',
@@ -1148,6 +1167,10 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         "env -S 'env -iu' -- git push origin main",
         "env -S 'nice env -iu' -i git push origin main",
         "env -S 'sudo env -iu' -i git push origin main",
+        // The whole-word readers keep main's sudo set, so `-c` takes `git` here.
+        // The real `env` hands `sudo` the dropped `-i` as the class, and the
+        // push runs.
+        "env -S 'sudo -c' -i git push origin main",
       ])
     })
 
@@ -1202,6 +1225,9 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         "env -S 'sudo -Eu root' git push origin main",
         "env -iS bash -c 'sudo -Eu root git push origin main'",
         "env -S '' eval sudo -Eu root git push origin main",
+        // The whole-word readers keep main's sudo set, so `-c` does not take
+        // `foo`.
+        "env -S '' sudo -c foo git push origin main",
       ])
     })
   })

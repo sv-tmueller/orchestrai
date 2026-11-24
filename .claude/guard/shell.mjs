@@ -133,10 +133,18 @@ function skipFlags(words, valueFlags, state, chdir = null) {
 }
 
 const SUDO_VALUE_FLAGS = new Set([
-  '-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U',
+  '-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U', '-a', '-c', '-r', '-t',
   '--user', '--group', '--host', '--prompt', '--close-from', '--chdir',
   '--chroot', '--role', '--type', '--other-user',
 ])
+
+// The sudo set the whole-word readers use: main's, without `-a -c -r -t`.
+const SUDO_WHOLE_WORD_VALUE_FLAGS = new Set(
+  [...SUDO_VALUE_FLAGS].filter((flag) => !['-a', '-c', '-r', '-t'].includes(flag)),
+)
+
+const DOAS_VALUE_FLAGS = new Set(['-u', '-C', '-a'])
+const DOAS_WHOLE_WORD_VALUE_FLAGS = new Set(['-u', '-C'])
 
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 
@@ -255,12 +263,14 @@ const WRAPPERS = {
   stdbuf: (rest, state) => skipFlags(rest, new Set(['-i', '-o', '-e', '--input', '--output', '--error']), state),
   setsid: (rest, state) => skipFlags(rest, NO_VALUE, state),
   ionice: (rest, state) => skipFlags(rest, new Set(['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid']), state),
-  doas: (rest, state) => skipFlags(rest, new Set(['-u', '-C']), state),
+  // The whole-word readers keep main's sets (see `skipEnv`), and #600 removes
+  // them. `-a -c -r -t` (sudo) and `-a` (doas) are read in default mode only.
+  doas: (rest, state) => skipFlags(rest, state.wholeWords ? DOAS_WHOLE_WORD_VALUE_FLAGS : DOAS_VALUE_FLAGS, state),
   command: (rest, state) => skipFlags(rest, NO_VALUE, state),
   exec: (rest, state) => skipFlags(rest, new Set(['-a']), state),
   nohup: (rest, state) => skipFlags(rest, NO_VALUE, state),
   time: (rest, state) => skipFlags(rest, new Set(['-f', '--format', '-o', '--output']), state),
-  sudo: (rest, state) => skipFlags(rest, SUDO_VALUE_FLAGS, state, { short: '-D', long: '--chdir' }),
+  sudo: (rest, state) => skipFlags(rest, state.wholeWords ? SUDO_WHOLE_WORD_VALUE_FLAGS : SUDO_VALUE_FLAGS, state, { short: '-D', long: '--chdir' }),
   nice: (rest, state) => skipFlags(rest, new Set(['-n', '--adjustment']), state),
   timeout: (rest, state) => skipFlags(rest, new Set(['-s', '--signal', '-k', '--kill-after']), state).slice(1),
 }
