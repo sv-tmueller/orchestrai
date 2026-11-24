@@ -1295,6 +1295,98 @@ describe('merge-rule: visibility', () => {
       `gh api -X PATCH ${API} -f description=visibility`,
     ])
   })
+
+  describe('gh flags before the subcommand', () => {
+    describe('denied', () => {
+      defineDenyRows('visibility', [
+        'gh -R acme/widget repo edit --visibility private',
+        'gh repo -R acme/widget edit --visibility=public',
+        'gh -R acme/widget api -X PATCH repos/acme/widget -f visibility=private',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('gh flag', [
+        'gh repo -R acme/widget edit --enable-auto-merge',
+      ])
+    })
+  })
+
+  describe('gh api with a word the guard cannot read', () => {
+    describe('a path with variables, denied by what it ends in', () => {
+      defineDenyRows('visibility', [
+        'gh api -X PATCH "repos/$REPO" -f visibility=private',
+        'gh api -X PATCH "repos/$REPO" -F private=true',
+        'gh api -X PATCH "repos/$REPO" --input body.json',
+        'gh api -X PATCH repos/$OWNER/$REPO -f visibility=public',
+        'gh api -X PATCH repos/acme/widget -f "$K=private"',
+        'gh api --method PATCH "repos/$REPO" -f visibility="$V"',
+      ])
+    })
+
+    describe('passes: a literal tail that is something else', () => {
+      defineAllowRows('gh api variable', [
+        'gh api -X PATCH "repos/$REPO" -f allow_auto_merge=true',
+        'gh api -X PATCH "repos/$REPO" -f description="$D"',
+      ])
+    })
+  })
+
+  describe('-f=name=value', () => {
+    defineDenyRows('visibility', [
+      'gh api -X PATCH repos/acme/widget -f=private=true',
+      'gh api -X PATCH repos/acme/widget -F=visibility=public',
+      'gh api -X=PATCH repos/acme/widget -f visibility=private',
+    ])
+    defineAllowRows('field', [
+      'gh api -X PATCH repos/acme/widget -f=allow_auto_merge=true',
+      'gh api -X=GET repos/acme/widget',
+    ])
+  })
+
+  describe('a flag that expands in gh pr merge and gh repo edit', () => {
+    describe('denied', () => {
+      defineDenyRows('visibility', [
+        'gh repo edit --$OPT private',
+        'gh repo edit "--vis$X" private',
+        'gh repo edit acme/widget --visibility=$V',
+      ])
+    })
+
+    describe('passes: a word that is entirely an expansion, or a value that expands', () => {
+      defineAllowRows('gh expansion', [
+        'gh repo edit "$REPO" --enable-auto-merge',
+        'gh repo edit --description "$D"',
+      ])
+    })
+  })
+
+  describe('a git or gh subcommand that expands', () => {
+    describe('denied', () => {
+      defineDenyRows('visibility', [
+        'gh repo $S --visibility private',
+        'gh $G edit --visibility private',
+      ])
+    })
+
+    describe('passes: a word after the subcommand that expands is not the subcommand', () => {
+      defineAllowRows('subcommand', [
+        'gh repo edit "$REPO" --enable-auto-merge',
+        'gh issue edit "$N" --add-label in-progress',
+      ])
+    })
+  })
+
+  describe("\\u and \\U escapes in $'...'", () => {
+    defineDenyRows('visibility', [
+      "gh repo edit $'\\u002d\\u002dvisibility' private",
+      "gh repo edit --$'\\u0076isibility' private",
+      "gh repo edit $'--\\u0076isibility=private'",
+      "gh repo edit $'--\\U00000076isibility' private",
+      "gh api -X PATCH repos/acme/widget -f $'\\u0076isibility'=public",
+      "gh api -X PATCH repos/acme/widget -f $'\\U00000076isibility'=public",
+    ])
+  })
 })
 
 describe('merge-rule: delete-repo', () => {
@@ -1352,17 +1444,11 @@ describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => 
       'gh repo --repo=acme/widget delete',
       'gh -R acme/widget api -X DELETE repos/acme/widget',
     ])
-    defineDenyRows('visibility', [
-      'gh -R acme/widget repo edit --visibility private',
-      'gh repo -R acme/widget edit --visibility=public',
-      'gh -R acme/widget api -X PATCH repos/acme/widget -f visibility=private',
-    ])
   })
 
   describe('passes', () => {
     defineAllowRows('gh flag', [
       'gh --repo acme/widget repo view',
-      'gh repo -R acme/widget edit --enable-auto-merge',
       'gh -R acme/widget api repos/acme/widget',
     ])
   })
@@ -1382,14 +1468,6 @@ describe('merge-rule round 1, finding 2: gh api with a word the guard cannot rea
       'gh api -X "$M" "repos/$REPO"',
       'gh api -X "$(echo DELETE)" repos/acme/widget',
     ])
-    defineDenyRows('visibility', [
-      'gh api -X PATCH "repos/$REPO" -f visibility=private',
-      'gh api -X PATCH "repos/$REPO" -F private=true',
-      'gh api -X PATCH "repos/$REPO" --input body.json',
-      'gh api -X PATCH repos/$OWNER/$REPO -f visibility=public',
-      'gh api -X PATCH repos/acme/widget -f "$K=private"',
-      'gh api --method PATCH "repos/$REPO" -f visibility="$V"',
-    ])
   })
 
   describe('an endpoint that is entirely unknown, with a write method', () => {
@@ -1407,26 +1485,12 @@ describe('merge-rule round 1, finding 2: gh api with a word the guard cannot rea
     defineAllowRows('gh api variable', [
       'gh api "repos/$REPO"',
       'gh api -X DELETE "repos/$REPO/labels/bug"',
-      'gh api -X PATCH "repos/$REPO" -f allow_auto_merge=true',
-      'gh api -X PATCH "repos/$REPO" -f description="$D"',
       'gh api -X "$M" repos/acme/widget/labels',
       'gh api "$EP"',
       'gh api -X GET "$EP"',
       'gh api -X DELETE "repos/$REPO/git/refs/heads/feat/x"',
     ])
   })
-})
-
-describe('merge-rule round 1, finding 7: -f=name=value', () => {
-  defineDenyRows('visibility', [
-    'gh api -X PATCH repos/acme/widget -f=private=true',
-    'gh api -X PATCH repos/acme/widget -F=visibility=public',
-    'gh api -X=PATCH repos/acme/widget -f visibility=private',
-  ])
-  defineAllowRows('field', [
-    'gh api -X PATCH repos/acme/widget -f=allow_auto_merge=true',
-    'gh api -X=GET repos/acme/widget',
-  ])
 })
 
 describe('merge-rule round 1: pipeline commands written with variables still pass', () => {
@@ -1443,23 +1507,6 @@ describe('merge-rule round 1: pipeline commands written with variables still pas
 
 // Tester round 2 (issue #539).
 
-describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and gh repo edit', () => {
-  describe('denied', () => {
-    defineDenyRows('visibility', [
-      'gh repo edit --$OPT private',
-      'gh repo edit "--vis$X" private',
-      'gh repo edit acme/widget --visibility=$V',
-    ])
-  })
-
-  describe('passes: a word that is entirely an expansion, or a value that expands', () => {
-    defineAllowRows('gh expansion', [
-      'gh repo edit "$REPO" --enable-auto-merge',
-      'gh repo edit --description "$D"',
-    ])
-  })
-})
-
 // Reviewer round 1 (issue #539).
 
 describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
@@ -1467,17 +1514,6 @@ describe('merge-rule review round 1, finding 3: a git or gh subcommand that expa
     defineDenyRows('delete-repo', [
       'gh repo $S acme/widget --yes',
       'gh $G delete acme/widget --yes',
-    ])
-    defineDenyRows('visibility', [
-      'gh repo $S --visibility private',
-      'gh $G edit --visibility private',
-    ])
-  })
-
-  describe('passes: a word after the subcommand that expands is not the subcommand', () => {
-    defineAllowRows('subcommand', [
-      'gh repo edit "$REPO" --enable-auto-merge',
-      'gh issue edit "$N" --add-label in-progress',
     ])
   })
 })
@@ -1510,14 +1546,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
     "gh api -X DELETE $'\\u72\\u65pos/acme/widget'",
     "gh api -X DELETE $'\\U72\\U65pos/acme/widget'",
     "gh api -X $'\\u0044ELETE' repos/acme/widget",
-  ])
-  defineDenyRows('visibility', [
-    "gh repo edit $'\\u002d\\u002dvisibility' private",
-    "gh repo edit --$'\\u0076isibility' private",
-    "gh repo edit $'--\\u0076isibility=private'",
-    "gh repo edit $'--\\U00000076isibility' private",
-    "gh api -X PATCH repos/acme/widget -f $'\\u0076isibility'=public",
-    "gh api -X PATCH repos/acme/widget -f $'\\U00000076isibility'=public",
   ])
   defineDenyRows('delete-repo', [
     "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
