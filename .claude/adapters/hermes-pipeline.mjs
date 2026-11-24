@@ -259,6 +259,99 @@ export async function runWave(issueNumbers, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Command line and gate (issue #355). Pure functions first.
+// ---------------------------------------------------------------------------
+
+export const USAGE = 'usage: node .claude/adapters/hermes-pipeline.mjs <issue-number | label:<name>>...'
+
+/**
+ * parseArgs(argv) -> { items } | { error }
+ *
+ * Each argument is an issue number (digits only) or `label:<name>`. Only the
+ * first `label:` is stripped, so `label:size:M` selects `size:M`. Duplicates
+ * are dropped, argument order is kept.
+ */
+export function parseArgs(argv) {
+  if (argv.length === 0) return { error: 'no packages given' }
+  const items = []
+  const seen = new Set()
+  for (const arg of argv) {
+    let item
+    if (/^\d+$/.test(arg)) {
+      item = { issue: Number(arg) }
+    } else if (arg.startsWith('label:') && arg.length > 'label:'.length) {
+      item = { label: arg.slice('label:'.length) }
+    } else {
+      return { error: `bad argument: ${JSON.stringify(arg)}` }
+    }
+    const key = item.issue !== undefined ? `i${item.issue}` : `l${item.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    items.push(item)
+  }
+  return { items }
+}
+
+/**
+ * parseBlockers(body) -> number[]
+ *
+ * Whole lines of the form `Blocked by: #N` only. A mention inside a list
+ * item or backticks does not count.
+ */
+export function parseBlockers(body) {
+  const found = []
+  for (const line of String(body || '').split('\n')) {
+    const m = line.replace(/\r$/, '').match(/^Blocked by: #(\d+)\s*$/)
+    if (m && !found.includes(Number(m[1]))) found.push(Number(m[1]))
+  }
+  return found
+}
+
+const VERDICT_LINE = /^VERDICT: (PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/m
+
+/**
+ * resumeStage(comments) -> { stage, findings? }
+ *
+ * Where a draft PR's package stopped, read from the role-contract VERDICT
+ * line of the latest comment that has one. Bold report headers are free
+ * text and are not matched.
+ */
+export function resumeStage(comments) {
+  const ordered = [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const m = String(ordered[i].body || '').replace(/\r/g, '').match(VERDICT_LINE)
+    if (!m) continue
+    if (m[1] === 'PASS') return { stage: 'reviewer' }
+    if (m[1] === 'APPROVE') return { stage: 'ship' }
+    return { stage: 'developer', findings: String(ordered[i].body) }
+  }
+  return { stage: 'tester' }
+}
+
+/**
+ * planWaves(entries) -> { waves, waiting }
+ *
+ * entries: [{ issue, outcome, blockers }], where blockers lists the
+ * unmerged blockers. Wave 1 is every run and resume package. Wave k holds
+ * the wait packages whose blockers all sit in earlier waves. The rest is
+ * waiting: the blocker is outside the run, not runnable, or in a cycle.
+ */
+export function planWaves(entries) {
+  const waves = []
+  const placed = new Set()
+  let pending = entries.filter((e) => e.outcome === 'wait')
+  let current = entries.filter((e) => e.outcome === 'run' || e.outcome === 'resume').map((e) => e.issue)
+  while (current.length > 0) {
+    waves.push(current)
+    current.forEach((n) => placed.add(n))
+    const ready = pending.filter((e) => e.blockers.every((b) => placed.has(b)))
+    pending = pending.filter((e) => !ready.includes(e))
+    current = ready.map((e) => e.issue)
+  }
+  return { waves, waiting: pending.map((e) => ({ issue: e.issue, blockers: e.blockers })) }
+}
+
+// ---------------------------------------------------------------------------
 // GitHub helpers (no-ops in dry-run mode; terminal calls in live mode).
 // ---------------------------------------------------------------------------
 
