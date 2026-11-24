@@ -17,6 +17,9 @@ section 4 Phase C for the design.
   (see "OpenRouter variant (Kimi K3.1 Pro)").
 - `.claude/adapters/hermes-adapter.mjs` -- the adapter module exporting
   `spawn`, `detectFailure`, `retry`, `resolveTier`, and `resolveRole`.
+- `.claude/adapters/hermes-pipeline.mjs` -- the pipeline driver: a command
+  line (see "Driver command line"), the gate, and the per-package stage
+  loop that runs architect, developer, tester, reviewer and ship.
 - `.claude/adapters/hermes-renderer.mjs` -- the workflow renderer that
   reads JSON spec files from `.claude/workflows/specs/` and drives the
   adapter's spawn/parallel operations.
@@ -167,8 +170,9 @@ with fallback) can be tested offline.
 DRY_RUN=true npm test
 ```
 
-The test suite always runs in dry-run mode; live runs require a Hermes
-session with the model provider configured.
+The test suite makes no live calls: it runs in dry-run mode, against stubs,
+or against saved fixtures. Live runs require a Hermes session with the model
+provider configured.
 
 ## Live mode
 
@@ -205,6 +209,80 @@ needs `terminal` for git, gh, and the check suite, and terminal implies
 write capability. Read-only stays a prompt-level contract on this host.
 What `-t` does enforce is flat-star: no seat gets the `delegation`
 toolset, so no seat can re-delegate.
+
+## Driver command line
+
+```
+node .claude/adapters/hermes-pipeline.mjs <arg>...
+```
+
+Each argument is an issue number or `label:<name>`. A label selects the open
+issues carrying it (the first 100). Numbers and labels mix, and the package
+list is all of them in argument order with duplicates dropped. The driver
+works on the repo in the current directory, since `gh` and `git` find the
+repo from there. It never merges.
+
+The gate reads each issue and decides one outcome per package: `run`,
+`resume`, `wait`, `complete`, `park`, `stop` or `skip`. The first matching
+rule wins: closed, `needs-human`, `size:L` or `size:XL`, no size label,
+a ready PR, a draft PR, `in-progress` with no PR, and then a plain run. A run
+starts at the developer when the issue has a sub-plan comment (a comment with
+a line that is exactly `SUB_PLAN`), and at the architect when it has none. An
+unmerged `Blocked by: #N` blocker turns a run or resume into a wait. Only
+wave 1 runs, because a later wave's blocker cannot be merged during the run.
+
+An `in-progress` issue with no PR resumes at the developer when a branch named
+`<type>/<n>-...` is on origin, on that branch. The developer is told the
+branch has no PR, to finish the work and to open the draft PR. Without such a
+branch the package runs from the developer. The tester's and reviewer's
+reports belong on a PR, so a package with no PR is never resumed past the
+developer.
+
+In a live run each stage accepts only the report its contract prescribes:
+
+- The architect's report is a sub-plan only when it opens with `SUB_PLAN` and
+  has a body: text after `SUB_PLAN:` on the header line, or at least one
+  non-empty line after it. A bare `SUB_PLAN` line is not a sub-plan. A
+  sub-plan is posted on the issue. `NEEDS_DECISION` parks the
+  package, in all three forms (the question on the same line, on the next
+  line, or the bare word): the result line reads
+  `parked: architect NEEDS_DECISION: <the question>`. A `SPLIT_PROPOSAL`, an
+  `ARBITRATION` or text with no header is not a sub-plan.
+- The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
+  that is a pull request URL (it holds `/pull/<digits>`) or a number. The PR
+  comes from the report, or from the gate on a resume when the report names
+  none. `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
+  holds in a fix round too, as far as the `STATUS` goes.
+- The tester's `VERDICT` is exactly `PASS` or `FAIL`, and the reviewer's is
+  exactly `APPROVE` or `CHANGES_REQUESTED`, in the first pass and in every
+  re-test and re-review. A lower-case word, a word with trailing text or any
+  other word is not a verdict.
+
+Anything else, and a seat that returns nothing, stops the package: the result
+line reads `parked: <role> seat returned no usable report` and nothing more is
+written for it. `runPipeline` with `dryRun` uses placeholders in place of seat
+output instead, so the dry-run tests complete.
+
+stdout carries the gate lines, the wave plan and one result line per package.
+A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
+does not stop the others: its line reads `#<n> error: <reason>`, and every
+other package still runs and reports. The reason is the first line of the
+failed command's stderr. When the error is not a failed command, it is the
+first line of the error's message. A failure at the gate prints one line on
+stderr instead: the command with its arguments on one line (a newline in an
+argument shows as a space), then the first line of its stderr. Progress,
+dry-run notes and errors go to stderr.
+
+`DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
+it creates no label, posts no comment, makes no worktree and starts no seat.
+Each skipped write is named on stderr. A run without `DRY_RUN` is the
+confirmed run and asks no questions.
+
+Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
+packages are outcomes, not failures), 1 when a `gh` or `git` call failed at
+the gate, when any package ended with an `error` line, or when something
+unexpected happened (a mistyped issue number ends here), and 2 for a usage
+error, before any GitHub call.
 
 ## Workflow rendering
 
