@@ -1122,6 +1122,10 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       defineAllowRows('wrapper', [
         // The value of `-c` is `git`, so the program sudo runs is `push`.
         'sudo -c git push origin main',
+        // A new value letter inside the cluster takes the rest of the word
+        // (`u`), so the program run is `foo`.
+        'sudo -cu foo git push origin main',
+        'doas -au foo git push origin main',
       ])
     })
 
@@ -1171,6 +1175,10 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         // The real `env` hands `sudo` the dropped `-i` as the class, and the
         // push runs.
         "env -S 'sudo -c' -i git push origin main",
+        "env -S 'sudo -a' -i git push origin main",
+        "env -S 'sudo -r' -i git push origin main",
+        "env -S 'sudo -t' -i git push origin main",
+        "env -S 'doas -a' -i git push origin main",
       ])
     })
 
@@ -1183,6 +1191,13 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'env -S echo $(sudo -Eu root git push origin main)',
         'env -S echo `sudo -Eu root git push origin main`',
         'env -S echo <(sudo -Eu root git push origin main)',
+        // The new value letters apply inside such a substitution: `-c` takes
+        // `foo`, so sudo runs the push.
+        'env -S echo $(sudo -c foo git push origin main)',
+      ])
+      // `-c` takes `u`, so sudo runs `foo`.
+      defineAllowRows('wrapper', [
+        'env -S echo $(sudo -cu foo git push origin main)',
       ])
     })
 

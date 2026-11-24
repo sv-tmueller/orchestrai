@@ -740,6 +740,22 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     ])
   })
 
+  test('a backtick substitution in the words of a -S command is read with both readers', () => {
+    assert.deepEqual(texts('env -S echo `sudo -Eu root git push origin main`'), [
+      ['git', 'push', 'origin', 'main'],
+      ['echo', '`sudo -Eu root git push origin main`'],
+      ['root', 'git', 'push', 'origin', 'main'],
+    ])
+  })
+
+  test('a <(...) substitution in the words of a -S command is read with both readers', () => {
+    assert.deepEqual(texts('env -S echo <(sudo -Eu root git push origin main)'), [
+      ['git', 'push', 'origin', 'main'],
+      ['echo', '<(sudo -Eu root git push origin main)'],
+      ['root', 'git', 'push', 'origin', 'main'],
+    ])
+  })
+
   test('a value letter before an expansion takes the rest of the word as its value', () => {
     assert.deepEqual(texts('sudo -u$x git push'), [['git', 'push']])
     assert.deepEqual(texts('env -u"$x" git push'), [['git', 'push']])
