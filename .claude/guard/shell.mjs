@@ -26,7 +26,8 @@
  *   wrapper carries `-C`, `--chdir` or `-D`, also inside a short-option
  *   cluster (`env -iC dir`, `sudo -nD dir`). The cluster reading does not apply
  *   to a command where `env` gets a split-string option, nor to any line read
- *   for that command (see `skipEnv`).
+ *   for that command, apart from a substitution written in that command's own
+ *   words (see `skipEnv`).
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
  * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting
@@ -168,6 +169,12 @@ const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
 // `env -iu git push origin main`, and a cluster reader would take `git` as the
 // value of `-iu`, while the real `env` gives `-iu` the dropped `-i` and runs
 // the push.
+//
+// A substitution written in the words of the `-S` command itself (`$(...)`, a
+// backtick command, `<(...)`) is scanned before the mode is picked, so the
+// cluster readers read it, and the whole-word readers read it again when it
+// lands in the built line: `env -S echo $(sudo -Eu root git push origin main)`
+// is denied.
 //
 // The real `env` puts the words of the string in the place of `-S` and goes on
 // reading its own options from there, and this reading does not follow that:

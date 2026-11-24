@@ -1151,6 +1151,18 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
+    // A substitution in the words of the `-S` command is scanned before the mode
+    // is picked, so the cluster readers read it. The whole-word readers read it
+    // again in the built line. Either read of `sudo -Eu root git push origin
+    // main` finds the push.
+    describe('a substitution in the words of the -S command is read with the cluster readers', () => {
+      defineDenyRows('push-default', [
+        'env -S echo $(sudo -Eu root git push origin main)',
+        'env -S echo `sudo -Eu root git push origin main`',
+        'env -S echo <(sudo -Eu root git push origin main)',
+      ])
+    })
+
     describe('passes', () => {
       defineAllowRows('wrapper', [
         'env -iS -i git status',
