@@ -1110,9 +1110,10 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
       ])
     })
 
-    // These letters take a value, as a separate word and inside a cluster. A
-    // cluster that ends in `-u` after one of them gives `git` to the letter
-    // before it: sudo's `-c` takes `u` as the class, and the push runs.
+    // These letters take a value, as a separate word and inside a cluster. In
+    // a cluster that ends in `u` after one of them, that letter takes `u` as
+    // its value and `git` is the program: sudo's `-c` takes `u` as the class,
+    // and the push runs. Main gave `git` to `-u`.
     describe('sudo -a -c -r -t and doas -a take a value', () => {
       defineDenyRows('push-default', [
         'sudo -cu git push origin main',
@@ -1139,6 +1140,25 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         // wrapper that gets `-S`.
         "sudo -c env -S 'sudo -c' git push origin main",
         "sudo -c -u foo env -S 'sudo -c' git push origin main",
+      ])
+    })
+
+    // The new letter takes its value (`u`, or the next word `-u`), so the
+    // program sudo or doas runs is `xargs` or `watch`, which runs the push.
+    // The guard does not see into those programs: the entry "What the parser
+    // cannot see into" of the Not covered list in merge-rule.mjs, which stays
+    // out by the owner's decision (batch #592). The same programs are allowed
+    // on main behind the bare wrapper (the last three rows). Main gave `xargs`
+    // or `watch` to `-u` and denied the first four.
+    describe('a gap: a new value letter makes a program the guard does not see into the program', () => {
+      defineAllowRows('gap', [
+        'sudo -cu xargs git push origin main',
+        'sudo -cu watch git push origin main',
+        'sudo -c -u watch git push origin main',
+        'doas -a -u xargs git push origin main',
+        'sudo xargs git push origin main',
+        'sudo watch git push origin main',
+        'doas xargs git push origin main',
       ])
     })
 
@@ -1184,9 +1204,11 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         "env -S 'env -iu' -- git push origin main",
         "env -S 'nice env -iu' -i git push origin main",
         "env -S 'sudo env -iu' -i git push origin main",
-        // The whole-word readers keep main's sudo set, so `-c` takes `git` here.
-        // The real `env` hands `sudo` the dropped `-i` as the class, and the
-        // push runs.
+        // The whole-word readers keep main's sudo and doas sets, so the letter
+        // (`-c`, `-a`, `-r`, `-t`) does not take `git` here: it is one skipped
+        // word, and `git` is the program. The real `env` hands `sudo` or
+        // `doas` the dropped `-i` as the value of the letter, and the push
+        // runs.
         "env -S 'sudo -c' -i git push origin main",
         "env -S 'sudo -a' -i git push origin main",
         "env -S 'sudo -r' -i git push origin main",
@@ -1197,8 +1219,9 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
 
     // A substitution in the words of the `-S` command is scanned before the mode
     // is picked, so the cluster readers read it. The whole-word readers read it
-    // again in the built line. Either read of `sudo -Eu root git push origin
-    // main` finds the push.
+    // again in the built line. The cluster read of `sudo -Eu root git push
+    // origin main` finds the push; the whole-word read takes `root` as the
+    // program.
     describe('a substitution in the words of the -S command is read with the cluster readers', () => {
       defineDenyRows('push-default', [
         'env -S echo $(sudo -Eu root git push origin main)',
