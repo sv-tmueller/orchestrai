@@ -1103,6 +1103,166 @@ describe('merge-rule: branch-rule', () => {
       `gh api ${API}/branches`,
     ])
   })
+
+  describe('gh flags before the subcommand', () => {
+    describe('denied', () => {
+      defineDenyRows('branch-rule', [
+        'gh -R acme/widget api -X PUT repos/acme/widget/branches/main/protection --input -',
+      ])
+    })
+  })
+
+  describe('gh api with a word the guard cannot read', () => {
+    describe('a path with variables, denied by what it ends in', () => {
+      defineDenyRows('branch-rule', [
+        'gh api -X PUT "repos/$REPO/branches/main/protection" --input rule.json',
+        'gh api -X DELETE "repos/$REPO/branches/$B/protection"',
+        'gh api -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" -f strict=false',
+        'gh api -X POST "repos/$REPO/rulesets" --input r.json',
+        'gh api -X PUT "repos/$O/$R/rulesets/42" --input -',
+        'gh api -X DELETE "repos/${O}/widget/rulesets/42"',
+        'gh api -X DELETE "orgs/$ORG/rulesets/42"',
+        'gh api -X "$M" repos/acme/widget/branches/main/protection',
+        'gh api -X "$M" "repos/$REPO/rulesets"',
+      ])
+    })
+
+    describe('passes: a literal tail that is something else', () => {
+      defineAllowRows('gh api variable', [
+        'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test -f description=x',
+        'gh api -X PUT "repos/$REPO/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
+        'gh api "repos/$REPO/branches/main/protection"',
+        'gh api "repos/$REPO/rulesets"',
+        'gh api -X DELETE repos/acme/widget/labels/rulesets',
+      ])
+    })
+  })
+
+  describe('protection in a gh api path', () => {
+    describe('denied', () => {
+      defineDenyRows('branch-rule', [
+        'gh api "repos/$REPO/$X/main/protection" --method PUT --input -',
+        'gh api "repos/$REPO/branches/$B/$X" --method DELETE',
+        'gh api -X PUT "repos/$REPO/protection" --input -',
+        'gh api -X "$M" "repos/$REPO/$X/main/protection"',
+        'gh api -X DELETE "repos/$O/$R/branches/main/$X"',
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('protection', [
+        'gh api "repos/$REPO/branches/$B"',
+        'gh api -X POST "repos/$REPO/branches/feat/x/rename" -f new_name=x',
+        'gh api "repos/$REPO/branches/main/protection"',
+        'gh api "repos/$REPO/$X/main/protection"',
+        'gh api "repos/$REPO/$X" --method PUT',
+        'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test',
+      ])
+    })
+  })
+
+  describe('gh api paths whose segments expand', () => {
+    describe('denied', () => {
+      defineDenyRows('branch-rule', [
+        'gh api -X POST "repos/acme/widget/$X" --input r.json',
+        'gh api -X POST "orgs/acme/$X" --input r.json',
+        'gh api -X DELETE "repos/$O/$R/$X"',
+        'gh api -X POST "repos/acme/$R/$X" --input r.json',
+        'gh api -X POST "orgs/$ORG/$X" --input r.json',
+      ])
+    })
+
+    describe('passes: a literal resource word after the repo part', () => {
+      // `repos/$REPO/$X` stays allowed: it has the same shape as `repos/$O/$R`,
+      // which is a repo path, and an earlier decision keeps a PUT to it allowed.
+      // The Not covered header names it.
+      defineAllowRows('gh api expansion', [
+        'gh api -X POST "repos/acme/widget/statuses/$SHA" -f state=success',
+        'gh api -X POST "repos/$O/$R/statuses/$SHA" -f state=success',
+        'gh api -X PUT "repos/acme/widget/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
+        'gh api -X POST "repos/$REPO/$X" --input r.json',
+        "gh api -X POST 'repos/acme/widget/$X' --input r.json",
+      ])
+    })
+  })
+
+  describe("\\u and \\U escapes in $'...'", () => {
+    defineDenyRows('branch-rule', [
+      "gh api -X PUT repos/acme/widget/branches/main/$'\\u0070rotection' --input -",
+      "gh api -X PUT repos/acme/widget/branches/main/$'\\U00000070rotection' --input -",
+      "gh api -X POST repos/acme/widget/$'\\u0072ulesets' --input -",
+      "gh api -X POST repos/acme/widget/$'\\U00000072ulesets' --input -",
+    ])
+  })
+
+  describe("\\? and \\E in $'...'", () => {
+    // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
+    // literal `protection` or `rulesets` segment before it is still a segment.
+    defineDenyRows('branch-rule', [
+      "gh api -X DELETE $'repos/acme/widget/branches/main/protection\\?'",
+      "gh api -X POST $'repos/acme/widget/rulesets\\?' --input r.json",
+    ])
+  })
+
+  describe('gh api graphql mutations of branch protection and rulesets', () => {
+    describe('denied', () => {
+      defineDenyRows('branch-rule', [
+        `gh api graphql -f query='mutation { createBranchProtectionRule(input: {repositoryId: "R_1", pattern: "main"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1", requiresApprovingReviews: false}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { createRepositoryRuleset(input: {sourceId: "R_1", name: "x", target: BRANCH, enforcement: DISABLED, rules: []}) { clientMutationId } }'`,
+        `gh api graphql -F query='mutation { updateRepositoryRuleset(input: {repositoryRulesetId: "RRS_1", enforcement: DISABLED}) { clientMutationId } }'`,
+        `gh api graphql --raw-field query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api graphql --field=query='mutation($id: ID!) { deleteBranchProtectionRule(input: {branchProtectionRuleId: $id}) { clientMutationId } }' -f id=BPR_1`,
+        `gh api graphql -fquery='mutation{x:deleteBranchProtectionRule(input:{branchProtectionRuleId:"BPR_1"}){clientMutationId}}'`,
+        `gh api /graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api https://api.github.com/graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
+        `gh api -X GET graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query=$'mutation { delete\\x42ranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "'"$ID"'"}) { clientMutationId } }'`,
+        `gh api graphql -f query="$(cat <<'EOF'\nmutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }\nEOF\n)"`,
+        `bash -c 'gh api graphql -f query="mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"'`,
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('graphql', [
+        `gh api graphql -f query='query { viewer { login } }'`,
+        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { branchProtectionRules(first: 10) { nodes { pattern } } } }'`,
+        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { rulesets(first: 10) { nodes { name enforcement } } } }'`,
+        `gh api graphql -f query='query { node(id: "BPR_1") { ... on BranchProtectionRule { pattern } } }'`,
+        `gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'`,
+        `gh api graphql -f query='mutation { updateRepository(input: {repositoryId: "R_1", description: "rulesets"}) { clientMutationId } }'`,
+        // GraphQL names are case-sensitive, so GitHub rejects this one.
+        `gh api graphql -f query='mutation { DeleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+      ])
+    })
+
+    describe('not covered: the query text is not on the line (batch #603)', () => {
+      defineAllowRows('graphql query text', [
+        'gh api graphql -F query=@m.graphql',
+        'gh api graphql -f query="$Q"',
+        'gh api graphql -f query="$(cat m.graphql)"',
+        'gh api graphql --input body.json',
+        `gh api graphql --input - <<'EOF'\n{"query":"mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \\"BPR_1\\"}) { clientMutationId } }"}\nEOF`,
+        `echo '{"query":"mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"}' | gh api graphql --input -`,
+        `gh api graphql -F query=@- <<< 'mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+        // a gh alias: "aliases" is in the cannot-see-into entry of the header
+        'gh co 12 && git push',
+      ])
+    })
+  })
+
+  describe('a gap main already has: a gh short flag in a cluster is not read', () => {
+    // gh accepts short flags written together (`-i` takes no value).
+    // `readApi` reads a field flag or `-X` only as a word of its own, so these
+    // pass, as the same forms do on main for visibility. Not built here;
+    // deferred for the owner (batch #603).
+    defineAllowRows('gh short flag in a cluster', [
+      `gh api graphql -if query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+      'gh api -iX PATCH repos/acme/widget -f default_branch=trunk',
+    ])
+  })
 })
 
 describe('merge-rule: visibility', () => {
@@ -1197,9 +1357,6 @@ describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => 
       'gh repo -R acme/widget edit --visibility=public',
       'gh -R acme/widget api -X PATCH repos/acme/widget -f visibility=private',
     ])
-    defineDenyRows('branch-rule', [
-      'gh -R acme/widget api -X PUT repos/acme/widget/branches/main/protection --input -',
-    ])
   })
 
   describe('passes', () => {
@@ -1213,17 +1370,6 @@ describe('merge-rule round 1, finding 1: gh flags before the subcommand', () => 
 
 describe('merge-rule round 1, finding 2: gh api with a word the guard cannot read', () => {
   describe('a path with variables, denied by what it ends in', () => {
-    defineDenyRows('branch-rule', [
-      'gh api -X PUT "repos/$REPO/branches/main/protection" --input rule.json',
-      'gh api -X DELETE "repos/$REPO/branches/$B/protection"',
-      'gh api -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" -f strict=false',
-      'gh api -X POST "repos/$REPO/rulesets" --input r.json',
-      'gh api -X PUT "repos/$O/$R/rulesets/42" --input -',
-      'gh api -X DELETE "repos/${O}/widget/rulesets/42"',
-      'gh api -X DELETE "orgs/$ORG/rulesets/42"',
-      'gh api -X "$M" repos/acme/widget/branches/main/protection',
-      'gh api -X "$M" "repos/$REPO/rulesets"',
-    ])
     defineDenyRows('delete-repo', [
       'gh api -X DELETE "repos/$REPO"',
       'gh api -X DELETE repos/$REPO',
@@ -1259,11 +1405,7 @@ describe('merge-rule round 1, finding 2: gh api with a word the guard cannot rea
 
   describe('passes: a literal tail that is something else', () => {
     defineAllowRows('gh api variable', [
-      'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test -f description=x',
-      'gh api -X PUT "repos/$REPO/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
       'gh api "repos/$REPO"',
-      'gh api "repos/$REPO/branches/main/protection"',
-      'gh api "repos/$REPO/rulesets"',
       'gh api -X DELETE "repos/$REPO/labels/bug"',
       'gh api -X PATCH "repos/$REPO" -f allow_auto_merge=true',
       'gh api -X PATCH "repos/$REPO" -f description="$D"',
@@ -1271,7 +1413,6 @@ describe('merge-rule round 1, finding 2: gh api with a word the guard cannot rea
       'gh api "$EP"',
       'gh api -X GET "$EP"',
       'gh api -X DELETE "repos/$REPO/git/refs/heads/feat/x"',
-      'gh api -X DELETE repos/acme/widget/labels/rulesets',
     ])
   })
 })
@@ -1319,29 +1460,6 @@ describe('merge-rule round 2, finding 3: a flag that expands in gh pr merge and 
   })
 })
 
-describe('merge-rule round 2, finding 5: protection in a gh api path', () => {
-  describe('denied', () => {
-    defineDenyRows('branch-rule', [
-      'gh api "repos/$REPO/$X/main/protection" --method PUT --input -',
-      'gh api "repos/$REPO/branches/$B/$X" --method DELETE',
-      'gh api -X PUT "repos/$REPO/protection" --input -',
-      'gh api -X "$M" "repos/$REPO/$X/main/protection"',
-      'gh api -X DELETE "repos/$O/$R/branches/main/$X"',
-    ])
-  })
-
-  describe('passes', () => {
-    defineAllowRows('protection', [
-      'gh api "repos/$REPO/branches/$B"',
-      'gh api -X POST "repos/$REPO/branches/feat/x/rename" -f new_name=x',
-      'gh api "repos/$REPO/branches/main/protection"',
-      'gh api "repos/$REPO/$X/main/protection"',
-      'gh api "repos/$REPO/$X" --method PUT',
-      'gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=orchestrai/test',
-    ])
-  })
-})
-
 // Reviewer round 1 (issue #539).
 
 describe('merge-rule review round 1, finding 3: a git or gh subcommand that expands', () => {
@@ -1366,28 +1484,8 @@ describe('merge-rule review round 1, finding 3: a git or gh subcommand that expa
 
 describe('merge-rule review round 1, finding 4: gh api paths whose segments expand', () => {
   describe('denied', () => {
-    defineDenyRows('branch-rule', [
-      'gh api -X POST "repos/acme/widget/$X" --input r.json',
-      'gh api -X POST "orgs/acme/$X" --input r.json',
-      'gh api -X DELETE "repos/$O/$R/$X"',
-      'gh api -X POST "repos/acme/$R/$X" --input r.json',
-      'gh api -X POST "orgs/$ORG/$X" --input r.json',
-    ])
     defineDenyRows('delete-repo', [
       'gh api -X DELETE "repos/$A/$B"',
-    ])
-  })
-
-  describe('passes: a literal resource word after the repo part', () => {
-    // `repos/$REPO/$X` stays allowed: it has the same shape as `repos/$O/$R`,
-    // which is a repo path, and an earlier decision keeps a PUT to it allowed.
-    // The Not covered header names it.
-    defineAllowRows('gh api expansion', [
-      'gh api -X POST "repos/acme/widget/statuses/$SHA" -f state=success',
-      'gh api -X POST "repos/$O/$R/statuses/$SHA" -f state=success',
-      'gh api -X PUT "repos/acme/widget/pulls/$PR/update-branch" -f expected_head_sha=$SHA',
-      'gh api -X POST "repos/$REPO/$X" --input r.json',
-      "gh api -X POST 'repos/acme/widget/$X' --input r.json",
     ])
   })
 })
@@ -1421,12 +1519,6 @@ describe("merge-rule fix round: \\u and \\U escapes in $'...'", () => {
     "gh api -X PATCH repos/acme/widget -f $'\\u0076isibility'=public",
     "gh api -X PATCH repos/acme/widget -f $'\\U00000076isibility'=public",
   ])
-  defineDenyRows('branch-rule', [
-    "gh api -X PUT repos/acme/widget/branches/main/$'\\u0070rotection' --input -",
-    "gh api -X PUT repos/acme/widget/branches/main/$'\\U00000070rotection' --input -",
-    "gh api -X POST repos/acme/widget/$'\\u0072ulesets' --input -",
-    "gh api -X POST repos/acme/widget/$'\\U00000072ulesets' --input -",
-  ])
   defineDenyRows('delete-repo', [
     "gh api -X DELETE $'repos/acme/widget\\u0000/labels/bug'",
   ])
@@ -1442,15 +1534,6 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
     // the real command was never checked.
     defineDenyRows('delete-repo', [
       'sudo -nu root gh repo delete acme/widget --yes',
-    ])
-  })
-
-  describe("\\? and \\E in $'...'", () => {
-    // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
-    // literal `protection` or `rulesets` segment before it is still a segment.
-    defineDenyRows('branch-rule', [
-      "gh api -X DELETE $'repos/acme/widget/branches/main/protection\\?'",
-      "gh api -X POST $'repos/acme/widget/rulesets\\?' --input r.json",
     ])
   })
 })
@@ -1559,55 +1642,6 @@ describe('merge-rule: the rule file says what it does not cover', () => {
 })
 
 describe('merge-rule: the four kinds taken on from the Not covered list (#593)', () => {
-  describe('B. gh api graphql mutations of branch protection and rulesets', () => {
-    describe('denied', () => {
-      defineDenyRows('branch-rule', [
-        `gh api graphql -f query='mutation { createBranchProtectionRule(input: {repositoryId: "R_1", pattern: "main"}) { clientMutationId } }'`,
-        `gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1", requiresApprovingReviews: false}) { clientMutationId } }'`,
-        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-        `gh api graphql -f query='mutation { createRepositoryRuleset(input: {sourceId: "R_1", name: "x", target: BRANCH, enforcement: DISABLED, rules: []}) { clientMutationId } }'`,
-        `gh api graphql -F query='mutation { updateRepositoryRuleset(input: {repositoryRulesetId: "RRS_1", enforcement: DISABLED}) { clientMutationId } }'`,
-        `gh api graphql --raw-field query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
-        `gh api graphql --field=query='mutation($id: ID!) { deleteBranchProtectionRule(input: {branchProtectionRuleId: $id}) { clientMutationId } }' -f id=BPR_1`,
-        `gh api graphql -fquery='mutation{x:deleteBranchProtectionRule(input:{branchProtectionRuleId:"BPR_1"}){clientMutationId}}'`,
-        `gh api /graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
-        `gh api https://api.github.com/graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: "RRS_1"}) { clientMutationId } }'`,
-        `gh api -X GET graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-        `gh api graphql -f query=$'mutation { delete\\x42ranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-        `gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "'"$ID"'"}) { clientMutationId } }'`,
-        `gh api graphql -f query="$(cat <<'EOF'\nmutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }\nEOF\n)"`,
-        `bash -c 'gh api graphql -f query="mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"'`,
-      ])
-    })
-
-    describe('passes', () => {
-      defineAllowRows('graphql', [
-        `gh api graphql -f query='query { viewer { login } }'`,
-        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { branchProtectionRules(first: 10) { nodes { pattern } } } }'`,
-        `gh api graphql -f query='query { repository(owner: "acme", name: "widget") { rulesets(first: 10) { nodes { name enforcement } } } }'`,
-        `gh api graphql -f query='query { node(id: "BPR_1") { ... on BranchProtectionRule { pattern } } }'`,
-        `gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'`,
-        `gh api graphql -f query='mutation { updateRepository(input: {repositoryId: "R_1", description: "rulesets"}) { clientMutationId } }'`,
-        // GraphQL names are case-sensitive, so GitHub rejects this one.
-        `gh api graphql -f query='mutation { DeleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-      ])
-    })
-
-    describe('not covered: the query text is not on the line (batch #603)', () => {
-      defineAllowRows('graphql query text', [
-        'gh api graphql -F query=@m.graphql',
-        'gh api graphql -f query="$Q"',
-        'gh api graphql -f query="$(cat m.graphql)"',
-        'gh api graphql --input body.json',
-        `gh api graphql --input - <<'EOF'\n{"query":"mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \\"BPR_1\\"}) { clientMutationId } }"}\nEOF`,
-        `echo '{"query":"mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \\"RRS_1\\"}) { clientMutationId } }"}' | gh api graphql --input -`,
-        `gh api graphql -F query=@- <<< 'mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-        // a gh alias: "aliases" is in the cannot-see-into entry of the header
-        'gh co 12 && git push',
-      ])
-    })
-  })
-
   describe('C. transferring a repo', () => {
     describe('denied', () => {
       defineDenyRows('transfer-repo', [
@@ -1698,17 +1732,6 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
       `gh api 'repos/{owner}/{repo}/commits/${SHA}/status' --jq '[.statuses[] | select(.state=="success")] | length'`,
       'gh pr view 12 --json state,autoMergeRequest,mergeStateStatus,headRefOid,baseRefName',
       'gh pr checks 12',
-    ])
-  })
-
-  describe('a gap main already has: a gh short flag in a cluster is not read', () => {
-    // gh accepts short flags written together (`-i` takes no value).
-    // `readApi` reads a field flag or `-X` only as a word of its own, so these
-    // pass, as the same forms do on main for visibility. Not built here;
-    // deferred for the owner (batch #603).
-    defineAllowRows('gh short flag in a cluster', [
-      `gh api graphql -if query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
-      'gh api -iX PATCH repos/acme/widget -f default_branch=trunk',
     ])
   })
 
