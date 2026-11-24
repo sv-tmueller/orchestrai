@@ -74,7 +74,9 @@ export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { 
     return r.stdout
   }
   try {
-    if ((await git(['worktree', 'list', '--porcelain'])).includes(plan.path)) {
+    // Whole entries only: pkg-35 must not match an existing pkg-355.
+    const listed = (await git(['worktree', 'list', '--porcelain'])).split('\n')
+    if (listed.some((line) => line.replace(/\r$/, '') === `worktree ${plan.path}`)) {
       return { created: false, path: plan.path }
     }
   } catch {
@@ -163,6 +165,16 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.addLabel(issueNumber, 'in-progress')
   }
 
+  // A live run never turns a missing report into success: the package stops
+  // and nothing more is written for it. A dry run has no real seats, so the
+  // placeholders below stand in. The park comment and labels are #604's.
+  const noReport = (role) => {
+    state.parked = `${role} seat returned no usable report`
+    log(`parked: ${state.parked}`)
+    return state
+  }
+  const verdictOf = (report, dryFallback) => report?.VERDICT || report?.verdict || (dryRun ? dryFallback : null)
+
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact.
   const dispatch = async (role, task, tier) => {
@@ -186,7 +198,8 @@ export async function runPipeline(issueNumber, opts = {}) {
       return state
     }
 
-    state.subPlan = archReport?.output || archReport?.summary || 'sub-plan generated'
+    state.subPlan = archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
+    if (!state.subPlan) return noReport('architect')
     log('sub-plan received')
 
     // The gate finds a sub-plan by a line that is exactly SUB_PLAN, so the
@@ -200,8 +213,12 @@ export async function runPipeline(issueNumber, opts = {}) {
     const slug = state.subPlan?.slice(0, 30)?.replace(/\s+/g, '-').toLowerCase() || 'impl'
     state.branch = resume?.branch || worktreePlan(repoRoot, issueNumber, slug, { type: opts.branchType }).branch
 
+    // A branch with no PR and no findings: the work stopped before the draft PR.
+    const noPrResume = resume?.stage === 'developer' && resume.branch && !resume.pr && resume.findings === undefined
     const devTask = resume?.findings !== undefined
       ? `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${resume.findings}`
+      : noPrResume
+      ? `Issue #${issueNumber}, branch ${state.branch}: the branch is on origin and has no PR. Fetch it, finish the work per the sub-plan, open the draft PR, and run the full check suite before reporting.`
       : `Issue #${issueNumber}, branch ${state.branch}: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
     await ensureInProgress()
     const devReport = await dispatch('developer', devTask, 'worker')
@@ -217,8 +234,17 @@ export async function runPipeline(issueNumber, opts = {}) {
       return state
     }
 
-    state.pr = devReport?.pr || devReport?.PR || resume?.pr || `https://github.com/example/repo/pull/${issueNumber}`
+    if (!devReport && !dryRun) return noReport('developer')
+    state.pr = devReport?.pr || devReport?.PR || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
+    if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
+  }
+
+  // No seat prompt is built with a null PR, and a package with no PR cannot ship.
+  if (!state.pr && runs('reviewer')) {
+    state.parked = 'no PR to mark ready'
+    log(`parked: ${state.parked}`)
+    return state
   }
 
   // --- Stage 3: Tester (verify) ---
@@ -227,7 +253,8 @@ export async function runPipeline(issueNumber, opts = {}) {
     log('stage 3: tester verify')
     await ensureInProgress()
     const testReport = await dispatch('tester', testTask, 'worker')
-    state.testerVerdict = testReport?.VERDICT || testReport?.verdict || 'PASS'
+    state.testerVerdict = verdictOf(testReport, 'PASS')
+    if (!state.testerVerdict) return noReport('tester')
 
     if (state.testerVerdict === 'FAIL') {
       state.fixRounds.tester++
@@ -239,10 +266,11 @@ export async function runPipeline(issueNumber, opts = {}) {
       // Fix round: send findings back to developer, then re-test
       log(`tester FAIL, fix round ${state.fixRounds.tester}/3`)
       const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${testReport?.FINDINGS || testReport?.findings || 'findings'}`
-      await dispatch('developer', fixTask, 'worker')
+      if (!(await dispatch('developer', fixTask, 'worker')) && !dryRun) return noReport('developer')
       // Re-test
       const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
+      state.testerVerdict = verdictOf(reTestReport, 'PASS')
+      if (!state.testerVerdict) return noReport('tester')
       if (state.testerVerdict === 'FAIL') {
         state.parked = 'tester FAIL after fix round'
         log(`parked: ${state.parked}`)
@@ -257,7 +285,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   if (runs('reviewer')) {
     log('stage 4: reviewer review')
     const reviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-    state.reviewerVerdict = reviewReport?.VERDICT || reviewReport?.verdict || 'APPROVE'
+    state.reviewerVerdict = verdictOf(reviewReport, 'APPROVE')
+    if (!state.reviewerVerdict) return noReport('reviewer')
 
     if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
       state.fixRounds.reviewer++
@@ -269,13 +298,15 @@ export async function runPipeline(issueNumber, opts = {}) {
       // Fix round: send must-fix findings to developer, re-test, re-review
       log(`reviewer CHANGES_REQUESTED, fix round ${state.fixRounds.reviewer}/3`)
       const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these must-fix findings:\n${reviewReport?.FINDINGS || reviewReport?.findings || 'findings'}`
-      await dispatch('developer', fixTask, 'worker')
+      if (!(await dispatch('developer', fixTask, 'worker')) && !dryRun) return noReport('developer')
       // Re-test
       const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = reTestReport?.VERDICT || reTestReport?.verdict || 'PASS'
+      state.testerVerdict = verdictOf(reTestReport, 'PASS')
+      if (!state.testerVerdict) return noReport('tester')
       // Re-review
       const reReviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-      state.reviewerVerdict = reReviewReport?.VERDICT || reReviewReport?.verdict || 'APPROVE'
+      state.reviewerVerdict = verdictOf(reReviewReport, 'APPROVE')
+      if (!state.reviewerVerdict) return noReport('reviewer')
       if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
         state.parked = 'reviewer CHANGES_REQUESTED after fix round'
         log(`parked: ${state.parked}`)
@@ -453,8 +484,8 @@ export async function defaultRun(cmd, args, { cwd } = {}) {
   }
 }
 
-// The canonical label set. SKILL.hermes.md carried this list until #605
-// removed it, so this is the only copy.
+// The canonical label set. SKILL.hermes.md carries the same list in its Gate
+// block today. #605 removes it there, and this becomes the only copy.
 export const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
   { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
@@ -602,8 +633,8 @@ async function gateIssue(issue, gh, view) {
   } else if (inProgress) {
     const branchRef = (await gh.remoteHeads()).find((r) => new RegExp(`^refs/heads/[^/]+/${n}-`).test(r))
     result = branchRef
-      ? entry('resume', `branch ${branchRef.slice('refs/heads/'.length)} on origin, no PR, resuming at the tester`, {
-          resume: { stage: 'tester', branch: branchRef.slice('refs/heads/'.length) },
+      ? entry('resume', `branch ${branchRef.slice('refs/heads/'.length)} on origin, no PR, resuming at the developer`, {
+          resume: { stage: 'developer', branch: branchRef.slice('refs/heads/'.length) },
         })
       : entry('run', 'in-progress but no PR and no branch, starting at the developer', { resume: { stage: 'developer' } })
   } else if (hasSubPlan(issue.comments)) {

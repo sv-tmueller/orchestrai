@@ -478,6 +478,17 @@ describe('LABELS', () => {
       { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
     ])
   })
+
+  test('the comment above it does not claim the skill list is gone while the skill still holds it', () => {
+    const source = readFileSync(new URL('../../adapters/hermes-pipeline.mjs', import.meta.url), 'utf8')
+    const skill = readFileSync(new URL('../../skills/tm-kickoff/SKILL.hermes.md', import.meta.url), 'utf8')
+    assert.ok(skill.includes('label create'), 'the premise: the skill still carries the list')
+    assert.ok(!source.includes('so this is the only copy'))
+    assert.ok(source.includes(
+      '// The canonical label set. SKILL.hermes.md carries the same list in its Gate\n' +
+      '// block today. #605 removes it there, and this becomes the only copy.\n'
+    ))
+  })
 })
 
 describe('defaultRun', () => {
@@ -587,11 +598,12 @@ describe('the gate', () => {
     assert.equal(e.resume.branch, 'feat/120-new')
   })
 
-  test('rule 7: in-progress with no PR and a branch on origin resumes at the tester', async () => {
+  test('rule 7: in-progress with no PR and a branch on origin resumes at the developer', async () => {
     // The origin also holds feat/1140-other, which must not match issue 114.
     const e = await one(114)
     assert.equal(e.outcome, 'resume')
-    assert.deepEqual(e.resume, { stage: 'tester', branch: 'feat/114-tester-branch' })
+    assert.deepEqual(e.resume, { stage: 'developer', branch: 'feat/114-tester-branch' })
+    assert.match(e.detail, /no PR, resuming at the developer$/)
   })
 
   test('rule 7: in-progress with no PR and no branch runs from the developer', async () => {
@@ -950,6 +962,31 @@ describe('runPipeline with resume', () => {
     assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('gh pr ready')))
   })
 
+  test('no seat prompt is built with a null PR: a live resume at the reviewer with no PR spawns nothing', async () => {
+    const { state, calls } = await pipeline(7, { resume: { stage: 'reviewer', branch: 'feat/7-work' } })
+    assert.equal(state.done, false)
+    assert.match(state.parked, /no PR/)
+    assert.deepEqual(calls.filter((c) => c.kind === 'spawn'), [])
+  })
+
+  test('a developer resume on a branch with no PR sends the exact no-PR prompt and then the whole loop', async () => {
+    const { state, calls } = await pipeline(7, { resume: { stage: 'developer', branch: 'feat/7-work' } })
+    assert.deepEqual(roles(state), ['developer', 'tester', 'reviewer'])
+    const task = calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.equal(
+      task,
+      'Issue #7, branch feat/7-work: the branch is on origin and has no PR. Fetch it, finish the work per the sub-plan, open the draft PR, and run the full check suite before reporting.'
+    )
+    assert.equal(state.pr, 'https://github.com/o/r/pull/900', 'the PR comes from the developer report')
+    assert.equal(state.done, true)
+  })
+
+  test('a developer resume with a PR and no findings keeps the ordinary implement prompt', async () => {
+    const { calls } = await pipeline(7, { resume: { stage: 'developer', branch: 'feat/7-work', pr: 12 } })
+    const task = calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.ok(task.includes('implement per the sub-plan'))
+  })
+
   test('in-progress is added before the first seat of a resume past the developer, and once', async () => {
     const { calls } = await pipeline(7, { resume: resume('tester') })
     const added = calls.findIndex((c) => c.key === 'gh issue edit 7 --add-label in-progress')
@@ -983,6 +1020,97 @@ describe('runPipeline with resume', () => {
     })
     assert.equal(state.done, true)
     assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+  })
+})
+
+describe('a seat that returns no usable report', () => {
+  const { runPipeline, main } = driver
+
+  async function pipeline(n, reports, opts = {}) {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, reports)
+    const state = await runPipeline(n, {
+      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+    })
+    return { state, calls: fake.calls }
+  }
+  const roles = (state) => state.dispatches.map((d) => d.role)
+  const FAIL = { VERDICT: 'FAIL', FINDINGS: 'one' }
+  const CHANGES = { VERDICT: 'CHANGES_REQUESTED', FINDINGS: 'one' }
+  const DEV = { STATUS: 'DONE', PR: 'https://github.com/o/r/pull/900' }
+  // Writes that mean success. None may happen after a seat comes back empty.
+  const successWrites = (calls) =>
+    keysOf(calls, 'write').filter((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete'))
+
+  const cases = [
+    ['the architect returns null', { architect: null }, 'architect', ['architect']],
+    ['the architect returns no text', { architect: {} }, 'architect', ['architect']],
+    ['the developer returns null', { developer: null }, 'developer', ['architect', 'developer']],
+    ['the developer names no PR and none is known', { developer: { STATUS: 'DONE' } }, 'developer', ['architect', 'developer']],
+    ['the tester returns null', { tester: null }, 'tester', ['architect', 'developer', 'tester']],
+    ['the tester names no verdict', { tester: {} }, 'tester', ['architect', 'developer', 'tester']],
+    ['the reviewer returns null', { reviewer: null }, 'reviewer', ['architect', 'developer', 'tester', 'reviewer']],
+    ['the reviewer names no verdict', { reviewer: {} }, 'reviewer', ['architect', 'developer', 'tester', 'reviewer']],
+    ['the developer returns null in a tester fix round', { tester: [FAIL], developer: [DEV, null] }, 'developer', ['architect', 'developer', 'tester', 'developer']],
+    ['the re-test returns null after a tester fix round', { tester: [FAIL, null] }, 'tester', ['architect', 'developer', 'tester', 'developer', 'tester']],
+    ['the re-test returns null after a reviewer fix round', { reviewer: [CHANGES], tester: [{ VERDICT: 'PASS' }, null] }, 'tester', ['architect', 'developer', 'tester', 'reviewer', 'developer', 'tester']],
+    ['the re-review returns null after a reviewer fix round', { reviewer: [CHANGES, null] }, 'reviewer', ['architect', 'developer', 'tester', 'reviewer', 'developer', 'tester', 'reviewer']],
+  ]
+  for (const [name, reports, role, dispatched] of cases) {
+    test(`live: ${name}, the package parks and ships nothing`, async () => {
+      const { state, calls } = await pipeline(7, reports)
+      assert.equal(state.parked, `${role} seat returned no usable report`)
+      assert.equal(state.done, false)
+      assert.deepEqual(roles(state), dispatched)
+      assert.deepEqual(successWrites(calls), [])
+    })
+  }
+
+  test('live: an architect that returns nothing posts no sub-plan comment and adds no label', async () => {
+    const { calls } = await pipeline(7, { architect: null })
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh issue')), [])
+  })
+
+  test('live: a known PR carries over when the developer reports none, but a null report still parks', async () => {
+    const resume = { stage: 'developer', branch: 'feat/7-w', pr: 12 }
+    const kept = await pipeline(7, { developer: { STATUS: 'DONE' } }, { resume })
+    assert.equal(kept.state.pr, 12)
+    assert.equal(kept.state.done, true)
+    const nul = await pipeline(7, { developer: null }, { resume })
+    assert.equal(nul.state.parked, 'developer seat returned no usable report')
+  })
+
+  test('live: all four seats failing writes nothing to GitHub', async () => {
+    const { state, calls } = await pipeline(7, { architect: null, developer: null, tester: null, reviewer: null })
+    assert.equal(state.done, false)
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), [])
+  })
+
+  test('dry run: the placeholders still stand in, so an empty-seat run completes', async () => {
+    const fake = fakeRunner({ reads: {} }, { architect: null, developer: null, tester: null, reviewer: null })
+    const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+    assert.equal(state.done, true)
+    assert.equal(state.subPlan, 'sub-plan generated')
+    assert.equal(state.pr, 'https://github.com/example/repo/pull/7')
+    assert.equal(state.testerVerdict, 'PASS')
+    assert.equal(state.reviewerVerdict, 'APPROVE')
+  })
+
+  test('dry run: the re-test and re-review lines fall back too', async () => {
+    const fake = fakeRunner({ reads: {} }, { tester: [FAIL, null], reviewer: [CHANGES, null] })
+    const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+    assert.equal(state.done, true)
+  })
+
+  test('main shows the stop on stdout only, with no park comment and no label', async () => {
+    const fake = fakeRunner(loadFixture('main-live'), { developer: null })
+    const stdout = []
+    const code = await main(['204'], {
+      env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo',
+    })
+    assert.equal(code, 0)
+    assert.ok(stdout.includes('#204 parked: developer seat returned no usable report'))
+    const writes = keysOf(fake.calls, 'write').slice(6)
+    assert.ok(!writes.some((k) => k.includes('needs-human') || k.includes('Parked') || k.startsWith('gh pr ready')))
   })
 })
 
@@ -1028,6 +1156,23 @@ describe('the resume worktree', () => {
       'worktree /repo/.worktrees/pkg-7\nHEAD abc\nbranch refs/heads/feat/7-work\n'
     )
     assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch') || k.startsWith('git worktree add')))
+  })
+
+  test('a worktree whose path only starts like ours is not ours: pkg-35 next to pkg-355 is created', async () => {
+    const fake = fakeRunner({
+      reads: { 'git worktree list --porcelain': 'worktree /repo/.worktrees/pkg-355\nHEAD abc\nbranch refs/heads/feat/355-x\n' },
+    })
+    const r = await ensureWorktree('/repo', worktreePlan('/repo', 35), 'origin/main', { run: fake.run })
+    assert.deepEqual(r, { created: true, path: '/repo/.worktrees/pkg-35' })
+    assert.ok(keysOf(fake.calls, 'write').includes('git worktree add /repo/.worktrees/pkg-35 -b feat/35-pending origin/main'))
+  })
+
+  test('a path that is the tail of another entry is not ours either', async () => {
+    const fake = fakeRunner({
+      reads: { 'git worktree list --porcelain': 'worktree /other/repo/.worktrees/pkg-7\nHEAD abc\n\nworktree /repo/.worktrees/pkg-7x\nHEAD def\n' },
+    })
+    const r = await ensureWorktree('/repo', worktreePlan('/repo', 7), 'origin/main', { run: fake.run })
+    assert.equal(r.created, true)
   })
 
   test('a failed fetch stops the setup and names the command', async () => {

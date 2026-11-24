@@ -231,6 +231,20 @@ a line that is exactly `SUB_PLAN`), and at the architect when it has none. An
 unmerged `Blocked by: #N` blocker turns a run or resume into a wait. Only
 wave 1 runs, because a later wave's blocker cannot be merged during the run.
 
+An `in-progress` issue with no PR resumes at the developer when a branch named
+`<type>/<n>-...` is on origin, on that branch. The developer is told the
+branch has no PR, to finish the work and to open the draft PR. Without such a
+branch the package runs from the developer. The tester's and reviewer's
+reports belong on a PR, so a package with no PR is never resumed past the
+developer.
+
+In a live run, a seat that returns nothing, or a report without the field its
+stage reads (the architect's text, the developer's PR, the tester's or
+reviewer's verdict), stops the package: the result line reads
+`parked: <role> seat returned no usable report` and nothing more is written
+for it. `runPipeline` with `dryRun` uses placeholders in place of seat
+output instead, so the dry-run tests complete.
+
 stdout carries the gate lines, the wave plan and one result line per package.
 Progress, dry-run notes and errors go to stderr.
 
