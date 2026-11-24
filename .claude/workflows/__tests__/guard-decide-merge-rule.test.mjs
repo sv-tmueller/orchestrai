@@ -1261,6 +1261,22 @@ describe('merge-rule: PR #547 follow-ups (#587)', () => {
         'sudo -ru env -S -i git push origin main',
         'sudo -cu env -S -i git push origin main',
         'doas -au env -S -i git push origin main',
+        // A new value letter makes `env` the program, so the fallback fires. Its
+        // whole-word readers read the command again from the first word, skip
+        // the cluster before it (`-iu`, `-nu`, `-nD`) as one word, and take the
+        // next word (`x`, `5`, `pam`) as the program. Main read `env` as the
+        // value of `-u` or `-C` and denied.
+        'sudo -iu x -au env -S git push origin main',
+        'sudo -nu x -ru env -S git push origin main',
+        'sudo -nD 5 -aC env -iS git push origin main',
+        'sudo -nD 5 -ru env -iS git push origin main',
+        'sudo -nD pam doas -a -C env -iS git push origin main',
+        // Main has this gap without the new letter: the same lines with the
+        // letter and its value removed are allowed on main too.
+        'sudo -iu x env -S git push origin main',
+        'sudo -nu x env -S git push origin main',
+        'sudo -nD 5 env -iS git push origin main',
+        'sudo -nD pam doas env -iS git push origin main',
       ])
     })
   })
