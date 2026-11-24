@@ -1352,6 +1352,11 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
         'gh "$G" checkout 12 && git push',
         'gh pr "$S" 12 && git push',
         ['gh pr checkout 12 && git push', { currentBranch: 'feat/12-x' }],
+        // `co` is gh's own alias for `checkout` (gh pr checkout --help, ALIASES)
+        'gh pr co 12 && git push',
+        'gh pr co 12; git push origin HEAD',
+        'gh -R acme/widget pr co 12 && git push',
+        'gh "$G" co 12 && git push',
       ])
     })
 
@@ -1367,6 +1372,8 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
         'gh "$G" view 12 && git push',
         'gh issue "$S" 12 && git push',
         'gh pr checkout 12 && git status',
+        'gh pr co 12',
+        'gh pr co 12 && git push origin feat/12-x',
       ])
     })
   })
@@ -1513,6 +1520,14 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
     ])
   })
 
+  describe('a gap main already has: a gh short flag in a cluster is not read', () => {
+    // gh accepts short flags written together (`-i` takes no value). `readApi` reads a field flag or `-X` only as a word of its own, so these pass, as the same forms do on main for visibility. Not built here; deferred for the owner (batch #603).
+    defineAllowRows('gh short flag in a cluster', [
+      `gh api graphql -if query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: "BPR_1"}) { clientMutationId } }'`,
+      'gh api -iX PATCH repos/acme/widget -f default_branch=trunk',
+    ])
+  })
+
   describe('F. the header says what is built and what is left out', () => {
     test('the header names the new entries and keeps only the query-text gap', async () => {
       const { readFileSync } = await import('node:fs')
@@ -1538,6 +1553,13 @@ describe('merge-rule: the four kinds taken on from the Not covered list (#593)',
         'query text',
       ]) {
         assert.ok(notCovered.includes(kept), `the Not covered list does not name ${kept}`)
+      }
+      for (const said of [
+        'An earlier `gh pr checkout`, or `gh pr co`, gh\'s own alias for it, makes it unknown as well.',
+        'A field is read in these spellings: `-f a=b`, `-fa=b`, `-f=a=b`, the same three with `-F`, `--raw-field a=b`, `--raw-field=a=b`, `--field a=b` and `--field=a=b`.',
+        'A short flag written in a cluster with another one (`-if a=b`, `-iX PATCH`) is not read, here or for any other `gh api` entry.',
+      ]) {
+        assert.ok(source.includes(said), `the rule file does not say: ${said}`)
       }
       for (const named of [
         'transfer-repo', 'default-branch', 'gh pr checkout', '--default-branch', 'default_branch', '/rename',

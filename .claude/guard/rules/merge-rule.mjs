@@ -60,12 +60,12 @@
  * format-patch, apply, am, gc, notes, shortlog, cat-file, diff-tree,
  * for-each-ref, rev-list, merge-base, update-index, push. A git command with
  * no readable subcommand, or one whose subcommand expands, makes it unknown
- * too. An earlier `gh pr checkout` makes it unknown as well. So does a gh
- * command whose group or subcommand expands, when the rest could still read as
- * `pr checkout` (`gh "$G" checkout 12`, `gh pr "$S" 12`); `gh pr view` and
- * `gh "$G" view` do not. When the branch is unknown, a push with no refspec,
- * or of HEAD or @, is denied. A push that names its destination is judged by
- * that name. A word in the remote position of a push that expands is unknown
+ * too. An earlier `gh pr checkout`, or `gh pr co`, gh's own alias for it,
+ * makes it unknown as well. So does a gh command whose group or subcommand
+ * expands, when the rest could still read as `pr checkout` (`gh "$G" checkout
+ * 12`, `gh pr "$S" 12`); `gh pr view` and `gh "$G" view` do not. When the
+ * branch is unknown, a push with no refspec, or of HEAD or @, is denied. A
+ * push that names its destination is judged by that name. A word in the remote position of a push that expands is unknown
  * as well: an unquoted `$REMOTE` can hold "origin main", and the parser does
  * not record whether a word was quoted, so a quoted one is denied too.
  *
@@ -93,11 +93,15 @@
  * literal owner (and after the name, or after an expanding name) expands, or
  * for `orgs` right after the org.
  *
- * A `gh api graphql` call is denied as branch-rule when the text of a `-f`,
- * `-F`, `--raw-field` or `--field` field (name and value, in any spelling of
- * those flags) holds one of these names as a whole word: createBranchProtectionRule,
- * updateBranchProtectionRule, deleteBranchProtectionRule,
- * createRepositoryRuleset, updateRepositoryRuleset, deleteRepositoryRuleset.
+ * A `gh api graphql` call is denied as branch-rule when the text of a field
+ * (name and value) holds one of these names as a whole word:
+ * createBranchProtectionRule, updateBranchProtectionRule,
+ * deleteBranchProtectionRule, createRepositoryRuleset,
+ * updateRepositoryRuleset, deleteRepositoryRuleset. A field is read in these
+ * spellings: `-f a=b`, `-fa=b`, `-f=a=b`, the same three with `-F`,
+ * `--raw-field a=b`, `--raw-field=a=b`, `--field a=b` and `--field=a=b`. A
+ * short flag written in a cluster with another one (`-if a=b`, `-iX PATCH`)
+ * is not read, here or for any other `gh api` entry.
  * The method word does not matter. The endpoint is `graphql`, also written
  * `/graphql` or `https://<host>/graphql`. The names are case-sensitive, as in
  * GraphQL. The text is the word as the parser keeps it, so a name inside a
@@ -558,10 +562,11 @@ export const mergeRule = {
         if (!keepsBranch(git, command)) switched = true
       } else if (name === 'gh') {
         found = checkGh(command, ctx.facts)
-        // `gh pr checkout` switches the branch like `git checkout`. A group or
-        // subcommand that expands could be `pr` or `checkout`.
+        // `gh pr checkout` switches the branch like `git checkout`, and `co` is
+        // gh's own alias for it. A group or subcommand that expands could be
+        // `pr` or `checkout`.
         const gh = readGh(command.words)
-        if ((gh.group === 'pr' || gh.groupExpands) && (gh.sub === 'checkout' || gh.subExpands)) switched = true
+        if ((gh.group === 'pr' || gh.groupExpands) && (gh.sub === 'checkout' || gh.sub === 'co' || gh.subExpands)) switched = true
       }
       if (found) return found
     }
