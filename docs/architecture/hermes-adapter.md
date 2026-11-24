@@ -241,7 +241,9 @@ developer.
 In a live run each stage accepts only the report its contract prescribes:
 
 - The architect's report is a sub-plan only when it opens with `SUB_PLAN` and
-  has text. It is then posted on the issue. `NEEDS_DECISION` parks the
+  has a body: text after `SUB_PLAN:` on the header line, or at least one
+  non-empty line after it. A bare `SUB_PLAN` line is not a sub-plan. A
+  sub-plan is posted on the issue. `NEEDS_DECISION` parks the
   package, in all three forms (the question on the same line, on the next
   line, or the bare word): the result line reads
   `parked: architect NEEDS_DECISION: <the question>`. A `SPLIT_PROPOSAL`, an

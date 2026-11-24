@@ -1232,6 +1232,17 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.equal(r.state.done, true)
     })
 
+    test('a SUB_PLAN with a one-line body is enough', async () => {
+      const r = await pipeline({ architect: arch('SUB_PLAN\nDo the thing.') })
+      assert.ok(keysOf(r.calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\nDo the thing.'))
+      assert.deepEqual(roles(r.state), ALL)
+    })
+
+    test('a SUB_PLAN with a one-line body after blank lines is enough', async () => {
+      const r = await pipeline({ architect: arch('\nSUB_PLAN\n\n\nDo the thing.') })
+      assert.deepEqual(roles(r.state), ALL)
+    })
+
     test('a single-line SUB_PLAN is posted under a SUB_PLAN line and the developer runs', async () => {
       const r = await pipeline({ architect: arch('SUB_PLAN: one line plan') })
       assert.ok(keysOf(r.calls, 'write').includes('gh issue comment 7 --body SUB_PLAN\n\nSUB_PLAN: one line plan'))
@@ -1266,6 +1277,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
       ['ARBITRATION', 'ARBITRATION\n\nRuling: the tester is right.'],
       ['free text with no header', 'Here is my plan: do the thing first.'],
       ['an empty report', ''],
+      ['a bare SUB_PLAN line with no body', 'SUB_PLAN'],
+      ['a SUB_PLAN line with only blank lines after it', 'SUB_PLAN\n\n   \n\t\n'],
+      ['a SUB_PLAN: line with an empty value and no body', 'SUB_PLAN:\n\n'],
     ]) {
       test(`${name} is no sub-plan: the package stops and nothing is posted`, async () => {
         assertStopped(await pipeline({ architect: arch(text) }), 'architect', ['architect'])

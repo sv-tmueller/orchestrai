@@ -221,9 +221,9 @@ export async function runPipeline(issueNumber, opts = {}) {
       log(`parked: ${state.parked}`)
       return state
     }
-    // Only a SUB_PLAN is a sub-plan. A SPLIT_PROPOSAL or an ARBITRATION is not
-    // posted as one, and neither is text with no header.
-    if (!dryRun && archReport?.KIND !== 'SUB_PLAN') return noReport('architect')
+    // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
+    // ARBITRATION, text with no header and a bare header are not posted as one.
+    if (!dryRun && (archReport?.KIND !== 'SUB_PLAN' || !hasBody(archReport.raw, 'SUB_PLAN'))) return noReport('architect')
 
     // A live seat comes back from parseReport(), with its text in `raw`.
     // `output` and `summary` are the dry-run shape.
@@ -539,6 +539,15 @@ function commandError(cmd, args, r) {
 
 // A pull request URL (it holds /pull/<digits>) or a bare number.
 const isPullRequest = (value) => /\/pull\/\d+/.test(String(value)) || /^\d+$/.test(String(value).trim())
+
+// Does a report have a body after its header? Text after `<header>:` on the
+// header line counts, and so does any non-empty line after it.
+function hasBody(raw, header) {
+  const lines = String(raw || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length === 0) return false
+  if (lines.length > 1) return true
+  return lines[0].startsWith(`${header}:`) && lines[0].slice(header.length + 1).trim() !== ''
+}
 
 // The question of an architect NEEDS_DECISION report: the field when it has
 // text, else the first non-empty line after the header line.
