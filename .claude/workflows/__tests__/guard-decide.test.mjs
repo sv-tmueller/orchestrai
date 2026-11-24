@@ -359,6 +359,7 @@ describe('decide: no side effects', () => {
   const files = [
     `${guardDir}decide.mjs`,
     `${guardDir}shell.mjs`,
+    `${guardDir}commands.mjs`,
     `${guardDir}groups.mjs`,
     ...(existsSync(rulesDir) ? readdirSync(rulesDir).filter((f) => f.endsWith('.mjs')).map((f) => `${rulesDir}${f}`) : []),
   ]

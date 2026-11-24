@@ -68,11 +68,12 @@
  * do not count. A bare push there is denied.
  *
  * The parser decodes the ANSI-C escapes in `$'...'`: `\x` hex, octal, `\u`,
- * `\U`, and the single-letter escapes `\n \t \\ \' \" \r \a \b \e \f \v`. A
- * NUL from `\x`, octal, `\u` or `\U` ends the string. So a word spelled
+ * `\U`, and the single-letter escapes
+ * `\n \t \\ \' \" \r \a \b \e \E \f \v \?`. A NUL from `\x`, octal, `\u` or
+ * `\U` ends the string. So a word spelled
  * `$'\u0072epos'` is read as `repos`, and one spelled `$'--admin\x00x'` as
  * `--admin`. A word spelled that way still counts as expanding. Any other
- * escape (`\c`, `\E`, `\?`) is kept as written, and `\cX` is named below.
+ * escape is kept as written, as in bash, except `\cX`, which is named below.
  *
  * A `gh api` write is denied as branch-rule when its repos path has a literal
  * `protection` segment anywhere after the repo part, when `branches/<name>/`
@@ -107,9 +108,9 @@
  *     before the push. Only `export`, `declare -x` and `typeset -x` are read.
  *   - `\cX` control escapes in `$'...'` are not decoded. `\c@` and `\c<space>`
  *     give a NUL in bash, which ends the word, so `gh pr merge 12
- *     $'--admin\c@x'` runs as `--admin` and is not seen. `\E` and bytes 0x80
- *     and up also differ from bash (`\E` is kept as written, and a byte becomes
- *     a Latin-1 character), but they cannot hide an ASCII word.
+ *     $'--admin\c@x'` runs as `--admin` and is not seen. Bytes 0x80 and up
+ *     also differ from bash (a byte becomes a Latin-1 character), but they
+ *     cannot hide an ASCII word.
  *   - Export spellings that the "exported `GIT_DIR` counts like a `cd`" rule
  *     does not read: an append (`export GIT_DIR+=other/.git`, also with
  *     `declare -x` and `typeset -x`), `builtin export GIT_DIR=other/.git`,
@@ -146,8 +147,8 @@
  */
 
 import { commandName } from '../shell.mjs'
+import { readGit, readGh } from '../commands.mjs'
 
-const GIT_GLOBAL_VALUE_FLAGS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'])
 const PUSH_VALUE_FLAGS = new Set(['--repo', '-o', '--push-option', '--receive-pack', '--exec'])
 
 const API_VALUE_FLAGS = new Set([
@@ -162,20 +163,6 @@ const branchName = (value) => (typeof value === 'string' && value !== '' ? value
 // ---------------------------------------------------------------------------
 // git
 // ---------------------------------------------------------------------------
-
-// Skips the global options and returns the subcommand and where it stands.
-function readGit(command) {
-  const words = command.words
-  let elsewhere = command.afterCd || (command.env ?? []).some((n) => n === 'GIT_DIR' || n === 'GIT_WORK_TREE')
-  let i = 1
-  while (i < words.length && words[i].text.startsWith('-')) {
-    const flag = words[i].text
-    const name = flag.split('=')[0]
-    if (name === '-C' || name === '--git-dir' || name === '--work-tree') elsewhere = true
-    i += GIT_GLOBAL_VALUE_FLAGS.has(flag) ? 2 : 1
-  }
-  return { sub: words[i]?.text, subExpands: words[i]?.expands === true, index: i, elsewhere }
-}
 
 // Git commands that never change which branch is checked out. After any other
 // git command in a line, the current branch is unknown.
@@ -431,25 +418,6 @@ function checkApi(words, from) {
     }
   }
   return null
-}
-
-// gh's own flags (-R <repo>, --repo <repo>, any other dash word) may stand
-// between `gh`, the group and the subcommand.
-function readGh(words) {
-  let i = 1
-  const skipFlags = () => {
-    while (i < words.length && words[i].text.startsWith('-') && words[i].text.length > 1) {
-      i += words[i].text === '-R' || words[i].text === '--repo' ? 2 : 1
-    }
-  }
-  skipFlags()
-  const group = words[i]?.text
-  const groupExpands = words[i]?.expands === true
-  i++
-  // `gh api` keeps its own flags, so they are not skipped after the group.
-  if (group === 'api') return { group, groupExpands, sub: null, subExpands: false, next: i }
-  skipFlags()
-  return { group, groupExpands, sub: words[i]?.text, subExpands: words[i]?.expands === true, next: i + 1 }
 }
 
 function checkGhPair(group, sub, command, hiddenFlag) {

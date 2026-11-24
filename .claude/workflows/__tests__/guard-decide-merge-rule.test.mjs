@@ -1006,6 +1006,204 @@ describe('merge-rule fix round: an exported GIT_DIR or GIT_WORK_TREE counts like
   })
 })
 
+describe('merge-rule: PR #547 follow-ups (#587)', () => {
+  describe('wrapper short-option clusters', () => {
+    // The value of a cluster's value letter was read as the command name, so
+    // the real command was never checked.
+    defineDenyRows('push-default', [
+      'sudo -Eu root git push origin main',
+      'doas -nu root git push origin main',
+      'env -iu FOO git push origin main',
+    ])
+    defineDenyRows('delete-repo', [
+      'sudo -nu root gh repo delete acme/widget --yes',
+    ])
+    // The chdir letter inside a cluster moves the push to another folder, so a
+    // bare push is no longer known to be on the current branch.
+    defineDenyRows('push-default', [
+      'env -iC ../o git push',
+      'sudo -nD ../x git push',
+      'env -iC../o git push',
+    ])
+
+    // Still denied before and after the fix. Each is read the way the program
+    // reads it, so the real command is checked.
+    describe('still denied (pass before the fix)', () => {
+      defineDenyRows('push-default', [
+        'sudo -u root -E git push origin main',
+        'sudo -uEu git push origin main',
+        'env -uC git push origin main',
+      ])
+    })
+
+    // The text from the first `$` on is unknown, so no letter after it is read
+    // as an option. The word skips one word, like any flag without a value,
+    // and the next word is the command.
+    describe('a flag word that expands does not swallow the command', () => {
+      defineDenyRows('push-default', [
+        'sudo -$u git push origin main',
+        'env -$u git push origin main',
+        'doas -$u git push origin main',
+        'timeout -$s 5 git push origin main',
+        'sudo -n$u git push origin main',
+        'sudo -u$x git push origin main',
+        'sudo -u $x git push origin main',
+        'env -$S git push origin main',
+      ])
+    })
+
+    // The parser decodes `$'u'` to `u`, so the word reads as `-u` and its
+    // value is the next word, as in the real program.
+    describe("a flag word decoded from $'...' is read as the letters it holds", () => {
+      defineDenyRows('push-default', [
+        "env -$'u' X git push origin main",
+        "sudo -$'u' root git push origin main",
+        "doas -$'u' root git push origin main",
+        "timeout -$'s' KILL 5 git push origin main",
+        "nice -$'n' 5 git push origin main",
+        "ionice -$'c' 3 git push origin main",
+        "stdbuf -$'o' L git push origin main",
+        "env -$'S' 'git push origin main'",
+      ])
+    })
+
+    // The letters before the expansion are read, so a chdir letter still moves
+    // the push to another folder, and `-S` still starts a command line.
+    describe('a flag word with an expansion after a literal letter', () => {
+      defineDenyRows('push-default', [
+        'sudo -D"$d" git push',
+        'sudo -D$d git push',
+        'sudo -D$(pwd) git push',
+        'sudo -D`pwd` git push',
+        'sudo -nD"$d" git push',
+        'env -C$d git push',
+        'env -C"$d" git push',
+        'env -iC"$d" git push',
+        'env -S"git push origin main $x"',
+        'env -S"git push origin main `date`"',
+        'env -<(echo)u git push origin main',
+        'sudo ->(cat)n git push origin main',
+        "sudo -$'\\x24'u git push origin main",
+      ])
+    })
+
+    // Gap: an expansion that is empty at run time. The parser cannot know it is
+    // empty, so it reads the word as written. Attached to a value letter, the
+    // program takes the next word as the value instead. No existing row pinned
+    // this form.
+    describe('a gap: an expansion that is empty at run time, attached to a value letter', () => {
+      defineAllowRows('gap', ['env -u$x -nu git push origin main'])
+    })
+
+    // As a word of its own outside quotes, the shell drops the word and the
+    // program reads each later word one place earlier, so `-Eu` is the value of
+    // `-u` in the first row. The real program runs the push in each row.
+    describe('a gap: an expansion that is empty at run time, as a word of its own', () => {
+      defineAllowRows('gap', [
+        'env -u $x -Eu git push origin main',
+        'env -iu git $x git push origin main',
+        'env -iu git `true` git push origin main',
+      ])
+    })
+
+    describe('still passes', () => {
+      defineAllowRows('wrapper', [
+        'sudo -Eu root git status',
+        'env -iu FOO git status',
+        'stdbuf -oL git push origin feat/x',
+        'sudo -nu root git push origin feat/x',
+      ])
+    })
+  })
+
+  describe('a command where env gets a split-string option is read as on main', () => {
+    // When `env` gets `-S` or `--split-string` in a command, the wrappers of
+    // that command are read again from its first word with the readers from
+    // before the cluster reading: a dash word is one skipped word, and the `-S`
+    // string is parsed as a line. A letter `S` inside a cluster (`-iS`) counts as
+    // the option, so these are read that way too. The rows are answered as main
+    // answers them.
+    defineDenyRows('push-default', [
+      'env -iS -i git push origin main',
+      'env -u X -iS -S git push origin main',
+      'env -iS -C /tmp git push origin main',
+      'env -iS -- git push origin main',
+      'env -iS -u -S git push origin main',
+      'env -iS -u nice git push origin main',
+      "env -iS -i -u 'X git' git push origin main",
+      "env -iS '-C /tmp' git push",
+      'env -iS-u -iu git push origin main',
+      'env -iu -S env -S-i git push origin main',
+      'env -iu -u -S$x git push origin main',
+      'env -iS -u -S"a $x" git push origin main',
+    ])
+
+    // The line built from the string is not the line the real `env` runs: the
+    // reader drops an option word that stands after the string. So a command
+    // inside the line is read with the whole-word readers too. A cluster reader
+    // would take `git` as the value of `-iu`, and the push would pass.
+    describe('a command inside the built line is read with the whole-word readers', () => {
+      defineDenyRows('push-default', [
+        "env -S 'env -iu' -i git push origin main",
+        "env -S 'env -iu' -- git push origin main",
+        "env -S 'nice env -iu' -i git push origin main",
+        "env -S 'sudo env -iu' -i git push origin main",
+      ])
+    })
+
+    describe('passes', () => {
+      defineAllowRows('wrapper', [
+        'env -iS -i git status',
+        'env -S -i git push origin feat/x',
+        "env -S '-i ls' -la",
+        // The value of `-u` is `git`, so the program that runs is `push`.
+        'env -iS -u git push origin main',
+        'env -iS -i npm test',
+        // Each `-S` takes the next word as its string, and the line stays within
+        // the nesting limit.
+        'env -S -S -S -S -S git status',
+        // No push in the line, and the `$x` is the value of `-C`, not a git
+        // subcommand.
+        "env -S'-i git' -C \"a $x\" ls -la",
+      ])
+    })
+
+    // Gap: the real `env` reads options from the `-S` string and runs
+    // `git push origin main` for each of these. Main allows them too, so the
+    // guard does too. #600 replaces the fallback and closes them.
+    describe('a gap: the real env runs the push and the guard allows it (#600)', () => {
+      defineAllowRows('gap', [
+        "env -iS 'git push origin main'",
+        'env -iSgit push origin main',
+        'env -S$x git push origin main',
+        'env -iS"git push origin main $x"',
+        'env -S -i git push origin main',
+        'env --split-string=-i git push origin main',
+        'env --split-string -i git push origin main',
+        "env -S '-u X' git push origin main",
+        "env -S '-i' -S 'git push' origin main",
+        'env -S-u X git push origin main',
+        // The cluster reading does not apply here, so `-iu` is one skipped word.
+        "env -S '' -iu FOO git push origin main",
+        // A cluster inside a line read for a `-S` command is read as one skipped
+        // word, so `-Eu` does not take `root` and the command is `root`.
+        "env -S 'sudo -Eu root' git push origin main",
+        "env -iS bash -c 'sudo -Eu root git push origin main'",
+        "env -S '' eval sudo -Eu root git push origin main",
+      ])
+    })
+  })
+
+  describe("\\? and \\E in $'...'", () => {
+    // Bash decodes `\?` to `?`, which starts the query of the endpoint, so the
+    // literal `protection` or `rulesets` segment before it is still a segment.
+    defineDenyRows('branch-rule', [
+      "gh api -X DELETE $'repos/acme/widget/branches/main/protection\\?'",
+      "gh api -X POST $'repos/acme/widget/rulesets\\?' --input r.json",
+    ])
+  })
+})
+
 describe('merge-rule: how the answer is shaped', () => {
   test('a deny names the group and the entry', () => {
     const answer = run('git push origin main')
@@ -1113,7 +1311,7 @@ describe('merge-rule: the rule file says what it does not cover', () => {
       // fix round past the cap
       'declare -x', 'typeset -x', 'ANSI-C escapes', 'set -a', 'sourced file',
       // owner decision 2026-11-13: named gaps, not fixes
-      '`\\cX` control escapes', "$'--admin\\c@x'", '`\\E` and bytes 0x80 and up',
+      '`\\cX` control escapes', "$'--admin\\c@x'", 'Bytes 0x80 and up also differ from bash',
       'export GIT_DIR+=other/.git', 'builtin export GIT_DIR=', 'local -x GIT_DIR=', 'export $VAR=x',
       // sentences narrowed to what the code reads
       'A NUL from `\\x`, octal, `\\u` or `\\U` ends the string', 'with or without a value',
@@ -1127,5 +1325,14 @@ describe('merge-rule: the rule file says what it does not cover', () => {
     for (const topic of topics) {
       assert.ok(source.includes(topic), `the Not covered header does not mention ${topic}`)
     }
+  })
+
+  test("the header lists \\E and \\? as decoded, not as kept as written (#587)", async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('../../guard/rules/merge-rule.mjs', import.meta.url), 'utf8')
+      .replace(/\s*\n\s*\*\s*/g, ' ')
+    assert.ok(source.includes("\\e \\E \\f \\v \\?"), 'the decoded list does not name \\E and \\?')
+    assert.ok(!source.includes('`\\E`, `\\?`) is kept as written'), 'the header still keeps \\E and \\? as written')
+    assert.ok(!source.includes('`\\E` is kept as written'), 'the header still keeps \\E as written')
   })
 })
