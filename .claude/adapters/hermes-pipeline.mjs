@@ -352,6 +352,207 @@ export function planWaves(entries) {
 }
 
 // ---------------------------------------------------------------------------
+// The runner and the GitHub layer.
+// ---------------------------------------------------------------------------
+
+/**
+ * defaultRun(cmd, args, { cwd }) -> { code, stdout, stderr }
+ *
+ * The one function every gh and git call goes through. It never rejects on
+ * a nonzero exit: the caller decides what that means. Tests inject a
+ * fixture-backed runner in its place.
+ */
+export async function defaultRun(cmd, args, { cwd } = {}) {
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    })
+    return { code: 0, stdout, stderr }
+  } catch (e) {
+    // e.code is the exit status when numeric, or a string like ENOENT.
+    return {
+      code: typeof e.code === 'number' ? e.code : 1,
+      stdout: e.stdout || '',
+      stderr: e.stderr || String(e.message || e),
+    }
+  }
+}
+
+// The canonical label set. SKILL.hermes.md carried this list until #605
+// removed it, so this is the only copy.
+export const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+
+const firstLine = (text) => String(text || '').trim().split('\n')[0]
+const shorten = (arg) => (arg.length > 60 ? `${arg.slice(0, 57)}...` : arg)
+
+/**
+ * createGitHub({ run, dryRun, log, cwd }) -> { reads..., writes... }
+ *
+ * Reads throw on a nonzero exit, naming the command. Writes do the same,
+ * except that under dryRun they log one line and return without calling
+ * the runner.
+ */
+export function createGitHub({ run = defaultRun, dryRun = false, log = () => {}, cwd } = {}) {
+  const exec = async (cmd, args) => {
+    const r = await run(cmd, args, { cwd })
+    if (r.code !== 0) {
+      throw new Error(`${[cmd, ...args].join(' ')}: ${firstLine(r.stderr) || `exit ${r.code}`}`)
+    }
+    return r.stdout
+  }
+  const readJson = async (cmd, args) => {
+    const out = await exec(cmd, args)
+    try {
+      return JSON.parse(out)
+    } catch (e) {
+      throw new Error(`${[cmd, ...args].join(' ')}: output is not valid JSON (${e.message})`)
+    }
+  }
+  const write = async (cmd, args) => {
+    if (dryRun) {
+      log(`dry run, skipped: ${[cmd, ...args.map(shorten)].join(' ')}`)
+      return
+    }
+    await exec(cmd, args)
+  }
+
+  // gh pr list and git ls-remote are read at most once per run.
+  let prs
+  let heads
+
+  const gh = {
+    issueView: (n) =>
+      readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title']),
+    async issueList(label) {
+      const rows = await readJson('gh', [
+        'issue', 'list', '--state', 'open', '--label', label, '--limit', '100', '--json', 'number',
+      ])
+      return rows.map((r) => r.number).sort((a, b) => a - b)
+    },
+    prList() {
+      prs ??= readJson('gh', [
+        'pr', 'list', '--state', 'open', '--limit', '100',
+        '--json', 'closingIssuesReferences,headRefName,isDraft,number,url',
+      ])
+      return prs
+    },
+    async prComments(pr) {
+      return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
+    },
+    remoteHeads() {
+      heads ??= exec('git', ['ls-remote', '--heads', 'origin']).then((out) =>
+        out.split('\n').map((l) => l.split('\t')[1]).filter(Boolean)
+      )
+      return heads
+    },
+
+    createLabel: ({ name, color, description }) =>
+      write('gh', ['label', 'create', name, '--color', color, '--description', description, '--force']),
+    comment: (n, body) => write('gh', ['issue', 'comment', String(n), '--body', body]),
+    addLabel: (n, label) => write('gh', ['issue', 'edit', String(n), '--add-label', label]),
+    removeLabel: (n, label) => write('gh', ['issue', 'edit', String(n), '--remove-label', label]),
+    prReady: (pr) => write('gh', ['pr', 'ready', String(pr)]),
+
+    // Parking: the reason on the issue, needs-human on, in-progress off only
+    // when the issue has it (removing a missing label is an error).
+    async park(n, reason, { inProgress = false } = {}) {
+      await gh.comment(n, `Parked: ${reason}`)
+      await gh.addLabel(n, 'needs-human')
+      if (inProgress) await gh.removeLabel(n, 'in-progress')
+    },
+  }
+  return gh
+}
+
+// ---------------------------------------------------------------------------
+// The gate.
+// ---------------------------------------------------------------------------
+
+const SIZES = ['size:XL', 'size:L', 'size:M', 'size:S']
+
+// A sub-plan comment is an issue comment with a line that is exactly SUB_PLAN.
+const hasSubPlan = (comments) =>
+  comments.some((c) => String(c.body || '').split('\n').some((line) => line.replace(/\r$/, '') === 'SUB_PLAN'))
+
+/**
+ * runGate(numbers, gh) -> entries[]
+ *
+ * One entry per issue, in argument order:
+ * { issue, size, outcome, detail, blockers, inProgress, resume? }.
+ * The first matching rule decides the outcome; blockers then turn a run or
+ * resume into a wait. Reads only: the caller does any park write.
+ */
+export async function runGate(numbers, gh) {
+  const issues = new Map()
+  const view = async (n) => {
+    if (!issues.has(n)) issues.set(n, await gh.issueView(n))
+    return issues.get(n)
+  }
+  const entries = []
+  for (const n of numbers) entries.push(await gateIssue(await view(n), gh, view))
+  return entries
+}
+
+async function gateIssue(issue, gh, view) {
+  const n = issue.number
+  const labels = issue.labels.map((l) => l.name)
+  const size = SIZES.find((s) => labels.includes(s)) || 'unsized'
+  const inProgress = labels.includes('in-progress')
+  const entry = (outcome, detail, extra = {}) => ({ issue: n, size, outcome, detail, blockers: [], inProgress, ...extra })
+
+  if (issue.state === 'CLOSED') return entry('skip', 'closed')
+  if (labels.includes('needs-human')) return entry('skip', 'labeled needs-human, resuming it is the user\'s call')
+  if (size === 'size:L' || size === 'size:XL') return entry('stop', `${size}, split it first`)
+  if (size === 'unsized') return entry('park', 'no size label, not guessing a size')
+
+  const prs = (await gh.prList()).filter((p) => (p.closingIssuesReferences || []).some((r) => r.number === n))
+  const highest = (list) => list.reduce((best, p) => (!best || p.number > best.number ? p : best), null)
+  const ready = highest(prs.filter((p) => !p.isDraft))
+  if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`)
+
+  let result
+  const draft = highest(prs.filter((p) => p.isDraft))
+  if (draft) {
+    const { stage, findings } = resumeStage(await gh.prComments(draft.number))
+    const resume = { stage, branch: draft.headRefName, pr: draft.number }
+    if (findings !== undefined) resume.findings = findings
+    result = entry('resume', `draft PR #${draft.number}, resuming at the ${stage}`, { resume })
+  } else if (inProgress) {
+    const branchRef = (await gh.remoteHeads()).find((r) => new RegExp(`^refs/heads/[^/]+/${n}-`).test(r))
+    result = branchRef
+      ? entry('resume', `branch ${branchRef.slice('refs/heads/'.length)} on origin, no PR, resuming at the tester`, {
+          resume: { stage: 'tester', branch: branchRef.slice('refs/heads/'.length) },
+        })
+      : entry('run', 'in-progress but no PR and no branch, starting at the developer', { resume: { stage: 'developer' } })
+  } else if (hasSubPlan(issue.comments)) {
+    result = entry('run', 'sub-plan comment found, starting at the developer', { resume: { stage: 'developer' } })
+  } else {
+    result = entry('run', 'no sub-plan comment, starting at the architect')
+  }
+
+  const unmerged = []
+  for (const b of parseBlockers(issue.body)) {
+    const blocker = await view(b)
+    if (!(blocker.state === 'CLOSED' && blocker.stateReason === 'COMPLETED')) unmerged.push(b)
+  }
+  if (unmerged.length > 0) {
+    return { ...result, outcome: 'wait', detail: `blocked by ${unmerged.map((b) => `#${b}`).join(', ')}`, blockers: unmerged }
+  }
+  return result
+}
+
+export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.detail}`
+
+// ---------------------------------------------------------------------------
 // GitHub helpers (no-ops in dry-run mode; terminal calls in live mode).
 // ---------------------------------------------------------------------------
 

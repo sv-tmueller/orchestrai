@@ -1,0 +1,1000 @@
+{
+  "reads": {
+    "gh issue view 101 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 101",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 101,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "Issue 101 title"
+    },
+    "gh issue view 102 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 102",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_needs-human",
+          "name": "needs-human",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 102,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 102 title"
+    },
+    "gh issue view 103 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 103",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:L",
+          "name": "size:L",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 103,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 103 title"
+    },
+    "gh issue view 104 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 104",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:XL",
+          "name": "size:XL",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 104,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 104 title"
+    },
+    "gh issue view 105 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 105",
+      "comments": [],
+      "labels": [],
+      "number": 105,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 105 title"
+    },
+    "gh issue view 106 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 106",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_bug",
+          "name": "bug",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 106,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 106 title"
+    },
+    "gh issue view 107 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 107",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:S",
+          "name": "size:S",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 107,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 107 title"
+    },
+    "gh issue view 108 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 108",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 108,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 108 title"
+    },
+    "gh issue view 109 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 109",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 109,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 109 title"
+    },
+    "gh issue view 110 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 110",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 110,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 110 title"
+    },
+    "gh issue view 111 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 111",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 111,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 111 title"
+    },
+    "gh issue view 112 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 112",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 112,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 112 title"
+    },
+    "gh issue view 113 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 113",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 113,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 113 title"
+    },
+    "gh issue view 114 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 114",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 114,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 114 title"
+    },
+    "gh issue view 115 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 115",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 115,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 115 title"
+    },
+    "gh issue view 116 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 116",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 116,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 116 title"
+    },
+    "gh issue view 117 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 117",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 117,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 117 title"
+    },
+    "gh issue view 118 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 118",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "Plan:\nSUB_PLAN: not the marker line\n> SUB_PLAN\n`SUB_PLAN`",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 118,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 118 title"
+    },
+    "gh issue view 119 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 119",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "intro\r\nSUB_PLAN\r\nmore",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 119,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 119 title"
+    },
+    "gh issue view 120 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 120",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 120,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 120 title"
+    },
+    "gh issue view 121 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #130",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 121,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 121 title"
+    },
+    "gh issue view 122 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #131",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 122,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 122 title"
+    },
+    "gh issue view 123 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #132",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 123,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 123 title"
+    },
+    "gh issue view 124 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #116",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 124,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 124 title"
+    },
+    "gh issue view 125 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #124\nBlocked by: #130",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 125,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 125 title"
+    },
+    "gh issue view 126 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #108",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 126,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 126 title"
+    },
+    "gh issue view 127 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Blocked by: #132",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:L",
+          "name": "size:L",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 127,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 127 title"
+    },
+    "gh issue view 130 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 130",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:S",
+          "name": "size:S",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 130,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "Issue 130 title"
+    },
+    "gh issue view 131 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 131",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:S",
+          "name": "size:S",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 131,
+      "state": "CLOSED",
+      "stateReason": "NOT_PLANNED",
+      "title": "Issue 131 title"
+    },
+    "gh issue view 132 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 132",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_size:S",
+          "name": "size:S",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 132,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 132 title"
+    },
+    "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_107",
+            "number": 107,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/107"
+          }
+        ],
+        "headRefName": "feat/107-x",
+        "isDraft": false,
+        "number": 205,
+        "url": "https://github.com/o/r/pull/205"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_108",
+            "number": 108,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/108"
+          }
+        ],
+        "headRefName": "feat/108-x",
+        "isDraft": false,
+        "number": 208,
+        "url": "https://github.com/o/r/pull/208"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_109",
+            "number": 109,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/109"
+          }
+        ],
+        "headRefName": "feat/109-a",
+        "isDraft": false,
+        "number": 209,
+        "url": "https://github.com/o/r/pull/209"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_109",
+            "number": 109,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/109"
+          }
+        ],
+        "headRefName": "feat/109-b",
+        "isDraft": false,
+        "number": 211,
+        "url": "https://github.com/o/r/pull/211"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_110",
+            "number": 110,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/110"
+          }
+        ],
+        "headRefName": "feat/110-x",
+        "isDraft": true,
+        "number": 210,
+        "url": "https://github.com/o/r/pull/210"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_111",
+            "number": 111,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/111"
+          }
+        ],
+        "headRefName": "feat/111-x",
+        "isDraft": true,
+        "number": 212,
+        "url": "https://github.com/o/r/pull/212"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_112",
+            "number": 112,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/112"
+          }
+        ],
+        "headRefName": "fix/112-x",
+        "isDraft": true,
+        "number": 213,
+        "url": "https://github.com/o/r/pull/213"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_113",
+            "number": 113,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/113"
+          }
+        ],
+        "headRefName": "feat/113-x",
+        "isDraft": true,
+        "number": 214,
+        "url": "https://github.com/o/r/pull/214"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_120",
+            "number": 120,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/120"
+          }
+        ],
+        "headRefName": "feat/120-old",
+        "isDraft": true,
+        "number": 220,
+        "url": "https://github.com/o/r/pull/220"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_120",
+            "number": 120,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/120"
+          }
+        ],
+        "headRefName": "feat/120-new",
+        "isDraft": true,
+        "number": 222,
+        "url": "https://github.com/o/r/pull/222"
+      },
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_999",
+            "number": 999,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/999"
+          }
+        ],
+        "headRefName": "feat/999-x",
+        "isDraft": true,
+        "number": 299,
+        "url": "https://github.com/o/r/pull/299"
+      }
+    ],
+    "gh pr view 210 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Developer report**\n\nDraft opened.",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "gh pr view 212 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: PASS\nFINDINGS: none",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "gh pr view 213 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: PASS",
+          "createdAt": "2026-11-02T09:00:00Z"
+        },
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report, round 2**\n\nVERDICT: FAIL\nFINDINGS: 1. exit code is 0 on a failed read",
+          "createdAt": "2026-11-02T10:00:00Z"
+        }
+      ]
+    },
+    "gh pr view 214 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: APPROVE\nSTAGE: both clean",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "gh pr view 222 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: PASS",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "git ls-remote --heads origin": "1111111111111111111111111111111111111111\trefs/heads/main\n2222222222222222222222222222222222222222\trefs/heads/feat/114-tester-branch\n3333333333333333333333333333333333333333\trefs/heads/feat/1140-other\n4444444444444444444444444444444444444444\trefs/heads/feat/15-short\n5555555555555555555555555555555555555555\trefs/heads/docs/9-x\n"
+  },
+  "failures": {}
+}

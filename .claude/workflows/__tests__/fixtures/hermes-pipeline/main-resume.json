@@ -1,0 +1,80 @@
+{
+  "reads": {
+    "gh issue view 301 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 301",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 301,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 301 title"
+    },
+    "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_301",
+            "number": 301,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/301"
+          }
+        ],
+        "headRefName": "feat/301-work",
+        "isDraft": true,
+        "number": 310,
+        "url": "https://github.com/o/r/pull/310"
+      }
+    ],
+    "gh pr view 310 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report, round 1**\n\nVERDICT: FAIL\nFINDINGS: 1. missing test for the cycle case",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "git worktree list --porcelain": ""
+  },
+  "failures": {}
+}
