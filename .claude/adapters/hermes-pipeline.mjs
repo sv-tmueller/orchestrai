@@ -55,13 +55,14 @@ export function worktreePlan(repoRoot, issueNumber, slug = 'pending', opts = {})
 /**
  * Create the package worktree if it is not already there. Branches from
  * the fetched remote tip so a package starts current, falling back to
- * local HEAD when the remote is unreachable.
+ * local HEAD when the remote is unreachable. With resumeBranch, it checks
+ * out that branch from origin instead.
  *
  * Note: Hermes' own worktree mode copies files listed in
  * `.worktreeinclude`. A driver-created worktree does not get that for
  * free, so a seat needing a gitignored file needs it copied here.
  */
-export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { run = defaultRun } = {}) {
+export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { run = defaultRun, resumeBranch } = {}) {
   const git = async (args) => {
     const r = await run('git', args, { cwd: repoRoot })
     if (r.code !== 0) throw new Error(`git ${args.join(' ')}: ${firstLine(r.stderr) || `exit ${r.code}`}`)
@@ -73,6 +74,14 @@ export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { 
     }
   } catch {
     // No worktree list means no repo or no worktrees; let the add below fail loudly.
+  }
+  if (resumeBranch) {
+    // A resume continues the branch the PR already has. Without this it
+    // would branch off origin/main under a new name, or fail on a local
+    // branch that exists. A failed fetch is an error: there is no sane fallback.
+    await git(['fetch', 'origin', resumeBranch])
+    await git(['worktree', 'add', plan.path, '-B', resumeBranch, `origin/${resumeBranch}`])
+    return { created: true, path: plan.path }
   }
   try {
     await git(['worktree', 'add', plan.path, '-b', plan.branch, baseRef])
@@ -157,7 +166,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   }
 
   if (!dryRun) {
-    await ensureWorktree(repoRoot, plan, opts.baseRef, { run })
+    await ensureWorktree(repoRoot, plan, opts.baseRef, { run, resumeBranch: resume?.branch })
   }
 
   // --- Stage 1: Architect (SUB_PLAN) ---

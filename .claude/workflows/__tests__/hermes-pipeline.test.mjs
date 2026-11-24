@@ -986,6 +986,81 @@ describe('runPipeline with resume', () => {
   })
 })
 
+describe('the resume worktree', () => {
+  const { runPipeline, ensureWorktree, worktreePlan, main } = driver
+  const WT_ADD_FRESH = 'git worktree add /repo/.worktrees/pkg-7 -b feat/7-pending origin/main'
+  const WT_ADD_RESUME = 'git worktree add /repo/.worktrees/pkg-7 -B feat/7-work origin/feat/7-work'
+
+  async function pipeline(opts, worktrees = '') {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': worktrees } })
+    await runPipeline(7, {
+      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+    })
+    return fake.calls
+  }
+
+  test('a resume with a branch fetches it, then adds the worktree on it with -B, before any seat', async () => {
+    const calls = await pipeline({ resume: { stage: 'tester', branch: 'feat/7-work', pr: 12 } })
+    const writes = keysOf(calls, 'write')
+    assert.ok(writes.includes('git fetch origin feat/7-work'))
+    assert.ok(writes.includes(WT_ADD_RESUME))
+    assert.ok(writes.indexOf('git fetch origin feat/7-work') < writes.indexOf(WT_ADD_RESUME))
+    assert.ok(!writes.includes(WT_ADD_FRESH), 'no fresh branch off origin/main')
+    const firstSeat = calls.findIndex((c) => c.kind === 'spawn')
+    assert.ok(calls.findIndex((c) => c.key === WT_ADD_RESUME) < firstSeat)
+  })
+
+  test('a resume with no known branch starts a fresh branch like a first run', async () => {
+    const calls = await pipeline({ resume: { stage: 'developer' } })
+    assert.ok(keysOf(calls, 'write').includes(WT_ADD_FRESH))
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch')))
+  })
+
+  test('a first run does not fetch', async () => {
+    const calls = await pipeline({})
+    assert.ok(keysOf(calls, 'write').includes(WT_ADD_FRESH))
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch')))
+  })
+
+  test('an existing worktree is left alone: no fetch and no add', async () => {
+    const calls = await pipeline(
+      { resume: { stage: 'tester', branch: 'feat/7-work', pr: 12 } },
+      'worktree /repo/.worktrees/pkg-7\nHEAD abc\nbranch refs/heads/feat/7-work\n'
+    )
+    assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch') || k.startsWith('git worktree add')))
+  })
+
+  test('a failed fetch stops the setup and names the command', async () => {
+    const fake = fakeRunner({
+      reads: { 'git worktree list --porcelain': '' },
+      failures: { 'git fetch origin feat/7-work': "fatal: couldn't find remote ref feat/7-work\nmore" },
+    })
+    await assert.rejects(
+      ensureWorktree('/repo', worktreePlan('/repo', 7), 'origin/main', { run: fake.run, resumeBranch: 'feat/7-work' }),
+      /^Error: git fetch origin feat\/7-work: fatal: couldn't find remote ref feat\/7-work$/
+    )
+    assert.ok(!keysOf(fake.calls, 'write').some((k) => k.startsWith('git worktree add')))
+  })
+
+  test('main resumes a draft PR on its branch with the verdict findings in the fix prompt', async () => {
+    const fake = fakeRunner(loadFixture('main-resume'), { developer: { STATUS: 'DONE' } })
+    const code = await main(['301'], {
+      env: {}, run: fake.run, spawn: fake.spawn, out: () => {}, err: () => {}, cwd: '/repo',
+    })
+    assert.equal(code, 0)
+    const writes = keysOf(fake.calls, 'write')
+    assert.ok(writes.includes('git fetch origin feat/301-work'))
+    assert.ok(writes.includes('git worktree add /repo/.worktrees/pkg-301 -B feat/301-work origin/feat/301-work'))
+    const task = fake.calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.ok(task.includes('fix exactly these findings:\n**Tester report, round 1**'))
+    assert.ok(task.includes('FINDINGS: 1. missing test for the cycle case'))
+    assert.deepEqual(
+      fake.calls.filter((c) => c.kind === 'spawn').map((c) => c.role),
+      ['developer', 'tester', 'reviewer']
+    )
+  })
+})
+
 describe('the script entry point', () => {
   const script = fileURLToPath(new URL('../../adapters/hermes-pipeline.mjs', import.meta.url))
 
