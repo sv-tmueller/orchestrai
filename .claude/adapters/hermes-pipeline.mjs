@@ -99,6 +99,23 @@ export async function ensureWorktree(repoRoot, plan, baseRef = 'origin/main', { 
   return { created: true, path: plan.path }
 }
 
+/**
+ * slugOf(title) -> string
+ *
+ * The slug of a branch name, from the issue title: lowercase words joined by
+ * single hyphens, at most 40 characters, `pending` when nothing is left. It
+ * never holds a `:` or a `#`, which a push refspec cannot take.
+ */
+export function slugOf(title) {
+  const slug = String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+  return slug || 'pending'
+}
+
 const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
 
 /**
@@ -115,6 +132,8 @@ const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
  * - run: the gh and git runner (default: defaultRun)
  * - spawn: the seat dispatcher (default: the adapter's spawn)
  * - log: sink for progress lines (default: console.warn)
+ * - title: the issue title, which names the branch (see slugOf)
+ * - inProgress: the issue already carries in-progress, so a stop removes it
  * - resume: { stage, branch, pr, findings }. Stages before resume.stage are
  *   skipped. The order is architect, developer, tester, reviewer, ship.
  *   findings, when set, go to the developer verbatim as the fix prompt.
@@ -127,7 +146,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   const spawnSeat = opts.spawn || spawn
 
   const repoRoot = opts.repoRoot || process.cwd()
-  const plan = worktreePlan(repoRoot, issueNumber)
+  // One branch name for the worktree and for the developer prompt.
+  const plan = worktreePlan(repoRoot, issueNumber, slugOf(opts.title), { type: opts.branchType })
   const gh = createGitHub({ run, dryRun, log, cwd: repoRoot })
 
   const state = {
@@ -239,8 +259,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   // --- Stage 2: Developer (implement, or fix the findings of a resume) ---
   if (runs('developer')) {
     log('stage 2: developer implement')
-    const slug = state.subPlan?.slice(0, 30)?.replace(/\s+/g, '-').toLowerCase() || 'impl'
-    state.branch = resume?.branch || worktreePlan(repoRoot, issueNumber, slug, { type: opts.branchType }).branch
+    state.branch = resume?.branch || plan.branch
 
     // A branch with no PR and no findings: the work stopped before the draft PR.
     const noPrResume = resume?.stage === 'developer' && resume.branch && !resume.pr && resume.findings === undefined
@@ -372,8 +391,8 @@ export async function runWave(packages, opts = {}) {
     // others, so each is settled on its own.
     const settled = await Promise.allSettled(
       batch.map((p) => {
-        const { issue, resume } = typeof p === 'number' ? { issue: p } : p
-        return runPipeline(issue, { ...opts, resume })
+        const { issue, resume, title, inProgress } = typeof p === 'number' ? { issue: p } : p
+        return runPipeline(issue, { ...opts, resume, title, inProgress })
       })
     )
     settled.forEach((s, k) => {
@@ -785,7 +804,10 @@ export async function main(argv, { env = process.env, run = defaultRun, spawn: s
 
     // Only wave 1 runs. The driver never merges, so a later wave's blocker
     // cannot be merged during this run; the next run picks the later waves up.
-    const packages = waves[0].map((n) => ({ issue: n, resume: entries.find((e) => e.issue === n).resume }))
+    const packages = waves[0].map((n) => {
+      const e = entries.find((x) => x.issue === n)
+      return { issue: n, resume: e.resume, title: e.title, inProgress: e.inProgress }
+    })
     const results = await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd })
     for (const r of results) {
       out(r.error !== undefined ? `#${r.issue} error: ${r.error}` : r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)

@@ -1688,6 +1688,84 @@ describe('the resume worktree', () => {
     assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch')))
   })
 
+  // The branch comes from the issue title, once, for the worktree and for the developer.
+  describe('the branch name', () => {
+    const developerTask = (calls) => calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    const worktreeBranch = (calls) => keysOf(calls, 'write').find((k) => k.startsWith('git worktree add')).split(' ')[5]
+
+    test('a title with a colon and a hash gives a branch of lowercase words, the same one for the worktree and the developer', async () => {
+      const sub = parseReport('architect', 'SUB_PLAN\n\n# Issue #7: Hermes driver, the second half')
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: sub })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Hermes driver: fix rounds (#7)',
+      })
+      const branch = worktreeBranch(fake.calls)
+      assert.equal(branch, 'feat/7-hermes-driver-fix-rounds-7')
+      assert.match(branch, /^feat\/7-[a-z0-9-]+$/)
+      assert.ok(developerTask(fake.calls).includes(`branch ${branch}: implement per the sub-plan`))
+    })
+
+    test('the sub-plan text no longer has a say in the branch', async () => {
+      const a = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: parseReport('architect', 'SUB_PLAN\n\nAlpha: one') })
+      const b = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: parseReport('architect', 'SUB_PLAN\n\nBeta: two') })
+      for (const f of [a, b]) {
+        await runPipeline(7, { dryRun: false, run: f.run, spawn: f.spawn, log: () => {}, repoRoot: '/repo', title: 'Same title' })
+      }
+      assert.equal(worktreeBranch(a.calls), 'feat/7-same-title')
+      assert.equal(worktreeBranch(b.calls), 'feat/7-same-title')
+    })
+
+    test('with no title the branch is feat/<n>-pending in the worktree and in the developer prompt', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, { dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(worktreeBranch(fake.calls), 'feat/7-pending')
+      assert.ok(developerTask(fake.calls).includes('branch feat/7-pending:'))
+    })
+
+    test('a run that starts at the developer names the same branch as the worktree, not an -impl one', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Fix it', resume: { stage: 'developer' },
+      })
+      assert.equal(worktreeBranch(fake.calls), 'feat/7-fix-it')
+      assert.ok(developerTask(fake.calls).includes('branch feat/7-fix-it:'))
+    })
+
+    test('branchType still picks the prefix', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Crash on empty', branchType: 'fix',
+      })
+      assert.equal(worktreeBranch(fake.calls), 'fix/7-crash-on-empty')
+    })
+
+    test('the resume branch wins over the title', async () => {
+      const calls = await pipeline({ title: 'Other title', resume: { stage: 'developer', branch: 'feat/7-work' } })
+      assert.ok(developerTask(calls).includes('branch feat/7-work:'))
+      assert.ok(keysOf(calls, 'write').includes(WT_ADD_RESUME))
+    })
+
+    test('main passes the issue title: issue 201 is built on feat/201-issue-201-title', async () => {
+      const fake = fakeRunner(loadFixture('main-live'))
+      await main(['201'], { env: {}, run: fake.run, spawn: fake.spawn, out: () => {}, err: () => {}, cwd: '/repo' })
+      assert.ok(keysOf(fake.calls, 'write').includes('git worktree add /repo/.worktrees/pkg-201 -b feat/201-issue-201-title origin/main'))
+      assert.ok(developerTask(fake.calls).includes('branch feat/201-issue-201-title:'))
+    })
+
+    test('slugOf lowercases, turns every run of other characters into one hyphen, trims and cuts at 40', () => {
+      const { slugOf } = driver
+      assert.equal(slugOf('Issue #604: Hermes'), 'issue-604-hermes')
+      assert.equal(slugOf('Hermes driver: fix-round loop, counters and parking'), 'hermes-driver-fix-round-loop-counters-an')
+      assert.equal(slugOf(`${'a'.repeat(39)} b`), 'a'.repeat(39), 'no hyphen is left at the cut')
+      assert.equal(slugOf('  --Hello--  '), 'hello')
+    })
+
+    test('slugOf gives pending for a missing or empty title and for one with no letters or digits', () => {
+      const { slugOf } = driver
+      for (const t of [undefined, null, '', '   ', '!!!', '#:']) assert.equal(slugOf(t), 'pending')
+    })
+  })
+
   test('a first run does not fetch', async () => {
     const calls = await pipeline({})
     assert.ok(keysOf(calls, 'write').includes(WT_ADD_FRESH))
