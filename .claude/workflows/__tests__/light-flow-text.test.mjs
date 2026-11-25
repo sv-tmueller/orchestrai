@@ -102,7 +102,7 @@ describe('light flow doc', () => {
     assert.ok(text.includes('sizes an unsized issue itself'), 'the lead sizes an unsized issue')
     assert.ok(text.includes('closingIssuesReferences'), 'how to find the PR on a resume')
     assert.ok(text.includes('starts in the same run'), 'a blocker that merges mid-run')
-    assert.match(text, /did not exit 0[^.]*fix round/)
+    assert.match(text, /did not exit 0[^.]*fix round[^.]*counts toward the cap/)
     assert.ok(text.includes('Sonnet'), 'the Sonnet fallback')
   })
 })
@@ -165,7 +165,8 @@ describe('claude skills', () => {
   })
 
   test('kickoff sends a gate-skipped package with a red CHECKS line back as a fix round', () => {
-    assert.match(kickoff, /did not exit 0[^.]*fix round[^.]*cap of 2/)
+    assert.match(kickoff, /did not exit 0[^.]*fix round/)
+    assert.match(kickoff, /red checks` first[^.]*counts toward the cap of 2/)
   })
 
   test('kickoff sizes an unsized issue itself and splits only L and XL', () => {
@@ -175,8 +176,7 @@ describe('claude skills', () => {
 
   test('kickoff resumes an in-progress issue or an open PR, and says how to find the PR', () => {
     assert.match(kickoff, /`in-progress` or an open PR[^.]*resumes/)
-    assert.ok(kickoff.includes('gh pr list --search "<n> in:body" --state open'))
-    assert.ok(kickoff.includes('closingIssuesReferences'))
+    assert.ok(kickoff.includes('gh pr list --state open --limit 100 --json number,headRefName,closingIssuesReferences'))
   })
 
   test('kickoff starts a blocked issue in the same run once its blocker merges', () => {
@@ -255,5 +255,135 @@ describe('claude skills', () => {
     for (const heading of ['## What to build', '## Approach', '## Acceptance criteria', '## Non-goals']) {
       assert.ok(advisor.includes(heading), `issue template heading ${heading}`)
     }
+  })
+})
+
+describe('docs follow the light flow (#633)', () => {
+  const root = join(__dir, '..', '..', '..')
+  const read = (rel) => readFileSync(join(root, rel), 'utf8')
+  const flat = (rel) => read(rel).replace(/\s+/g, ' ')
+
+  test('team-guide.md shrank and links the flow doc instead of restating it', () => {
+    const guide = read('.claude/team-guide.md')
+    assert.ok(guide.split('\n').length < 200, 'under 200 lines (was 284)')
+    assert.ok(guide.includes('docs/architecture/light-flow.md'))
+  })
+
+  test('team-guide.md carries none of the removed pipeline vocabulary', () => {
+    const guide = read('.claude/team-guide.md')
+    for (const word of [
+      /\btester\b/i,
+      /plan-status/i,
+      /phase:/,
+      /track:lean/,
+      /runner/i,
+      /claimed:/,
+      /review owed/i,
+      /flagged and re-run/i,
+      /dependency environment/i,
+      /Limit deaths/,
+    ]) {
+      assert.ok(!word.test(guide), `team-guide.md still matches ${word}`)
+    }
+  })
+
+  test('team-guide.md says a Sonnet-fallback APPROVE ships like an Opus one', () => {
+    assert.match(flat('.claude/team-guide.md'), /Sonnet[^.]*APPROVE[^.]*ships like/)
+  })
+
+  test('the architect is on demand and the review status is the only verdict status', () => {
+    const guide = flat('.claude/team-guide.md')
+    assert.match(guide, /architect[^.]*on demand/)
+    assert.ok(guide.includes('orchestrai/review'))
+  })
+
+  test('the docs the flow touches name no tester, plan-status, phase: or orchestrai/test', () => {
+    for (const rel of [
+      'NEW-PROJECT-SETUP.md',
+      'docs/team-architecture.md',
+      'docs/team-guide-rationale.md',
+      'docs/why-the-team.md',
+      'docs/architecture/operating-model.md',
+      'docs/architecture/role-contracts.md',
+      'docs/architecture/adapter-interface.md',
+      'docs/architecture/codex-adapter.md',
+      'docs/operations/plan-downgrade-runbook.md',
+    ]) {
+      // The A/B report's file name is a real path, so it is not a mention of the old block.
+      const src = read(rel).replaceAll('ab-plan-status-parser', '')
+      for (const word of [/\btester\b/i, /orchestrai\/test/, /plan-status/i, /\bphase:/]) {
+        assert.ok(!word.test(src), `${rel} still matches ${word}`)
+      }
+    }
+  })
+
+  test('process-core makes the issue body the plan, and names no agent or skill', () => {
+    const core = flat('.claude/process-core.md')
+    assert.ok(!/sub-plan/i.test(core), 'process-core still asks for a sub-plan')
+    assert.ok(core.includes('### Plan in the issue (checkpoint before deep work)'))
+    assert.ok(core.includes('`## Approach`'))
+    assert.ok(core.includes('`size:M` - 1 to 3 hours.'))
+    assert.ok(core.includes('`size:L` - 4 to 6 hours. Split into smaller issues, or checkpoint the plan in steps (below).'))
+    assert.ok(!core.includes('How to pick up a task'))
+    // The CI section's worked-example path and `cancel-in-progress` were there before the light flow.
+    const named = core.replace('.claude/skills/tm-repo-guard/templates/ci.yml', '').replace('cancel-in-progress', '')
+    for (const word of [/\barchitect\b/i, /\bdeveloper\b/i, /\bkickoff\b/i, /\btm-/, /in-progress/]) {
+      assert.ok(!word.test(named), `process-core matches ${word}`)
+    }
+    assert.ok(!/sub-plans/.test(flat('AGENTS.md')), 'AGENTS.md still says sub-plans')
+  })
+
+  test('README describes the light flow outside its Hermes sections', () => {
+    const readme = read('README.md')
+    const end = readme.indexOf('## Zone 2')
+    assert.ok(end > 0, 'README has a Hermes section')
+    const head = readme.slice(0, end)
+    assert.ok(head.includes('docs/architecture/light-flow.md'))
+    for (const word of [/\btester\b/i, /orchestrai\/test/, /brought up to date/, /lean-allowed/, /dependency environment/i]) {
+      assert.ok(!word.test(head), `README head still matches ${word}`)
+    }
+  })
+
+  test("the fact-checker counts a developer CHECKS line only when the developer is not the claim's author", () => {
+    for (const rel of [
+      '.claude/agents/fact-checker.md',
+      '.claude/adapters/prompts/fact-checker.md',
+      'docs/architecture/role-contracts.md',
+    ]) {
+      assert.ok(
+        flat(rel).includes("only when the developer is not the claim's author"),
+        `${rel} lacks the self-evidence rule`
+      )
+    }
+  })
+
+  test('no seat is told about a dependency environment, because the light flow never passes one', () => {
+    for (const rel of [
+      '.claude/agents/developer.md',
+      '.claude/adapters/prompts/developer.md',
+      'docs/architecture/role-contracts.md',
+      '.claude/team-guide.md',
+      'README.md',
+    ]) {
+      assert.ok(!/dependency environment/i.test(read(rel)), `${rel} still mentions it`)
+    }
+  })
+
+  test('the kickoff skill counts red-checks fix rounds toward the cap and finds the PR by closing reference', () => {
+    const kickoff = flat('.claude/skills/tm-kickoff/SKILL.md')
+    assert.ok(kickoff.includes('Fix round <k>: red checks'))
+    assert.match(kickoff, /Rounds used[^.]*`CHANGES_REQUESTED` review comments plus[^.]*`Fix round <k>: red checks` comments[^.]*cap of 2/)
+    assert.ok(kickoff.includes('Do not search the body text: it also matches a PR that only mentions the number.'))
+    assert.ok(!kickoff.includes('<n> in:body'), 'a bare "<n> in:body" search matches any PR that mentions the number')
+    assert.ok(kickoff.includes('closingIssuesReferences'))
+  })
+
+  test('the flow doc finds the PR by closing reference too, and counts red-checks rounds', () => {
+    const doc = flat('docs/architecture/light-flow.md')
+    assert.ok(!doc.includes('<n> in:body'))
+    assert.ok(doc.includes('closingIssuesReferences'))
+    assert.ok(doc.includes('Fix round <k>: red checks'))
+    assert.match(doc, /Rounds used[^.]*`CHANGES_REQUESTED` review comments plus[^.]*`Fix round <k>: red checks` comments[^.]*cap of 2/)
+    assert.ok(doc.includes('Do not search the body text: it also matches a PR that only mentions the number.'))
   })
 })

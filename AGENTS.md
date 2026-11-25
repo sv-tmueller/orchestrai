@@ -66,7 +66,7 @@ and lint are N/A.
 
 Read `.claude/process-core.md` in full unless your harness has already loaded
 it (a Claude Code session has, through `CLAUDE.md`). It covers issues and
-branches, sizing, sub-plans, commits, tests, CI cost policy, writing style, and
+branches, sizing, planning, commits, tests, CI cost policy, writing style, and
 the neutral what-not-to-do rules (no direct push to `main`, full check suite
 before merge, no `--no-verify`, no undeclared dependency). It applies to every
 seat unchanged.

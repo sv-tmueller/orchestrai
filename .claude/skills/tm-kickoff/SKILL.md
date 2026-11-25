@@ -48,8 +48,9 @@ Then read each issue (`gh issue view <n> --comments`) and check it:
   merges during the run, start the blocked issue in this run.
 - An issue with `in-progress` or an open PR resumes per section 3 instead of a
   fresh developer dispatch. Find the PR with
-  `gh pr list --search "<n> in:body" --state open --json number,headRefName`
-  (or an open PR whose `closingIssuesReferences` names the issue).
+  `gh pr list --state open --limit 100 --json number,headRefName,closingIssuesReferences --jq '.[] | select(any(.closingIssuesReferences[]; .number == <n>))'`.
+  Do not search the body text: it also matches a PR that only mentions the
+  number.
 - An issue with no `## Approach` section in the body or the comments: you write
   one as an issue comment (a few bullets: the approach, the files expected to
   change, the verification step). The lead never dispatches a developer with no
@@ -76,9 +77,10 @@ Worktree isolation keeps packages apart. Within a package the steps are serial.
    - the developer reported `DONE_WITH_CONCERNS`.
 
    Otherwise check the developer's `CHECKS` line. If a command did not exit 0,
-   send the package back to the developer as a fix round (it counts toward the
-   cap of 2 below), then check again. When every command exited 0, post a PR
-   comment `Review not required (size S)` and ship.
+   send the package back to the developer as a fix round, then check again.
+   Post a PR comment `Fix round <k>: red checks` first, so the round is on
+   record; it counts toward the cap of 2 below. When every command exited 0,
+   post a PR comment `Review not required (size S)` and ship.
 4. Reviewer dispatch: give it the PR number and the issue number. Post its
    report verbatim as a PR comment, the next one numbered `Review round <k>`.
    - `APPROVE`: ship.
@@ -111,8 +113,10 @@ A session can drop at any point. Read GitHub state only:
 - A PR and no review comment: run the review gate (step 3). On a size S issue
   this still means the gate, not a new developer dispatch.
 - A review comment (`Review round <k>`, or `Review not required`): continue
-  from its verdict. Count the `CHANGES_REQUESTED` comments for the fix-round
-  cap.
+  from its verdict.
+
+Rounds used, in every case: the `CHANGES_REQUESTED` review comments plus the
+`Fix round <k>: red checks` comments, against the cap of 2.
 
 ## 4. Ship
 

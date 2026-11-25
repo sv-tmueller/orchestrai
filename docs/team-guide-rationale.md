@@ -15,9 +15,9 @@ the rule it supports.
 
 ### Session hygiene: measured baseline and estimate
 
-Supports: "bound lead-session context growth before it reaches the hundreds
-of thousands of tokens... prefer fresh short-lived dispatches per issue over
-one long session across many tasks."
+Supports: "compact, `/clear` or restart before lead-session context
+reaches the hundreds of thousands of tokens, and prefer fresh short-lived
+dispatches per issue."
 
 Before (measured): the top 15 lead-session peaks per turn all exceed 570,000
 tokens, the highest is 1,634,150; orchestrai's own top lead session is
@@ -46,7 +46,7 @@ Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`,
 
 ```
 .claude/
-  agents/            role agents: architect, developer, tester, reviewer,
+  agents/            role agents: architect, developer, reviewer,
                        fact-checker, docs-writer, perf-investigator
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-repo-guard
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
@@ -90,9 +90,8 @@ kickoff batch, where it flipped (batch #201: Fable-priced roles took
 
 ### Cost-based fallback trigger: superseded, not fired
 
-Supports: "superseded by the move to Opus recorded in
-docs/reviews/2026-09-23-lead-model-comparison.md... not a confirmed
-trigger condition."
+Supports: "superseded by the move to Opus. To revisit Fable, re-run the
+comparison first; never switch on availability alone."
 
 The original trigger asked, if Fable stopped being plan-included, to
 measure the lead's actual $/session cost at API rates before deciding
@@ -122,9 +121,8 @@ exhausted) is in the addendum of
 
 ### Role agents: execution vs. decision roles, and why fact-checker stays on Sonnet
 
-Supports: "`developer`, `tester`, `fact-checker`, `docs-writer`, and
-`perf-investigator` run `sonnet`... The `fact-checker` stays on Sonnet, not
-Haiku."
+Supports: "`developer`, `fact-checker`, `docs-writer`, `perf-investigator`
+run `sonnet` (`fact-checker` stays on Sonnet, not Haiku)."
 
 Code generation, verification, claim auditing, doc authoring, and
 measurement are execution roles, not decision roles. The `sonnet` alias

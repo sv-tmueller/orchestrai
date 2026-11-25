@@ -41,7 +41,7 @@ Opus 5 and Sonnet 5 carry no such metering on Pro.
    (issue #380); there is no fallback command to run at the start of a
    session anymore.
 2. Touch no frontmatter pin. `architect` and `reviewer` keep `model: opus` in
-   their frontmatter either way; `developer`, `tester`, `fact-checker`,
+   their frontmatter either way; `developer`, `fact-checker`,
    `docs-writer`, and `perf-investigator` keep `model: sonnet`. None of that
    changes on Pro.
 3. If the main window is on Fable, know the cost. That is the user's own

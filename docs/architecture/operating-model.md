@@ -52,16 +52,17 @@ packages before anything is filed. Owned by
 sized and stress-tested. Owned by `.claude/process-core.md` ("Issues and
 branches", "Sizing"), `/tm-grill-me`, and `/tm-advisor` (file only).
 
-**Flat-star pipeline.** Each issue runs through architect, developer, tester,
-reviewer, with a fact-checker on demand, to a mergeable PR. An eligible
-`size:S` package runs the lean track instead: the architect is skipped and
-the reviewer substitutes for the tester by running the check suite itself.
-Cross-checking still holds, because the reviewer verifies the developer
-either way. Owned by `docs/team-architecture.md` and
+**Flat-star light flow.** Each issue runs through a developer, then a
+reviewer only for `size:M` or larger work, a diff on a risky path, or a
+`DONE_WITH_CONCERNS` report, with the architect and a fact-checker on demand,
+to a mergeable PR. A small, safe package ships on its own CHECKS line, so the
+reviewer is the cross-check where the risk is. Owned by
+`docs/architecture/light-flow.md`, `docs/team-architecture.md` and
 `.claude/skills/tm-kickoff/SKILL.md`.
 
-**Agents cross-check.** Every role is read-only or independently verifying
-except the developer, so no single agent's claim goes unchecked. Owned by
+**Agents cross-check.** The reviewer and the architect are read-only, and the
+reviewer re-runs the check suite itself, so no bigger or risky change rests
+on the developer's claim alone. Owned by
 `.claude/agents/` and the "Agent team" section of `.claude/team-guide.md`.
 
 **Model policy.** Judgment seats and worker seats run different models by

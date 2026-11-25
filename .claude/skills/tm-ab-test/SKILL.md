@@ -47,7 +47,7 @@ under the later arm and invalidates the pairing.
 ## 2. Arm isolation
 
 For each arm whose work is issue-driven (drives `/tm-kickoff`, or any
-machinery that reads an issue's sub-plan comments and PRs), open its own
+machinery that reads an issue's `## Approach` and PRs), open its own
 scratch issue so the two arms never share GitHub state:
 
 ```
@@ -57,18 +57,17 @@ gh issue create --title "AB #<task-issue>-arm-<a|b>: <task title>" \
 ```
 
 Copy the task's size label onto the scratch issue as well as `ab-test`.
-Kickoff's sizing gate parks any issue it cannot size, so an unsized scratch
-issue stalls the arm.
+Kickoff sizes an unsized issue itself; copy the label so both arms run at the
+same size.
 
 Branches are namespaced automatically: a developer dispatch on a scratch
 issue branches from that issue's own number, so arm A and arm B never
 collide on a branch name even when their task titles match.
 
 Every developer-dispatch arm gets a scratch issue, single-shot included.
-Per `.claude/agents/developer.md`, a developer dispatch always reads an
-issue's sub-plan comment as its spec, derives its branch from that issue's
-number, posts a sub-plan comment if none exists, and opens a PR with
-`Closes #<n>`. A raw developer arm run on the original task issue would do
+Per `.claude/agents/developer.md`, a developer dispatch reads the issue's
+`## Approach` as its spec, derives its branch from the issue number, and opens
+a PR with `Closes #<n>`. A raw developer arm run on the original task issue would do
 all of that on the task issue itself, breaking the "stays untouched"
 invariant below. Only a direct workflow invocation, which takes a base ref
 instead of an issue, needs no scratch issue; just record its base commit
@@ -84,10 +83,7 @@ starting arm B. Arms never run concurrently: overlapping arms would
 distort wall-clock and token numbers through quota and CPU contention.
 
 For a headless arm: drive it yourself in that arm's own worktree, forked
-from the base commit. Before every agent dispatch inside the arm (a
-kickoff-pipeline stage, a workflow stage, or a single role-agent dispatch),
-print the pre-dispatch plan-status block per issue #249: which of this
-run's steps are done, which the dispatch is about to start, which remain.
+from the base commit.
 
 If an arm, a probe or a judge pass runs as its own `claude -p` process, walk
 "Headless `claude -p` checklist" below before launching it.

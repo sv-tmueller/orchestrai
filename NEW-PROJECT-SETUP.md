@@ -9,13 +9,14 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `in-progress` and `needs-human` (see team-guide.md "Agent team").
       `/tm-kickoff` and `/tm-advisor` create these six automatically on first
       run, including `/tm-advisor` (file only). Create them before the merge
-      rule (section 5): Apply requires the two verdict statuses only on a repo
-      that has `in-progress` and `needs-human`. On a repo that needs CI,
+      rule (section 5): Apply requires `orchestrai/review` only on a repo that
+      has `in-progress` and `needs-human`. On a repo that needs CI,
       `/tm-repo-guard apply` creates the six labels itself. A repo that
       already has CI gets them from `/tm-kickoff` or `/tm-advisor` on first
       run, not from Apply.
-- [ ] (Optional) Create the labels you will filter on, e.g. `phase:0`, `phase:1`,
-      `type:feat`, `type:fix`.
+- [ ] (Optional) Create the labels you will filter on, e.g. `type:feat`,
+      `type:fix`. The flow itself uses only the six above
+      (`docs/architecture/light-flow.md`).
 
 ## 2. Claude Code
 
@@ -29,7 +30,7 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `/plugin marketplace add anthropics/claude-plugins-official`, then
       `/plugin install superpowers@claude-plugins-official`.
 - [ ] Check the agent team is loaded: `/agents` should list architect,
-      developer, tester, and reviewer.
+      developer, and reviewer.
 - [ ] Check the skills are registered: `/skills` should list tm-advisor,
       tm-kickoff, tm-grill-me, and tm-repo-guard.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
@@ -79,8 +80,8 @@ Run once when adopting the orchestrai plugin into an existing repo.
 - [ ] After the labels (section 1), type
       `/tm-repo-guard apply <owner>/<name>` with this repo's full name. It
       shows the changes and asks before it writes. It requires every check
-      that ran on the newest finished PR, plus `orchestrai/review` and
-      `orchestrai/test` once the labels from section 1 exist.
+      that ran on the newest finished PR, plus `orchestrai/review` once the
+      labels from section 1 exist. It never requires an up to date branch.
 - [ ] If Apply refuses the repo as not your own (an organization repo, or one
       owned by another account), protect `main` by hand in the repo's GitHub
       settings instead: block direct pushes, require a PR, require status
@@ -94,6 +95,6 @@ Run once when adopting the orchestrai plugin into an existing repo.
       `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`.
 - [ ] File the first issues (`gh issue create`), sized, with `Blocked by: #N`
       lines for dependencies.
-- [ ] For a single issue: post a short sub-plan on the issue, branch, open a
-      draft PR (`Closes #N`), then expand it to a full plan in `docs/plans/`.
+- [ ] For a single issue: make sure its body has an `## Approach` section (the
+      plan), branch, and open a draft PR (`Closes #N`).
 - [ ] For a batch of refined issues: run `/tm-kickoff` (see team-guide.md "Agent team").

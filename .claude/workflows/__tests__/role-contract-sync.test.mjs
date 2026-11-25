@@ -92,7 +92,7 @@ const SENTINEL_RULES = {
     'four principles',
   ],
   'developer': [
-    'dependency manifest or lockfile',
+    'fix exactly the numbered findings',
   ],
   'reviewer': [
     'a non-zero exit is a must-fix',

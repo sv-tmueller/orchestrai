@@ -79,8 +79,9 @@ A reviewer runs when any of these holds:
 - the developer reported `DONE_WITH_CONCERNS`.
 
 Otherwise the lead checks the developer's `CHECKS` line. A command that did not
-exit 0 sends the package back to the developer as a fix round (it counts toward
-the cap); else the lead notes in a PR comment that review was not required.
+exit 0 sends the package back to the developer as a fix round (it counts
+toward the cap), with a PR comment `Fix round <k>: red checks`. Otherwise the
+lead notes in a PR comment that review was not required.
 The reviewer always runs the check suite once itself.
 
 ## Merge gate
@@ -109,11 +110,14 @@ requires `orchestrai/test` (no tester earns it) or an up to date PR.
 
 From GitHub state only, with no other rules:
 
-- `in-progress` and no PR: restart the developer. Find a PR with
-  `gh pr list --search "<n> in:body" --state open` or `closingIssuesReferences`.
-- A PR and no review comment: run the review gate. On an S issue this still
-  means the gate, not a new developer dispatch.
+- `in-progress` and no PR: restart the developer. Find the open PR whose
+  `closingIssuesReferences` names the issue. Do not search the body text: it
+  also matches a PR that only mentions the number.
+- A PR and no review comment: run the review gate, also on an S issue.
 - A review comment: continue from its verdict.
+
+Rounds used, in every case: the `CHANGES_REQUESTED` review comments plus the
+`Fix round <k>: red checks` comments, against the cap of 2.
 
 ## Not in this flow
 

@@ -1960,7 +1960,7 @@ const TARGET = { repo: 'octo/widget', branch: 'main' }
 // purpose: a change to the script's table has to show up as a test failure.
 const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
-  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours.' },
   { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
   { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
   { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
@@ -2272,7 +2272,7 @@ describe('planText', () => {
     const withUpdate = buildWrites(TARGET, { ...ciFacts, labels })
     const got = planText(TARGET, plan, withUpdate, 'abc').split('\n')
     assert.equal(got[1], 'labels:')
-    assert.equal(got[2], '  update size:M, color BFD4F2: 1 to 3 hours. Write a sub-plan first.')
+    assert.equal(got[2], '  update size:M, color BFD4F2: 1 to 3 hours.')
     assert.equal(got[3], 'changes:')
   })
 
@@ -3769,8 +3769,10 @@ describe('runApply', () => {
         ]
         // Pinned from the guard before swift support (the ci object keeps its five
         // keys), then re-taken when orchestrai/test left the required checks, and
-        // again when the PUT body went to strict: false (#630).
-        assert.deepEqual(tokens, ['692329551cc9', 'fb498d630a40', '6ace8800f630'])
+        // again when the PUT body went to strict: false (#630), and again when the
+        // size:M label description lost "Write a sub-plan first." (#633): the token
+        // covers every write body, and the fake repo has no labels yet.
+        assert.deepEqual(tokens, ['606f4b98b7df', '6f551220c5a0', '7cbfa6d587bd'])
       })
     })
 

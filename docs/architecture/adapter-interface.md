@@ -35,7 +35,7 @@ Dispatch a role agent with a pinned tier and effort. Returns the
 agent's structured report, or null on failure/skip.
 
 Parameters:
-- `role`: `"architect" | "developer" | "tester" | "reviewer" |
+- `role`: `"architect" | "developer" | "reviewer" |
   "fact-checker" | "docs-writer" | "perf-investigator"`
 - `task`: string. The full prompt, including the prefixed `JOB:` line
   for roles that use job types (architect).

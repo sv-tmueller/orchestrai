@@ -76,7 +76,7 @@ adapter table at dispatch time.
 ### Sandbox mode
 
 `codex exec` runs in a sandbox. By default, the adapter uses `read-only`
-sandbox for roles that don't write (reviewer, tester, fact-checker,
+sandbox for roles that don't write (reviewer, fact-checker,
 architect) and `workspace-write` for roles that do (developer,
 docs-writer). Override via the `isolation` opt.
 
