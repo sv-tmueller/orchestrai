@@ -298,7 +298,8 @@ export async function runPipeline(issueNumber, opts = {}) {
       }
       if (state.testerVerdict === 'FAIL') state.fixRounds.tester++
       const body = await postReport('tester', state.testerVerdict, report)
-      if (state.testerVerdict === 'PASS') return true
+      // Only a FAIL is a round. Another word can only come from a dry run, and ship stops on it.
+      if (state.testerVerdict !== 'FAIL') return true
       if (state.fixRounds.tester > MAX_ROUNDS) {
         await exhausted('tester')
         return false
@@ -345,7 +346,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     let devTask
     if (resume?.findings !== undefined) {
       // The findings are a posted report, and the count already includes it.
-      const kind = /^VERDICT:[ \t]*CHANGES_REQUESTED\b/m.test(resume.findings.replace(/\r/g, '')) ? 'reviewer' : 'tester'
+      const kind = VERDICT_LINE.exec(resume.findings.replace(/\r/g, ''))?.[1] === 'CHANGES_REQUESTED' ? 'reviewer' : 'tester'
       const round = state.fixRounds[kind] || 1
       if (round > MAX_ROUNDS) return exhausted(kind)
       state.fixRounds[kind] = round
@@ -390,7 +391,7 @@ export async function runPipeline(issueNumber, opts = {}) {
       if (!state.reviewerVerdict) return noReport('reviewer')
       if (state.reviewerVerdict === 'CHANGES_REQUESTED') state.fixRounds.reviewer++
       const body = await postReport('reviewer', state.reviewerVerdict, report)
-      if (state.reviewerVerdict === 'APPROVE') break
+      if (state.reviewerVerdict !== 'CHANGES_REQUESTED') break
       if (state.fixRounds.reviewer > MAX_ROUNDS) return exhausted('reviewer')
       // Fix round: the must-fix findings go to the developer, then the re-test, then the re-review.
       if (!(await fixRound('reviewer', body))) return state

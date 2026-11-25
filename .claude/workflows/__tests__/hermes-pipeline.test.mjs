@@ -1303,6 +1303,18 @@ describe('a seat that returns no usable report', () => {
     assert.equal(state.reviewerVerdict, 'APPROVE')
   })
 
+  // The lenient dry-run read can hand back a word that is neither verdict. The loop must not
+  // take it for a FAIL it can fix, so it ends at the ship check with the old reason.
+  for (const [seat, word] of [['tester', 'MAYBE'], ['reviewer', 'LATER']]) {
+    test(`dry run: a ${seat} verdict that is neither word ends the run at the ship check instead of looping`, { timeout: 3000 }, async () => {
+      const fake = fakeRunner({ reads: {} }, { [seat]: { VERDICT: word } })
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(state.done, false)
+      assert.match(state.parked, new RegExp(`^unexpected state: .*${seat}=${word}`))
+      assert.equal(state.dispatches.filter((d) => d.role === seat).length, 1)
+    })
+  }
+
   test('dry run: the re-test and re-review lines fall back too', async () => {
     const fake = fakeRunner({ reads: {} }, { tester: [FAIL, null], reviewer: [CHANGES, null] })
     const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
