@@ -1,33 +1,37 @@
 # AGENTS.md
 
-Orientation for any AGENTS.md-aware worker seat (Codex today; other tools
-read this same file) working in this repo. The full instructions are this
-file plus the one doc it names, `.claude/process-core.md`: no Claude `@`
-import syntax here, so read both files in full, not just the headings.
+Orientation for every agent working in this repo, on any harness, whether it
+runs as the lead or as a worker seat. Claude Code reads this file through an
+import in `CLAUDE.md`; other harnesses read it directly. The file uses no `@`
+import syntax, so it names the one doc that completes it,
+`.claude/process-core.md` (see Guardrails).
 
 ## What this repo is
 
 orchestrai is a personal AI-team-orchestrator plugin, applied across the
 user's own repos. It is not a template for spinning up new, unrelated
-projects. See `docs/architecture/operating-model.md` for that identity
-decision.
+projects; see `docs/architecture/operating-model.md` for that identity
+decision and the README for the user-facing pitch.
 
-A non-Claude worker seat in this repo is exactly that: a worker, driven by
-the Claude lead session per
-`docs/superpowers/specs/2026-07-08-codex-readiness-design.md`. It does not
-run the `tm-` machinery, does not dispatch other agents, and does not act as
-lead. It receives a task, does the work on its assigned branch, and hands
-results back through git and files.
+## Where decisions live
 
-## How to run tests
+Read these before proposing changes that touch their area:
 
-```bash
-npm test
-```
+- `docs/architecture/` - stack and policy decisions, the data model, the domain
+  math. Locked unless explicitly revisited.
+- `docs/operations/` - how to run, deploy, and operate the system: environments,
+  CI/CD, runbooks, secrets policy.
+- `docs/plans/` - implementation plans, one per task as `<issue-number>-<slug>.md`.
+- `docs/superpowers/specs/` - approved designs from brainstorming, as
+  `YYYY-MM-DD-<topic>-design.md`.
 
-This runs the unit tests with Node's built-in test runner. There are zero
-runtime dependencies. There is no application runtime, so install, dev,
-typecheck, and lint are N/A. Run `npm test` before any commit.
+When code and a doc disagree, the code wins and the doc is corrected in the same PR.
+
+## Code style
+
+Follow the "Writing style" section in `.claude/process-core.md` for commits,
+PRs, docs, and comments. The JS in this repo follows the zero-dependency test
+style (see "Useful commands").
 
 ## Repo layout
 
@@ -42,18 +46,30 @@ docs/
   team-architecture.md  flat-star agent-team diagrams and rationale
 ```
 
-`.claude/` holds Claude-host machinery (agents, skills, workflows) plus one
-process doc, `.claude/process-core.md`. A non-Claude seat may read the
-machinery for context but never executes or modifies it; `process-core.md`
-is different, it is normative for this seat too (see Guardrails).
+`.claude/` holds the team machinery (agents, skills, workflows, adapters) and
+the process docs; the README says which hosts run the team.
+`.claude/process-core.md` is normative for every seat (see Guardrails).
+
+## Useful commands
+
+```bash
+npm test          # unit tests (node:vm, zero deps); run before commit
+# gh issue create
+# gh pr create --draft
+```
+
+`npm test` runs the unit tests with Node's built-in test runner. There are zero
+runtime dependencies and no application runtime, so install, dev, typecheck,
+and lint are N/A.
 
 ## Guardrails
 
-Read `.claude/process-core.md` in full: it covers issues and branches,
-sizing, sub-plans, commits, tests, CI cost policy, writing style, and the
-neutral what-not-to-do rules (no direct push to `main`, full check suite
-before merge, no `--no-verify`, no undeclared dependency). It applies to
-this seat unchanged.
+Read `.claude/process-core.md` in full unless your harness has already loaded
+it (a Claude Code session has, through `CLAUDE.md`). It covers issues and
+branches, sizing, sub-plans, commits, tests, CI cost policy, writing style, and
+the neutral what-not-to-do rules (no direct push to `main`, full check suite
+before merge, no `--no-verify`, no undeclared dependency). It applies to every
+seat unchanged.
 
 - `.claude/` changes are template-first: this repo (sv-tmueller/orchestrai)
   is the template. Machinery changes land here and propagate to other repos
