@@ -581,17 +581,9 @@ and it puts `HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of its
 commands. The lead session is not spawned by the adapter, so start it on Kimi
 yourself: `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider
 openrouter --reasoning xhigh` (without `--reasoning` it uses
-`agent.reasoning_effort`, which can be `max`). The tm-advisor skill still
-dispatches its seats itself and does not read the env var. To put it on Kimi,
-make these changes by hand:
-
-- Judgment seats (architect, reviewer): dispatch
-  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
-- Worker children: in `~/.hermes/config.yaml`, set `delegation.model` to
-  `moonshotai/kimi-k3.1-pro`, the delegation provider to `openrouter`, and
-  `delegation.reasoning_effort` to `xhigh`.
-- Lead session: start it with
-  `hermes -s tm-advisor chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+`agent.reasoning_effort`, which can be `max`). The tm-advisor skill runs the
+same driver, so the env var applies to it too. Start its lead session with
+`hermes -s tm-advisor chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
 
 Prices, selection details, and the customer-repo exclusion:
 `docs/architecture/hermes-adapter.md`.

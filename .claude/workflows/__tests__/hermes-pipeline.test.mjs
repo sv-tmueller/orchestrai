@@ -548,7 +548,7 @@ describe('runPipeline: the review gate', () => {
       const f = fake(world, { developer: report, reviewer: rev('APPROVE') })
       const r = await pipe(7, f, { size })
       assert.deepEqual([r.done, seatsOf(f.calls)], [true, ['developer', 'reviewer']], JSON.stringify(world) + size)
-      assert.match(statusWrite(f.calls), /description=approved by the reviewer$/)
+      assert.match(statusWrite(f.calls), /description=approved by reviewer$/)
     }
   })
 
@@ -739,7 +739,7 @@ describe('runPipeline: resume', () => {
     const r = await pipe(7, f, { size: 'size:M', resume: { stage: 'done', branch: 'b', pr: 10, fixRounds: 0, review: `VERDICT: APPROVE\nCHECKS: ${HEAD.slice(0, 9)} npm test -> 0` } })
     assert.deepEqual(seatsOf(f.calls), [])
     assert.deepEqual([r.done, r.pr], [true, 10])
-    assert.match(statusWrite(f.calls), /description=approved by the reviewer$/)
+    assert.match(statusWrite(f.calls), /description=approved by reviewer$/)
     const w = writesOf(f.calls)
     const added = w.indexOf('gh issue edit 7 --add-label in-progress')
     assert.ok(added >= 0 && added < w.indexOf('gh issue edit 7 --remove-label in-progress'), 'in-progress is added before it is removed')
@@ -750,7 +750,7 @@ describe('runPipeline: resume', () => {
       const f = fake({}, { reviewer: rev('APPROVE') })
       const r = await pipe(7, f, { size: 'size:M', resume: { stage: 'done', branch: 'b', pr: 10, fixRounds: 0, review: `VERDICT: APPROVE\nCHECKS: ${checks}` } })
       assert.deepEqual([r.done, seatsOf(f.calls)], [true, ['reviewer']], checks)
-      assert.match(statusWrite(f.calls), new RegExp(`statuses/${HEAD} .*approved by the reviewer$`))
+      assert.match(statusWrite(f.calls), new RegExp(`statuses/${HEAD} .*approved by reviewer$`))
     }
   })
 
