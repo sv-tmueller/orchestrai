@@ -8,9 +8,9 @@ through, cited inline, and leaves out anything under-supported.
 The measurements below ran on the earlier four-stage pipeline (architect,
 developer, a separate test stage, reviewer). The team now runs the light
 flow (`docs/architecture/light-flow.md`): a developer, then a reviewer only
-for bigger or risky work. It drops the architect and test stages, so its
-cost sits closer to the lone-dispatch numbers; the figures are kept as the
-measured record, not re-taken.
+for bigger or risky work. It drops the architect and test stages, so I expect
+its cost to sit closer to the lone-dispatch numbers. That is an expectation,
+not a measurement; the figures are kept as the measured record, not re-taken.
 
 ## What the team costs
 

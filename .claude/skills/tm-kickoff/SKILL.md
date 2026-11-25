@@ -49,7 +49,8 @@ Then read each issue (`gh issue view <n> --comments`) and check it:
 - An issue with `in-progress` or an open PR resumes per section 3 instead of a
   fresh developer dispatch. Find the PR with
   `gh pr list --state open --limit 100 --json number,headRefName,closingIssuesReferences --jq '.[] | select(any(.closingIssuesReferences[]; .number == <n>))'`.
-  A search on the body text also matches a PR that only mentions the number.
+  Do not search the body text: it also matches a PR that only mentions the
+  number.
 - An issue with no `## Approach` section in the body or the comments: you write
   one as an issue comment (a few bullets: the approach, the files expected to
   change, the verification step). The lead never dispatches a developer with no
@@ -112,8 +113,10 @@ A session can drop at any point. Read GitHub state only:
 - A PR and no review comment: run the review gate (step 3). On a size S issue
   this still means the gate, not a new developer dispatch.
 - A review comment (`Review round <k>`, or `Review not required`): continue
-  from its verdict. Count the `Fix round <k>: red checks` comments together
-  with the `CHANGES_REQUESTED` comments toward the cap of 2.
+  from its verdict.
+
+Rounds used, in every case: the `CHANGES_REQUESTED` review comments plus the
+`Fix round <k>: red checks` comments, against the cap of 2.
 
 ## 4. Ship
 

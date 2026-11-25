@@ -20,25 +20,24 @@ lives in `.claude/team-guide.md`.
 Every issue carries a t-shirt size label, estimated in human working hours:
 
 - `size:S` - under 1 hour. One focused change.
-- `size:M` - 1 to 3 hours. Write a sub-plan first.
-- `size:L` - 4 to 6 hours. Split into smaller issues, or break into checkpointed
-  sub-plans (below).
+- `size:M` - 1 to 3 hours.
+- `size:L` - 4 to 6 hours. Split into smaller issues, or checkpoint the plan in
+  steps (below).
 - `size:XL` - a full day, about 8 hours. Too big to start as one issue. Split it.
 
 Size the issue when you file it, then re-check while planning. If the full
 plan shows the work is bigger than its label, re-label and split rather than
 push through (rationale: docs/team-guide-rationale.md).
 
-### Sub-plans (checkpoint before deep work)
+### Plan in the issue (checkpoint before deep work)
 
-Before any deep planning or implementation, write a short sub-plan first: a
-handful of checkpoint bullets (the approach, the files you expect to touch, the
-order, the verification step) posted in the issue or the draft PR. This is cheap
+The issue body's `## Approach` section is the plan: a handful of bullets (the
+approach, the files you expect to touch, the order, the verification step). An
+issue without one gets it as an issue comment before work starts. This is cheap
 insurance: if the connection drops or the session hits its limit, the next
-session reads the checkpoint and resumes instead of restarting. For anything
-sized `M` or larger, the sub-plan is also where you confirm the work still fits
-one session and decompose it if it does not. Expanding it into a full plan comes
-later (see "How to pick up a task" in .claude/team-guide.md).
+session reads the plan and resumes instead of restarting. For anything sized
+`M` or larger, the plan is also where you confirm the work still fits one
+session and decompose it if it does not.
 
 ### Commits
 

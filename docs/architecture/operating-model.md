@@ -60,7 +60,7 @@ reviewer is the cross-check where the risk is. Owned by
 `docs/architecture/light-flow.md`, `docs/team-architecture.md` and
 `.claude/skills/tm-kickoff/SKILL.md`.
 
-**Agents cross-check.** Every role but the developer is read-only, and the
+**Agents cross-check.** The reviewer and the architect are read-only, and the
 reviewer re-runs the check suite itself, so no bigger or risky change rests
 on the developer's claim alone. Owned by
 `.claude/agents/` and the "Agent team" section of `.claude/team-guide.md`.

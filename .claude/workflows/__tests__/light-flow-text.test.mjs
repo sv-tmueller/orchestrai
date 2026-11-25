@@ -102,7 +102,7 @@ describe('light flow doc', () => {
     assert.ok(text.includes('sizes an unsized issue itself'), 'the lead sizes an unsized issue')
     assert.ok(text.includes('closingIssuesReferences'), 'how to find the PR on a resume')
     assert.ok(text.includes('starts in the same run'), 'a blocker that merges mid-run')
-    assert.match(text, /did not exit 0[^.]*fix round/)
+    assert.match(text, /did not exit 0[^.]*fix round[^.]*counts toward the cap/)
     assert.ok(text.includes('Sonnet'), 'the Sonnet fallback')
   })
 })
@@ -166,6 +166,7 @@ describe('claude skills', () => {
 
   test('kickoff sends a gate-skipped package with a red CHECKS line back as a fix round', () => {
     assert.match(kickoff, /did not exit 0[^.]*fix round/)
+    assert.match(kickoff, /red checks` first[^.]*counts toward the cap of 2/)
   })
 
   test('kickoff sizes an unsized issue itself and splits only L and XL', () => {
@@ -316,6 +317,22 @@ describe('docs follow the light flow (#633)', () => {
     }
   })
 
+  test('process-core makes the issue body the plan, and names no agent or skill', () => {
+    const core = flat('.claude/process-core.md')
+    assert.ok(!/sub-plan/i.test(core), 'process-core still asks for a sub-plan')
+    assert.ok(core.includes('### Plan in the issue (checkpoint before deep work)'))
+    assert.ok(core.includes('`## Approach`'))
+    assert.ok(core.includes('`size:M` - 1 to 3 hours.'))
+    assert.ok(core.includes('`size:L` - 4 to 6 hours. Split into smaller issues, or checkpoint the plan in steps (below).'))
+    assert.ok(!core.includes('How to pick up a task'))
+    // The CI section's worked-example path and `cancel-in-progress` were there before the light flow.
+    const named = core.replace('.claude/skills/tm-repo-guard/templates/ci.yml', '').replace('cancel-in-progress', '')
+    for (const word of [/\barchitect\b/i, /\bdeveloper\b/i, /\bkickoff\b/i, /\btm-/, /in-progress/]) {
+      assert.ok(!word.test(named), `process-core matches ${word}`)
+    }
+    assert.ok(!/sub-plans/.test(flat('AGENTS.md')), 'AGENTS.md still says sub-plans')
+  })
+
   test('README describes the light flow outside its Hermes sections', () => {
     const readme = read('README.md')
     const end = readme.indexOf('## Zone 2')
@@ -355,7 +372,8 @@ describe('docs follow the light flow (#633)', () => {
   test('the kickoff skill counts red-checks fix rounds toward the cap and finds the PR by closing reference', () => {
     const kickoff = flat('.claude/skills/tm-kickoff/SKILL.md')
     assert.ok(kickoff.includes('Fix round <k>: red checks'))
-    assert.match(kickoff, /`Fix round <k>: red checks` comments[^.]*`CHANGES_REQUESTED`[^.]*cap of 2/)
+    assert.match(kickoff, /Rounds used[^.]*`CHANGES_REQUESTED` review comments plus[^.]*`Fix round <k>: red checks` comments[^.]*cap of 2/)
+    assert.ok(kickoff.includes('Do not search the body text: it also matches a PR that only mentions the number.'))
     assert.ok(!kickoff.includes('<n> in:body'), 'a bare "<n> in:body" search matches any PR that mentions the number')
     assert.ok(kickoff.includes('closingIssuesReferences'))
   })
@@ -365,5 +383,7 @@ describe('docs follow the light flow (#633)', () => {
     assert.ok(!doc.includes('<n> in:body'))
     assert.ok(doc.includes('closingIssuesReferences'))
     assert.ok(doc.includes('Fix round <k>: red checks'))
+    assert.match(doc, /Rounds used[^.]*`CHANGES_REQUESTED` review comments plus[^.]*`Fix round <k>: red checks` comments[^.]*cap of 2/)
+    assert.ok(doc.includes('Do not search the body text: it also matches a PR that only mentions the number.'))
   })
 })

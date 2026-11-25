@@ -17,9 +17,9 @@ the lead spawns role agents that report back to it and never call each other.
 Claude Code now lets a subagent spawn its own subagents (a nested tree; the
 tutorial this doc draws on reports a fixed depth cap, which we have not measured
 here). We deliberately do not nest. The lead session is the only spawner and
-routes every handoff. Every role agent except the developer is read-only by
-tool restriction; the developer writes code but is held to the same no-spawn
-rule, so the star is structural, not just convention.
+routes every handoff. The reviewer and the architect are read-only by tool
+restriction; the developer and the docs-writer write, but every role agent is
+held to the same no-spawn rule, so the star is structural, not just convention.
 
 The reason is resumability. A nested tree lives and dies inside one session, so
 a dropped connection loses the in-flight sub-tree. Our handoffs go through the
