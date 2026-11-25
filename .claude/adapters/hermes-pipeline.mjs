@@ -121,6 +121,11 @@ const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
 // Fix rounds each seat may have, counted by the reports posted on the PR.
 const MAX_ROUNDS = 3
 
+// The end of a reviewer fix prompt whose round has no outcome yet: how the developer
+// disputes a finding. A tester finding is settled by the re-test, so a tester fix
+// prompt never carries it.
+const PUSHBACK_SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
+
 // Added to the first seat of a resumed run. The run that stopped may have sent
 // the very same prompt as its last dispatch, and a seat is never sent one prompt twice.
 const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
@@ -147,11 +152,12 @@ const PICKUP = '\n\nThis run picks the package up at this stage. Check the branc
  * - log: sink for progress lines (default: console.warn)
  * - title: the issue title, which names the branch (see slugOf)
  * - inProgress: the issue already carries in-progress, so a stop removes it
- * - resume: { stage, branch, pr, findings, fixRounds }. Stages before
+ * - resume: { stage, branch, pr, findings, fixRounds, arbitrations }. Stages before
  *   resume.stage are skipped. The order is architect, developer, tester,
  *   reviewer, ship. findings, when set, is the body of the posted report whose
  *   fixes the developer is to make. fixRounds is the count read from the PR
- *   (see countFixRounds), and it already includes that report.
+ *   (see countFixRounds), and it already includes that report. arbitrations,
+ *   when set, are the bodies of the outcome comments already on the PR.
  */
 export async function runPipeline(issueNumber, opts = {}) {
   const dryRun = opts.dryRun !== undefined ? opts.dryRun : process.env.DRY_RUN === 'true'
@@ -174,6 +180,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     pr: null,
     prNumber: null,
     subPlan: null,
+    arbitrations: [...(resume?.arbitrations ?? [])],
     testerVerdict: null,
     reviewerVerdict: null,
     fixRounds: { tester: resume?.fixRounds?.tester ?? 0, reviewer: resume?.fixRounds?.reviewer ?? 0 },
@@ -213,6 +220,11 @@ export async function runPipeline(issueNumber, opts = {}) {
   // A live run never turns a missing report into success: the package stops.
   // A dry run has no real seats, so the placeholders below stand in.
   const noReport = (role) => stop(`${role} seat returned no usable report`)
+  // An architect NEEDS_DECISION parks with the question in the reason and the reply quoted.
+  const needsDecision = (report) => {
+    const question = oneLine(decisionQuestion(report))
+    return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', report.raw)
+  }
   // Each seat is read as its contract prescribes. A live run accepts the exact
   // words only; a dry run keeps the old lenient read and the placeholders.
   const verdictOf = (report, valid, dryFallback) => {
@@ -242,10 +254,15 @@ export async function runPipeline(issueNumber, opts = {}) {
 
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact. exact keeps a prompt as it is,
-  // for the one the no-PR ruling on #355 fixed word for word.
+  // for the one the no-PR ruling on #355 fixed word for word. Every other prompt
+  // gets the outcomes that stand, and the first seat of a resume then the pick-up line.
   let pickUp = Boolean(resume)
+  const settled = () =>
+    state.arbitrations.length === 0
+      ? ''
+      : `\n\nSettled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.\n${state.arbitrations.join('\n\n')}`
   const dispatch = async (role, task, tier, { exact = false } = {}) => {
-    const prompt = pickUp && !exact ? `${task}${PICKUP}` : task
+    const prompt = exact ? task : `${task}${settled()}${pickUp ? PICKUP : ''}`
     pickUp = false
     state.dispatches.push({ role, tier, cwd: plan.path })
     return spawnSeat(role, prompt, { tier, cwd: plan.path })
@@ -264,11 +281,14 @@ export async function runPipeline(issueNumber, opts = {}) {
       : `\n\nUntested claims to rate under CLAIMS: take them from the latest tester report comment on PR ${state.pr}.`
     return `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue and sub-plan${after()}. Two passes: spec compliance then code quality.${claims}`
   }
+  // A round has an outcome when one of the outcomes that stand opens with its header.
+  const arbitrated = (round) => state.arbitrations.some((outcome) => linesOf(outcome)[0] === outcomeHeader(issueNumber, round))
   // The fix prompt carries the whole posted report: the parser keeps only the
   // first line of a multi-line FINDINGS.
   const fixTask = (kind, round, body) =>
     `Issue #${issueNumber}, branch ${state.branch}, ${kind} fix round ${round}/${MAX_ROUNDS}: ` +
-    `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}`
+    `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}` +
+    (kind === 'reviewer' && !arbitrated(round) ? PUSHBACK_SUFFIX : '')
   const exhausted = (kind) => stop(`${kind} fix rounds exhausted (${MAX_ROUNDS}/${MAX_ROUNDS})`)
 
   // Posts one seat's report on the PR and returns the comment body. The seat's
@@ -288,11 +308,49 @@ export async function runPipeline(issueNumber, opts = {}) {
     return body
   }
 
+  // The developer's report of a reviewer fix round may push back on a finding: the
+  // architect decides, the outcome is posted on the PR (a dry run logs that write),
+  // and the developer works from it. It is the same fix round, so no count moves,
+  // and a round that has an outcome is not arbitrated again. False when the run stops.
+  const arbitrate = async (devReport, reviewBody) => {
+    const { round } = lastFix
+    if (!pushedBack(devReport) || arbitrated(round)) return true
+    log(`developer pushed back, reviewer fix round ${round}/${MAX_ROUNDS}: arbitration`)
+    const task =
+      `JOB: ARBITRATION\n\nIssue #${issueNumber}, PR ${state.pr}, reviewer fix round ${round}/${MAX_ROUNDS}: ` +
+      'the developer pushed back on findings of the reviewer report below. For each finding pushed back on, decide who is right and state the required outcome.' +
+      `\n\nThe reviewer report:\n${reviewBody}\n\nThe developer's report:\n${textOf(devReport.raw)}`
+    const reply = await dispatch('architect', task, 'judgment')
+    if (reply?.KIND === 'NEEDS_DECISION') {
+      await needsDecision(reply)
+      return false
+    }
+    const text = textOf(reply?.raw)
+    if (!dryRun && (reply?.KIND !== 'ARBITRATION' || !hasBody(text, 'ARBITRATION'))) {
+      await noReport('architect')
+      return false
+    }
+    // A dry run has no real seat, so a placeholder stands in for an empty reply.
+    const outcome = `${outcomeHeader(issueNumber, round)}\n\n${quote(text.trim() || 'ARBITRATION')}`
+    await gh.prComment(state.pr, outcome)
+    const report = await dispatch(
+      'developer',
+      `Issue #${issueNumber}, branch ${state.branch}, reviewer fix round ${round}/${MAX_ROUNDS}: the arbitration outcome below is final. ` +
+        `Make every change it requires, leave every finding it overrules as it is, and report.\n${outcome}`,
+      'worker'
+    )
+    // The prompt above carries the outcome itself, so it joins the list only now.
+    state.arbitrations.push(outcome)
+    return developerOk(report)
+  }
+
   // The developer fixes the findings of a posted report. False when the run stops.
   const fixRound = async (kind, body) => {
     lastFix = { kind, round: state.fixRounds[kind] }
     log(`${kind} fix round ${lastFix.round}/${MAX_ROUNDS}`)
-    return developerOk(await dispatch('developer', fixTask(kind, lastFix.round, body), 'worker'))
+    const report = await dispatch('developer', fixTask(kind, lastFix.round, body), 'worker')
+    if (!(await developerOk(report))) return false
+    return kind === 'reviewer' ? arbitrate(report, body) : true
   }
 
   // Tests until PASS. Each FAIL is a tester fix round. False when the run stops.
@@ -327,10 +385,7 @@ export async function runPipeline(issueNumber, opts = {}) {
       'End the sub-plan with one line that starts with `Size check:`: `Size check: fits <label>` or `Size check: exceeds <label>, recommend <label>`.'
     const archReport = await dispatch('architect', archTask, 'judgment')
 
-    if (archReport?.KIND === 'NEEDS_DECISION') {
-      const question = oneLine(decisionQuestion(archReport))
-      return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', archReport.raw)
-    }
+    if (archReport?.KIND === 'NEEDS_DECISION') return needsDecision(archReport)
     // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
     // ARBITRATION, text with no header and a bare header are not posted as one.
     if (!dryRun && (archReport?.KIND !== 'SUB_PLAN' || !hasBody(archReport.raw, 'SUB_PLAN'))) return noReport('architect')
@@ -357,9 +412,11 @@ export async function runPipeline(issueNumber, opts = {}) {
     // A branch with no PR and no findings: the work stopped before the draft PR.
     const noPrResume = resume?.stage === 'developer' && resume.branch && !resume.pr && resume.findings === undefined
     let devTask
+    let fixKind = null
     if (resume?.findings !== undefined) {
       // The findings are a posted report, and the count already includes it.
       const kind = readVerdict(resume.findings) === 'CHANGES_REQUESTED' ? 'reviewer' : 'tester'
+      fixKind = kind
       const round = state.fixRounds[kind] || 1
       if (round > MAX_ROUNDS) return exhausted(kind)
       state.fixRounds[kind] = round
@@ -382,6 +439,10 @@ export async function runPipeline(issueNumber, opts = {}) {
     state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
+
+    // A resume with reviewer findings is a reviewer fix round. The PR check comes
+    // first, so a live run spends no architect on a report with a bad PR.
+    if (fixKind === 'reviewer' && !(await arbitrate(devReport, resume.findings))) return state
   }
 
   // No seat prompt is built with a null PR, and a package with no PR cannot ship.
@@ -418,7 +479,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     log('stage 5: ship')
     await ensureInProgress()
     // A package is done when its PR closes the issue, by GitHub's own list of
-    // closing references. A dry run has no PR to read.
+    // closing references. A dry run makes no read.
     if (!dryRun) {
       const view = await gh.prView(state.pr)
       state.prNumber = view?.number
@@ -432,7 +493,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.comment(
       issueNumber,
       `Pipeline complete: PR ${state.pr} is ready for review.\n\n` +
-        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}.`
+        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}. Arbitrations: ${state.arbitrations.length}.`
     )
     // Only a package whose writes all went through is done.
     state.done = true
@@ -539,6 +600,18 @@ const linesOf = (body) => String(body || '').split('\n').map((line) => line.repl
 const SIZE_EXCEEDS = /^Size check: exceeds\b/
 const exceedsSize = (raw) => SIZE_EXCEEDS.test(linesOf(textOf(raw)).filter((line) => line.trim() !== '').at(-1) ?? '')
 
+// A developer's pushback line, read with the readers' rule: a line feed starts a line.
+const PUSHBACK_LINE = /^[ \t]*(?:(?:DEVIATIONS|NOTES):[ \t]*)?(?:[-*][ \t]+|\d+\.[ \t]+)?pushback: finding \d+:/
+
+/**
+ * pushedBack(report) -> boolean
+ *
+ * Does a developer's fix-round report push back on a finding? It reads `raw`
+ * only: a field the parser copied from the json block is not read, so a
+ * pushback that sits only there is not arbitrated.
+ */
+export const pushedBack = (report) => linesOf(textOf(report?.raw)).some((line) => PUSHBACK_LINE.test(line))
+
 // The parser accepts any spacing after the colon, so the reader does too.
 const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/
 
@@ -552,6 +625,17 @@ const readVerdict = (body) => {
   return null
 }
 
+const inCreatedOrder = (comments) => [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+
+// An outcome comment of an arbitration: its first line, read with the readers' rule,
+// is exactly this header, and the issue is the one at hand. A body that is not
+// text is no outcome.
+const OUTCOME_HEADER = /^\*\*Arbitration outcome \(issue #(\d+), reviewer fix round (\d+)\/3\)\*\*$/
+const outcomesOf = (comments, issue) =>
+  inCreatedOrder(comments)
+    .map((comment) => textOf(comment?.body))
+    .filter((body) => OUTCOME_HEADER.exec(linesOf(body)[0])?.[1] === String(issue))
+
 /**
  * resumeStage(comments) -> { stage, findings? }
  *
@@ -560,7 +644,7 @@ const readVerdict = (body) => {
  * text and are not matched.
  */
 export function resumeStage(comments) {
-  const ordered = [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+  const ordered = inCreatedOrder(comments)
   for (let i = ordered.length - 1; i >= 0; i--) {
     const verdict = readVerdict(ordered[i].body)
     if (!verdict) continue
@@ -665,6 +749,14 @@ const textOf = (value) => (typeof value === 'string' ? value : typeof value === 
 // characters, since other consumers of its output may end a line at more than a
 // line feed.
 const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+
+// Seat text as a quoted block: every line end of the writer's rule starts a new
+// `> ` line, so no line of it starts with SUB_PLAN or VERDICT: where the gate
+// and the readers look. A park comment and an arbitration outcome quote this way.
+const quote = (text) => text.split(LINE_END).map((line) => `> ${line}`).join('\n')
+
+// The first line of an arbitration outcome comment.
+const outcomeHeader = (issue, round) => `**Arbitration outcome (issue #${issue}, reviewer fix round ${round}/${MAX_ROUNDS})**`
 
 // A line that is only a code fence marker, with or without a language word.
 const FENCE_LINE = /^(?:`{3,}|~{3,})[^\s`~]*$/
@@ -783,7 +875,7 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
   const gh = {
     async issueView(n) {
       const view = await readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title'])
-      return isObject(view) && isNumber(view.number) ? view : malformed('gh issue view')
+      return isObject(view) && isNumber(view.number) && Array.isArray(view.labels) && Array.isArray(view.comments) ? view : malformed('gh issue view')
     },
     async issueList(label) {
       const rows = await readJson('gh', [
@@ -796,11 +888,16 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
       prs ??= readJson('gh', [
         'pr', 'list', '--state', 'open', '--limit', '100',
         '--json', 'closingIssuesReferences,headRefName,isDraft,number,url',
-      ]).then((list) => (Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number)) ? list : malformed('gh pr list')))
+      ]).then((list) =>
+        Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number) && Array.isArray(p.closingIssuesReferences))
+          ? list
+          : malformed('gh pr list')
+      )
       return prs
     },
     async prComments(pr) {
-      return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
+      const view = await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])
+      return isObject(view) && Array.isArray(view.comments) ? view.comments : malformed('gh pr view')
     },
     // The PR's own number and the issues it closes, as GitHub lists them.
     async prView(pr) {
@@ -824,10 +921,9 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
 
     // Parking: the reason on the issue, needs-human on, in-progress off only
     // when the issue has it (removing a missing label is an error). details is
-    // seat text. It is quoted line by line, every line end starting a new line,
-    // so no line of it starts with SUB_PLAN or VERDICT: where the gate reads comments.
+    // seat text, written as a quoted block (quote).
     async park(n, reason, { inProgress = false, details } = {}) {
-      const quoted = details ? `\n\n${details.split(LINE_END).map((l) => `> ${l}`).join('\n')}` : ''
+      const quoted = details ? `\n\n${quote(details)}` : ''
       await gh.comment(n, `Parked: ${reason}${quoted}`)
       await gh.addLabel(n, 'needs-human')
       if (inProgress) await gh.removeLabel(n, 'in-progress')
@@ -876,7 +972,7 @@ async function gateIssue(issue, gh, view) {
   if (size === 'size:L' || size === 'size:XL') return entry('stop', `${size}, split it first`)
   if (size === 'unsized') return entry('park', 'no size label, not guessing a size')
 
-  const prs = (await gh.prList()).filter((p) => (p.closingIssuesReferences || []).some((r) => r.number === n))
+  const prs = (await gh.prList()).filter((p) => p.closingIssuesReferences.some((r) => r?.number === n))
   const highest = (list) => list.reduce((best, p) => (!best || p.number > best.number ? p : best), null)
   const ready = highest(prs.filter((p) => !p.isDraft))
   if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`, { pr: ready.number })
@@ -888,6 +984,8 @@ async function gateIssue(issue, gh, view) {
     const { stage, findings } = resumeStage(comments)
     const resume = { stage, branch: draft.headRefName, pr: draft.number, fixRounds: countFixRounds(comments) }
     if (findings !== undefined) resume.findings = findings
+    const arbitrations = outcomesOf(comments, n)
+    if (arbitrations.length > 0) resume.arbitrations = arbitrations
     result = entry('resume', `draft PR #${draft.number}, resuming at the ${stage}`, { resume })
   } else if (inProgress) {
     const branchRef = (await gh.remoteHeads()).find((r) => new RegExp(`^refs/heads/[^/]+/${n}-`).test(r))

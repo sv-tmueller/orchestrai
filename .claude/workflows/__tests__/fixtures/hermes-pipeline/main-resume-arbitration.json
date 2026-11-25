@@ -1,0 +1,134 @@
+{
+  "reads": {
+    "gh issue view 303 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 303",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 303,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 303 title"
+    },
+    "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_303",
+            "number": 303,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/303"
+          }
+        ],
+        "headRefName": "feat/303-work",
+        "isDraft": true,
+        "number": 330,
+        "url": "https://github.com/o/r/pull/330"
+      }
+    ],
+    "gh pr view 330 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p1",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: PASS (issue #303, tester fix rounds 0/3)**\n\nVERDICT: PASS\nFINDINGS: none",
+          "createdAt": "2026-11-02T09:00:00Z"
+        },
+        {
+          "id": "IC_p2",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Reviewer report: CHANGES_REQUESTED (issue #303, reviewer fix rounds 1/3)**\n\nVERDICT: CHANGES_REQUESTED\nFINDINGS: 1. extract the helper",
+          "createdAt": "2026-11-02T09:10:00Z"
+        },
+        {
+          "id": "IC_p3",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Arbitration outcome (issue #303, reviewer fix round 1/3)**\n\n> ARBITRATION\n> \n> Finding 1: the developer is right, leave the helper where it is.",
+          "createdAt": "2026-11-02T09:20:00Z"
+        },
+        {
+          "id": "IC_p4",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: PASS (issue #303, tester fix rounds 0/3)**\n\nVERDICT: PASS\nFINDINGS: none",
+          "createdAt": "2026-11-02T09:30:00Z"
+        },
+        {
+          "id": "IC_p5",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Reviewer report: CHANGES_REQUESTED (issue #303, reviewer fix rounds 2/3)**\n\n**Arbitration outcome (issue #303, reviewer fix round 2/3)**\nVERDICT: CHANGES_REQUESTED\nFINDINGS: 1. rename the helper",
+          "createdAt": "2026-11-02T09:40:00Z"
+        }
+      ]
+    },
+    "git worktree list --porcelain": "",
+    "gh pr view 330 --json closingIssuesReferences,number": {
+      "closingIssuesReferences": [
+        {
+          "id": "I_303",
+          "number": 303,
+          "repository": {
+            "id": "R_x",
+            "name": "r",
+            "owner": {
+              "id": "U_x",
+              "login": "o"
+            }
+          },
+          "url": "https://github.com/o/r/issues/303"
+        }
+      ],
+      "number": 330
+    }
+  },
+  "failures": {}
+}
