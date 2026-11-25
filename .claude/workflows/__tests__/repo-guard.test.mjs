@@ -1185,7 +1185,7 @@ const FIXTURES = {
   'verdicts on, not required': baseFacts({ pipelineLabels: true }),
   'verdicts on, required': baseFacts({
     pipelineLabels: true,
-    protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review', 'orchestrai/test'] },
+    protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review'] },
   }),
   'copied fields set': baseFacts({
     protection: {
@@ -1336,8 +1336,20 @@ describe('planChanges', () => {
     assert.equal(off.layers.includes('verdicts'), false)
     const on = planChanges(FIXTURES['verdicts on, not required'])
     assert.deepEqual(on.layers, ['base', 'ci', 'verdicts'])
-    assert.deepEqual(on.requiredChecks, ['Unit tests', 'orchestrai/review', 'orchestrai/test'])
-    assert.deepEqual(on.changes, ['required check: orchestrai/review', 'required check: orchestrai/test'])
+    assert.deepEqual(on.requiredChecks, ['Unit tests', 'orchestrai/review'])
+    assert.deepEqual(on.changes, ['required check: orchestrai/review'])
+  })
+
+  test('a repo that still requires orchestrai/test plans to stop requiring it', () => {
+    const got = planChanges(
+      baseFacts({
+        ciChecks: ['tests'],
+        pipelineLabels: true,
+        protection: { ...PROTECTED, requiredChecks: ['tests', 'orchestrai/review', 'orchestrai/test'] },
+      })
+    )
+    assert.deepEqual(got.requiredChecks, ['orchestrai/review', 'tests'])
+    assert.deepEqual(got.changes, ['stop requiring: orchestrai/test'])
   })
 
   test('no tests and no checks sets the verdicts-only flag and the base layer', () => {
@@ -1446,10 +1458,10 @@ describe('evaluate', () => {
     const on = evaluate(FIXTURES['verdicts on, not required'])
     assert.deepEqual(on.layers, ['base', 'ci', 'verdicts'])
     assert.equal(on.state, 'not set up')
-    assert.deepEqual(on.missing, ['required check: orchestrai/review', 'required check: orchestrai/test'])
+    assert.deepEqual(on.missing, ['required check: orchestrai/review'])
   })
 
-  test('verdicts layer is met when both verdict contexts are required', () => {
+  test('verdicts layer is met when the review context is required', () => {
     assert.equal(evaluate(FIXTURES['verdicts on, required']).state, 'set up')
   })
 
@@ -2049,7 +2061,7 @@ describe('buildWrites', () => {
     const [put] = buildWrites(TARGET, facts)
     assert.deepEqual(put.body.required_status_checks, {
       strict: true,
-      contexts: ['Unit tests', 'orchestrai/review', 'orchestrai/test', 'zz'],
+      contexts: ['Unit tests', 'orchestrai/review', 'zz'],
     })
   })
 
@@ -2082,16 +2094,16 @@ describe('buildWrites', () => {
       assert.equal(ops.length, 8)
     })
 
-    test('the PUT requires the tests check and both verdict checks', () => {
+    test('the PUT requires the tests check and the review check', () => {
       const ops = buildWrites(TARGET, ciPath())
       const put = ops.find((o) => o.method === 'PUT')
-      assert.deepEqual(put.body.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+      assert.deepEqual(put.body.required_status_checks.contexts, ['orchestrai/review', 'tests'])
     })
 
     test('labels that already match are not written, and the PUT still requires the verdicts', () => {
       const ops = buildWrites(TARGET, ciPath({ labels: LABELS.map((l) => have(l)), pipelineLabels: true }))
       assert.deepEqual(labelOps(ops), [])
-      assert.deepEqual(ops[0].body.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+      assert.deepEqual(ops[0].body.required_status_checks.contexts, ['orchestrai/review', 'tests'])
     })
 
     test('a color that differs only in case is not a difference', () => {
@@ -2159,7 +2171,7 @@ describe('buildWrites', () => {
     test('the plan after Apply is one the read after the writes calls set up', () => {
       const after = factsAfterApply(baseFacts({ ...NO_CI, protection: { kind: 'none' } }))
       assert.equal(planChanges(after).needsCi, false)
-      assert.deepEqual(planChanges(after).requiredChecks, ['orchestrai/review', 'orchestrai/test', 'tests'])
+      assert.deepEqual(planChanges(after).requiredChecks, ['orchestrai/review', 'tests'])
     })
   })
 
@@ -2220,11 +2232,11 @@ describe('confirmToken', () => {
 describe('buildWrites on the CI setup path', () => {
   const needsCi = baseFacts({ ...NO_CI, protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
 
-  test('buildWrites on a repo that needs CI requires tests and both verdict checks', () => {
+  test('buildWrites on a repo that needs CI requires tests and the review check', () => {
     const put = buildWrites(TARGET, needsCi).find((op) => op.method === 'PUT')
     assert.deepEqual(put.body.required_status_checks, {
       strict: true,
-      contexts: ['orchestrai/review', 'orchestrai/test', 'tests'],
+      contexts: ['orchestrai/review', 'tests'],
     })
   })
 })
@@ -2272,7 +2284,7 @@ describe('planText', () => {
 
   test('the token is the last line and the required checks include the verdicts', () => {
     assert.match(lines.at(-1), /^confirm token: [0-9a-f]{12}$/)
-    assert.ok(lines.includes('required checks after apply: orchestrai/review, orchestrai/test, tests'))
+    assert.ok(lines.includes('required checks after apply: orchestrai/review, tests'))
   })
 
   test('the token changes when a label body changes', () => {
@@ -3405,9 +3417,9 @@ describe('runApply', () => {
       assert.doesNotMatch(text, /note: --confirm|resume:/)
     })
 
-    test('computes the protection as if tests and both verdict checks were seen', () => {
+    test('computes the protection as if tests and the review check were seen', () => {
       const { text } = apply(ciFake(), 'widget')
-      assert.match(text, /^required checks after apply: orchestrai\/review, orchestrai\/test, tests$/m)
+      assert.match(text, /^required checks after apply: orchestrai\/review, tests$/m)
       assert.match(text, /^ {2}required check: tests$/m)
       assert.match(text, /^ {2}required check: orchestrai\/review$/m)
       assert.doesNotMatch(text, /needs CI first/)
@@ -3462,7 +3474,7 @@ describe('runApply', () => {
         ]
       )
       assert.match(text, /^octo\/widget: set up$/m)
-      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'tests'])
     })
 
     test('--confirm with a wrong token writes nothing either', () => {
@@ -3473,7 +3485,7 @@ describe('runApply', () => {
     })
 
     test('still prints the plan when protection already needs nothing, because the file is still needed', () => {
-      const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+      const contexts = ['orchestrai/review', 'tests']
       const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
       const fake = ciFake({ protection, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget')
@@ -3747,8 +3759,9 @@ describe('runApply', () => {
           tokenOf(apply(makeFake({ prs: [], tree: ['requirements.txt', 'test_a.py'] }), 'widget').text),
           tokenOf(apply(makeFake({ prs: [], tree: ['go.mod', 'a_test.go'] }), 'widget').text),
         ]
-        // Taken from the guard before swift support: the ci object keeps its five keys.
-        assert.deepEqual(tokens, ['174244f998b1', '8637e004fe4f', 'f4a4b739e2ce'])
+        // Pinned from the guard before swift support (the ci object keeps its five
+        // keys), then re-taken when orchestrai/test left the required checks.
+        assert.deepEqual(tokens, ['61b40e9ca73d', '76f4499f80a1', '8cc44bef94d5'])
       })
     })
 
@@ -3980,7 +3993,7 @@ describe('runApply', () => {
         const { code, text } = apply(fake, 'widget', '--confirm', token)
         assert.equal(code, 0, text)
         assert.match(text, /^octo\/widget: set up$/m)
-        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'orchestrai/test', 'tests'])
+        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['orchestrai/review', 'tests'])
         assert.equal(fake.state.writes.some((w) => w.method === 'PUT' && w.path.endsWith('/merge')), true)
       })
     })
@@ -4350,7 +4363,7 @@ describe('runApply', () => {
     })
 
     test('a plan with no protection PUT completes the CI setup, writes no PUT and exits 0', () => {
-      const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+      const contexts = ['orchestrai/review', 'tests']
       const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
       const labels = LABELS.map((l) => ({ ...l }))
       const fake = ciFake({ protection, labels, repo: { allow_auto_merge: true, allow_squash_merge: true } })
@@ -4628,7 +4641,7 @@ describe('runApply', () => {
         // The new token is the normal path's: a confirm with it writes the PUT.
         const again = apply(fake, 'widget', '--confirm', tokenOf(text))
         assert.equal(again.code, 0, again.text)
-        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['lint', 'orchestrai/review', 'orchestrai/test', 'tests'])
+        assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['lint', 'orchestrai/review', 'tests'])
       })
 
       test('a change to the repo during the wait stops before the PUT too', () => {
@@ -4655,7 +4668,7 @@ describe('runApply', () => {
       })
 
       test('a repo that someone finished during the wait needs no PUT: the run reports the state and writes none', () => {
-        const contexts = ['orchestrai/review', 'orchestrai/test', 'tests']
+        const contexts = ['orchestrai/review', 'tests']
         const fake = ciFake({
           ci: {
             rollup: (t, ci) => {
@@ -4989,7 +5002,7 @@ describe('runStatuses', () => {
     stderr: `gh: ${message} (HTTP ${status})`,
   })
 
-  const BOTH = ['orchestrai/review', 'orchestrai/test']
+  const REVIEW_ONLY = ['orchestrai/review']
   const protectionWith = (contexts) => ({
     required_status_checks: { strict: true, contexts, checks: contexts.map((context) => ({ context, app_id: null })) },
     enforce_admins: { enabled: true },
@@ -5002,7 +5015,7 @@ describe('runStatuses', () => {
       login: 'octo',
       repo: { full_name: 'octo/widget', name: 'widget', owner: { login: 'octo', type: 'User' }, ...over.repo },
       pr: { state: 'open', merged: false, draft: false, head: { sha: HEAD }, base: { ref: 'main' }, ...over.pr },
-      protection: over.protection === undefined ? ok(protectionWith(BOTH)) : over.protection,
+      protection: over.protection === undefined ? ok(protectionWith(REVIEW_ONLY)) : over.protection,
       userRes: over.userRes ?? null,
       repoRes: over.repoRes ?? null,
       prRes: over.prRes ?? null,
@@ -5044,18 +5057,17 @@ describe('runStatuses', () => {
     return words
   }
 
-  const TEST_LINE = `gh api -X POST 'repos/octo/widget/statuses/${HEAD}' -f state=success -f context=orchestrai/test -f description='by hand: owner verified'`
   const REVIEW_LINE = `gh api -X POST 'repos/octo/widget/statuses/${HEAD}' -f state=success -f context=orchestrai/review -f description='by hand: owner reviewed'`
   const QUEUE_LINE = `gh pr merge 42 --repo octo/widget --squash --auto --match-head-commit ${HEAD}`
 
   describe('the printed commands', () => {
-    test('prints the head and the three commands in the pipeline order', () => {
+    test('prints the head and the two commands in the pipeline order', () => {
       const fake = makeFake()
       const { code, text } = statuses(fake, 'widget', '42')
       assert.equal(code, 0)
       assert.equal(
         text,
-        [`octo/widget PR #42: head ${HEAD}`, 'run these in your own shell:', TEST_LINE, REVIEW_LINE, QUEUE_LINE].join('\n') + '\n'
+        [`octo/widget PR #42: head ${HEAD}`, 'run these in your own shell:', REVIEW_LINE, QUEUE_LINE].join('\n') + '\n'
       )
     })
 
@@ -5083,7 +5095,7 @@ describe('runStatuses', () => {
     test('every printed command is refused by the read guard and the write fence', () => {
       const { text } = statuses(makeFake(), 'widget', '42')
       const commands = lines(text).slice(2)
-      assert.equal(commands.length, 3)
+      assert.equal(commands.length, 2)
       for (const line of commands) {
         const words = splitCommand(line)
         assert.equal(words[0], 'gh')
@@ -5103,22 +5115,20 @@ describe('runStatuses', () => {
       }
     })
 
-    test('the head is in both status paths and after --match-head-commit', () => {
+    test('the head is in the status path and after --match-head-commit', () => {
       const { text } = statuses(makeFake({ pr: { head: { sha: OTHER_HEAD } } }), 'widget', '42')
-      const [, , testLine, reviewLine, queueLine] = lines(text)
-      assert.ok(testLine.includes(`'repos/octo/widget/statuses/${OTHER_HEAD}'`))
+      const [, , reviewLine, queueLine] = lines(text)
       assert.ok(reviewLine.includes(`'repos/octo/widget/statuses/${OTHER_HEAD}'`))
       assert.ok(queueLine.endsWith(`--match-head-commit ${OTHER_HEAD}`))
       assert.ok(!text.includes(HEAD))
     })
 
-    test('both descriptions start with "by hand: " and differ from every description the pipeline writes', () => {
+    test('the description starts with "by hand: " and differs from every description the pipeline writes', () => {
       const { text } = statuses(makeFake(), 'widget', '42')
       const printed = lines(text)
-        .slice(2, 4)
+        .slice(2, 3)
         .map((line) => splitCommand(line).find((w) => w.startsWith('description=')).slice('description='.length))
       for (const d of printed) assert.ok(d.startsWith('by hand: '), d)
-      assert.notEqual(printed[0], printed[1])
       const pipeline = new Set()
       for (const track of ['full', 'lean']) {
         for (const fallbackReview of [false, true]) {
@@ -5141,7 +5151,7 @@ describe('runStatuses', () => {
     test('a draft PR gets a ready line just before the queue line', () => {
       const { code, text } = statuses(makeFake({ pr: { draft: true } }), 'widget', '42')
       assert.equal(code, 0)
-      assert.deepEqual(lines(text).slice(2), [TEST_LINE, REVIEW_LINE, 'gh pr ready 42 --repo octo/widget', QUEUE_LINE])
+      assert.deepEqual(lines(text).slice(2), [REVIEW_LINE, 'gh pr ready 42 --repo octo/widget', QUEUE_LINE])
     })
 
     test('a PR that is not a draft gets no ready line', () => {
@@ -5191,7 +5201,7 @@ describe('runStatuses', () => {
       refuses(makeFake({ pr: { state: 'closed', merged: true } }), ['widget', '42'], /^refusing: octo\/widget PR #42 is not open \(merged\)$/)
     })
 
-    const NOT_REQUIRED = /^refusing: octo\/widget does not require orchestrai\/review and orchestrai\/test on main$/
+    const NOT_REQUIRED = /^refusing: octo\/widget does not require orchestrai\/review on main$/
 
     test('a base branch with no protection', () => {
       refuses(makeFake({ protection: fail(404, 'Branch not protected') }), ['widget', '42'], NOT_REQUIRED)
@@ -5202,8 +5212,7 @@ describe('runStatuses', () => {
       refuses(makeFake({ protection: res }), ['widget', '42'], NOT_REQUIRED)
     })
 
-    test('only one verdict context required', () => {
-      refuses(makeFake({ protection: ok(protectionWith(['orchestrai/review'])) }), ['widget', '42'], NOT_REQUIRED)
+    test('protection that requires orchestrai/test but not orchestrai/review', () => {
       refuses(makeFake({ protection: ok(protectionWith(['orchestrai/test'])) }), ['widget', '42'], NOT_REQUIRED)
     })
 
@@ -5413,7 +5422,7 @@ describe('runStatuses', () => {
       const path = `api repos/octo/widget/branches/${encodeURIComponent(ref)}/protection`
       const fake = makeFake({ pr: { base: { ref } } })
       const run = (args, input) => (args.join(' ') === path ? fail(404, 'Branch not protected') : fake.run(args, input))
-      oneLine({ run }, ['widget', '42'], 2, /^refusing: octo\/widget does not require orchestrai\/review and orchestrai\/test on rel ease\n$/)
+      oneLine({ run }, ['widget', '42'], 2, /^refusing: octo\/widget does not require orchestrai\/review on rel ease\n$/)
     })
 
     test('a typed repo name with a line break in the usage refusal', () => {
@@ -5423,7 +5432,7 @@ describe('runStatuses', () => {
     })
 
     test('a zero exit keeps its lines', () => {
-      assert.equal(lines(statuses(makeFake(), 'widget', '42').text).length, 5)
+      assert.equal(lines(statuses(makeFake(), 'widget', '42').text).length, 4)
     })
   })
 

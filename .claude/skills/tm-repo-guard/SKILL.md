@@ -1,6 +1,6 @@
 ---
 name: tm-repo-guard
-description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state and bypass default, apply them to one repo after you confirm (adding CI first where a repo has tests but none), or print the commands that record both verdict statuses on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
+description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state and bypass default, apply them to one repo after you confirm (adding CI first where a repo has tests but none), or print the commands that record the review status on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
 disable-model-invocation: true
 ---
 
@@ -102,7 +102,7 @@ and stop. Run plan mode again only when the owner asks, and treat its output
 as a new plan: show it, ask again (step 2), and confirm only on a new yes
 (step 3).
 
-## `statuses <repo> <pr>`: print the commands to record both verdicts
+## `statuses <repo> <pr>`: print the commands to record the review verdict
 
 ```
 node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs" statuses <repo> <pr>
@@ -110,7 +110,7 @@ node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-repo-guard/repo-guard.mjs" status
 
 Give the repo as the user typed it (`name` or `owner/name`) and the PR number.
 The script only reads. It prints the PR head and the commands that post
-`orchestrai/test` and `orchestrai/review` on that head and queue the merge.
+`orchestrai/review` on that head and queue the merge.
 Print its stdout as is. Exit 2 is a refusal or a usage error and exit 1 is a
 failed read: report it and stop.
 
