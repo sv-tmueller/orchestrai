@@ -105,7 +105,9 @@ Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 
 The lean track, the dependency environment, worktree cleanup, auto merge, and
 capped seat reports apply to Claude Code only for now; Hermes and Codex
-mirroring is pending. Hermes already caps fix rounds at 3 per stage.
+mirroring is pending. On Hermes the pipeline driver
+(`.claude/adapters/hermes-pipeline.mjs`) already caps fix rounds at 3 per stage,
+counted separately for the tester and the reviewer.
 
 ## Components
 
@@ -128,8 +130,9 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
   `/tm-security-audit` (security review and full audit, vendored from Cloudflare).
   Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
-  the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
-  on Hermes.
+  the `orchestrai` skill, which runs the pipeline driver
+  `.claude/adapters/hermes-pipeline.mjs`, and `tm-advisor` becomes the
+  `tm-advisor` skill on Hermes.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
@@ -400,8 +403,9 @@ in `docs/architecture/hermes-adapter.md`.
 
 Two Hermes skills ship with this repo:
 
-- **orchestrai** - the pipeline driver (architect, developer, tester,
-  reviewer). Auto-discovered at
+- **orchestrai** - runs the pipeline driver,
+  `.claude/adapters/hermes-pipeline.mjs` (architect, developer, tester,
+  reviewer), and reads its output back to you. Auto-discovered at
   `~/.hermes/skills/autonomous-ai-agents/orchestrai/`.
 - **tm-advisor** - the batch advisor (refine a need, propose a batch,
   get sign-off, dispatch the pipeline). Auto-discovered at
@@ -446,10 +450,14 @@ token:
 hermes -s orchestrai chat -q "Run the orchestrator team on issue #42"
 ```
 
-The lead session (GLM-5-3 or whatever you configured) reads the skill,
-follows the flat-star pipeline, and dispatches each role agent via
-`delegate_task` as a leaf worker. Role prompts are loaded from the
-skill's `references/roles/` directory.
+The lead session reads the skill and runs the driver from the repo you want
+worked on: first with `DRY_RUN=true`, which prints the gate and the wave plan
+and writes nothing, then, once you confirm, live. The driver spawns each seat
+as a `hermes -z` subprocess with the model of its tier from the adapter table,
+and the adapter loads the role prompts from `.claude/adapters/prompts/`. The
+lead relays the driver's report, and for a `size:L` or `size:XL` issue the gate
+stopped it asks the architect for a split proposal. Details:
+`docs/architecture/hermes-adapter.md`.
 
 #### tm-advisor (batch advisory)
 
@@ -477,6 +485,11 @@ hermes -s tm-advisor
 The advisor loads the orchestrai pipeline via `skill_view` at dispatch
 time, so you do not need to preload orchestrai separately. The advisor
 holds the sign-off gate; after it, the run is unattended.
+
+Since #605 the orchestrai skill holds no pipeline stages: it runs the driver.
+The advisor's run and resume steps still refer to those stages, and issue #624
+moves them to the driver. Until then, run a batch's packages on Hermes with the
+orchestrai skill.
 
 #### Skill bundles
 
@@ -520,9 +533,9 @@ sync bundle files.
 
 | Claude Code | Hermes |
 |---|---|
-| Agent tool dispatch | `delegate_task` with `role="leaf"` |
-| Workflow `agent()` / `parallel()` | `delegate_task` (sequential or batch) |
-| Worktree isolation | Branch isolation via terminal in the delegated session |
+| Agent tool dispatch | One `hermes -z` subprocess per seat (`spawn` in `hermes-adapter.mjs`) |
+| Workflow `agent()` / `parallel()` | The same `spawn`, driven by `hermes-renderer.mjs` |
+| Worktree isolation | One git worktree per package, made by the driver (`.worktrees/pkg-<n>`) |
 | `gh pr diff`, `gh issue view` | `terminal` tool with `gh` commands |
 | Frontmatter `model:` / `effort:` | Adapter table `hermes.json` tier mapping |
 | `CLAUDE.md` project rules | `AGENTS.md` (auto-loaded by Hermes) |
@@ -562,10 +575,14 @@ the wave plan, writes nothing and starts no seat. Run it again without
 `DRY_RUN` to do the work. Details: `docs/architecture/hermes-adapter.md`,
 "Driver command line".
 
-The skill-driven path (`hermes -s orchestrai chat`) does not read the env
-var: its workers go through `delegate_task`, pinned by `delegation.model`,
-and its judgment seats use a fixed command. To put that path on Kimi, make
-these changes by hand:
+The orchestrai skill runs this same driver: ask it for the OpenRouter variant
+and it puts `HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of its
+commands. The lead session is not spawned by the adapter, so start it on Kimi
+yourself: `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider
+openrouter --reasoning xhigh` (without `--reasoning` it uses
+`agent.reasoning_effort`, which can be `max`). The tm-advisor skill still
+dispatches its seats itself and does not read the env var. To put it on Kimi,
+make these changes by hand:
 
 - Judgment seats (architect, reviewer): dispatch
   `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
@@ -573,7 +590,7 @@ these changes by hand:
   `moonshotai/kimi-k3.1-pro`, the delegation provider to `openrouter`, and
   `delegation.reasoning_effort` to `xhigh`.
 - Lead session: start it with
-  `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+  `hermes -s tm-advisor chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
 
 Prices, selection details, and the customer-repo exclusion:
 `docs/architecture/hermes-adapter.md`.

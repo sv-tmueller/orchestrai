@@ -1,10 +1,8 @@
 /**
  * Hermes pipeline driver (issue #334).
  *
- * The programmatic counterpart to SKILL.hermes.md. Where the skill tells
- * the lead session how to behave, this module provides callable functions
- * for each pipeline stage so the pipeline can be tested in dry-run mode
- * and eventually invoked programmatically.
+ * The pipeline behind the Hermes kickoff skill (SKILL.hermes.md): the skill
+ * runs this module and reads its output, and holds no pipeline rule of its own.
  *
  * The driver implements the flat-star pipeline:
  *   architect (SUB_PLAN) -> developer (implement) -> tester (verify) ->
@@ -725,8 +723,8 @@ export async function defaultRun(cmd, args, { cwd } = {}) {
   }
 }
 
-// The canonical label set. SKILL.hermes.md carries the same list in its Gate
-// block today. #605 removes it there, and this becomes the only copy.
+// The canonical label set, created by main before the gate. The Hermes kickoff
+// skill holds no copy of it since #605: the skill runs this driver.
 export const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
   { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },

@@ -25,8 +25,8 @@ section 4 Phase C for the design.
   adapter's spawn/parallel operations.
 - `.claude/workflows/__tests__/hermes-adapter.test.mjs` -- tests for the
   adapter table, interface, and renderer (dry-run mode).
-- `.claude/skills/tm-kickoff/SKILL.hermes.md` -- the Hermes variant of the
-  pipeline-driver skill. Source for the auto-discovered
+- `.claude/skills/tm-kickoff/SKILL.hermes.md` -- the Hermes kickoff skill: it
+  runs `hermes-pipeline.mjs` and reads its output. Source for the auto-discovered
   `~/.hermes/skills/autonomous-ai-agents/orchestrai/` skill.
 - `.claude/skills/tm-advisor/SKILL.hermes.md` -- the Hermes variant of the
   batch-advisor skill (#346). Source for the auto-discovered
@@ -57,14 +57,14 @@ token-cost ceiling, so this table lifts the paid-API effort policy
 (`effort_ceiling: xhigh`, `forbidden_efforts: ["max"]`) that the
 Claude Code and Codex adapter tables keep.
 
-Because Hermes `delegate_task` has a single global model pin
-(`delegation.model` in `~/.hermes/config.yaml`), the tier split is realized
-mechanically at dispatch time, not by the adapter module: `delegation.model`
-pins all delegate_task children to the worker model, and judgment roles
-(architect, reviewer) are dispatched as one-shot Hermes subprocess seats
-(`hermes chat -q -m <judgment-model> --reasoning max "<prompt>"`)
-instead of delegate_task children. The adapter table records the intended
-mapping; the pipeline driver (tm-kickoff / tm-advisor) realizes it.
+The adapter realizes the tier split for every seat it spawns: `buildArgv`
+passes the model, provider and effort of the seat's tier. The driver
+dispatches only through it, and so does the orchestrai skill, which runs the
+driver. The tm-advisor Hermes skill still dispatches by hand, because
+`delegate_task` has a single global model pin (`delegation.model` in
+`~/.hermes/config.yaml`): its worker roles go through `delegate_task`, and its
+judgment roles (architect, reviewer) run as one-shot Hermes subprocess seats
+(`hermes chat -q -m <judgment-model> --reasoning max "<prompt>"`).
 
 To use a cheaper model for the worker tier, edit the `worker` entry:
 
@@ -102,11 +102,12 @@ Without `--reasoning` the lead uses `agent.reasoning_effort`, which can be
 by the adapter take model, provider, and effort from the table.
 
 `HERMES_ADAPTER_TABLE` is read only by the adapter module. It selects the
-variant for the programmatic driver (`hermes-pipeline.mjs`) and anything else
-that spawns seats through `hermes-adapter.mjs`. The skill-driven
-`delegate_task` path ignores it: there, workers follow `delegation.model` and
-the provider in `~/.hermes/config.yaml`, and judgment seats use the command
-hardcoded in `SKILL.hermes.md`. To run that path on Kimi, set
+variant for the driver (`hermes-pipeline.mjs`), and so for the orchestrai skill
+that runs it, and for anything else that spawns seats through
+`hermes-adapter.mjs`. The tm-advisor Hermes skill's own dispatch ignores it:
+there, workers follow `delegation.model` and the provider in
+`~/.hermes/config.yaml`, and judgment seats use the command hardcoded in
+`.claude/skills/tm-advisor/SKILL.hermes.md`. To run that path on Kimi, set
 `delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`
 and `delegation.reasoning_effort` to `xhigh` (children otherwise inherit the
 parent's level, which can be `max`), and dispatch judgment seats with
@@ -115,7 +116,7 @@ parent's level, which can be `max`), and dispatch judgment seats with
 Effort policy. OpenRouter is a paid provider, so the paid-API policy applies,
 unlike the self-hosted default table: `effort_ceiling` is `xhigh` and
 `forbidden_efforts` is `["max", "ultra"]`. A seat on this table never runs at
-`max`, provided the lead and the skill-path workers are set to `xhigh` as above.
+`max`, provided the lead and the tm-advisor skill's workers are set to `xhigh` as above.
 
 Cost profile (OpenRouter listing, 2026-10-24, USD per 1M tokens, 1M context
 for both models):

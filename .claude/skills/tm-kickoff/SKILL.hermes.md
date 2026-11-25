@@ -1,199 +1,136 @@
 ---
 name: tm-kickoff
-description: "Fan refined, sized GitHub issues out to the agent team via Hermes delegate_task. Runs each work package through implement, test, and review to a ready PR. User-invocable only."
+description: "Run refined, sized GitHub issues through the orchestrai pipeline driver, node .claude/adapters/hermes-pipeline.mjs: a dry run to confirm, then the live run to ready PRs. User-invocable only."
 ---
 
-You are the lead and the message bus. Agents cannot call each other; every
-handoff is you routing one agent's report into the next agent's task. Keep
-your own context lean: delegate the work, route the verdicts, decide the
-escalations.
+This skill runs the pipeline driver and reads its output back to the user. The
+driver does the pipeline itself: the gate, the waves, every seat, parking and
+the report. It is described in `docs/architecture/hermes-adapter.md`. Do none
+of its steps by hand.
 
-You are running on Hermes. The role agents are dispatched via delegate_task.
-The agent prompts live at .claude/adapters/prompts/<role>.md and are loaded
-automatically by the Hermes adapter. The adapter table at
-.claude/adapters/hermes.json maps tiers to models: GLM-5-3 (judgment and
-lead) and deepseek-v41-flash (worker). Because delegate_task children are
-pinned globally by `delegation.model` in ~/.hermes/config.yaml (currently
-deepseek-v41-flash), the tier split is realized mechanically: worker roles
-(developer, tester, docs-writer, fact-checker, perf-investigator) go through
-delegate_task and thus run DeepSeek; judgment roles (architect, reviewer) are
-dispatched as one-shot Hermes subprocess seats instead —
+The only GitHub write this skill makes is the split-proposal comment (see
+"What each line asks of you").
 
-`hermes chat -q -m vllm/release/glm-5-3 --reasoning max "<role prompt + task>"`
+Run every command below in the top directory of the repo to be worked on. The
+driver works on the repo in the current directory, and the commands name it by
+a path inside that repo. If `.claude/adapters/hermes-pipeline.mjs` is not there,
+stop and tell the user: this skill needs orchestrai's `.claude/adapters` folder
+in the repo.
 
-— prepend the role prompt from .claude/adapters/prompts/<role>.md to the task
-text, and parse stdout as the seat's report. Equivalent to Fable/Opus judging
-Sonnet development in the Claude pipeline. All tiers run at max effort: the
-self-hosted vLLM models have no token-cost ceiling, so the paid-API effort
-policy (xhigh ceiling, max forbidden) does not apply to the default table.
+## When to use
 
-To run on the OpenRouter variant instead (all three tiers on
-`moonshotai/kimi-k3.1-pro`, provider `openrouter`, effort `xhigh`, fallback
-`moonshotai/kimi-k3`), note that this skill does not read
-`HERMES_ADAPTER_TABLE`. That env var is read only by `hermes-adapter.mjs`,
-which this path never runs, so it selects the variant only for the
-programmatic driver (`hermes-pipeline.mjs`) and anything else that spawns
-seats through the adapter. On this skill-driven path, make these manual
-changes instead:
+The user asks to run the orchestrator team on refined, sized issues. Refining a
+need into issues is `tm-advisor`'s job.
 
-- Judgment seats (architect, reviewer): dispatch
-  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<role prompt + task>"`
-  in place of the GLM-5-3 command above.
-- Worker children (delegate_task): in `~/.hermes/config.yaml`, set
-  `delegation.model` to `moonshotai/kimi-k3.1-pro`, the delegation
-  provider to `openrouter`, and `delegation.reasoning_effort` to `xhigh`
-  (children otherwise inherit the parent's level, which can be `max`).
-- Lead session: start it on
-  `-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`
-  (without the flag it uses `agent.reasoning_effort`, which can be `max`).
+## Arguments
 
-It is a paid provider, so the xhigh ceiling applies and max is forbidden:
-every seat on the variant runs at `--reasoning xhigh`. Never use it on a
-customer repo: the model has no OpenRouter EU in-region routing. Details:
-docs/architecture/hermes-adapter.md, "OpenRouter variant (Kimi K3.1 Pro)".
+Take them from the user's message. Each one is an issue number or
+`label:<name>`. Pass bare numbers, `42`, not `#42`: the driver rejects `#42`
+with `bad argument: "#42"` and exit 2. With no arguments, ask which issues to
+run.
 
-Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
-label). With no arguments, ask which issues to run.
+## Run the driver
 
-If the packages argument begins with `label:`, run
-`gh issue list --state open --label '<name>'` and treat the returned issue
-numbers as the packages list before proceeding.
+Seats take their model, provider and effort from `.claude/adapters/hermes.json`.
+If the user asks for the OpenRouter variant, put
+`HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of every `node` command
+of this skill. Never do that on a customer repo. Details:
+`docs/architecture/hermes-adapter.md`, "OpenRouter variant (Kimi K3.1 Pro)".
 
-## 1. Gate
-
-Ensure the canonical label set exists on this repo before any dispatch:
+Step 1, a dry run. It reads GitHub, prints the gate and the wave plan, writes
+nothing and starts no seat:
 
 ```
-gh label create "size:S"       --color "c2e0c6" --description "Under 1 hour. One focused change." --force
-gh label create "size:M"       --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
-gh label create "size:L"       --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
-gh label create "size:XL"      --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
-gh label create "in-progress"  --color "FBCA04" --description "Package dispatched; resume, do not restart." --force
-gh label create "needs-human"  --color "B60205" --description "Agent loop exhausted or blocked; human decision needed." --force
+DRY_RUN=true node .claude/adapters/hermes-pipeline.mjs <arguments>
 ```
 
-For each issue, `gh issue view <n> --comments`, and
-`gh pr list --state open --limit 100 --json number,isDraft,closingIssuesReferences --jq '.[] | select(.closingIssuesReferences[]?.number == <n>)'`
-to find an existing PR.
+Show its stdout to the user as it is and ask whether to run. This is the only
+question of the run. Any answer but yes: stop.
 
-- Closed issues and issues labeled `needs-human` are skipped and listed in
-  the report; resuming a `needs-human` package is the user's call.
-- The issue must be sized. Unsized: park it; never guess a size.
-- `size:L` or `size:XL` stops kickoff for that issue: dispatch the architect
-  for a SPLIT_PROPOSAL (prefix the message with `JOB: SPLIT_PROPOSAL`) and
-  post it on the issue, unless a proposal comment already exists, then report
-  it to the user.
-- Resume detection: an issue with an open PR or the `in-progress` label is
-  resumed, not restarted. A ready (non-draft) open PR means the package is
-  complete: report it as awaiting merge and skip it. If the issue carries
-  `in-progress` but has no open PR and no branch on origin, clear the label
-  and restart from the developer stage. Otherwise (a PR or branch exists)
-  read the sub-plan comment and the PR comments to find the stage it stopped
-  at, and re-enter there; re-enter at the tester only when the stage cannot
-  be determined from the PR comments. Skip the architect when a sub-plan
-  comment exists.
-- Dependencies: parse literal `Blocked by: #N` lines in issue bodies. An
-  issue whose blocker is not merged waits for a later wave.
-
-## 2. Wave plan
-
-Wave 1 is the issues with no open blockers; wave 2 is the issues blocked only
-by wave 1, and so on. Present the plan (issues, sizes, parallelism, expected
-PRs) and stop for the user's confirmation. This is the only confirmation in a
-run; after it, run the wave unattended with no questions to the user mid-run.
-
-## 3. Per-package pipeline
-
-The run does not stop to ask the user. In-scope questions are decided and
-logged; everything else parks-and-continues. Interrupt the user only if every
-package parks at once.
-
-Run up to 3 packages concurrently via parallel delegate_task dispatches.
-Within a package the stages are serial:
-
-### Stage 1: Architect (SUB_PLAN)
-
-Dispatch the architect via delegate_task with the goal:
-`JOB: SUB_PLAN\n\nIssue #<n>: <issue title and body>`
-
-Post the resulting sub-plan as an issue comment:
-`gh issue comment <n> --body "<sub-plan>"`
-
-On NEEDS_DECISION: park the package and surface the question in the
-wave-end report, then continue the others.
-
-### Stage 2: Developer (implement)
-
-Label the issue `in-progress`:
-`gh issue edit <n> --add-label in-progress`
-
-Dispatch the developer via delegate_task with the goal:
-`Issue #<n>, branch feat/<n>-<slug>: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
-
-On DONE or DONE_WITH_CONCERNS: proceed to tester.
-On NEEDS_CONTEXT: answer from the issue, the sub-plan, and the repo docs. If
-  you cannot, park the package.
-On BLOCKED: park the package immediately.
-
-### Stage 3: Tester (verify)
-
-Dispatch the tester via delegate_task with the goal:
-`Branch <branch>, issue #<n>: verify the change. Run the full check suite and attack the change.`
-
-On FAIL: post the tester's report as a PR comment with the round number, then
-send the findings verbatim to a fresh developer dispatch, then re-test.
-On PASS: proceed to reviewer.
-
-### Stage 4: Reviewer (review)
-
-Dispatch the reviewer via delegate_task with the goal:
-`PR #<pr>, issue #<n>: review the diff against the issue and sub-plan. Two passes: spec compliance then code quality.`
-
-Forward any UNTESTED CLAIMS from the tester's report.
-
-On CHANGES_REQUESTED: post the report as a PR comment with the round number,
-then send the must-fix findings to a fresh developer dispatch, then re-test,
-then re-review.
-On APPROVE: proceed to ship.
-
-### Stage 5: Ship
-
-On APPROVE with the last tester verdict PASS:
-`gh pr ready <pr>` (mark the PR ready for review)
-`gh issue edit <n> --remove-label in-progress`
-Post a summary comment on the issue.
-
-### Routing rules
-
-- Developer pushes back on a finding: dispatch the architect for ARBITRATION
-  (prefix the message with `JOB: ARBITRATION`). Post the outcome as a PR
-  comment.
-- If the architect's sub-plan says the work exceeds the size label, stop
-  that package and report it.
-- Never re-dispatch an unchanged prompt; something in the task must change
-  first.
-- Cap: 3 fix rounds per stage, counted from the PR comments. On exhaustion,
-  park the package.
-- Parking: post the reason on the issue, apply `needs-human` (remove
-  `in-progress` if present), and move on.
-
-## 4. Wave end
-
-Definition of done per package: last tester verdict is PASS, reviewer
-APPROVE, PR ready with `Closes #N`, summary comment posted.
-
-Report to the user: PRs ready for review, packages parked (`needs-human`,
-with their open questions), and issues deferred to later waves or stopped at
-the gate. End with:
+Step 2, the live run, with the same arguments:
 
 ```
-## What happened
-- PR #NN ready  - <package title>
-- PR #NN ready  - <package title>
-- #NN parked (needs-human): <the open question>
-
-## Next steps
-1. Review & merge: #NN, #NN
-2. Decide on #NN (retry or close)
-3. Run /tm-kickoff to start the next wave
+node .claude/adapters/hermes-pipeline.mjs <arguments>
 ```
+
+It asks nothing. It reads GitHub again, so its own gate lines count. It runs
+until every package of wave 1 has ended, which can take hours. Start it so that
+no timeout stops it, and keep its stdout: the result lines and the report come
+only at the end. Progress and dry-run notes go to stderr.
+
+## Read the output
+
+Quote these shapes as printed.
+
+- Gate line, one per issue: `#<n> <size> <outcome>: <detail>`. `<size>` is
+  `size:S`, `size:M`, `size:L`, `size:XL` or `unsized`. `<outcome>` is `run`,
+  `resume`, `wait`, `complete`, `park`, `stop` or `skip`.
+- Wave plan: `wave <k>: #<n> #<n>`, and `waiting: #<n> (blocked by #<b>, #<b>)`.
+  Only wave 1 runs.
+- Result lines, live run only, one per package that ran: `#<n> done: PR <pr>`,
+  `#<n> parked: <reason>` or `#<n> error: <reason>`.
+- Report, live run only, when the gate had at least one entry: it starts at the
+  line `## What happened` and ends with the numbered list under `## Next steps`.
+  Relay it as printed. A dry run prints no report.
+- Empty stdout with exit 0: the `label:` arguments selected no open issue.
+
+Exit codes:
+
+- 0: the run finished. Parked, stopped, waiting and skipped packages are
+  outcomes, not failures.
+- 1: a `gh` or `git` call failed before the gate lines (one line on stderr, no
+  gate lines), a package ended with an `error` line, or something unexpected
+  happened. Report it and stop.
+- 2: a usage error, before any GitHub call. stderr holds the error, then the
+  usage line. Fix the arguments and start again at the dry run.
+
+## What each line asks of you
+
+- **`stop`** (`#<n> size:L stop: size:L, split it first`, or `size:XL`; report
+  line `- #<n> stopped: ...`). The driver only stops the issue. The next step is
+  yours: a split proposal from the architect. Ask for it only after a live run.
+  If the user declined the live run, name the stopped issues and do nothing
+  more. After the live run, check for an issue comment that starts with
+  `SPLIT_PROPOSAL`:
+
+  ```
+  gh issue view <n> --json comments --jq '[.comments[].body | select(startswith("SPLIT_PROPOSAL"))] | length'
+  ```
+
+  If the count is 0, run the command below with its stdout redirected to a
+  file outside the repo (`mktemp` makes one). It can run for up to 30 minutes,
+  the adapter's limit for one seat, so start it so that no shorter timeout stops
+  it. On exit 0 the file starts with `SPLIT_PROPOSAL` and holds the proposal:
+  post it with `gh issue comment <n> --body-file <file>`. On any other exit,
+  post nothing: stderr holds the reply, `no report` or an error. Tell the user
+  which one happened.
+
+  ```
+  node --input-type=module -e 'const { spawn } = await import("./.claude/adapters/hermes-adapter.mjs"); const r = await spawn("architect", process.argv[1], { tier: "judgment", cwd: process.cwd() }); const text = typeof r?.raw === "string" ? r.raw.trim() : ""; if (!/^SPLIT_PROPOSAL(?::|\s)\s*\S/.test(text)) { console.error(text || "no report"); process.exit(1) } console.log(text)' "JOB: SPLIT_PROPOSAL
+
+  Issue #<n>: read the issue and its comments, then propose the split."
+  ```
+
+  It goes through the adapter, so it uses the table, the env var, the role
+  prompt and the effort guard, and this skill names no model. It prints a reply
+  only when the reply starts with `SPLIT_PROPOSAL` and has text after that word.
+  Never run it with `DRY_RUN=true`. Never post a reply that is not a split
+  proposal.
+- **`park`, `parked`, `parked (needs-human)`**: in a live run the driver
+  posted `Parked: <reason>` on the issue and set `needs-human`. A dry run
+  posts nothing and sets no label. A human decides. Report it with its reason.
+  Do not clear the label and do not rerun it yourself. For `architect size
+  check: the work exceeds the size label`, the sub-plan on the issue names the
+  label it recommends. Once the user has dealt with the reason and removed
+  `needs-human`, the next run picks the issue up. For `no size label, not
+  guessing a size` that means adding a size label: without one the gate parks
+  the issue again.
+- **`error`**: a failed `gh` or `git` call in that package, or an unexpected
+  fault. Nothing was parked and the other packages ran. Report it. Once the
+  cause is fixed, a new run picks the package up from where it stopped.
+- **`wait`, `wave 2` and later, `waiting:`, `deferred:`**: the issue waits for
+  its blockers to merge. Run the skill again after they merge.
+- **`skip`**: the issue is closed, or labeled `needs-human`. That is the
+  user's call.
+- **`complete`, `done`, `PR #<p> ready`**: the PR is ready for review. The
+  driver never merges, and neither does this skill.
