@@ -161,7 +161,8 @@ older PRs ran is no longer required, and the report lists it as "not required:
 no longer runs".
 
 On a repo with the pipeline labels (`in-progress` and `needs-human`), the
-status `orchestrai/review` is required too.
+status `orchestrai/review` is required too. Apply creates the six flow labels
+on every repo, so after one Apply the status is required everywhere.
 
 Hand-made PRs on a set-up repo follow the same rule. They need every required
 check to pass, and on a repo with the pipeline labels they also need the
@@ -243,8 +244,9 @@ archived repo, a blocked repo, and a repo that requires signed commits (the
 protection write could reset that).
 
 1. It first prints a plan: the changes, the required checks after apply, the
-   GitHub writes it will make (branch protection, then repo settings, only
-   those that are needed), and a confirm token that covers those exact writes.
+   GitHub writes it will make (the six flow labels, then branch protection,
+   then repo settings, only those that are needed), and a confirm token that
+   covers those exact writes.
    When it cannot tell which install and test commands the CI should run, it
    asks you for them first.
 2. It asks you in the session whether to apply. Only your own yes to that
@@ -256,7 +258,7 @@ protection write could reset that).
 
 On a repo that has test files but no finished CI run, the same steps add the
 CI first. The plan shows the generated `ci.yml`. On yes, Apply creates the
-labels, turns on auto merge and squash merge, opens a PR from
+labels (as it does on every repo), turns on auto merge and squash merge, opens a PR from
 `orchestrai/ci-setup`, waits up to 20 minutes for the `tests` check, merges the
 PR and only then writes the protection. If a check fails or the wait runs out,
 the PR stays open; run Apply again and it resumes from the open PR. If the PR

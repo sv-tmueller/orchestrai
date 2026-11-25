@@ -101,6 +101,7 @@ the skill. The guard refused a repo with tests but no CI and sent the owner to
 newer repos, so the refusal was a dead end. Apply now adds the CI itself, in
 one `tests` job, then protects the branch, on the same yes
 (`docs/superpowers/specs/2026-11-12-repo-guard-ci-setup-design.md`). It also
-creates the six labels. The docs-tree step is dropped. The checklist
+creates the six labels. Since #651 it does that on every apply, not only on
+the CI path, so one `/tm-repo-guard apply <owner>/<name>` sets a repo up. The docs-tree step is dropped. The checklist
 (`NEW-PROJECT-SETUP.md`) stays. The reference CI template moved to
 `.claude/skills/tm-repo-guard/templates/ci.yml`.
