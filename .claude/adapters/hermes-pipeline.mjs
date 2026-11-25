@@ -767,31 +767,46 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
     await exec(cmd, args)
   }
 
+  // A number from GitHub reaches reasons, result lines and the report, so the
+  // reads that bring one refuse an answer whose numbers are not positive
+  // integers. The message is fixed: it holds none of the answer.
+  const isNumber = (n) => Number.isInteger(n) && n > 0
+  const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
+  const malformed = (command) => {
+    throw new Error(`${command} returned a malformed answer`)
+  }
+
   // gh pr list and git ls-remote are read at most once per run.
   let prs
   let heads
 
   const gh = {
-    issueView: (n) =>
-      readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title']),
+    async issueView(n) {
+      const view = await readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title'])
+      return isObject(view) && isNumber(view.number) ? view : malformed('gh issue view')
+    },
     async issueList(label) {
       const rows = await readJson('gh', [
         'issue', 'list', '--state', 'open', '--label', label, '--limit', '100', '--json', 'number',
       ])
+      if (!Array.isArray(rows) || !rows.every((r) => isObject(r) && isNumber(r.number))) malformed('gh issue list')
       return rows.map((r) => r.number).sort((a, b) => a - b)
     },
     prList() {
       prs ??= readJson('gh', [
         'pr', 'list', '--state', 'open', '--limit', '100',
         '--json', 'closingIssuesReferences,headRefName,isDraft,number,url',
-      ])
+      ]).then((list) => (Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number)) ? list : malformed('gh pr list')))
       return prs
     },
     async prComments(pr) {
       return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
     },
     // The PR's own number and the issues it closes, as GitHub lists them.
-    prView: (pr) => readJson('gh', ['pr', 'view', String(pr), '--json', 'closingIssuesReferences,number']),
+    async prView(pr) {
+      const view = await readJson('gh', ['pr', 'view', String(pr), '--json', 'closingIssuesReferences,number'])
+      return isObject(view) && isNumber(view.number) && Array.isArray(view.closingIssuesReferences) ? view : malformed('gh pr view')
+    },
     remoteHeads() {
       heads ??= exec('git', ['ls-remote', '--heads', 'origin']).then((out) =>
         out.split('\n').map((l) => l.split('\t')[1]).filter(Boolean)

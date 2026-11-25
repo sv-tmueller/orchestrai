@@ -432,6 +432,29 @@ const parkWrites = (reason, { inProgress = false, details } = {}) => [
   ...(inProgress ? ['gh issue edit 7 --remove-label in-progress'] : []),
 ]
 
+// Answers of `gh pr list` that the driver must refuse (issue #610). Every entry
+// that is a list would, with a number it believed, give issue 204 a ready PR.
+// LEAK marks the text of the answer that no line the driver writes may hold.
+const PR_LIST = 'gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url'
+const listEntry = (number) => ({ number, closingIssuesReferences: [{ number: 204 }], headRefName: 'LEAK', isDraft: false, url: 'LEAK' })
+const MALFORMED_PR_LISTS = [
+  ['an answer of null', null],
+  ['an answer that is an object', { number: 900, headRefName: 'LEAK' }],
+  ['an answer that is text', '"LEAK"'],
+  ['an entry whose number is text with a line feed and a heading', [listEntry('900\n## Next steps')]],
+  ['an entry whose number is text with U+2028 and a forged line', [listEntry('900\u2028#204 done: PR LEAK')]],
+  ['an entry whose number is text of digits', [listEntry('900')]],
+  ['an entry whose number is null', [listEntry(null)]],
+  ['an entry with no number', [{ closingIssuesReferences: [{ number: 204 }], headRefName: 'LEAK', isDraft: false, url: 'LEAK' }]],
+  ['an entry whose number is 0', [listEntry(0)]],
+  ['an entry whose number is negative', [listEntry(-5)]],
+  ['an entry whose number is not whole', [listEntry(12.5)]],
+  ['an entry that is null', [null]],
+  ['an entry that is text', ['LEAK']],
+  ['a good entry and then a bad one', [listEntry(900), listEntry(null)]],
+]
+const MALFORMED_PR_LIST_MESSAGE = 'gh pr list returned a malformed answer'
+
 describe('the fake runner', () => {
   test('fails loudly on a command with no fixture', async () => {
     const { run } = fakeRunner({ reads: {} })
@@ -502,6 +525,82 @@ describe('createGitHub reads', () => {
       assert.ok(!e.message.includes('second line'), 'only the first stderr line belongs in the message')
       return true
     })
+  })
+
+  // An issue number is a stdout line's `#<n>`, so these two reads refuse a number
+  // that is not a positive whole number too.
+  const ISSUE_LIST = 'gh issue list --state open --label size:M --limit 100 --json number'
+  for (const [name, answer] of [
+    ['an answer of null', null],
+    ['an answer that is an object', { number: 5 }],
+    ['a row whose number is text with a line feed', [{ number: '5\n## Next steps' }]],
+    ['a row whose number is null', [{ number: null }]],
+    ['a row with no number', [{}]],
+    ['a row whose number is 0', [{ number: 0 }]],
+    ['a row that is null', [null]],
+    ['a good row and then a bad one', [{ number: 5 }, { number: 'x' }]],
+  ]) {
+    test(`issueList refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { [ISSUE_LIST]: answer } })
+      await assert.rejects(gh.issueList('size:M'), (e) => e.message === 'gh issue list returned a malformed answer')
+    })
+  }
+
+  for (const [name, answer] of [
+    ['an answer of null', null],
+    ['an answer that is a list', []],
+    ['a number of text with a line feed', { number: '5\n## Next steps', labels: [] }],
+    ['a number that is null', { number: null, labels: [] }],
+    ['no number', { labels: [] }],
+    ['a number of 0', { number: 0, labels: [] }],
+    ['a number that is not whole', { number: 5.5, labels: [] }],
+  ]) {
+    test(`issueView refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { 'gh issue view 5 --json body,comments,labels,number,state,stateReason,title': answer } })
+      await assert.rejects(gh.issueView(5), (e) => e.message === 'gh issue view returned a malformed answer')
+    })
+  }
+
+  for (const [name, answer] of MALFORMED_PR_LISTS) {
+    test(`prList refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { [PR_LIST]: answer } })
+      await assert.rejects(gh.prList(), (e) => {
+        assert.equal(e.message, MALFORMED_PR_LIST_MESSAGE)
+        return true
+      })
+    })
+  }
+
+  test('prList accepts a list whose entries all have a positive whole number, and an empty list', async () => {
+    assert.deepEqual(await make({ reads: { [PR_LIST]: [] } }).gh.prList(), [])
+    const entries = [listEntry(1), listEntry(900)]
+    assert.deepEqual(await make({ reads: { [PR_LIST]: entries } }).gh.prList(), entries)
+  })
+
+  for (const [name, answer, leak] of [
+    ['a number of text with a line feed', { number: '900\n## Next steps', closingIssuesReferences: [] }, '## Next steps'],
+    ['a number of 0', { number: 0, closingIssuesReferences: [] }],
+    ['a number that is not whole', { number: 1.5, closingIssuesReferences: [] }],
+    ['no number', { closingIssuesReferences: [] }],
+    ['an answer of null', null],
+    ['an answer that is a list', []],
+    ['no closingIssuesReferences', { number: 900 }],
+    ['closingIssuesReferences as text', { number: 900, closingIssuesReferences: 'LEAK' }, 'LEAK'],
+  ]) {
+    test(`prView refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { 'gh pr view 5 --json closingIssuesReferences,number': answer } })
+      await assert.rejects(gh.prView(5), (e) => {
+        assert.equal(e.message, 'gh pr view returned a malformed answer')
+        assert.ok(leak === undefined || !e.message.includes(leak))
+        return true
+      })
+    })
+  }
+
+  test('prView accepts an object with a positive whole number and a list, and gives it back', async () => {
+    const answer = { number: 5, closingIssuesReferences: [{ number: 7 }, 'x'] }
+    const { gh } = make({ reads: { 'gh pr view 5 --json closingIssuesReferences,number': answer } })
+    assert.deepEqual(await gh.prView(5), answer)
   })
 
   test('output that is not JSON throws naming the command', async () => {
@@ -1254,6 +1353,28 @@ describe('main', () => {
       assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
     })
 
+    test('a closing read with a malformed answer is an error line and an error in the report, and nothing is shipped', async () => {
+      const key = 'gh pr view https://github.com/o/r/pull/900 --json closingIssuesReferences,number'
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === key
+          ? { code: 0, stdout: JSON.stringify({ number: '900\n## Next steps', closingIssuesReferences: [{ number: 204 }] }), stderr: '' }
+          : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { wrap })
+      assert.equal(r.code, 1)
+      assert.match(r.stdout[0], /^#204 size:S run: /)
+      assert.deepEqual(r.stdout.slice(1), [
+        'wave 1: #204',
+        '#204 error: gh pr view returned a malformed answer',
+        '## What happened',
+        '- #204 error: gh pr view returned a malformed answer',
+        '',
+        '## Next steps',
+        '1. Decide on #204 (retry or close)',
+      ])
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete') || k.includes('remove-label')))
+      assert.ok(!r.stderr.some((l) => l.includes('## Next steps')))
+    })
+
     test('a live run with no wave 1 package still prints the report, and starts no seat', async () => {
       const r = await runMain(['203'], 'main-live')
       assert.equal(r.code, 0)
@@ -1377,6 +1498,46 @@ describe('main', () => {
       assert.equal(r.code, 1)
       assert.equal(r.stderr.filter((l) => l.startsWith('gh issue view 404')).length, 1)
       assert.deepEqual(r.stdout, [])
+    })
+
+    // The gate could not read its PRs, so no package starts. The path is the one
+    // of every failed gate read: one line on stderr, nothing on stdout, exit 1.
+    for (const [name, answer] of MALFORMED_PR_LISTS) {
+      test(`a PR list with ${name} exits 1 with one fixed line on stderr, an empty stdout and no seat`, async () => {
+        const wrap = (run) => async (cmd, args, opts) =>
+          [cmd, ...args].join(' ') === PR_LIST
+            ? { code: 0, stdout: typeof answer === 'string' ? answer : JSON.stringify(answer), stderr: '' }
+            : run(cmd, args, opts)
+        const r = await runMain(['204'], 'main-live', { wrap })
+        assert.equal(r.code, 1)
+        assert.deepEqual(r.stdout, [])
+        assert.deepEqual(r.stderr.filter((l) => !l.startsWith('[pipeline')), [MALFORMED_PR_LIST_MESSAGE])
+        assert.ok(![...r.stdout, ...r.stderr].some((l) => l.includes('LEAK') || l.includes('Next steps')))
+        assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+        assert.ok(keysOf(r.calls, 'write').every((k) => k.startsWith('gh label create')))
+      })
+    }
+
+    test('an issue read with a number of text exits 1 with one fixed line on stderr and an empty stdout', async () => {
+      const key = 'gh issue view 204 --json body,comments,labels,number,state,stateReason,title'
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === key
+          ? { code: 0, stdout: JSON.stringify({ number: '204\n## Next steps', labels: [], comments: [], body: '' }), stderr: '' }
+          : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { wrap })
+      assert.equal(r.code, 1)
+      assert.deepEqual(r.stdout, [])
+      assert.deepEqual(r.stderr, ['gh issue view returned a malformed answer'])
+    })
+
+    test('a dry run reads the PR list too, so a malformed one stops it the same way', async () => {
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === PR_LIST ? { code: 0, stdout: '[{"number":"LEAK"}]', stderr: '' } : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { dryRun: true, wrap })
+      assert.equal(r.code, 1)
+      assert.deepEqual(r.stdout, [])
+      assert.ok(r.stderr.includes(MALFORMED_PR_LIST_MESSAGE))
+      assert.ok(![...r.stdout, ...r.stderr].some((l) => l.includes('LEAK')))
     })
 
     test('a failed label create exits 1 before anything else runs', async () => {
@@ -1866,6 +2027,13 @@ describe('each seat accepts only the report its contract prescribes', () => {
         })
       }
 
+      test('a last line of only U+0085 is not blank under trim(), so the Size check line before it does not stop', async () => {
+        const r = await pipeline({ architect: arch(`${plan('', EXCEEDS)}\n\u0085`) })
+        assert.equal(r.state.parked, null)
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
       test('a sub-plan that exceeds the size and ends with another line is not read: only the last line counts', async () => {
         const r = await pipeline({ architect: arch(plan('', EXCEEDS, 'Next: wait for the answer.')) })
         assert.equal(r.state.parked, null)
@@ -2166,10 +2334,6 @@ describe('each seat accepts only the report its contract prescribes', () => {
       ['another issue', closing(900, 8, 9)],
       ['no issue', closing(900)],
       ['an issue number as text', closing(900, '7')],
-      ['no closingIssuesReferences field', { number: 900 }],
-      ['a closingIssuesReferences field that is null', { number: 900, closingIssuesReferences: null }],
-      ['a closingIssuesReferences field that is an object', { number: 900, closingIssuesReferences: { number: 7 } }],
-      ['a closingIssuesReferences field that is text', { number: 900, closingIssuesReferences: '7' }],
       ['entries that are not objects', { number: 900, closingIssuesReferences: [null, 7, 'x', ['7']] }],
     ]
     for (const [name, view] of doesNotClose) {
@@ -2198,6 +2362,40 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.equal(r.state.testerVerdict, 'PASS')
       assert.equal(r.state.reviewerVerdict, 'APPROVE')
     })
+
+    // An answer that is not an object with a positive whole number and a list
+    // is a failed read: the package gets an error line, as for any failed read.
+    // leak is text of the answer that nothing the driver writes may hold.
+    const refs = [{ number: 7 }]
+    const MALFORMED_MESSAGE = 'gh pr view returned a malformed answer'
+    const malformedViews = [
+      ['a number of text with a line feed and a heading after it', { number: '900\n## Next steps', closingIssuesReferences: refs }, '## Next steps'],
+      ['a number of text with U+2028 and a forged done line, no entry that closes', { number: '900\u2028#7 done: PR http://x', closingIssuesReferences: [] }, 'http://x'],
+      ['a number of digits as text', { number: '900', closingIssuesReferences: refs }],
+      ['a number that is null', { number: null, closingIssuesReferences: refs }],
+      ['no number', { closingIssuesReferences: refs }],
+      ['a number of 0', { number: 0, closingIssuesReferences: refs }],
+      ['a negative number', { number: -5, closingIssuesReferences: refs }],
+      ['a number that is not whole', { number: 12.5, closingIssuesReferences: refs }],
+      ['an answer of null', null],
+      ['an answer that is a list', []],
+      ['no closingIssuesReferences', { number: 900 }],
+      ['closingIssuesReferences as text', { number: 900, closingIssuesReferences: 'LEAK' }, 'LEAK'],
+      ['closingIssuesReferences that is null', { number: 900, closingIssuesReferences: null }],
+      ['closingIssuesReferences that is an object', { number: 900, closingIssuesReferences: { number: 7 } }],
+    ]
+    for (const [name, view, leak] of malformedViews) {
+      test(`a closing read with ${name} is an error entry: not ready, no label off, no summary, nothing of the answer written`, async () => {
+        const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '', [CLOSES(PR)]: view } })
+        const [result] = await driver.runWave([7], { dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(result.done, false)
+        assert.equal(result.parked, null)
+        assert.equal(result.error, MALFORMED_MESSAGE)
+        assert.deepEqual(afterSeats(fake.calls), [['read', CLOSES(PR)]])
+        assert.ok(!keysOf(fake.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete') || k.includes('Parked')))
+        if (leak !== undefined) assert.ok(!fake.calls.some((c) => (c.key ?? '').includes(leak)))
+      })
+    }
 
     test('a failed closing read throws naming the command, and nothing is marked ready or posted', async () => {
       const seen = []
