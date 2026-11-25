@@ -464,22 +464,32 @@ describe('parseCommandLine: unwrapping', () => {
   })
 
   describe('env -S (tester round 1, finding 6)', () => {
-    test("env -S '<line>' gives a nested command", () => {
+    // The words of the string take the place of `-S` and its value, so the
+    // command is wrapped by `env`, like a command after `env -i`. It is not
+    // nested: no line is parsed again (#600).
+    test("env -S '<line>' gives a wrapped command", () => {
       const commands = parse("env -S 'git push origin main'")
       assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
-      assert.equal(commands[0].nested, true)
+      assert.equal(commands[0].wrapped, true)
+      assert.equal(commands[0].nested, false)
     })
 
-    test('env --split-string=<line> gives a nested command', () => {
+    test('env --split-string=<line> gives a wrapped command', () => {
       assert.deepEqual(texts("env --split-string='git push origin main'"), [['git', 'push', 'origin', 'main']])
     })
 
-    test('the words after the string join its line', () => {
+    test('the words after the string stay words after it', () => {
       assert.deepEqual(texts("env -S 'git push' origin main"), [['git', 'push', 'origin', 'main']])
     })
 
-    test('env -S with variables in front still gives the command', () => {
-      assert.deepEqual(texts("env A=1 -S 'git push origin main'"), [['git', 'push', 'origin', 'main']])
+    // An assignment ends env's options (R8), so `-S` after it is the name of
+    // the program and the string is its argument.
+    test('env -S after an assignment is the program name, not the option', () => {
+      assert.deepEqual(texts("env A=1 -S 'git push origin main'"), [['-S', 'git push origin main']])
+    })
+
+    test('env -S with an assignment inside the string still gives the command', () => {
+      assert.deepEqual(texts("env -S 'A=1 git push origin main'"), [['git', 'push', 'origin', 'main']])
     })
   })
 
@@ -729,30 +739,31 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.deepEqual(texts("nice -$'n' 5 git push"), [['git', 'push']])
     const commands = parse("env -$'S' 'git push origin main'")
     assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
-    assert.equal(commands[0].nested, true)
+    assert.equal(commands[0].wrapped, true)
+    assert.equal(commands[0].nested, false)
   })
 
-  test('a substitution in the words of a -S command is read with the cluster readers, then again in the built line', () => {
+  // The words after the string are words of the line, not text that is parsed
+  // again, so a substitution among them is read once: two commands, the `echo`
+  // that holds it and the command inside it.
+  test('a substitution in the words of a -S command is read once, by the cluster readers', () => {
     assert.deepEqual(texts('env -S echo $(sudo -Eu root git push origin main)'), [
-      ['git', 'push', 'origin', 'main'],
       ['echo', '$(sudo -Eu root git push origin main)'],
-      ['root', 'git', 'push', 'origin', 'main'],
+      ['git', 'push', 'origin', 'main'],
     ])
   })
 
-  test('a backtick substitution in the words of a -S command is read with both readers', () => {
+  test('a backtick substitution in the words of a -S command is read once', () => {
     assert.deepEqual(texts('env -S echo `sudo -Eu root git push origin main`'), [
-      ['git', 'push', 'origin', 'main'],
       ['echo', '`sudo -Eu root git push origin main`'],
-      ['root', 'git', 'push', 'origin', 'main'],
+      ['git', 'push', 'origin', 'main'],
     ])
   })
 
-  test('a <(...) substitution in the words of a -S command is read with both readers', () => {
+  test('a <(...) substitution in the words of a -S command is read once', () => {
     assert.deepEqual(texts('env -S echo <(sudo -Eu root git push origin main)'), [
-      ['git', 'push', 'origin', 'main'],
       ['echo', '<(sudo -Eu root git push origin main)'],
-      ['root', 'git', 'push', 'origin', 'main'],
+      ['git', 'push', 'origin', 'main'],
     ])
   })
 
@@ -795,20 +806,34 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.deepEqual(texts("sudo -$'\\x24'u git push"), [['git', 'push']])
   })
 
-  test('env -S before an expansion gives a nested command', () => {
-    const commands = parse('env -S"git push origin main $x"')
-    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main', '$x']])
-    assert.equal(commands[0].nested, true)
-    // `-iS"git push $x"` holds an `S` that counts as a split-string option, so
-    // the command is read as on main: the whole word is one skipped dash word,
-    // and no command is left.
-    assert.deepEqual(parse('env -iS"git push $x"'), [])
+  test('env -S whose value has an expansion after its first character fails to parse', () => {
+    const lines = [
+      'env -S"git push origin main $x"',
+      'env -iS"git push $x"',
+      'env -S"git push origin main `date`"',
+      'env -S"FOO=$x git push origin main"',
+      'env --split-string="git push $x"',
+    ]
+    for (const line of lines) {
+      const result = parseCommandLine(line)
+      assert.equal(result.ok, false, line)
+      assert.match(result.reason, /env -S/, line)
+    }
   })
 
-  test('env -S whose value starts at the expansion is read as on main, so the value is the line', () => {
-    const commands = parse('env -S$x git push origin main')
-    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['$x', 'git', 'push', 'origin', 'main']])
-    assert.equal(commands[0].nested, true)
+  test('env -S whose value starts at an expansion and holds a blank fails to parse', () => {
+    assert.equal(parseCommandLine('env -S"$x git push origin main"').ok, false)
+    assert.equal(parseCommandLine('env -S "$x git push origin main"').ok, false)
+  })
+
+  test('env -S whose value starts at an expansion is unknown text and adds no words', () => {
+    const push = [['git', 'push', 'origin', 'main']]
+    assert.deepEqual(texts('env -S$x git push origin main'), push)
+    assert.deepEqual(texts('env -S $x git push origin main'), push)
+    assert.deepEqual(texts('env -S "$x" git push origin main'), push)
+    assert.deepEqual(texts('env --split-string=$x git push origin main'), push)
+    assert.deepEqual(texts('env --split-string "$x" git push origin main'), push)
+    assert.equal(parse('env -S$x git push origin main')[0].wrapped, true)
   })
 
   test('a cluster with no value letter takes no value', () => {
@@ -816,38 +841,35 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
     assert.deepEqual(texts('env -iv git push'), [['git', 'push']])
   })
 
-  test('env -S inside a cluster is read as on main: the cluster is one skipped word', () => {
-    const commands = parse("env -iS 'git push origin main'")
-    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git push origin main']])
-    assert.equal(commands[0].nested, false)
-    assert.deepEqual(texts('env -iSgit push'), [['push']])
+  test('env -S inside a cluster is read: the next word, or the rest of the word, is the string', () => {
+    assert.deepEqual(texts("env -iS 'git push origin main'"), [['git', 'push', 'origin', 'main']])
+    assert.deepEqual(texts('env -iSgit push'), [['git', 'push']])
   })
 
-  test('a command where env gets -S drops what was read before and reads its wrappers as on main', () => {
-    // `-nu` is one skipped dash word, so `root` is the command.
-    assert.deepEqual(texts("sudo -nu root env -S 'git push'"), [['root', 'env', '-S', 'git push']])
-    assert.equal(parse("env -iC ../o -S 'git push'")[0].afterCd, false)
+  test('a command where env gets -S keeps what was read before it', () => {
+    assert.deepEqual(texts("sudo -nu root env -S 'git push'"), [['git', 'push']])
+    assert.equal(parse("env -iC ../o -S 'git push'")[0].afterCd, true)
   })
 
-  test('the line built from an env -S string is read with the whole-word readers', () => {
-    // `-Eu` is one skipped word, so `root` is the command.
+  test('a cluster inside the string is read with the cluster readers', () => {
     const commands = parse("env -S 'sudo -Eu root git push origin main'")
-    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['root', 'git', 'push', 'origin', 'main']])
-    assert.equal(commands[0].nested, true)
+    assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
+    assert.equal(commands[0].wrapped, true)
+    assert.equal(commands[0].nested, false)
   })
 
-  test('a command in the built line takes no value for -iu, as the option word after the string is dropped', () => {
-    // The built line is `env -iu git push origin main`. A cluster reader would
-    // take `git` as the value of `-iu`.
+  test('the option word after the string is a value of a command in the string', () => {
+    // `env -iu` takes the `-i` as its value, and `git` is the command.
     const commands = parse("env -S 'env -iu' -i git push origin main")
     assert.deepEqual(commands.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
-    assert.equal(commands[0].nested, true)
+    assert.equal(commands[0].wrapped, true)
+    assert.equal(commands[0].nested, false)
   })
 
-  test('a -c script of a shell read for a -S command is read with the whole-word readers', () => {
+  test('a -c script of a shell read for a -S command is read with the cluster readers', () => {
     const commands = parse("env -iS bash -c 'sudo -Eu root git push origin main'")
     const nested = commands.filter((c) => c.nested)
-    assert.deepEqual(nested.map((c) => c.words.map((w) => w.text)), [['root', 'git', 'push', 'origin', 'main']])
+    assert.deepEqual(nested.map((c) => c.words.map((w) => w.text)), [['git', 'push', 'origin', 'main']])
   })
 
   test('the chdir letter in a cluster sets afterCd', () => {
@@ -865,6 +887,239 @@ describe('parseCommandLine: short-option clusters on wrappers (#587)', () => {
   test('a cluster without the chdir letter does not set afterCd', () => {
     assert.equal(parse('env -iu FOO git push')[0].afterCd, false)
     assert.equal(parse('sudo -Eu root git push')[0].afterCd, false)
+  })
+})
+
+// The value of an `env -S` option is split into words the way `env` splits it,
+// and the words take the place of the option in the list that `env` reads
+// (issue #600). These tests pass the parser lines and look at the commands. No
+// line is run.
+describe('parseCommandLine: the env -S string (#600)', () => {
+  const unread = (line, why) => {
+    const result = parseCommandLine(line)
+    assert.equal(result.ok, false, `expected a parse failure for ${JSON.stringify(line)}`)
+    assert.match(result.reason, /env -S/, line)
+    assert.match(result.reason, why, line)
+  }
+
+  describe('how literal text is split', () => {
+    const blanks = [['space', ' '], ['tab', '\t'], ['newline', '\n'], ['carriage return', '\r'], ['vertical tab', '\v'], ['form feed', '\f']]
+    for (const [name, blank] of blanks) {
+      test(`a ${name} separates words`, () => {
+        assert.deepEqual(texts(`env -S 'a${blank}b'`), [['a', 'b']])
+      })
+    }
+
+    test('blanks in a row, and blanks at the ends, add no empty words', () => {
+      assert.deepEqual(texts("env -S '  a   b  '"), [['a', 'b']])
+    })
+
+    test('single quotes and double quotes group text, and the quotes are removed', () => {
+      assert.deepEqual(texts(`env -S "a 'b c' d"`), [['a', 'b c', 'd']])
+      assert.deepEqual(texts(`env -S 'a "b c" d'`), [['a', 'b c', 'd']])
+    })
+
+    test('a quoted part joins the text next to it into one word', () => {
+      assert.deepEqual(texts(`env -S "a'b c'd"`), [['ab cd']])
+      assert.deepEqual(texts(`env -S 'a"b c"d'`), [['ab cd']])
+    })
+
+    test('the other quote is a plain character inside a quote', () => {
+      assert.deepEqual(texts(String.raw`env -S "\"it's x\""`), [["it's x"]])
+      assert.deepEqual(texts(String.raw`env -S "'a\"b'"`), [['a"b']])
+    })
+
+    test("'' is an empty word", () => {
+      assert.deepEqual(texts(`env -S "'' x"`), [['', 'x']])
+    })
+
+    test('a # that does not start a word is plain, and a quote starts a word', () => {
+      assert.deepEqual(texts("env -S 'a#b c#'"), [['a#b', 'c#']])
+      assert.deepEqual(texts(`env -S "''#x"`), [['#x']])
+    })
+
+    test('a $ inside single quotes is plain', () => {
+      assert.deepEqual(texts(`env -S "'\\$x' y"`), [['$x', 'y']])
+    })
+
+    test('every word of the string is literal, even one that holds a $ in single quotes', () => {
+      const [command] = parse(`env -S "a 'b \\$' c" d`)
+      assert.deepEqual(command.words.map((w) => w.text), ['a', 'b $', 'c', 'd'])
+      assert.ok(command.words.every((w) => w.expands === false))
+    })
+
+    test('the text of a $\'...\' value, once decoded, is literal text', () => {
+      assert.deepEqual(texts("env -S $'a b' c"), [['a', 'b', 'c']])
+    })
+  })
+
+  describe('forms the guard does not read fail to parse', () => {
+    test('a backslash, in every place', () => {
+      const lines = [
+        String.raw`env -S 'a\_b'`,
+        String.raw`env -S 'a\cb'`,
+        String.raw`env -S 'a\tb'`,
+        String.raw`env -S "'a\\b'"`,
+        String.raw`env --split-string='a\_b'`,
+        String.raw`env -S'a\_b'`,
+      ]
+      for (const line of lines) unread(line, /backslash/)
+    })
+
+    test('a $ outside single quotes', () => {
+      for (const line of ["env -S '${HOME} x'", "env -S 'a $x'", `env -S '"$x"'`, "env -S 'a $'"]) unread(line, /\$/)
+    })
+
+    test('a # that starts a word', () => {
+      for (const line of ["env -S '#c'", "env -S 'a #c'", "env -S 'a\t#c'", 'env --split-string="#c"']) unread(line, /#/)
+    })
+
+    test('a quote that is not closed', () => {
+      for (const line of [`env -S "'a"`, `env -S '"a'`, `env -S "a 'b c"`]) unread(line, /quote/)
+    })
+
+    test('a value with an expansion the guard cannot read', () => {
+      for (const line of ['env -S"a $x"', 'env -S "$x a"', 'env -S"a `b`"', 'env -S<(echo a b)']) unread(line, /expansion/)
+    })
+  })
+
+  describe('the words of the string are arguments of env', () => {
+    test('options read from the string: -i, -u X, -C dir, another -S and --', () => {
+      const push = [['git', 'push', 'origin', 'main']]
+      assert.deepEqual(texts("env -S '-i git push origin main'"), push)
+      assert.deepEqual(texts("env -S '-u X git push origin main'"), push)
+      assert.deepEqual(texts("env -S '-C dir git push origin main'"), push)
+      assert.deepEqual(texts(`env -S "-S 'git push origin main'"`), push)
+      assert.deepEqual(texts("env -S '-- git push origin main'"), push)
+    })
+
+    test('an option of env in the string takes a word that stands after it', () => {
+      assert.deepEqual(texts("env -S '-u' X git push"), [['git', 'push']])
+      assert.deepEqual(texts("env -S '' -iu FOO git push"), [['git', 'push']])
+    })
+
+    test('-C inside the string sets afterCd', () => {
+      assert.equal(parse("env -S '-C dir git push'")[0].afterCd, true)
+      assert.equal(parse("env -S '-C' dir git push")[0].afterCd, true)
+      assert.equal(parse("env -S '-iC dir git push'")[0].afterCd, true)
+      assert.equal(parse("env -S '-i git push'")[0].afterCd, false)
+    })
+
+    test('an assignment inside the string reaches env', () => {
+      assert.deepEqual(parse("env -S 'A=1 git push'")[0].env, ['A'])
+      assert.deepEqual(parse("env -S 'A=1 B=2' git push")[0].env, ['A', 'B'])
+    })
+
+    test('a word after the string keeps its text and its expands flag', () => {
+      const [command] = parse(`env -S'-i git' -C "a $x" ls -la`)
+      assert.deepEqual(command.words.map((w) => w.text), ['git', '-C', 'a $x', 'ls', '-la'])
+      assert.deepEqual(command.words.map((w) => w.expands), [false, false, true, false, false])
+    })
+
+    test('the string of --split-string is read in both spellings, and an empty one adds no words', () => {
+      assert.deepEqual(texts("env --split-string 'a b' c"), [['a', 'b', 'c']])
+      assert.deepEqual(texts("env --split-string='a b' c"), [['a', 'b', 'c']])
+      assert.deepEqual(texts('env --split-string= git push'), [['git', 'push']])
+    })
+
+    test('a -S with no word after it adds no words, except after an assignment (R8)', () => {
+      assert.deepEqual(parse('env -S'), [])
+      assert.deepEqual(parse('env -iS'), [])
+      assert.deepEqual(parse('env --split-string'), [])
+      assert.deepEqual(texts('env A=1 -S'), [['-S']])
+      assert.deepEqual(parse('env -S -S -S'), [])
+    })
+
+    test('ten or more -S words in a row do not reach the nesting limit', () => {
+      for (const n of [5, 10, 11, 60]) {
+        assert.deepEqual(texts(`env ${'-S '.repeat(n)}git push`), [['git', 'push']], `${n} words`)
+      }
+    })
+
+    test('a -S in a string, in a command in a string, and in a nested shell all read as env does', () => {
+      assert.deepEqual(texts("env -S 'env -S-i git push'"), [['git', 'push']])
+      assert.deepEqual(texts("env -S 'bash -c' 'env -S-i git push'").slice(1), [['git', 'push']])
+    })
+  })
+
+  describe('what does not count as the option', () => {
+    test('the value of another option letter', () => {
+      assert.deepEqual(texts("env -u -S 'a b'"), [['a b']])
+      assert.deepEqual(texts("env -uS 'a b'"), [['a b']])
+      assert.deepEqual(texts("env -CS 'a b'"), [['a b']])
+      assert.deepEqual(texts("env -C -S 'a b'"), [['a b']])
+    })
+
+    test('an S after an expansion in a word that expands', () => {
+      assert.deepEqual(texts("env -$S 'a b'"), [['a b']])
+      assert.deepEqual(texts("env -i$S 'a b'"), [['a b']])
+    })
+
+    test('a word after -- or after the command', () => {
+      assert.deepEqual(texts("env -- -S 'a b'"), [['-S', 'a b']])
+      assert.deepEqual(texts("env git -S 'a b'"), [['git', '-S', 'a b']])
+      assert.deepEqual(texts("env A=1 git --split-string 'a b'"), [['git', '--split-string', 'a b']])
+    })
+  })
+})
+
+describe("parseCommandLine: where env's options end (R8)", () => {
+  const first = (line) => parse(line)[0]
+  const names = (line) => first(line).env
+
+  test('a word with a = after an assignment is an assignment, whatever stands before the =', () => {
+    const c = first("env A=1 --split-string='sudo -c' git push origin main")
+    assert.deepEqual(c.words.map((w) => w.text), ['git', 'push', 'origin', 'main'])
+    assert.deepEqual(c.env, ['A', '--split-string'])
+    assert.deepEqual(names('env -i A=1 B=2 git push'), ['A', 'B'])
+    assert.deepEqual(names("env 'a-b=1' git push"), ['a-b'])
+  })
+
+  test('a word with a = after -- is an assignment', () => {
+    assert.deepEqual(texts('env -- --foo=bar git push origin main'), [['git', 'push', 'origin', 'main']])
+    assert.deepEqual(names('env -- --foo=bar git push origin main'), ['--foo'])
+    assert.deepEqual(texts('env -- A=1 git push'), [['git', 'push']])
+  })
+
+  test('a word with a = that starts at an expansion, or holds one, is an assignment too', () => {
+    assert.deepEqual(texts('env A=$x git push'), [['git', 'push']])
+    assert.deepEqual(names('env A=$x git push'), ['A'])
+    assert.deepEqual(texts('env A=1 --foo=$x git push'), [['git', 'push']])
+  })
+
+  test('the first word without a = is the command, also when it starts with a dash', () => {
+    assert.deepEqual(texts('env A=1 -i git push'), [['-i', 'git', 'push']])
+    assert.deepEqual(texts('env A=1 -u X git push'), [['-u', 'X', 'git', 'push']])
+    assert.deepEqual(texts('env -- -i git push'), [['-i', 'git', 'push']])
+    assert.deepEqual(names('env A=1 -i git push'), ['A'])
+  })
+
+  test('-- after an assignment is the command, as in the manual example with PATH=/energy', () => {
+    assert.deepEqual(texts('env A=1 -- git push'), [['--', 'git', 'push']])
+  })
+
+  test('no option is read after an assignment: -C sets no afterCd, and -S splits nothing', () => {
+    assert.equal(first('env A=1 -C /tmp git push').afterCd, false)
+    assert.deepEqual(texts('env A=1 -C /tmp git push'), [['-C', '/tmp', 'git', 'push']])
+    assert.deepEqual(texts("env A=1 --split-string 'a b' c"), [['--split-string', 'a b', 'c']])
+  })
+
+  test('options before the first assignment are still read', () => {
+    assert.deepEqual(texts('env -i -u X A=1 git push'), [['git', 'push']])
+    assert.equal(first('env -C /tmp A=1 git push').afterCd, true)
+    assert.deepEqual(texts("env -S 'a b' c"), [['a', 'b', 'c']])
+  })
+
+  test('the words of a -S string are read by the same loop', () => {
+    assert.deepEqual(texts('env -S -- --split-string="it\'s" git push origin main'), [['git', 'push', 'origin', 'main']])
+    assert.deepEqual(names('env -S -- --split-string="it\'s" git push origin main'), ['--split-string'])
+    // The string holds an assignment, then `-i`, which is the program.
+    assert.deepEqual(texts("env -S 'A=1 -i git'"), [['-i', 'git']])
+    assert.deepEqual(texts("env -S 'A=1' -i git push"), [['-i', 'git', 'push']])
+  })
+
+  test('a lone dash is the command, as before', () => {
+    assert.deepEqual(texts('env - git push'), [['-', 'git', 'push']])
   })
 })
 

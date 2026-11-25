@@ -24,14 +24,13 @@
  *   command to another repository. Subshell scope is ignored, which errs
  *   toward "unknown". It is also true for a command whose `env` or `sudo`
  *   wrapper carries `-C`, `--chdir` or `-D`, also inside a short-option
- *   cluster (`env -iC dir`, `sudo -nD dir`). The cluster reading does not apply
- *   to a command where `env` gets a split-string option, nor to any line read
- *   for that command, apart from a substitution written in that command's own
- *   words (see `skipEnv`).
+ *   cluster (`env -iC dir`, `sudo -nD dir`) and inside an `env -S` string
+ *   (see `skipEnv`).
  *
  * The parser is lenient: it reads words, not the whole shell grammar. It fails
- * only on an unterminated quote, backtick, `$(` or heredoc, and on nesting
- * deeper than 4. It is pure: no file system, no process, no network.
+ * only on an unterminated quote, backtick, `$(` or heredoc, on nesting deeper
+ * than 4, and on an `env -S` value it does not read (rules R4 and R6 above `skipEnv`).
+ * It is pure: no file system, no process, no network.
  */
 
 const MAX_DEPTH = 4
@@ -46,6 +45,10 @@ const NO_VALUE = new Set()
 const GIT_FOLDER_NAMES = new Set(['GIT_DIR', 'GIT_WORK_TREE'])
 
 const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
+
+// Where the text of a word that expands is unknown: a `$`, a backtick, `<(` or
+// `>(`.
+const EXPANSION_START = /[$`]|[<>]\(/
 
 // Reads a short-option cluster (`-xyz`) the way getopt does: left to right,
 // and the first letter that takes a value ends it. The value is the rest of
@@ -79,7 +82,7 @@ const assignedName = (text) => text.match(/^[A-Za-z_][A-Za-z0-9_]*/)[0]
 function readCluster(text, expands, takesValue, seen) {
   let end = text.length
   if (expands) {
-    const unknown = text.search(/[$`]|[<>]\(/)
+    const unknown = text.search(EXPANSION_START)
     if (unknown >= 0) end = unknown
   }
   for (let k = 1; k < end; k++) {
@@ -90,16 +93,14 @@ function readCluster(text, expands, takesValue, seen) {
 }
 
 // Wrappers: each takes the words after the wrapper name and a state object
-// ({ lines, env, chdir, wholeWords, split }), and returns what is left once the
-// wrapper's own flags and arguments are removed. `lines` holds the strings of
-// `env -S`, and is filled only in `wholeWords` mode. `chdir` names the
-// wrapper's own change-directory flag: a short form and a long form.
+// ({ env, chdir }), and returns what is left once the wrapper's own flags and
+// arguments are removed. `env` collects the names assigned in front of the
+// command. `chdir` is set when a wrapper carries its change-directory flag.
 //
-// There are two modes. `unwrap` picks the one for a command, and a line read
-// for a command in `wholeWords` mode stays in that mode (see the comment
-// above `skipEnv`). By default a word with a single dash is read as a
-// short-option cluster. With `wholeWords` set, every dash word is one skipped
-// word, and it takes the next word only when the whole word is a value flag.
+// `skipFlags` reads a `--long` word as one flag, which takes the next word when
+// it is in `valueFlags`, and a word with a single dash as a short-option
+// cluster. Its `chdir` argument names the wrapper's own change-directory flag:
+// a short form and a long form.
 function skipFlags(words, valueFlags, state, chdir = null) {
   let i = 0
   while (i < words.length) {
@@ -107,11 +108,6 @@ function skipFlags(words, valueFlags, state, chdir = null) {
     if (t === '--') {
       i++
       break
-    } else if (state.wholeWords && t.length > 1 && t.startsWith('-')) {
-      if (chdir && (t === chdir.short || t === chdir.long || t.startsWith(`${chdir.long}=`) || (t.startsWith(chdir.short) && t.length > 2))) {
-        state.chdir = true
-      }
-      i += valueFlags.has(t) ? 2 : 1
     } else if (t.startsWith('--')) {
       if (chdir && (t === chdir.long || t.startsWith(`${chdir.long}=`))) state.chdir = true
       i += valueFlags.has(t) ? 2 : 1
@@ -138,124 +134,191 @@ const SUDO_VALUE_FLAGS = new Set([
   '--chroot', '--role', '--type', '--other-user',
 ])
 
-// The sudo set the whole-word readers use: main's, without `-a -c -r -t`.
-const SUDO_WHOLE_WORD_VALUE_FLAGS = new Set(
-  [...SUDO_VALUE_FLAGS].filter((flag) => !['-a', '-c', '-r', '-t'].includes(flag)),
-)
-
 const DOAS_VALUE_FLAGS = new Set(['-u', '-C', '-a'])
-const DOAS_WHOLE_WORD_VALUE_FLAGS = new Set(['-u', '-C'])
 
-const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir', '-S'])
 
-// The `env` readers, and when the fallback fires.
-//
-// `skipEnv` reads the options of `env` as clusters and notes whether `env` gets
-// a split-string option. That is `--split-string`, a word that starts with
-// `--split-string=`, or the letter `S` read as an option letter in a short
-// option word (`-S`, `-Sfoo`, `-iS`, `-iSfoo`). What it does not read as an
-// option does not count: the value of another option (`-u -S`, `-uS`, `-CS`), a
-// word after `--`, a word after the command name, and an `S` after a `$`, a
-// backtick, `<(` or `>(` in a word that expands.
-//
-// When it finds one it sets `state.split`. `unwrap` then drops everything read
-// for that command (assigned names, the chdir mark, the position in the words)
-// and takes the wrappers off again from the first word of the command with the
-// whole-word readers: `skipEnvWhole` and `skipFlags` with `state.wholeWords`.
-// So a command where `env` gets `-S` gets main's reading, cluster reading of
-// its wrappers included (`sudo -Eu root env -S x ...` reads `-Eu` as one
-// skipped word). In that mode `-S`, `-S<text>`, `--split-string <word>` and
-// `--split-string=<text>` push their value to `state.lines`, and
-// `buildCommand` joins `state.lines` and the words that are left with spaces
-// and scans the result as a line.
-// The whole-word readers also read that line and every other line read for
-// that command (the `-c` script of a shell, the line of an `eval`), with each
-// command inside them at any depth. The cluster readers do not run there,
-// because the built line is not the line the real `env` runs. The whole-word
-// reader drops an option word that stands after the string:
-// `env -S 'env -iu' -i git push origin main` builds
-// `env -iu git push origin main`, and a cluster reader would take `git` as the
-// value of `-iu`, while the real `env` gives `-iu` the dropped `-i` and runs
-// the push.
-//
-// A substitution written in the words of the `-S` command itself (`$(...)`, a
-// backtick command, `<(...)`) is scanned before the mode is picked, so the
-// cluster readers read it, and the whole-word readers read it again when it
-// lands in the built line: `env -S echo $(sudo -Eu root git push origin main)`
-// is denied.
-//
-// The real `env` puts the words of the string in the place of `-S` and goes on
-// reading its own options from there, and this reading does not follow that:
-// `env -S -i git push origin main` runs the push, and the guard allows it.
-// Issue #600 replaces this fallback with a reading that follows `env`.
-function skipEnv(words, state) {
-  if (state.wholeWords) return skipEnvWhole(words, state)
+// A blank, to `env` splitting an `-S` string: space, tab, newline, carriage
+// return, vertical tab or form feed.
+const ENV_BLANK = /[ \t\n\r\v\f]/
+
+// Reads the text of an `-S` string the way env splits it, for the part of its
+// syntax the guard reads (R5 and R6 above `skipEnv`). Returns the words, which
+// are all literal. Throws on a form the guard does not read.
+function splitEnvString(text) {
+  const unread = (why) => new ParseError(`the env -S value ${why}, which the guard does not read`)
+  const words = []
   let i = 0
-  while (i < words.length) {
-    const t = words[i].text
-    if (ASSIGNMENT.test(t)) {
-      state.env.push(assignedName(t))
+  while (i < text.length) {
+    if (ENV_BLANK.test(text[i])) {
       i++
-    } else if (t === '--') {
+      continue
+    }
+    if (text[i] === '#') throw unread('has a # that starts a word')
+    let word = ''
+    while (i < text.length && !ENV_BLANK.test(text[i])) {
+      const ch = text[i]
+      if (ch === '\\') throw unread('has a backslash')
+      if (ch === '$') throw unread('has a $ outside single quotes')
+      if (ch === "'" || ch === '"') {
+        const end = text.indexOf(ch, i + 1)
+        if (end < 0) throw unread('has an unclosed quote')
+        const inner = text.slice(i + 1, end)
+        if (inner.includes('\\')) throw unread('has a backslash')
+        if (ch === '"' && inner.includes('$')) throw unread('has a $ outside single quotes')
+        word += inner
+        i = end + 1
+      } else {
+        word += ch
+        i++
+      }
+    }
+    words.push({ text: word, expands: false })
+  }
+  return words
+}
+
+// The words an `-S` value adds to env's arguments (R4 to R6). `expands` is the
+// flag of the word the value comes from.
+function envStringWords(value) {
+  if (!value) return []
+  const start = value.expands ? value.text.search(EXPANSION_START) : -1
+  if (start === 0 && !ENV_BLANK.test(value.text)) return []
+  if (start >= 0) throw new ParseError('the env -S value has an expansion, which the guard does not read')
+  return splitEnvString(value.text)
+}
+
+// The `env` reader. It follows GNU env 9.4 (info '(coreutils) env invocation',
+// sections 23.2.1 and 23.2.3). BSD env (macOS) is not modelled. The real `env`
+// puts the words of an `-S` string in the place of the option and its value,
+// and goes on reading its own options from there. The rule the guard follows:
+//
+// R1. One list, one loop. `skipEnv` reads env's arguments from a working copy
+//     of the words after `env`, left to right. A split-string option and its
+//     value are replaced by the words of the string, at the same place in that
+//     list. Reading then goes on at the first of those words. No line is built
+//     and nothing is scanned again, so a `-S` adds no nesting depth. The loop
+//     always ends, because each replacement makes the list's total text
+//     shorter.
+//
+// R2. What counts as the option. `S` is a value letter of `env`, read by
+//     `readCluster` the same way as `u` and `C`.
+//     - `-S v`, or a cluster that ends in `S` (`-iS v`): the value is the next
+//       word.
+//     - `-Sv`, or `S` inside a cluster (`-iSv`): the value is the rest of the
+//       word.
+//     - `--split-string v`: the value is the next word. `--split-string=v`: the
+//       value is the text after `=`.
+//     - Anything `readCluster` does not read as an option letter does not
+//       count: the value of another letter (`-uS`, `-CS`, `-u -S`), an `S`
+//       after a stop character in a word that expands (`-$S`), a word after
+//       `--`, after an assignment, or after the command.
+//     - If the option is the last word, it adds no words. env refuses that form
+//       and runs nothing.
+//
+// R3. The value is the word's text as the parser already has it, with shell
+//     quotes removed and `$'...'` decoded. The words after the value stay the
+//     words the parser has. They are never joined into a line or split again.
+//
+// R4. A value from a word that expands. This applies when the value holds a
+//     stop character of `readCluster` (`$`, a backtick, `<(`, `>(`).
+//     - If the value starts with a stop character and holds no blank, it is
+//       unknown text. It adds no words, and env goes on with the next word.
+//       This covers `-S$x`, `-S $x`, `-S "$x"` and `--split-string=$x`.
+//     - In every other case the guard does not read the value. The parser
+//       fails, and `decide()` denies the line as `unparseable`.
+//     - A value whose word expands but which holds no stop character (a
+//       decoded `$'...'`) is literal text and goes to R5.
+//
+// R5. How literal text is split. The guard reads only this part of env's
+//     syntax:
+//     - Outside quotes, blanks separate words (`ENV_BLANK`).
+//     - `'...'` and `"..."` group text, and the quotes are removed.
+//     - A word starts at its first character, and a quote counts as one. So
+//       `''` is an empty word, and in `''#x` the `#` does not start the word.
+//     - Inside single quotes `"` is a plain character, and inside double quotes
+//       `'` is plain.
+//     - A `#` that does not start a word is plain. So is a `$` inside single
+//       quotes.
+//     - Every word made this way is literal (`expands` false).
+//
+// R6. Forms the guard does not read. Each of these makes the parser fail with a
+//     reason that names the `env -S` value, so `decide()` denies the line as
+//     `unparseable`:
+//     - any backslash, including env's escapes, `\_` and `\c`
+//     - a `$` outside single quotes (env's own `${NAME}`, or a form env
+//       refuses)
+//     - a `#` that starts a word (env drops the rest of the string as a
+//       comment)
+//     - a quote that is not closed
+//     A string the guard does not read can hold a push, and unknown is denied
+//     where the worst reading is an entry of the merge rule. env itself refuses
+//     some of these forms and runs nothing (an unknown escape, a `$` without
+//     braces, an unclosed quote). For the forms env accepts (its escapes,
+//     `${NAME}`, a `#` comment), the deny costs a working line.
+//
+// R7. The words of the string are env's arguments. After the replacement, the
+//     same loop reads options (`-i`, `-u X`, `-C dir`, another `-S`, `--`),
+//     then assignments, then the command, as for words typed after `env`. The
+//     cluster reading applies everywhere, also to a wrapper named inside the
+//     string (`'sudo -Eu root'`).
+//
+// R8. Where env's options end. `env` stops reading options at `--`, or at the
+//     first word that is not an option (an assignment is such a word). From
+//     there on no word is read as an option: no `-i`, `-u`, `-C`, and no
+//     split-string option. Every following word that holds a `=` is an
+//     assignment, whatever stands before the `=` (`--foo=bar` and `a-b=1` are
+//     assignments there). The first following word that holds no `=` is the
+//     command, also when it starts with a dash: `env A=1 -i git push` runs a
+//     program named `-i`. The manual says so: options must precede operands,
+//     and the first operand with no `=` is the program.
+//     A word that expands keeps the readings the guard has for it: a word of
+//     its own that expands is the command, and one that holds a `=` is an
+//     assignment, also when the `=` stands next to the expansion (`A=$x`).
+//
+// A lone `-` is read as the command (it is `-i` to env, and `env - <command>`
+// is not covered).
+function skipEnv(words, state) {
+  const list = words.slice()
+  let i = 0
+  // Replaces `count` words at `i` with the words of `value`.
+  const replace = (value, count) => list.splice(i, count, ...envStringWords(value))
+  while (i < list.length) {
+    const t = list[i].text
+    if (t === '--') {
       i++
       break
-    } else if (t === '--split-string' || t.startsWith('--split-string=')) {
-      state.split = true
-      return words
+    } else if (t === '--split-string') {
+      replace(list[i + 1], 2)
+    } else if (t.startsWith('--split-string=')) {
+      replace({ text: t.slice('--split-string='.length), expands: list[i].expands }, 1)
     } else if (t.startsWith('--')) {
       if (t === '--chdir' || t.startsWith('--chdir=')) state.chdir = true
       i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
     } else if (t.length > 1 && t.startsWith('-')) {
       const value = readCluster(
         t,
-        words[i].expands,
+        list[i].expands,
         (letter) => ENV_VALUE_FLAGS.has(`-${letter}`),
         (letter) => {
           if (letter === 'C') state.chdir = true
-          if (letter === 'S') state.split = true
         },
       )
-      if (state.split) return words
-      i += value && value.rest === null ? 2 : 1
+      if (value?.letter === 'S') {
+        replace(value.rest === null ? list[i + 1] : { text: value.rest, expands: list[i].expands }, value.rest === null ? 2 : 1)
+      } else {
+        i += value && value.rest === null ? 2 : 1
+      }
     } else {
       break
     }
   }
-  return words.slice(i)
-}
-
-// The reader for a command where `env` gets a split-string option. A dash word
-// is skipped whole, and takes the next word only when it is `-u`, `--unset`,
-// `-C`, `--chdir`, `-S` or `--split-string`. The value of `-S` and of
-// `--split-string` (also `-Sfoo` and `--split-string=foo`) is a command line of
-// its own, kept in `state.lines`. Assigned names go to `state.env`.
-function skipEnvWhole(words, state) {
-  let i = 0
-  while (i < words.length) {
-    const t = words[i].text
-    if (ASSIGNMENT.test(t)) {
-      state.env.push(assignedName(t))
-      i++
-    } else if (t === '--') {
-      i++
-      break
-    } else if (t === '-S' || t === '--split-string') {
-      if (words[i + 1]) state.lines.push(words[i + 1].text)
-      i += 2
-    } else if (t.startsWith('--split-string=')) {
-      state.lines.push(t.slice('--split-string='.length))
-      i++
-    } else if (t.startsWith('-S') && t.length > 2) {
-      state.lines.push(t.slice(2))
-      i++
-    } else if (t.length > 1 && t.startsWith('-')) {
-      if (t === '-C' || t === '--chdir' || t.startsWith('--chdir=') || (t.startsWith('-C') && t.length > 2)) state.chdir = true
-      i += ENV_VALUE_FLAGS.has(t) ? 2 : 1
-    } else {
-      break
-    }
+  while (i < list.length && list[i].text.includes('=')) {
+    const t = list[i].text
+    state.env.push(ASSIGNMENT.test(t) ? assignedName(t) : t.slice(0, t.indexOf('=')))
+    i++
   }
-  return words.slice(i)
+  return list.slice(i)
 }
 
 const WRAPPERS = {
@@ -263,14 +326,12 @@ const WRAPPERS = {
   stdbuf: (rest, state) => skipFlags(rest, new Set(['-i', '-o', '-e', '--input', '--output', '--error']), state),
   setsid: (rest, state) => skipFlags(rest, NO_VALUE, state),
   ionice: (rest, state) => skipFlags(rest, new Set(['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid']), state),
-  // The whole-word readers keep main's sets (see `skipEnv`), and #600 removes
-  // them. `-a -c -r -t` (sudo) and `-a` (doas) are read in default mode only.
-  doas: (rest, state) => skipFlags(rest, state.wholeWords ? DOAS_WHOLE_WORD_VALUE_FLAGS : DOAS_VALUE_FLAGS, state),
+  doas: (rest, state) => skipFlags(rest, DOAS_VALUE_FLAGS, state),
   command: (rest, state) => skipFlags(rest, NO_VALUE, state),
   exec: (rest, state) => skipFlags(rest, new Set(['-a']), state),
   nohup: (rest, state) => skipFlags(rest, NO_VALUE, state),
   time: (rest, state) => skipFlags(rest, new Set(['-f', '--format', '-o', '--output']), state),
-  sudo: (rest, state) => skipFlags(rest, state.wholeWords ? SUDO_WHOLE_WORD_VALUE_FLAGS : SUDO_VALUE_FLAGS, state, { short: '-D', long: '--chdir' }),
+  sudo: (rest, state) => skipFlags(rest, SUDO_VALUE_FLAGS, state, { short: '-D', long: '--chdir' }),
   nice: (rest, state) => skipFlags(rest, new Set(['-n', '--adjustment']), state),
   timeout: (rest, state) => skipFlags(rest, new Set(['-s', '--signal', '-k', '--kill-after']), state).slice(1),
 }
@@ -283,7 +344,7 @@ export function commandName(command) {
 export function parseCommandLine(text) {
   if (typeof text !== 'string') return { ok: false, reason: 'the command is not text' }
   try {
-    const { commands } = scan(text, 0, 0, false, false, false)
+    const { commands } = scan(text, 0, 0, false, false)
     return { ok: true, commands }
   } catch (err) {
     if (err instanceof ParseError) return { ok: false, reason: err.message }
@@ -291,10 +352,10 @@ export function parseCommandLine(text) {
   }
 }
 
-function unwrap(input, wholeWords) {
+function unwrap(input) {
   let words = input
   let wrapped = false
-  const state = { lines: [], env: [], chdir: false, wholeWords, split: false }
+  const state = { env: [], chdir: false }
   for (let guard = 0; guard < 50 && words.length > 0; guard++) {
     const head = words[0].text
     if (ASSIGNMENT.test(head) || KEYWORDS.has(head)) {
@@ -306,8 +367,6 @@ function unwrap(input, wholeWords) {
     const wrapper = WRAPPERS[head.slice(head.lastIndexOf('/') + 1)]
     if (!wrapper) break
     words = wrapper(words.slice(1), state)
-    // `env` got a split-string option: start over from the first word.
-    if (state.split) return unwrap(input, true)
     wrapped = true
   }
   return { words, wrapped, state }
@@ -348,17 +407,12 @@ function exportsGitFolder(name, words) {
   return args.some((a) => GIT_FOLDER_NAMES.has(a.split('=')[0]))
 }
 
-function buildCommand(rawWords, redirects, afterCd, depth, wholeWords) {
-  const { words, wrapped, state } = unwrap(rawWords, wholeWords)
+function buildCommand(rawWords, redirects, afterCd, depth) {
+  const { words, wrapped, state } = unwrap(rawWords)
   // An `env -C` or `sudo -D` moves this command, and what it runs, to another
   // folder. The names assigned in front of it reach what it runs.
   const here = afterCd || state.chdir
   const nestedOf = (inner) => inner.commands.map((c) => ({ ...c, nested: true, env: [...state.env, ...c.env] }))
-  if (state.lines.length > 0) {
-    const line = [...state.lines, ...words.map((w) => w.text)].join(' ')
-    const inner = scan(line, 0, depth + 1, here, false, state.wholeWords)
-    return { command: null, extra: nestedOf(inner), sawCd: inner.sawCd }
-  }
   if (words.length === 0) return { command: null, extra: [], sawCd: false }
   const command = { words, redirects, wrapped, nested: false, afterCd: here, env: state.env }
   const name = commandName(command)
@@ -374,7 +428,7 @@ function buildCommand(rawWords, redirects, afterCd, depth, wholeWords) {
   let extra = []
   let sawCd = CD_COMMANDS.has(name) || exportsGitFolder(name, words)
   if (line !== null) {
-    const inner = scan(line, 0, depth + 1, here, false, state.wholeWords)
+    const inner = scan(line, 0, depth + 1, here, false)
     extra = nestedOf(inner)
     sawCd = sawCd || inner.sawCd
   }
@@ -419,7 +473,7 @@ const isBlank = (ch) => ch === ' ' || ch === '\t' || ch === '\r'
 
 // Reads commands from `text` starting at `start`. With `closer` set it stops
 // after the `)` that closes a `$(`, and returns the index after it as `end`.
-function scan(text, start, depth, afterCd, closer, wholeWords) {
+function scan(text, start, depth, afterCd, closer) {
   if (depth > MAX_DEPTH) throw new ParseError(`nesting deeper than ${MAX_DEPTH}`)
 
   const commands = []
@@ -439,7 +493,7 @@ function scan(text, start, depth, afterCd, closer, wholeWords) {
 
   const finish = () => {
     if (words.length > 0) {
-      const built = buildCommand(words, redirects, seenCd, depth, wholeWords)
+      const built = buildCommand(words, redirects, seenCd, depth)
       if (built.command) commands.push(built.command)
       commands.push(...pending, ...built.extra)
       if (built.sawCd || nestedCd) seenCd = true
@@ -475,7 +529,7 @@ function scan(text, start, depth, afterCd, closer, wholeWords) {
         i = end
         return
       }
-      const inner = scan(text, i + 2, depth + 1, seenCd, true, wholeWords)
+      const inner = scan(text, i + 2, depth + 1, seenCd, true)
       addNested(inner)
       word.text += text.slice(i, inner.end)
       word.expands = true
@@ -527,7 +581,7 @@ function scan(text, start, depth, afterCd, closer, wholeWords) {
     while (j < text.length && text[j] !== '`') j += text[j] === '\\' ? 2 : 1
     if (j >= text.length) throw new ParseError('unterminated backtick')
     const inner = text.slice(i + 1, j).replace(/\\([`$\\])/g, '$1')
-    addNested(scan(inner, 0, depth + 1, seenCd, false, wholeWords))
+    addNested(scan(inner, 0, depth + 1, seenCd, false))
     word.text += text.slice(i, j + 1)
     word.expands = true
     i = j + 1
@@ -594,7 +648,7 @@ function scan(text, start, depth, afterCd, closer, wholeWords) {
         word.any = true
         backtick(word)
       } else if ((ch === '<' || ch === '>') && text[i + 1] === '(') {
-        const inner = scan(text, i + 2, depth + 1, seenCd, true, wholeWords)
+        const inner = scan(text, i + 2, depth + 1, seenCd, true)
         addNested(inner)
         word.text += text.slice(i, inner.end)
         word.expands = word.any = true
