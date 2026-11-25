@@ -84,7 +84,56 @@
     "gh issue list --state open --label nothing --limit 100 --json number": [],
     "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [],
     "git ls-remote --heads origin": "1111111111111111111111111111111111111111\trefs/heads/main\n",
-    "git worktree list --porcelain": ""
+    "git worktree list --porcelain": "",
+    "gh pr view https://github.com/o/r/pull/900 --json closingIssuesReferences,number": {
+      "closingIssuesReferences": [
+        {
+          "id": "I_201",
+          "number": 201,
+          "repository": {
+            "id": "R_x",
+            "name": "r",
+            "owner": {
+              "id": "U_x",
+              "login": "o"
+            }
+          },
+          "url": "https://github.com/o/r/issues/201"
+        },
+        {
+          "id": "I_204",
+          "number": 204,
+          "repository": {
+            "id": "R_x",
+            "name": "r",
+            "owner": {
+              "id": "U_x",
+              "login": "o"
+            }
+          },
+          "url": "https://github.com/o/r/issues/204"
+        }
+      ],
+      "number": 900
+    },
+    "gh pr view 42 --json closingIssuesReferences,number": {
+      "closingIssuesReferences": [
+        {
+          "id": "I_204",
+          "number": 204,
+          "repository": {
+            "id": "R_x",
+            "name": "r",
+            "owner": {
+              "id": "U_x",
+              "login": "o"
+            }
+          },
+          "url": "https://github.com/o/r/issues/204"
+        }
+      ],
+      "number": 42
+    }
   },
   "failures": {}
 }

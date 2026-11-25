@@ -367,13 +367,27 @@ const DEFAULT_REPORTS = {
  * A fixture-backed runner plus a fake spawn, sharing one ordered call log.
  * A key in `reads` returns exit 0 with that stdout, a key in `failures`
  * returns exit 1 with that stderr, a known write prefix is recorded and
- * returns exit 0, and anything else throws.
+ * returns exit 0, and anything else throws. One default answer: the closing
+ * references read of ship (`gh pr view <pr> --json closingIssuesReferences,number`)
+ * with no fixture entry says the PR has the number in its URL or the bare
+ * number given, and closes issues 5 to 9. An entry in the fixture wins, and a
+ * test of the check itself uses one that does not close.
  */
+const CLOSES_READ = /^gh pr view (\S+) --json closingIssuesReferences,number$/
 function fakeRunner(fixture, reports = {}) {
   const calls = []
   const scripted = { ...DEFAULT_REPORTS, ...reports }
   const run = async (cmd, args, opts = {}) => {
     const key = [cmd, ...args].join(' ')
+    const closes = CLOSES_READ.exec(key)
+    if (closes && !(key in (fixture.reads || {})) && !(key in (fixture.failures || {}))) {
+      const digits = /\/pull\/(\d+)$/.exec(closes[1])?.[1] ?? /^\d+$/.exec(closes[1])?.[0]
+      if (digits !== undefined) {
+        calls.push({ kind: 'read', key, cwd: opts.cwd })
+        const refs = [5, 6, 7, 8, 9].map((number) => ({ number }))
+        return { code: 0, stdout: JSON.stringify({ closingIssuesReferences: refs, number: Number(digits) }), stderr: '' }
+      }
+    }
     if (key in (fixture.failures || {})) {
       calls.push({ kind: 'read', key, cwd: opts.cwd })
       return { code: 1, stdout: '', stderr: fixture.failures[key] }
@@ -1407,10 +1421,11 @@ describe('a seat that returns no usable report', () => {
 describe('each seat accepts only the report its contract prescribes', () => {
   const { runPipeline } = driver
 
-  async function pipeline(reports, opts = {}) {
-    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, reports)
+  // reads and failures add fixture entries, wrap wraps the runner.
+  async function pipeline(reports, { reads, failures, wrap, ...opts } = {}) {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '', ...reads }, failures }, reports)
     const state = await runPipeline(7, {
-      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+      dryRun: false, run: wrap ? wrap(fake.run) : fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
     })
     return { state, calls: fake.calls }
   }
@@ -1790,6 +1805,165 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assertStopped(r, 'reviewer', [...ALL, 'developer', 'tester', 'reviewer'])
       })
     }
+  })
+
+  // Ship (issue #610). A package is done only with a tester PASS, a reviewer
+  // APPROVE, a ready PR that closes the issue and the summary comment on the
+  // issue. The closing references are GitHub's own, read through the runner.
+  describe('ship', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const CLOSES = (pr) => `gh pr view ${pr} --json closingIssuesReferences,number`
+    const SUMMARY = (pr, t, r) =>
+      `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\n` +
+      `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${t}/3, reviewer ${r}/3.`
+    const closing = (number, ...closes) => ({ number, closingIssuesReferences: closes.map((n) => ({ number: n })) })
+    const PR_COMMENT = /^gh pr comment /
+    // What the runner saw after the last seat, without the reviewer's own report.
+    const afterSeats = (calls) =>
+      calls.slice(calls.findLastIndex((c) => c.kind === 'spawn') + 1).filter((c) => !PR_COMMENT.test(c.key)).map((c) => [c.kind, c.key])
+    const REASON = 'PR #900 does not close #7'
+
+    test('ship reads the closing references first, then marks the PR ready, takes in-progress off and posts the summary', async () => {
+      const r = await pipeline({})
+      assert.deepEqual(afterSeats(r.calls), [
+        ['read', CLOSES(PR)],
+        ['write', `gh pr ready ${PR}`],
+        ['write', 'gh issue edit 7 --remove-label in-progress'],
+        ['write', SUMMARY(PR, 0, 0)],
+      ])
+      assert.equal(r.state.done, true)
+      assert.equal(r.state.prNumber, 900)
+    })
+
+    test('a resume at ship adds in-progress, reads the closing references of that PR, and ships it', async () => {
+      const r = await pipeline({}, { resume: { stage: 'ship', branch: 'feat/7-work', pr: 12 } })
+      const at = r.calls.findIndex((c) => c.key === 'gh issue edit 7 --add-label in-progress')
+      assert.deepEqual(r.calls.slice(at).map((c) => [c.kind, c.key]), [
+        ['write', 'gh issue edit 7 --add-label in-progress'],
+        ['read', CLOSES(12)],
+        ['write', 'gh pr ready 12'],
+        ['write', 'gh issue edit 7 --remove-label in-progress'],
+        ['write', 'gh issue comment 7 --body Pipeline complete: PR 12 is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.'],
+      ])
+      assert.equal(r.state.prNumber, 12)
+    })
+
+    test('the summary names the fix rounds the package used, counted like the report headers', async () => {
+      const r = await pipeline({
+        tester: [tester('FAIL'), tester('PASS'), tester('FAIL'), tester('PASS'), tester('PASS')],
+        reviewer: [reviewer('CHANGES_REQUESTED'), reviewer('APPROVE')],
+      })
+      assert.deepEqual(r.state.fixRounds, { tester: 2, reviewer: 1 })
+      assert.equal(afterSeats(r.calls).at(-1)[1], SUMMARY(PR, 2, 1))
+    })
+
+    test('the summary is the last write, and it has no Arbitrations sentence', async () => {
+      const r = await pipeline({})
+      const writes = keysOf(r.calls, 'write')
+      assert.equal(writes.at(-1), SUMMARY(PR, 0, 0))
+      assert.ok(!writes.at(-1).includes('Arbitrations'))
+    })
+
+    test('a PR given as a bare number is read, shipped and named by that number', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'PR: 901') })
+      assert.equal(afterSeats(r.calls)[0][1], CLOSES('901'))
+      assert.equal(afterSeats(r.calls).at(-1)[1], SUMMARY('901', 0, 0))
+      assert.equal(r.state.prNumber, 901)
+    })
+
+    // The package parks, in-progress comes off, and the PR stays a draft.
+    const doesNotClose = [
+      ['another issue', closing(900, 8, 9)],
+      ['no issue', closing(900)],
+      ['an issue number as text', closing(900, '7')],
+      ['no closingIssuesReferences field', { number: 900 }],
+      ['a closingIssuesReferences field that is null', { number: 900, closingIssuesReferences: null }],
+      ['a closingIssuesReferences field that is an object', { number: 900, closingIssuesReferences: { number: 7 } }],
+      ['a closingIssuesReferences field that is text', { number: 900, closingIssuesReferences: '7' }],
+      ['entries that are not objects', { number: 900, closingIssuesReferences: [null, 7, 'x', ['7']] }],
+    ]
+    for (const [name, view] of doesNotClose) {
+      test(`a PR with ${name} parks the package: not ready, in-progress off, nothing posted on the PR after the read`, async () => {
+        const r = await pipeline({}, { reads: { [CLOSES(PR)]: view } })
+        assert.equal(r.state.parked, REASON)
+        assert.equal(r.state.done, false)
+        assert.deepEqual(afterSeats(r.calls), [['read', CLOSES(PR)], ...parkWrites(REASON, { inProgress: true }).map((k) => ['write', k])])
+        assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+      })
+    }
+
+    test('the reason names the PR by the number GitHub gives, not by the PR value of the report', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(901, 8) } })
+      assert.equal(r.state.parked, 'PR #901 does not close #7')
+    })
+
+    test('an entry among others that has the number is enough, whatever else it names', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(900, 3, 7, 9) } })
+      assert.equal(r.state.done, true)
+    })
+
+    test('a PR that does not close the issue stops after the last review: the seats ran, nothing is marked ready', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(900, 8) } })
+      assert.deepEqual(roles(r.state), ALL)
+      assert.equal(r.state.testerVerdict, 'PASS')
+      assert.equal(r.state.reviewerVerdict, 'APPROVE')
+    })
+
+    test('a failed closing read throws naming the command, and nothing is marked ready or posted', async () => {
+      const seen = []
+      const wrap = (run) => async (cmd, args, opts) => { seen.push([cmd, ...args].join(' ')); return run(cmd, args, opts) }
+      await assert.rejects(
+        pipeline({}, { failures: { [CLOSES(PR)]: 'HTTP 502: bad gateway\nmore' }, wrap }),
+        (e) => e.message === `${CLOSES(PR)}: HTTP 502: bad gateway`
+      )
+      assert.ok(!seen.some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+    })
+
+    test('closing read output that is not JSON throws naming the command', async () => {
+      await assert.rejects(pipeline({}, { reads: { [CLOSES(PR)]: 'not json' } }), /closingIssuesReferences,number: output is not valid JSON/)
+    })
+
+    test('a failed summary comment is an error entry in the wave, not done', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      const run = async (cmd, args, opts) =>
+        args[1] === 'comment' && String(args[4]).startsWith('Pipeline complete')
+          ? { code: 1, stdout: '', stderr: 'HTTP 500: summary failed\nmore' }
+          : fake.run(cmd, args, opts)
+      const [result] = await driver.runWave([7], { dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(result.done, false)
+      assert.equal(result.error, 'HTTP 500: summary failed')
+      const writes = keysOf(fake.calls, 'write')
+      assert.ok(writes.includes(`gh pr ready ${PR}`), 'the writes before the summary happened')
+      assert.ok(writes.includes('gh issue edit 7 --remove-label in-progress'))
+    })
+
+    test('a failed gh pr ready is an error entry too, with no summary posted', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      const run = async (cmd, args, opts) =>
+        args[0] === 'pr' && args[1] === 'ready' ? { code: 1, stdout: '', stderr: 'HTTP 403: not allowed' } : fake.run(cmd, args, opts)
+      const [result] = await driver.runWave([7], { dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(result.done, false)
+      assert.equal(result.error, 'HTTP 403: not allowed')
+      assert.ok(!keysOf(fake.calls, 'write').some((k) => k.includes('Pipeline complete')))
+    })
+
+    test('a dry run reads nothing at ship and logs the writes it skips', async () => {
+      const fake = fakeRunner({ reads: {} })
+      const logs = []
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: (l) => logs.push(l), repoRoot: '/repo' })
+      assert.equal(state.done, true)
+      assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+      assert.ok(logs.some((l) => l.includes(`dry run, skipped: gh pr ready ${PR}`)))
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue comment 7 --body Pipeline complete: PR https://github.com/o/r/pull/900')))
+    })
+
+    test('the fake runner answers a closing read that has no fixture entry, and a fixture entry wins', async () => {
+      const { run } = fakeRunner({ reads: { [CLOSES(PR)]: closing(900, 201) } })
+      const answer = async (pr) => JSON.parse((await run('gh', ['pr', 'view', pr, '--json', 'closingIssuesReferences,number'])).stdout)
+      assert.deepEqual(await answer('https://github.com/o/r/pull/77'), { number: 77, closingIssuesReferences: [5, 6, 7, 8, 9].map((number) => ({ number })) })
+      assert.equal((await answer('12')).number, 12)
+      assert.deepEqual(await answer(PR), closing(900, 201))
+    })
   })
 
   // The fix-round loop (issue #604). Every report below comes from the live
@@ -2292,7 +2466,8 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.equal(r.state.pr, pr)
         assert.equal(r.state.done, true)
         const writes = ghWrites(r.calls)
-        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${pr}`)
+        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
+        assert.ok(keysOf(r.calls, 'read').includes(`gh pr view ${pr} --json closingIssuesReferences,number`), 'the closing read names the cut PR value')
         assert.ok(writes.includes(`gh pr ready ${pr}`))
         for (const k of writes) assert.ok(!k.includes('\nSUB_PLAN\nVERDICT'), 'no write carries the extra lines')
       })
@@ -2398,8 +2573,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
           assert.equal(r.state.pr, URL1)
           assert.equal(r.state.done, true)
           const writes = ghWrites(r.calls)
-          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${URL1}`)
+          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${URL1} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
           assert.ok(writes.every((k) => !NON_LF_END.test(k)))
+          assert.ok(keysOf(r.calls, 'read').every((k) => !NON_LF_END.test(k)), 'no read holds the line end either')
         })
 
         test(`${name} in the seat's text starts a new quoted line in the park comment, written as a line feed`, async () => {

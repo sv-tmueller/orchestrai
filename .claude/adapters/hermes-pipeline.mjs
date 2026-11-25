@@ -172,6 +172,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     dispatches: [],
     branch: null,
     pr: null,
+    prNumber: null,
     subPlan: null,
     testerVerdict: null,
     reviewerVerdict: null,
@@ -415,11 +416,26 @@ export async function runPipeline(issueNumber, opts = {}) {
   // --- Stage 5: Ship ---
   if (state.reviewerVerdict === 'APPROVE' && state.testerVerdict === 'PASS') {
     log('stage 5: ship')
-    state.done = true
     await ensureInProgress()
+    // A package is done when its PR closes the issue, by GitHub's own list of
+    // closing references. A dry run has no PR to read.
+    if (!dryRun) {
+      const view = await gh.prView(state.pr)
+      state.prNumber = view?.number
+      const closes = Array.isArray(view?.closingIssuesReferences) ? view.closingIssuesReferences : []
+      if (!closes.some((ref) => ref?.number === issueNumber)) {
+        return stop(`PR #${state.prNumber} does not close #${issueNumber}`)
+      }
+    }
     await gh.prReady(state.pr)
     await gh.removeLabel(issueNumber, 'in-progress')
-    await gh.comment(issueNumber, `Pipeline complete. PR ready: ${state.pr}`)
+    await gh.comment(
+      issueNumber,
+      `Pipeline complete: PR ${state.pr} is ready for review.\n\n` +
+        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}.`
+    )
+    // Only a package whose writes all went through is done.
+    state.done = true
   } else {
     return stop(`unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`)
   }
@@ -773,6 +789,8 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
     async prComments(pr) {
       return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
     },
+    // The PR's own number and the issues it closes, as GitHub lists them.
+    prView: (pr) => readJson('gh', ['pr', 'view', String(pr), '--json', 'closingIssuesReferences,number']),
     remoteHeads() {
       heads ??= exec('git', ['ls-remote', '--heads', 'origin']).then((out) =>
         out.split('\n').map((l) => l.split('\t')[1]).filter(Boolean)
