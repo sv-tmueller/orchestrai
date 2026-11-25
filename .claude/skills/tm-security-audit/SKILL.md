@@ -23,6 +23,8 @@ disable-model-invocation: true
 | Candidate verifiers | `general` | VALIDATION-AND-REPORTING.md, Phase 3 | `opus` (judgment) | `xhigh` |
 | Record verifiers, and the fresh verifier for a material replacement | `research` | VALIDATION-AND-REPORTING.md, Phase 5 | `opus` (judgment) | `xhigh` |
 
+Any other dispatch, guidance-mode focused agents included: `sonnet` (worker) at `high`.
+
 Pass the effort with the model where the Agent tool takes an `effort` parameter. A dispatch without one inherits the session's effort, so run this skill from a session at `xhigh` or lower. Never use `max`, and never a `model` value other than `sonnet` or `opus`. If an `opus` dispatch dies on a usage limit, send it and every later `opus` dispatch of this audit to `sonnet` at `xhigh`, and say so in the final message to the user (orchestrai `.claude/team-guide.md`, "Model policy").
 
 **Cost.** The number of `opus` verifiers grows with the number of candidates. Upstream's agent budget ("Cost budget" below) is the only cap, so propose one before a full audit of a large target.

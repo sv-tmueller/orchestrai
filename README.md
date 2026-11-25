@@ -603,8 +603,8 @@ copy of `skills/security-audit/` from `cloudflare/security-audit-skill` at a
 pinned commit, with a short orchestrai header in its `SKILL.md`). The
 attribution and each source project's full MIT license text are in
 `THIRD_PARTY_NOTICES.md`. This does not change the license of the rest of the
-repo above; it is a normal mixed-license pattern where a small amount of
-MIT-licensed material keeps its own attribution inside an otherwise
+repo above; it is a normal mixed-license pattern where MIT-licensed material
+from other projects keeps its own attribution inside an otherwise
 all-rights-reserved codebase.
 
 The research on `vijaythecoder/awesome-claude-agents`

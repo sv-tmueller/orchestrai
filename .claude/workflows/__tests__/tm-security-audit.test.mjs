@@ -175,13 +175,29 @@ test('tm-security-audit: SKILL.md is upstream plus the three orchestrai changes'
 //   sed -n '/orchestrai header: begin/,/orchestrai header: end/p' SKILL.md | sha256sum
 // An edit to the header needs this digest updated on purpose, in the same
 // commit, after a person has read the edit.
-const HEADER_SHA256 = '18719988ba8de4769866068819f886fb72ba9e8a2a719c7ece029f092d82d3e1';
+const HEADER_SHA256 = 'd4b62b2b2e004191f1eda729d411210f204dc3a8ebbe263418af5c4b4681baa0';
 
 const skillText = () => readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
 
 test('tm-security-audit: SKILL.md header block matches its recorded digest', () => {
   const digest = createHash('sha256').update(headerBlock(skillText())).digest('hex');
   assert.equal(digest, HEADER_SHA256);
+});
+
+// Where the header sits: the begin marker line right after the frontmatter's
+// closing `---` line and one blank line, the end marker line followed by one
+// blank line and upstream's first heading. The byte-identity rebuild cuts the
+// header out by its markers, so it would not notice a header moved elsewhere.
+test('tm-security-audit: header sits between the frontmatter and upstream\'s first heading', () => {
+  const lines = skillText().split('\n');
+  const close = lines.indexOf('---', 1);
+  assert(close > 0, 'frontmatter must close with ---');
+  const begin = lines.indexOf('<!-- orchestrai header: begin -->');
+  const end = lines.indexOf('<!-- orchestrai header: end -->');
+  assert.equal(lines[close + 1], '', 'one blank line between the closing --- and the begin marker');
+  assert.equal(begin, close + 2, 'begin marker line must follow the closing --- and one blank line');
+  assert.equal(lines[end + 1], '', 'one blank line after the end marker');
+  assert.equal(lines[end + 2], '# Security Audit', 'upstream first heading must follow the header');
 });
 
 // Role, model and effort the header must assign. The role is the first cell of
