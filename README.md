@@ -162,7 +162,7 @@ no longer runs".
 
 On a repo with the pipeline labels (`in-progress` and `needs-human`), the
 status `orchestrai/review` is required too. Apply creates the six flow labels
-on every repo, so after one Apply the status is required everywhere.
+on every repo, so after one Apply the status is required everywhere, except where Apply refuses.
 
 Hand-made PRs on a set-up repo follow the same rule. They need every required
 check to pass, and on a repo with the pipeline labels they also need the
@@ -176,7 +176,8 @@ it and queue the merge. You run them in your own shell; the command never does.
 `/tm-repo-guard` with no argument reads every repo you own and prints one
 state per repo. It never writes.
 
-- `set up`: nothing to change.
+- `set up`: nothing to change, except that Check does not count missing flow
+  labels. Apply creates them on a repo that reads `set up` without them.
 - `not set up`: the `missing` line lists what is off. It also says `needs CI
   first` when the repo has test files but no finished, non-draft PR has run a
   check. Run `/tm-repo-guard apply <repo>`: it adds the CI first.
@@ -273,8 +274,9 @@ starts requiring signed commits during the wait, Apply stops after the merge
 without a token and writes no protection, because the write could reset that
 setting.
 
-A repo that is already set up prints "set up, nothing to change" and asks
-nothing. Protection settings the guard does not manage are carried over, not
+A repo that is already set up, with its six labels in place, prints "set up,
+nothing to change" and asks nothing. When only the labels are missing, the
+plan header reads "labels missing" and lists no other changes. Protection settings the guard does not manage are carried over, not
 reset. Apply also removes any required check that is no longer in the list.
 
 ### When a required check stops reporting

@@ -1145,7 +1145,8 @@ const LABELS = [
   { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
   { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
 ]
-const FLOW_LABELS = LABELS.map((l) => ({ name: l.name, color: l.color, description: l.description }))
+// A label as GitHub reports it, with the fields Apply compares.
+const have = (l, over = {}) => ({ name: l.name, color: l.color, description: l.description, ...over })
 const PROTECTED = {
   kind: 'present',
   requiredChecks: ['Unit tests'],
@@ -1406,11 +1407,10 @@ describe('evaluate', () => {
   })
 
   test('set up exactly when not blocked, no CI is needed and there are no writes', () => {
-    // Only fixtures with the pipeline labels: Apply writes the labels on every repo
-    // without them, a gap the next test covers.
+    // Every fixture, with the labels in place: Apply writes the labels on every repo
+    // without them, the one gap the next test covers.
     for (const [name, fixture] of Object.entries(FIXTURES)) {
-      if (!fixture.pipelineLabels) continue
-      const facts = { ...fixture, labels: FLOW_LABELS }
+      const facts = { ...fixture, labels: LABELS, pipelineLabels: true }
       const plan = planChanges(facts)
       const nothingToDo = plan.blocked === null && !plan.needsCi && buildWrites(TARGET, facts).length === 0
       assert.equal(evaluate(facts).state === 'set up', nothingToDo, name)
@@ -1993,7 +1993,7 @@ const labelPatch = (l) => ({
 // what is left to write is only what a test changes.
 const labeled = (over = {}) =>
   baseFacts({
-    labels: FLOW_LABELS,
+    labels: LABELS,
     pipelineLabels: true,
     protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review'] },
     ...over,
@@ -2091,7 +2091,7 @@ describe('buildWrites', () => {
   })
 
   test('a repo with up to date required gets a PUT that turns it off (#630)', () => {
-    const [put, ...rest] = buildWrites(TARGET, { ...FIXTURES['strict on'], labels: FLOW_LABELS })
+    const [put, ...rest] = buildWrites(TARGET, { ...FIXTURES['strict on'], labels: LABELS })
     assert.equal(rest.length, 0)
     assert.equal(put.method, 'PUT')
     assert.equal(put.body.required_status_checks.strict, false)
@@ -2107,7 +2107,7 @@ describe('buildWrites', () => {
     // to change is judged on the facts after Apply, as buildWrites does.
     // Labels are written on every apply, so a fixture is judged with its labels in place.
     for (const [name, fixture] of Object.entries(FIXTURES)) {
-      const facts = { ...fixture, labels: FLOW_LABELS }
+      const facts = { ...fixture, labels: LABELS }
       assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(factsAfterApply(facts)).changes.length === 0, name)
     }
   })
@@ -2116,7 +2116,6 @@ describe('buildWrites', () => {
     // Test files and no finished PR check: where Apply refuses today.
     const ciPath = (over = {}) => baseFacts({ ...NO_CI, ...over })
     const labelOps = (ops) => ops.filter((o) => o.path.includes('/labels'))
-    const have = (l, over = {}) => ({ name: l.name, color: l.color, description: l.description, ...over })
 
     test('no labels yet: six creates in table order, then the PUT, then the repo PATCH', () => {
       const ops = buildWrites(TARGET, ciPath({ protection: { kind: 'none' }, allowAutoMerge: false }))
@@ -3128,7 +3127,7 @@ describe('runApply', () => {
   const tokenOf = (text) => text.match(/^confirm token: ([0-9a-f]{12})$/m)?.[1]
   const apply = (fake, ...argv) => runApply(fake.run, argv, fake.clock)
   // A repo whose six labels exist: what is left to write is only what a test sets up.
-  const labeledFake = (over = {}) => makeFake({ labels: FLOW_LABELS, ...over })
+  const labeledFake = (over = {}) => makeFake({ labels: LABELS, ...over })
 
   // A fully set up repo, as the fake reports it.
   const SET_UP_PROTECTION = {
@@ -3304,7 +3303,7 @@ describe('runApply', () => {
     })
 
     test('a repo with CI whose labels and review check are already in place writes nothing', () => {
-      const fake = makeFake({ labels: FLOW_LABELS, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const fake = makeFake({ labels: LABELS, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
       assert.equal(text, 'octo/widget: set up, nothing to change\n')
@@ -3312,10 +3311,12 @@ describe('runApply', () => {
     })
 
     test('a repo with CI whose only gap is one label with another color gets one PATCH and no PUT', () => {
-      const labels = LABELS.map((l) => ({ name: l.name, color: l.name === 'needs-human' ? '000000' : l.color, description: l.description }))
+      const labels = LABELS.map((l) => have(l, l.name === 'needs-human' ? { color: '000000' } : {}))
       const fake = makeFake({ labels, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
-      const token = tokenOf(apply(fake, 'widget').text)
-      const { code } = apply(fake, 'widget', '--confirm', token)
+      const plan = apply(fake, 'widget').text
+      assert.match(plan, /^octo\/widget: labels missing \(default branch main\)$/m)
+      assert.doesNotMatch(plan, /not set up|^changes:$/m)
+      const { code } = apply(fake, 'widget', '--confirm', tokenOf(plan))
       assert.equal(code, 0)
       assert.deepEqual(fake.state.writes.map((w) => [w.method, w.path]), [['PATCH', 'repos/octo/widget/labels/needs-human']])
     })

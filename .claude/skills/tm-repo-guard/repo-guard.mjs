@@ -817,7 +817,9 @@ const VERDICT_CHECKS = ['orchestrai/review']
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
 
 // Decides for both Check and Apply: one rule, so Check can never call a repo
-// set up while Apply would still change it.
+// set up while Apply would still change it. One deliberate exception: Check does
+// not count missing flow labels as a gap, because a repo that is not set up is
+// closed to writes (decide.mjs), and the labels come with the first Apply (#651).
 export function planChanges(facts) {
   const { protection } = facts
   const ci = facts.ciChecks.length > 0
@@ -1206,7 +1208,8 @@ export function opText(op) {
 }
 
 export function planText(target, plan, ops, token, ci) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  const labelsOnly = !ci && plan.changes.length === 0
+  const lines = [`${target.repo}: ${labelsOnly ? 'labels missing' : 'not set up'} (default branch ${target.branch})`]
   if (ci) lines.push(...ciText(ci))
   const labelOps = ops.filter((op) => labelOpName(op) !== null)
   if (labelOps.length > 0) {
@@ -1215,8 +1218,10 @@ export function planText(target, plan, ops, token, ci) {
       lines.push(`  ${op.method === 'POST' ? 'create' : 'update'} ${labelOpName(op)}, color ${op.body.color}: ${op.body.description}`)
     }
   }
-  lines.push('changes:')
-  for (const c of plan.changes) lines.push(`  ${c}`)
+  if (plan.changes.length > 0) {
+    lines.push('changes:')
+    for (const c of plan.changes) lines.push(`  ${c}`)
+  }
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
   lines.push('writes:')

@@ -5,7 +5,8 @@ Run once when adopting the orchestrai plugin into an existing repo.
 The one command that sets a repo up is `/tm-repo-guard apply <owner>/<name>`
 (section 5). After the plugin is installed (section 2), it creates the six
 labels, adds CI where the repo has tests but none, and protects the default
-branch. The sections below are what it does not cover.
+branch. Sections 1 and 5 are what Apply covers. Sections 2, 3, 4 and 6 are
+by hand.
 
 ## 1. Labels
 
