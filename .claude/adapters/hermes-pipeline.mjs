@@ -667,9 +667,9 @@ function reportedPr(report) {
   return ''
 }
 
-// The first line of an error message or a stderr, for a result line: trimmed
-// text up to its first line end.
-const firstLine = (text) => String(text || '').trim().split(LINE_END)[0]
+// The single line of an error message or a stderr, for a result line. It is the
+// same cut as every other single line (oneLine).
+const firstLine = (text) => oneLine(String(text || ''))
 
 /**
  * The error for a gh or git call that exited nonzero. The message names the

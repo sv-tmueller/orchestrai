@@ -2583,6 +2583,13 @@ describe('the error line of a package that threw', () => {
     assert.deepEqual(r.stdout.slice(2), ['#201 error: exit 1'])
   })
 
+  // JS trim keeps U+0085, so a cut built on trim alone found an empty first piece.
+  test('a gh stderr that starts with U+0085 still gives its first non-blank line', async () => {
+    const r = await runMain(['201'], { wrap: failsSubPlanComment('\u0085HTTP 422: nope\nsecond line') })
+    assert.equal(r.code, 1)
+    assert.equal(r.stdout[2], '#201 error: HTTP 422: nope')
+  })
+
   test('an error that is not a failed command gives the first line of its message', async () => {
     const spawn = async () => { throw new Error('seat crashed\nstack detail') }
     const r = await runMain(['201'], { spawn })
