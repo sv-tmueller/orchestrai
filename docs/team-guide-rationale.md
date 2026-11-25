@@ -88,6 +88,19 @@ kickoff batch, where it flipped (batch #201: Fable-priced roles took
 57.5% raw, 93.3% weighted proxy of that batch's tokens)
 (docs/research/2026-07-06-token-burn-investigation.md, driver 3).
 
+### Orchestrator effort: high, not xhigh
+
+Supports: "Opus ... at high effort" in the Model policy orchestrator line.
+
+The 2026-09-28 lead-effort comparison
+(`docs/reviews/2026-09-28-lead-effort-comparison.md`) measured high at
+19.67/20 against 20/20 for xhigh, at 0.48x the cost, on the refinement
+phase. The run phase was not measured; in the light flow it is mostly
+routing and gate checks. The owner moved the lead to high on 2026-11-25
+(issue #647). Judgment seats stay at xhigh, workers at high, and the ceiling
+stays xhigh. This replaced an interim note that let refinement run at high
+and required a switch back to xhigh before dispatch.
+
 ### Cost-based fallback trigger: superseded, not fired
 
 Supports: "superseded by the move to Opus. To revisit Fable, re-run the

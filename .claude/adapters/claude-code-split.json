@@ -19,11 +19,11 @@
     "lead": {
       "model": "opus",
       "provider": "anthropic",
-      "effort": "xhigh",
+      "effort": "high",
       "settings": "$CLAUDE_CODE_ANTHROPIC_SETTINGS"
     }
   },
-  "_effort_comment": "Mixed providers: the paid judgment and lead tiers keep xhigh and forbid max; the vllm worker tier lifts the ceiling above them. The table-level fields carry the paid baseline (xhigh, forbidden [max]) because not every tier is self-hosted.",
+  "_effort_comment": "Mixed providers: the paid judgment tier keeps xhigh, the paid lead tier runs at high, and both forbid max; the vllm worker tier lifts the ceiling above them. The table-level fields carry the paid baseline (xhigh, forbidden [max]) because not every tier is self-hosted.",
   "roles": {
     "architect": "judgment",
     "developer": { "tier": "worker", "model": "vllm/release/glm-5-3", "effort": "high" },

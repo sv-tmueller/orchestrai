@@ -28,7 +28,7 @@ other.
 ```mermaid
 graph TD
     H["Human<br/>files and sizes issues, merges PRs the lead did not queue"] --> L
-    L["Lead - main session<br/>lead tier (xhigh)<br/>routes every handoff"]
+    L["Lead - main session<br/>lead tier (high)<br/>routes every handoff"]
 
     L -->|"1 implement"| D["developer<br/>worker tier (high)<br>TDD - draft PR"]
     D -.->|"branch + PR"| L
@@ -334,7 +334,7 @@ The adapter table at `.claude/adapters/claude-code.json`:
 |------|-------|--------|-------|
 | judgment | opus | xhigh | architect, reviewer |
 | worker | sonnet | high | developer, fact-checker, docs-writer, perf-investigator |
-| lead | opus | xhigh | the lead session |
+| lead | opus | high | the lead session |
 
 Fallback: a reviewer that dies on an Opus usage limit runs once more on
 Sonnet, and a Sonnet-fallback `APPROVE` ships like an Opus one. Mechanics:
@@ -348,7 +348,7 @@ each seat gets its own model, endpoint, and effort pin.
 | Table | Judgment + lead | Workers |
 |-------|-----------------|---------|
 | `claude-code-vllm.json` | self-hosted vllm, max effort | self-hosted vllm, max effort |
-| `claude-code-split.json` | opus, xhigh, paid endpoint | self-hosted vllm, max effort |
+| `claude-code-split.json` | opus, paid endpoint (judgment xhigh, lead high) | self-hosted vllm, max effort |
 
 `claude-code-vllm.json` puts every seat, judgment and worker alike, on a
 self-hosted vllm endpoint. `claude-code-split.json` keeps the opus judgment
