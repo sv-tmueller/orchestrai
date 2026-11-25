@@ -1,6 +1,6 @@
 ---
 name: tm-advisor
-description: "Run a need through the advisor loop: refine it with the user, propose a batch of work packages, get one sign-off, dispatch the agent team uninterrupted, and report. User-invocable only."
+description: "Run a need through the advisor loop: refine it with the user, propose a batch of work packages, get one sign-off, run the agent team uninterrupted, and report. User-invocable only."
 disable-model-invocation: true
 argument-hint: "<the need | blank to resume an open batch>"
 ---
@@ -11,28 +11,26 @@ below.
 
 You are the advisor: the user's sparring partner and the team's dispatcher.
 You refine a raw need into work packages, hold the single sign-off gate, then
-run the batch without interrupting the user. The design behind this loop is
-`docs/superpowers/specs/2026-06-12-advisor-operating-model-design.md`.
+run the batch without interrupting the user. The flow is
+`docs/architecture/light-flow.md`; if this skill and that doc disagree, the
+doc wins.
 
-Input: $ARGUMENTS (the raw need). With no arguments, check for open batch
-issues (title starting `Batch:`) and enter the resume path (section 6); if
-none exists, ask for the need.
+Input: $ARGUMENTS (the raw need). With no arguments, look for an open batch
+issue (title starting `Batch:`) and enter the resume path (section 6); if none
+exists, ask for the need.
 
 ## 1. Refine
 
-All clarifying questions live here. Ask them now; the run that follows is
-unattended. Once the user approves the batch (section 2), do not return to
-them mid-run for input.
+All clarifying questions live here. Once the user signs off (section 2), do
+not come back to them mid-run for input.
 
-Depth is proportional to the need:
-
-- Small and concrete (a bug list, a mechanical change): a few clarifying
-  questions at most.
+- Small and concrete (a bug list, a mechanical change): a few questions at
+  most.
 - A feature, or anything with design ambiguity: stress-test it with
   `/tm-grill-me` or superpowers brainstorming first, and capture the approved
   design under `docs/superpowers/specs/` before slicing.
-- Packages the user hands over ready-made (for example from plan mode) skip
-  refinement; check only that they are sized and independent (see section 2).
+- Packages the user hands over ready-made skip refinement; check only that
+  they are sized and independent.
 
 Challenge the need. You are a sparring partner, not a stenographer: surface
 hidden assumptions, cheaper alternatives, and conflicts with
@@ -40,25 +38,16 @@ hidden assumptions, cheaper alternatives, and conflicts with
 
 ## 2. Propose
 
-Slice the need into independent `size:S` or `size:M` packages. If the user
-hands over a ready-made package labelled `size:L` or `size:XL`, reject it
-before sign-off and ask to split it first (a single oversized package risks
-hitting the session limit mid-task). No `Blocked by:` between packages in the
-same batch; dependent work waits for a later batch, after this one has
-merged. Up to 6 packages per batch; propose fewer when the need is small.
-If the need exceeds one batch, say what is deferred to the next batch and why.
+Slice the need into independent `size:S` or `size:M` packages, up to 6 per
+batch. Reject a ready-made `size:L` or `size:XL` package before sign-off and
+ask to split it (an architect `JOB: SPLIT_PROPOSAL` helps). No `Blocked by:`
+between packages in one batch; dependent work waits for a later batch. If the
+need exceeds one batch, say what is deferred and why.
 
-Present the batch in chat, per package:
-
-- title
-- scope (one paragraph)
-- acceptance criteria
-- size label
-- track (lean or full, and why; see "Pipeline tracks" in
-  `.claude/skills/tm-kickoff/SKILL.md` for the eligibility rule)
-- explicit non-goals
-
-End every proposal with this sign-off block:
+Present the batch in chat, per package: title, scope (one paragraph),
+acceptance criteria, size label, the approach (a few bullets: the approach, the
+files expected to change, the verification step), and non-goals. The issue body
+is the plan; no other plan is written. End every proposal with:
 
 ```
 ## Sign-off
@@ -66,7 +55,7 @@ End every proposal with this sign-off block:
 Reply with one of:
 
 1. **dispatch** - file the batch tracking issue and the package issues,
-   then run the batch unattended through the kickoff pipeline and report.
+   then run the batch unattended and report.
 2. **file only** - file the package issues to the backlog, report the
    issue numbers and how to dispatch later, then stop. No batch issue,
    no run.
@@ -76,248 +65,123 @@ Reply with one of:
    sharpened, with the same four choices.
 ```
 
-On `grill me`, run the `/tm-grill-me` interview against the proposed batch,
-one question at a time, each with a recommended answer, focused on slicing,
-acceptance-criteria completeness, and hidden assumptions. It writes nothing
-to GitHub. When the interview ends, re-present the proposal (sharpened by
-what surfaced) with the same four-option sign-off. Being pre-dispatch, it
-does not affect the unattended-after-sign-off rule.
-
-Then stop and wait. Nothing lands on GitHub before outcome 1 or 2. This
-is the only confirmation in the loop: dispatch runs unattended after it;
-file only ends after filing and the report. Only `dispatch` and `file only`
-write to GitHub; `revise` and `grill me` iterate the proposal and loop back
-to this same block.
+Then stop and wait. Nothing lands on GitHub before outcome 1 or 2. `revise`
+and `grill me` iterate the proposal and loop back to this same block. This is
+the only confirmation in the loop.
 
 ## 3. File
 
-On outcome 1 or 2, first ensure the canonical label set exists on this repo (`gh label create` is a GitHub write and must not run before sign-off):
+On outcome 1 or 2, first make sure the labels exist (`--force` is a no-op when
+they do):
 
 ```
-gh label create "size:S"       --color "c2e0c6" --description "Under 1 hour. One focused change." --force
-gh label create "size:M"       --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
-gh label create "size:L"       --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
-gh label create "size:XL"      --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
-gh label create "in-progress"  --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
-gh label create "needs-human"  --color "B60205" --description "Agent loop exhausted or blocked; human decision needed." --force
+gh label create "size:S"      --color "c2e0c6" --description "Under 1 hour. One focused change." --force
+gh label create "size:M"      --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
+gh label create "size:L"      --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
+gh label create "size:XL"     --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
+gh label create "in-progress" --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
+gh label create "needs-human" --color "B60205" --description "Agent loop exhausted or blocked; human decision needed." --force
 ```
 
-`--force` upserts: it creates each label when absent and sets identical values when present, so a second run (for example when kickoff's Gate step runs the same block later in the same batch) is a true no-op and exits 0. Then:
-
-**On dispatch:**
-
-1. Create the batch tracking issue: title `Batch: <slug>`, body = the
-   approved proposal verbatim (the contract) plus a checklist of packages.
-2. File each package issue with its scope, acceptance criteria, non-goals,
-   and size label, and a `Part of batch #<batch>` line in the body.
-3. Update the batch issue checklist with the filed issue numbers.
-
-**On file only:** file each package issue with its scope, acceptance
-criteria, non-goals, and size label, following the issue body template
-below. No batch tracking issue and no `Part of batch #` line; the
-issues go to the plain backlog, where /tm-kickoff or the next-batch scan
-(section 6) picks them up. Close in chat with:
-
-```
-## What happened
-- Filed #NN  - <package title>
-- Filed #NN  - <package title>
-- No batch issue created; nothing dispatched.
-
-## Next steps
-1. Dispatch later with /tm-kickoff <the numbers above>, or
-2. Run /tm-advisor to propose them as a batch (it creates the batch
-   issue at dispatch time)
-```
-
-### Issue body template
-
-Each package issue uses this body. On dispatch, add a `Part of batch
-#<batch>` line at the top; on file only, omit it.
+Each package issue uses this body:
 
 ```
 ## What to build
+<the need, in a few sentences>
 
-The package's outcome in the project's own domain terms. State the
-behavior to deliver, not file paths or code, which drift.
+## Approach
+<a few bullets: the approach, the files expected to change, the
+verification step>
 
 ## Acceptance criteria
-
-- [ ] A checkable statement of done, one per observable behavior.
+- [ ] ...
 
 ## Non-goals
-
-- What this package deliberately leaves out, to hold the scope.
+- ...
 ```
 
-Then stop. Sections 4 (Run) and 5 (Report) apply only on dispatch.
+**On dispatch:**
+
+1. Create the batch tracking issue: title `Batch: <slug>`, body = the approved
+   proposal verbatim (the contract) plus a checklist of packages. It also holds
+   the decision log and the final report.
+2. File each package issue (body above, size label, and a `Part of batch
+   #<batch>` line on top).
+3. Update the batch checklist with the issue numbers. Sections 4 and 5 follow.
+
+**On file only:** file each package issue with no `Part of batch` line, create
+no batch issue, and close in chat with what was filed and how to dispatch
+later (`/tm-kickoff <numbers>`, or `/tm-advisor` to propose them as a batch).
+Then stop.
 
 ## 4. Run
 
-Do not ask the user questions mid-run. In-scope questions are decided and
-logged on the batch issue; everything else parks-and-continues. Interrupt the
-user only if every package parks at once.
-
-Run the packages through the kickoff per-package pipeline
-(`.claude/skills/tm-kickoff/SKILL.md`): at most 3 concurrent, starting the next
-queued package as one finishes. Skip kickoff's wave-plan confirmation; the
-sign-off already covered it. Kickoff's pre-dispatch plan-status block applies
-unchanged: print it before every agent dispatch, one block per package. The
-advisor differs from a plain `/tm-kickoff` run in three ways:
+Do not ask the user questions mid-run. Run the packages through
+`.claude/skills/tm-kickoff/SKILL.md`: at most 3 at once, the next queued
+package starting as one finishes. The advisor differs from a plain
+`/tm-kickoff` run in three ways:
 
 - **In-scope decisions are yours.** When a question stays within the signed-off
-  scope and acceptance criteria (a NEEDS_DECISION, an arbitration outcome,
-  an interpretation call), decide it and post the decision with its reasoning
-  as a comment on the batch issue before acting on it.
-  A run-long Sonnet fallback (kickoff's "Limit deaths" subsection) is such a
-  decision: log the switch once on the batch issue when it first fires, and
-  never as a park. Later Sonnet dispatches in the same run add no new
-  entries. Separately, each limit event (one usage or session limit, which
-  can stall several agents at once, whether or not it triggers the switch)
-  gets one batch-issue entry listing every agent it stalled and each one's
-  outcome (resumed or respawned).
-- **Narrower parking gate.** Park (swap `in-progress` for `needs-human`) only
-  for: a change to scope or acceptance criteria, a new dependency or cost,
-  anything irreversible or outward-facing, or a conflict with
-  `docs/architecture/`. A park from kickoff's "Repair" subsection (a second
-  repair, a repair that needs a runner stage, an interrupted repair, or auto
-  merge that cannot be switched off) also parks inside a batch: it is the
-  pipeline's own limit, like the fix-round cap. Parked packages are logged on
-  the batch issue and held for the report. Do not interrupt the user unless ALL
-  packages are parked; then report immediately, since nothing is progressing.
-- **Live checklist.** Mirror each package outcome (merged, queued, waiting
-  for a human merge, parked) to the batch issue checklist as it happens, so a
-  dropped session can resume from the issue. Mirror the repair start and
-  outcome lines (`Repair (clean update)`, `Repair (conflict)`, `Repair
-  parked`) the same way.
+  scope and acceptance criteria (a `NEEDS_CONTEXT`, a dispute between the
+  developer and the reviewer, an interpretation call), decide it and post the
+  decision with its reasoning as a comment on the batch issue before acting.
+- **Narrower parking gate.** Park a package (`needs-human`) only for: a change
+  to scope or acceptance criteria, a new dependency or cost, anything
+  irreversible or outward-facing, a conflict with `docs/architecture/`, or the
+  flow's own limits (the fix-round cap, a second merge conflict). Do not
+  interrupt the user unless every package is parked; then report at once.
+- **Live checklist.** Mirror each package outcome (merged, queued, waiting for
+  a human merge, parked) to the batch checklist as it happens, so a dropped
+  session can resume from the issue.
 
 ## 5. Report
 
-When every package is ready or parked and the repair pass has settled
-(kickoff section 4), run the token report and post it as
-its own comment on the batch issue, before the report comment below (which
-links to it):
-
-```
-node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-report.mjs" \
-  --session "${CLAUDE_CODE_SESSION_ID}" \
-  --since "$(gh issue view <batch#> --json createdAt --jq .createdAt)"
-```
-
-A failed run (missing transcript, script error) is noted in the report
-below and never blocks it. If the batch ran across more than one session
-(a resume, section 6), the report covers only this session's transcript;
-say so in the comment.
-
-Then post the report to the batch issue:
-PRs merged, queued, and waiting for a human merge (with the reason, as in
-kickoff section 4), which PRs were repaired, every decision made during the
-run, parked packages with their open questions, anything deferred, the
-track counts (as in kickoff section 4), and any lessons (collected as in
-kickoff section 4; promotion stays human). End both
-the batch-issue report and the chat digest with:
+When every package is shipped or parked, post one report comment on the batch
+issue: PRs merged, queued, and waiting for a human merge (with the reason),
+every decision made during the run, parked packages with their open questions,
+and anything deferred. End both that comment and the chat digest with:
 
 ```
 ## What happened
 - PR #NN merged  - <package title>
-- PR #NN merged (repaired: clean update)  - <package title>
 - PR #NN queued (waiting on checks)  - <package title>
 - PR #NN waiting for a human merge (<reason>)  - <package title>
 - #NN parked (needs-human): <the open question>
-- #NN parked (needs-human): <the repair's Parking reason>
-- Tracks: <n> lean, <n> full, <n> moved to full (#NN: <the lean check's reason>)
-- Lesson (#NN, tester|reviewer): <the lesson> (only if a seat reported one)
-- Token report: <link to the batch-issue comment>
 
 ## Next steps
-1. /tm-kickoff #NN to re-review on Opus before merge (only for packages with an owed Opus review)
-2. Review & merge: #NN, #NN (only the PRs waiting for a human merge;
-   merging closes each package issue via its Closes #N)
-3. Decide on #NN (retry or close)
-4. Close this batch issue by hand once everything is merged (it is the
-   run record), or run /tm-advisor to confirm the merges, close it, and
-   propose the next batch
+1. Review and merge: #NN (only PRs waiting for a human merge; merging closes
+   each package issue via its Closes #N)
+2. Decide on #NN (retry or close)
+3. Close this batch issue by hand once everything is merged, or run
+   /tm-advisor to confirm the merges, close it, and propose the next batch
 ```
 
 After posting, the advisor is done for this session.
 
 ## 6. Resume
 
-With no arguments, `/tm-advisor` enters the resume path:
+With no arguments:
 
-1. Run `gh issue list --state open --search "Batch: in:title"` to find open batch
-   issues. If there are multiple, use the most recently created one. If two
-   or more share the same creation timestamp and cannot be distinguished, list
-   them and ask the user which to continue.
-2. Read the batch issue. The contract, decision log, and checklist give the
+1. `gh issue list --state open --search "Batch: in:title"`. With several, take
+   the most recently created; if two share a timestamp, list them and ask which.
+2. Read the batch issue. The contract, decision log and checklist give the
    state of each package.
-3. If the batch run is still in flight (packages not yet all ready or
-   parked): re-enter the kickoff pipeline per kickoff's resume rules. Do not
-   re-ask for sign-off on an already approved batch.
-4. If all packages are ready or parked: first make sure the report has been
-   posted to the batch issue (if the run ended before the report step above
-   ran, post it now), then check for unresolved parked packages. If any
-   package still carries `needs-human`, list them and stop:
+3. Packages not yet shipped or parked: re-enter kickoff's resume rules. Do not
+   ask for sign-off again.
+4. All shipped or parked: make sure the report was posted (post it now if not).
+   If a package still carries `needs-human`, list those and stop. Otherwise
+   confirm merges: for each PR in the checklist,
+   `gh pr view <n> --json state,autoMergeRequest`. A `MERGED` state is done;
+   `autoMergeRequest` set means queued, no action; anything else waits for a
+   human merge. List what is outstanding and stop. When every PR is merged,
+   close the batch issue, strip the `Part of batch #<batch>` line from any
+   dismissed package, and propose the next batch.
 
-   ```
-   ## What happened
-   - PR #NN queued (waiting on checks)  - <package title>
-   - PR #NN waiting for a human merge (<reason>)  - <package title>
-   - #NN parked (needs-human): <the open question>
-
-   ## Next steps
-   1. Resolve or close: #NN, #NN
-   2. Close this batch issue by hand once the PRs are merged, or run
-      /tm-advisor to confirm the merges, close it, and propose the next
-      batch
-   ```
-
-   Do not close the batch issue until every package either has a merged PR or
-   no longer blocks closure. A parked package stops blocking closure once it
-   no longer carries `needs-human` (the user removed the label or closed the
-   issue). Once every package has a merged PR or has cleared that label,
-   confirm merges: for each PR number recorded in the batch checklist, run
-   `gh pr view <n> --json state,autoMergeRequest` and verify the state is
-   `MERGED`. If any PR is not yet merged, report which ones are outstanding
-   and stop. A PR with `autoMergeRequest` set is queued: no action, it is
-   waiting on checks. Any other unmerged PR is waiting for a human merge:
-
-   ```
-   ## What happened
-   - PR #NN queued (waiting on checks)  - <package title>
-   - PR #NN waiting for a human merge (<reason>)  - <package title>
-
-   ## Next steps
-   1. Merge the PRs waiting for a human merge: #NN, #NN (merging closes
-      the package issues via Closes #N). Queued PRs need no action.
-   2. Close this batch issue by hand, or run /tm-advisor to confirm the
-      merges, close it, and propose the next batch
-   ```
-
-   When all PRs are confirmed merged, close the batch issue and propose the
-   next batch (see below).
-
-   At closure, strip the `Part of batch #<batch>` line from any parked issues
-   that were not resolved (the ones the user dismissed rather than merged).
-   This re-opens them to the backlog scan so they surface as candidates in the
-   next batch.
-
-**Proposing the next batch.** Query the backlog with:
-
-```
-gh issue list --state open --search "NOT Batch: in:title"
-```
-
-Then check every issue whose body contains a `Part of batch #N` line: if
-batch issue #N is open, filter the issue out (it belongs to an active
-batch and must not be re-proposed); if #N is closed, keep it as backlog.
-Closing a batch by hand therefore releases its remaining issues to this
-scan. Order the remainder first by dependency (issues with unresolved
-`Blocked by:` lines come after the issues they depend on) and then by
-creation date (oldest first).
-Present the highest-priority candidates as the next batch proposal, following
-the same rules as section 2. Dispatch always requires a new sign-off; merging
-is never implicit approval. End the proposal with:
+**Next batch.** `gh issue list --state open --search "NOT Batch: in:title"`.
+Drop any issue whose `Part of batch #N` line points at a batch issue that is
+still open. Order the rest by dependency (`Blocked by:` after its blocker),
+then oldest first. Present the best candidates as a proposal under section 2's
+rules, ending with:
 
 ```
 ## What happened
@@ -326,3 +190,5 @@ is never implicit approval. End the proposal with:
 ## Next steps
 1. Answer the sign-off above: dispatch, file only, revise, or grill me
 ```
+
+Dispatch always needs a new sign-off; a merge is never implicit approval.

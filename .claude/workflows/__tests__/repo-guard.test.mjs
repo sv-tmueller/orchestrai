@@ -51,7 +51,6 @@ import {
   renderConfigDirs,
   main,
 } from '../../skills/tm-repo-guard/repo-guard.mjs'
-import { decide } from '../../skills/tm-kickoff/ship-decision.mjs'
 
 // ---------------------------------------------------------------------------
 // Read-only guard
@@ -5129,22 +5128,8 @@ describe('runStatuses', () => {
         .slice(2, 3)
         .map((line) => splitCommand(line).find((w) => w.startsWith('description=')).slice('description='.length))
       for (const d of printed) assert.ok(d.startsWith('by hand: '), d)
-      const pipeline = new Set()
-      for (const track of ['full', 'lean']) {
-        for (const fallbackReview of [false, true]) {
-          const res = decide({
-            track,
-            verdictCommit: HEAD,
-            head: HEAD,
-            fallbackReview,
-            autoMerge: true,
-            branchProtected: true,
-            branchRules: 0,
-          })
-          for (const s of res.statuses) pipeline.add(s.description)
-        }
-      }
-      assert.ok(pipeline.size >= 4)
+      // The descriptions the lead writes in the light flow (tm-kickoff, "Ship").
+      const pipeline = new Set(['approved by reviewer', 'not required (size S)'])
       for (const d of printed) assert.ok(!pipeline.has(d), d)
     })
 

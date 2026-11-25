@@ -76,35 +76,43 @@ A reviewer runs when any of these holds:
 - the developer reported `DONE_WITH_CONCERNS`.
 
 Otherwise the lead checks that every command on the developer's `CHECKS` line
-exited 0 and moves on. The reviewer always runs the check suite once itself.
+exited 0, notes in a PR comment that review was not required, and moves on.
+The reviewer always runs the check suite once itself.
 
 ## Merge gate
 
-`main` requires the CI checks plus `orchestrai/review`. It never requires
+`main` requires the CI checks plus `orchestrai/review`, and its protection is
+strict: a PR must be up to date with `main`. It never requires
 `orchestrai/test`: there is no tester to earn it.
 
-- After `APPROVE`, the lead posts `orchestrai/review` = `success` on the PR
-  head with one `gh api` call.
-- When the gate skipped the reviewer, the lead posts the same status after its
-  own `CHECKS` check, with the description `not required (size S)`.
+- The reviewer's `CHECKS` line starts with the head SHA it tested. After
+  `APPROVE`, the lead posts `orchestrai/review` = `success` on that SHA with
+  one `gh api` call, only when the SHA equals the PR head. If the head moved,
+  the reviewer runs again on the new head.
+- When the gate skipped the reviewer, the lead posts the same status on the PR
+  head after its own `CHECKS` check, with the description
+  `not required (size S)`.
 - The lead does not wait for CI before posting. Auto merge waits for every
   required context, CI included.
+- A queued PR can fall behind `main`. The lead runs
+  `gh api -X PUT repos/{owner}/{repo}/pulls/<n>/update-branch`, re-posts
+  `orchestrai/review` on the new head (the approval carries over a clean merge
+  from `main`) and queues auto merge again. If the update conflicts, a
+  developer dispatch resolves it, then the review gate runs again.
 
 ## Resume
 
-From GitHub state only:
+From GitHub state only, with no other rules:
 
 - `in-progress` and no PR: restart the developer.
 - A PR and no review comment: run the review gate. On an S issue this still
   means the gate, not a new developer dispatch.
 - A review comment: continue from its verdict.
 
-No other resume rules.
-
 ## Not in this flow
 
 No architect stage, no tester stage, no plan-status blocks, no `phase:*`,
 `track:*`, `runner*`, `run:*` or `claimed:*` labels, no ship-decision script,
-no repair pass for PRs behind main, no remote stage dispatch, no wave-end
-token report. The architect stays available on demand, to split an `L` issue
-or settle a developer and reviewer dispute.
+no repair pass beyond the update-branch rule, no remote stage dispatch, no
+wave-end token report. The architect stays available on demand, to split an
+`L` issue or settle a developer and reviewer dispute.

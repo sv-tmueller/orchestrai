@@ -1716,7 +1716,7 @@ describe('merge-rule: the pipeline commands that must keep working', () => {
     'git ls-remote --exit-code origin feat/1-x && git fetch origin feat/1-x && git checkout --detach FETCH_HEAD',
     'gh pr ready 12',
     'gh pr ready --undo 12',
-    `node "\${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/ship-decision.mjs" --track full --head ${SHA}`,
+    `gh api -X POST 'repos/{owner}/{repo}/statuses/${SHA}' -f state=success -f context=orchestrai/review -f description='approved by reviewer'`,
     'git push --force-with-lease origin HEAD:refs/heads/feat/539-guard-core',
     'gh pr create --draft --title "feat: x" --body "Closes #539"',
     'git fetch origin && git checkout --detach origin/main',
