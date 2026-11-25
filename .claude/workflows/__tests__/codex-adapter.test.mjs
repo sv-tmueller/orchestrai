@@ -53,10 +53,10 @@ describe('codex adapter table structure', () => {
     assert.equal(codexTable.tiers.worker.model, 'gpt-5.6')
   })
 
-  test('has all 7 roles mapped', () => {
+  test('has all 6 roles mapped', () => {
     const expectedRoles = [
       'architect', 'developer', 'docs-writer', 'fact-checker',
-      'perf-investigator', 'reviewer', 'tester',
+      'perf-investigator', 'reviewer',
     ]
     for (const role of expectedRoles) {
       assert.ok(codexTable.roles[role], `missing role "${role}"`)
@@ -186,7 +186,7 @@ describe('codex workflow renderer', () => {
 describe('codex TOML personas', () => {
   const expectedRoles = [
     'architect', 'developer', 'docs-writer', 'fact-checker',
-    'perf-investigator', 'reviewer', 'tester',
+    'perf-investigator', 'reviewer',
   ]
 
   test('personas directory exists', () => {

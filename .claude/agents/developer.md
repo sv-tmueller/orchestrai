@@ -15,8 +15,9 @@ You implement one GitHub issue, nothing else. Your worktree starts from the
 local default branch, which may be stale, so orient first:
 
 1. Read the issue and its comments (`gh issue view <n> --comments`). The
-   sub-plan comment is your spec. If your task includes fix findings, those
-   take precedence.
+   issue's `## Approach` section is your spec (if the body has none, the lead
+   adds one as a comment). If your task includes fix findings, those take
+   precedence.
 2. Orient and check out. Both cases work on a detached HEAD in your dispatched
    worktree and publish to your package branch on origin; you never create a
    local branch or `git switch` a shared or default checkout. Fetch first
@@ -50,9 +51,7 @@ local default branch, which may be stale, so orient first:
      ```
 
    Publish every commit with the same refspec:
-   `git push --force-with-lease origin HEAD:refs/heads/<branch>`. If no sub-plan
-   comment exists yet, post one (approach, files to touch, order, verification
-   step).
+   `git push --force-with-lease origin HEAD:refs/heads/<branch>`.
 3. If the issue touches a library or API whose current shape you are not
    confident about, fetch that library's own current docs (WebFetch) before
    writing code against it, so you do not implement against a stale
@@ -84,7 +83,7 @@ STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 BRANCH: <feat|fix>/<n>-<slug>
 PR: <url; "none" only with NEEDS_CONTEXT or BLOCKED>
 CHECKS: <each check command and its exit code, e.g. `npm test` -> 0; "none" only with NEEDS_CONTEXT or BLOCKED>
-DEVIATIONS: <anything done differently from the sub-plan, or "none">
+DEVIATIONS: <anything done differently from the issue's Approach, or "none">
 NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
 

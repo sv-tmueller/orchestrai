@@ -30,7 +30,7 @@ const hermesTable = JSON.parse(readFileSync(join(adaptersDir, 'hermes.json'), 'u
 const claudeTable = JSON.parse(readFileSync(join(adaptersDir, 'claude-code.json'), 'utf8'))
 
 const ALL_ROLES = [
-  'architect', 'developer', 'tester', 'reviewer',
+  'architect', 'developer', 'reviewer',
   'fact-checker', 'docs-writer', 'perf-investigator',
 ]
 
@@ -47,12 +47,6 @@ const FIXTURES = {
     'CHECKS: `npm test` -> 0',
     'DEVIATIONS: none',
     'NOTES: none',
-  ].join('\n'),
-  tester: [
-    'VERDICT: PASS',
-    'COMMIT: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
-    'FINDINGS: none',
-    'UNTESTED CLAIMS: none',
   ].join('\n'),
   reviewer: [
     'VERDICT: CHANGES_REQUESTED',
@@ -221,7 +215,7 @@ describe('buildArgv', () => {
     // the seat's working directory as execFile's cwd option (runHermes).
     // buildArgv must not emit it, and must still REQUIRE opts.cwd so the
     // driver cannot forget isolation.
-    const argv = buildArgv('tester', 'p', { cwd: '/repo/.worktrees/pkg-42' })
+    const argv = buildArgv('reviewer', 'p', { cwd: '/repo/.worktrees/pkg-42' })
     assert.ok(
       !argv.includes('--in'),
       'no --in flag exists on Hermes v0.20.0; cwd travels via execFile'
@@ -283,9 +277,9 @@ describe('parseReport', () => {
     assert.equal(r.CHECKS, '`npm test` -> 0')
   })
 
-  test('reads the tester verdict including the spaced UNTESTED CLAIMS key', () => {
-    const r = parseReport('tester', FIXTURES.tester)
-    assert.equal(r.VERDICT, 'PASS')
+  test('reads a report key that contains a space', () => {
+    const r = parseReport('reviewer', 'VERDICT: APPROVE\nUNTESTED CLAIMS: none')
+    assert.equal(r.VERDICT, 'APPROVE')
     assert.equal(r['UNTESTED CLAIMS'], 'none')
   })
 
@@ -319,8 +313,8 @@ describe('parseReport', () => {
   })
 
   test('keeps the raw text alongside the parsed fields', () => {
-    const r = parseReport('tester', FIXTURES.tester)
-    assert.equal(r.raw, FIXTURES.tester)
+    const r = parseReport('reviewer', FIXTURES.reviewer)
+    assert.equal(r.raw, FIXTURES.reviewer)
   })
 
   test('ignores prose before the report block', () => {
@@ -342,31 +336,31 @@ describe('detectFailure', () => {
 
   test('a clean run with a parseable report is not a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: FIXTURES.tester, stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: FIXTURES.reviewer, stderr: '' }, 'reviewer'),
       false
     )
   })
 
   test('a nonzero exit code is a failure', () => {
-    assert.equal(detectFailure({ code: 1, stdout: FIXTURES.tester, stderr: '' }, 'tester'), true)
+    assert.equal(detectFailure({ code: 1, stdout: FIXTURES.reviewer, stderr: '' }, 'reviewer'), true)
   })
 
   test('empty stdout is a failure', () => {
-    assert.equal(detectFailure({ code: 0, stdout: '   ', stderr: '' }, 'tester'), true)
+    assert.equal(detectFailure({ code: 0, stdout: '   ', stderr: '' }, 'reviewer'), true)
   })
 
   test('an HTTP error from the provider is a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: 'HTTP 403: Virtual key has expired', stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: 'HTTP 403: Virtual key has expired', stderr: '' }, 'reviewer'),
       true
     )
   })
 
   test('a report missing its required field is a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: 'I had a look and it seems fine.', stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: 'I had a look and it seems fine.', stderr: '' }, 'reviewer'),
       true,
-      'a tester report with no VERDICT must not pass downstream as a PASS'
+      'a reviewer report with no VERDICT must not pass downstream as an APPROVE'
     )
   })
 

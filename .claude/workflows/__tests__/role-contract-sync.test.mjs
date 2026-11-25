@@ -90,17 +90,13 @@ const SENTINEL_RULES = {
   ],
   'architect': [
     'four principles',
-    'plan holds, no additions',
   ],
   'developer': [
     'dependency manifest or lockfile',
   ],
-  'tester': [
-    'environment error is never a finding',
-  ],
   'reviewer': [
     'a non-zero exit is a must-fix',
-    'use a given dependency environment',
+    'runs the check suite itself',
   ],
 }
 
@@ -110,7 +106,11 @@ describe('role contract sync', () => {
   })
 
   test('agent files exist for every role', () => {
-    assert.ok(ROLES.length >= 7, `expected at least 7 role agents, found ${ROLES.length}`)
+    assert.deepEqual(
+      [...ROLES].sort(),
+      ['architect', 'developer', 'docs-writer', 'fact-checker', 'perf-investigator', 'reviewer'],
+      'the role list is the six roles of the light flow; the tester is gone'
+    )
   })
 
   for (const role of ROLES) {
@@ -131,10 +131,9 @@ describe('role contract sync', () => {
   }
 
   // LESSONS channel sentinel (issue #393): the report contract gained an
-  // optional LESSONS line, byte-identical across all six copies (agent
-  // file, role-contracts.md, and the Hermes prompt, for tester and
-  // reviewer).
-  const lessonRoles = ['tester', 'reviewer']
+  // optional LESSONS line, byte-identical across all three copies (agent
+  // file, role-contracts.md, and the Hermes prompt, for the reviewer).
+  const lessonRoles = ['reviewer']
 
   function lessonLines(text) {
     return text.split('\n').filter((l) => l.startsWith('LESSONS:'))
@@ -151,12 +150,12 @@ describe('role contract sync', () => {
     })
   }
 
-  test('role-contracts.md has exactly two LESSONS lines', () => {
+  test('role-contracts.md has exactly one LESSONS line', () => {
     const rcSrc = readFileSync(rcPath, 'utf8')
-    assert.equal(lessonLines(rcSrc).length, 2)
+    assert.equal(lessonLines(rcSrc).length, 1)
   })
 
-  test('all six LESSONS lines are byte-identical and start with "LESSONS: <optional"', () => {
+  test('all three LESSONS lines are byte-identical and start with "LESSONS: <optional"', () => {
     const rcSrc = readFileSync(rcPath, 'utf8')
     const allLines = [
       ...lessonRoles.map((role) => lessonLines(extractReportFromAgent(role))[0]),
@@ -166,9 +165,9 @@ describe('role contract sync', () => {
       ...lessonLines(rcSrc),
     ]
 
-    assert.equal(allLines.length, 6, `expected 6 LESSONS lines, found ${allLines.length}`)
+    assert.equal(allLines.length, 3, `expected 3 LESSONS lines, found ${allLines.length}`)
     for (const line of allLines) {
-      assert.equal(line, allLines[0], 'LESSONS line differs across the six copies')
+      assert.equal(line, allLines[0], 'LESSONS line differs across the three copies')
     }
     assert.ok(
       allLines[0].startsWith('LESSONS: <optional'),
@@ -176,9 +175,10 @@ describe('role contract sync', () => {
     )
   })
 
-  // Issue #483: the rule for where should-fix findings and nits go is one
-  // paragraph, byte-identical in role-contracts.md, the reviewer agent
-  // file, and the reviewer prompt the adapters load.
+  // The rule for where should-fix findings and nits go is one paragraph,
+  // byte-identical in role-contracts.md, the reviewer agent file, and the
+  // reviewer prompt the adapters load. In the light flow they stay in the
+  // review comment, and the reviewer never files follow-up issues.
   test('reviewer: the findings-routing paragraph is identical in all three copies', () => {
     const paragraphOf = (path) => {
       const src = readFileSync(path, 'utf8')
@@ -193,15 +193,15 @@ describe('role contract sync', () => {
 
     assert.equal(agent, doc, 'reviewer.md paragraph differs from role-contracts.md')
     assert.equal(prompt, doc, 'adapters/prompts/reviewer.md paragraph differs from role-contracts.md')
-    assert.ok(doc.includes('set up for auto merge'), 'paragraph lacks "set up for auto merge"')
-    assert.ok(doc.includes('for the human review'), 'paragraph lacks "for the human review"')
+    assert.ok(doc.includes('never file follow-up issues'), 'paragraph lacks "never file follow-up issues"')
+    assert.ok(!doc.includes('auto merge'), 'the follow-up-issue routing for auto merge repos is gone')
   })
 
-  // Issue #522: the reviewer rates each forwarded untested claim under a
-  // CLAIMS line. The line and the rating paragraph are identical in the
-  // reviewer section of role-contracts.md (the fact-checker section has its
-  // own CLAIMS line), the reviewer agent file, and the reviewer prompt.
-  test('reviewer: the CLAIMS line and the claim-rating paragraph are identical in all three copies', () => {
+  // The reviewer has no tester stage in front of it, so it runs the check
+  // suite itself on every dispatch and reports it in a CHECKS line with the
+  // developer's shape. The claims input and the CLAIMS line went with the
+  // tester.
+  test('reviewer: the CHECKS line is identical in all three copies and has the developer shape', () => {
     const rcSrc = readFileSync(rcPath, 'utf8')
     const roleIdx = rcSrc.indexOf('## reviewer\n')
     assert.ok(roleIdx >= 0, 'role-contracts.md: "## reviewer" section not found')
@@ -211,29 +211,78 @@ describe('role contract sync', () => {
       'reviewer.md': readFileSync(join(agentsDir, 'reviewer.md'), 'utf8'),
       'adapters/prompts/reviewer.md': readFileSync(join(promptsDir, 'reviewer.md'), 'utf8'),
     }
-    const claimsLine = (src) =>
-      src.split('\n').filter((l) => l.startsWith('CLAIMS: <one line per forwarded untested claim'))
-    const paragraphOf = (name, src) => {
-      const start = src.indexOf('Rate each untested claim the dispatch forwards')
-      assert.ok(start >= 0, `${name}: paragraph "Rate each untested claim the dispatch forwards" not found`)
-      const end = src.indexOf('\n\n', start)
-      return src.slice(start, end >= 0 ? end : src.length)
-    }
-
-    const lines = {}
-    const paragraphs = {}
+    const checksLines = {}
     for (const [name, src] of Object.entries(copies)) {
-      lines[name] = claimsLine(src)
-      assert.equal(lines[name].length, 1, `${name}: expected exactly one CLAIMS line, found ${lines[name].length}`)
-      paragraphs[name] = paragraphOf(name, src)
+      checksLines[name] = src.split('\n').filter((l) => l.startsWith('CHECKS:'))
+      assert.equal(checksLines[name].length, 1, `${name}: expected exactly one CHECKS line, found ${checksLines[name].length}`)
+      assert.ok(!/^CLAIMS:/m.test(src), `${name}: the CLAIMS line is gone with the tester`)
     }
     for (const name of ['reviewer.md', 'adapters/prompts/reviewer.md']) {
-      assert.equal(lines[name][0], lines['role-contracts.md'][0], `${name}: CLAIMS line differs from role-contracts.md`)
-      assert.equal(paragraphs[name], paragraphs['role-contracts.md'], `${name}: claim-rating paragraph differs from role-contracts.md`)
+      assert.equal(checksLines[name][0], checksLines['role-contracts.md'][0], `${name}: CHECKS line differs from role-contracts.md`)
     }
-    const doc = paragraphs['role-contracts.md']
-    assert.ok(doc.includes('never a nit'), 'paragraph lacks "never a nit"')
-    assert.ok(doc.includes('listed in the ship summary and not filed'), 'paragraph lacks "listed in the ship summary and not filed"')
+    const line = checksLines['role-contracts.md'][0]
+    assert.ok(
+      line.includes('each check command and its exit code, e.g. `npm test` -> 0'),
+      `CHECKS line lacks the developer shape: ${line}`
+    )
+    assert.ok(!/n\/a/.test(line), 'the reviewer always runs the checks, so CHECKS is never n/a')
+  })
+
+  // The reviewer carries no tester, lean-track or follow-up-issue wording in
+  // any of its three copies.
+  test('reviewer: no copy mentions the tester, the lean track or a tester claims input', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const roleIdx = rcSrc.indexOf('## reviewer\n')
+    const nextIdx = rcSrc.indexOf('\n## ', roleIdx + '## reviewer\n'.length)
+    const copies = {
+      'role-contracts.md': rcSrc.slice(roleIdx, nextIdx >= 0 ? nextIdx : rcSrc.length),
+      'reviewer.md': readFileSync(join(agentsDir, 'reviewer.md'), 'utf8'),
+      'adapters/prompts/reviewer.md': readFileSync(join(promptsDir, 'reviewer.md'), 'utf8'),
+    }
+    for (const [name, src] of Object.entries(copies)) {
+      for (const word of [/\btester\b/i, /lean track/i, /untested claim/i, /sub-plan/i]) {
+        assert.ok(!word.test(src), `${name} still matches ${word}`)
+      }
+    }
+  })
+
+  // The developer's spec is the issue's Approach section; no sub-plan
+  // comment is read or posted any more.
+  test('developer: no copy mentions a sub-plan comment, and DEVIATIONS reads from the Approach', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const roleIdx = rcSrc.indexOf('## developer\n')
+    const nextIdx = rcSrc.indexOf('\n## ', roleIdx + '## developer\n'.length)
+    const copies = {
+      'role-contracts.md': rcSrc.slice(roleIdx, nextIdx >= 0 ? nextIdx : rcSrc.length),
+      'developer.md': readFileSync(join(agentsDir, 'developer.md'), 'utf8'),
+      'adapters/prompts/developer.md': readFileSync(join(promptsDir, 'developer.md'), 'utf8'),
+    }
+    for (const [name, src] of Object.entries(copies)) {
+      assert.ok(!/sub-plan/i.test(src), `${name} still names a sub-plan`)
+      assert.ok(src.includes('## Approach'), `${name} does not name the issue's Approach section`)
+      assert.ok(
+        src.includes("DEVIATIONS: <anything done differently from the issue's Approach, or \"none\">"),
+        `${name}: DEVIATIONS line does not read from the issue's Approach`
+      )
+    }
+  })
+
+  // The architect is on demand only: split proposals and disputes. There is
+  // no per-issue SUB_PLAN job.
+  test('architect: no copy carries the SUB_PLAN job', () => {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const roleIdx = rcSrc.indexOf('## architect\n')
+    const nextIdx = rcSrc.indexOf('\n## ', roleIdx + '## architect\n'.length)
+    const copies = {
+      'role-contracts.md': rcSrc.slice(roleIdx, nextIdx >= 0 ? nextIdx : rcSrc.length),
+      'architect.md': readFileSync(join(agentsDir, 'architect.md'), 'utf8'),
+      'adapters/prompts/architect.md': readFileSync(join(promptsDir, 'architect.md'), 'utf8'),
+    }
+    for (const [name, src] of Object.entries(copies)) {
+      assert.ok(!/SUB_PLAN/.test(src), `${name} still carries SUB_PLAN`)
+      assert.ok(!/plan holds, no additions/.test(src), `${name} still carries the one-line plan form`)
+      assert.ok(/SPLIT_PROPOSAL/.test(src) && /ARBITRATION/.test(src), `${name} lost a remaining job`)
+    }
   })
 
   // Normative rule presence checks for roles with sentinel rules.
@@ -245,32 +294,6 @@ describe('role contract sync', () => {
           rcText.includes(phrase.toLowerCase()),
           `role-contracts.md is missing the normative rule "${phrase}" ` +
             `that ${role}.md prescribes; restore it in host-neutral wording`
-        )
-      })
-    }
-  }
-
-  // Sentinel phrases required in BOTH the agent file and role-contracts.md
-  // (stricter than SENTINEL_RULES, which only checks role-contracts.md).
-  // Added for issue #381 fix round 1: the one-line `plan holds, no
-  // additions` form must state the size check's result (e.g. "fits
-  // size:S"), not just name the label, in both files.
-  const BOTH_SENTINEL_RULES = {
-    architect: ['fits size:'],
-  }
-
-  for (const [role, phrases] of Object.entries(BOTH_SENTINEL_RULES)) {
-    for (const phrase of phrases) {
-      test(`${role}: agent file and role-contracts.md both contain "${phrase}"`, () => {
-        const agentText = readFileSync(join(agentsDir, `${role}.md`), 'utf8').toLowerCase()
-        const rcText = readFileSync(rcPath, 'utf8').toLowerCase()
-        assert.ok(
-          agentText.includes(phrase.toLowerCase()),
-          `${role}.md is missing the one-line form's size-check wording "${phrase}"`
-        )
-        assert.ok(
-          rcText.includes(phrase.toLowerCase()),
-          `role-contracts.md is missing the one-line form's size-check wording "${phrase}"`
         )
       })
     }

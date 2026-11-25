@@ -716,7 +716,6 @@ function dryRunSpawn(role, task, opts) {
   const VERDICTS = {
     architect: { KIND: 'SUB_PLAN', output: 'SUB_PLAN: approach, files, order, verification.' },
     developer: { STATUS: 'DONE', BRANCH: 'dry-run-branch', PR: 'https://github.com/example/dry-run' },
-    tester: { VERDICT: 'PASS', COMMIT: 'abc123', FINDINGS: 'none', UNTESTED_CLAIMS: 'none' },
     reviewer: { VERDICT: 'APPROVE', STAGE: 'both clean', FINDINGS: 'none' },
     'fact-checker': { VERDICT: 'GROUNDED', COMMIT: 'abc123', CLAIMS: [], SUMMARY: '0 verified, 0 contradicted' },
     'docs-writer': { FILES: [], GAPS_NOT_FILLED: 'none', ASSUMPTIONS: 'none' },

@@ -30,8 +30,7 @@
     "docs-writer": "worker",
     "fact-checker": "worker",
     "perf-investigator": "worker",
-    "reviewer": "judgment",
-    "tester": "worker"
+    "reviewer": "judgment"
   },
   "effort_ceiling": "max",
   "forbidden_efforts": []

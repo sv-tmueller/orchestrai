@@ -2,7 +2,7 @@
  * Hermes agent prompts test (issue #333).
  *
  * Verifies that:
- * 1. All 7 role prompt files exist at .claude/adapters/prompts/.
+ * 1. All 6 role prompt files exist at .claude/adapters/prompts/.
  * 2. The Hermes adapter's loadPrompt function loads them correctly.
  * 3. Each prompt file contains the key sections from the role contract
  *    (job description and report contract).
@@ -23,7 +23,7 @@ const skillsDir = join(__dir, '..', '..', 'skills')
 
 const EXPECTED_ROLES = [
   'architect', 'developer', 'docs-writer', 'fact-checker',
-  'perf-investigator', 'reviewer', 'tester',
+  'perf-investigator', 'reviewer',
 ]
 
 // Claude Code tool names that should NOT appear in the Hermes prompts.
@@ -35,7 +35,7 @@ const CLAUDE_CODE_TOOLS = [
 ]
 
 // ===========================================================================
-// 1. All 7 prompt files exist
+// 1. All 6 prompt files exist
 // ===========================================================================
 describe('hermes agent prompt files', () => {
   test('prompts directory exists', () => {

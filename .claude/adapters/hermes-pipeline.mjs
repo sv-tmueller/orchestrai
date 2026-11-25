@@ -263,6 +263,9 @@ export async function runPipeline(issueNumber, opts = {}) {
     const prompt = exact ? task : `${task}${settled()}${pickUp ? PICKUP : ''}`
     pickUp = false
     state.dispatches.push({ role, tier, cwd: plan.path })
+    // The tester role is gone from the adapter, so the real dry-run spawn has no
+    // prompt to load for it. Stand in here until the driver rewrite drops the stage.
+    if (role === 'tester' && dryRun && !opts.spawn) return { _dryRun: true, VERDICT: 'PASS' }
     return spawnSeat(role, prompt, { tier, cwd: plan.path })
   }
 

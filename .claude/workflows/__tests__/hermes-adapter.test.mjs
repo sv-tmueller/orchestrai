@@ -60,10 +60,10 @@ describe('hermes adapter table structure', () => {
     )
   })
 
-  test('has all 7 roles mapped', () => {
+  test('has all 6 roles mapped', () => {
     const expectedRoles = [
       'architect', 'developer', 'docs-writer', 'fact-checker',
-      'perf-investigator', 'reviewer', 'tester',
+      'perf-investigator', 'reviewer',
     ]
     for (const role of expectedRoles) {
       assert.ok(hermesTable.roles[role], `missing role "${role}"`)

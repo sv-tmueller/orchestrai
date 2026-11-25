@@ -4,7 +4,7 @@
  * AGENTS.md is the one orientation file for every harness. CLAUDE.md is a thin
  * import of it plus the Claude-only lines. Five checks keep that split honest:
  * the imports are there and in order, no section is written twice, AGENTS.md
- * still has the "Useful commands" section the tester and the adapter prompts
+ * still has the "Useful commands" section the developer, the reviewer and the adapter prompts
  * cite, AGENTS.md stays free of Claude's import syntax, and CLAUDE.md points a
  * reader at AGENTS.md from the paragraph that names "Useful commands".
  */

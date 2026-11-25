@@ -377,8 +377,8 @@ describe('agent frontmatter tier pins', () => {
 
   test('the role agents are present', () => {
     assert.ok(
-      agentFiles.length >= 7,
-      `expected at least the 7 role agents in ${agentsDir}, found ${agentFiles.length}`
+      agentFiles.length >= 6,
+      `expected at least the 6 role agents in ${agentsDir}, found ${agentFiles.length}`
     )
   })
 
