@@ -863,7 +863,7 @@ async function gateIssue(issue, gh, view) {
   const prs = (await gh.prList()).filter((p) => (p.closingIssuesReferences || []).some((r) => r.number === n))
   const highest = (list) => list.reduce((best, p) => (!best || p.number > best.number ? p : best), null)
   const ready = highest(prs.filter((p) => !p.isDraft))
-  if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`)
+  if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`, { pr: ready.number })
 
   let result
   const draft = highest(prs.filter((p) => p.isDraft))
@@ -898,6 +898,56 @@ async function gateIssue(issue, gh, view) {
 }
 
 export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.detail}`
+
+/**
+ * formatReport(entries, results) -> lines
+ *
+ * The wave-end report: what happened to each gate entry, in gate order, and
+ * the next steps that follow. entries are the gate's, results are the wave's.
+ * A run or resume entry takes its line from its result. Every title, reason,
+ * error and gate detail is one line (oneLine), and every line starts with a
+ * fixed prefix, so no text can start a heading or a list item. The next steps
+ * hold issue and PR numbers only.
+ */
+export function formatReport(entries, results = []) {
+  const byIssue = new Map(results.map((r) => [r.issue, r]))
+  const happened = []
+  const merge = []
+  const decide = []
+  let deferred = false
+  const ready = (number, title) => {
+    happened.push(`- PR #${number} ready  - ${oneLine(title)}`)
+    merge.push(`#${number}`)
+  }
+  const parked = (issue, reason) => {
+    happened.push(`- #${issue} parked (needs-human): ${oneLine(reason)}`)
+    decide.push(`#${issue}`)
+  }
+  for (const e of entries) {
+    if (e.outcome === 'complete') ready(e.pr, e.title)
+    else if (e.outcome === 'park') parked(e.issue, e.detail)
+    else if (e.outcome === 'stop') happened.push(`- #${e.issue} stopped: ${oneLine(e.detail)}`)
+    else if (e.outcome === 'skip') happened.push(`- #${e.issue} skipped: ${oneLine(e.detail)}`)
+    else if (e.outcome === 'wait') {
+      happened.push(`- #${e.issue} deferred: ${oneLine(e.detail)}`)
+      deferred = true
+    } else {
+      const r = byIssue.get(e.issue)
+      if (!r) continue
+      if (r.error !== undefined) {
+        happened.push(`- #${e.issue} error: ${oneLine(r.error)}`)
+        decide.push(`#${e.issue}`)
+      } else if (r.done) ready(r.prNumber, e.title)
+      else parked(e.issue, r.parked)
+    }
+  }
+  const steps = []
+  if (merge.length > 0) steps.push(`Review & merge: ${merge.join(', ')}`)
+  if (decide.length > 0) steps.push(`Decide on ${decide.join(', ')} (retry or close)`)
+  if (deferred) steps.push('Run the driver again to start the next wave')
+  if (steps.length === 0) steps.push('Nothing to do')
+  return ['## What happened', ...happened, '', '## Next steps', ...steps.map((step, k) => `${k + 1}. ${step}`)]
+}
 
 // ---------------------------------------------------------------------------
 // The command line.
@@ -942,18 +992,20 @@ export async function main(argv, { env = process.env, run = defaultRun, spawn: s
     for (const w of waiting) out(`waiting: #${w.issue} (blocked by ${w.blockers.map((b) => `#${b}`).join(', ')})`)
 
     // The dry run stands in for a confirmation step: it shows the plan and stops.
-    if (dryRun || waves.length === 0) return 0
+    if (dryRun) return 0
 
     // Only wave 1 runs. The driver never merges, so a later wave's blocker
     // cannot be merged during this run; the next run picks the later waves up.
-    const packages = waves[0].map((n) => {
+    const packages = (waves[0] || []).map((n) => {
       const e = entries.find((x) => x.issue === n)
       return { issue: n, resume: e.resume, title: e.title, inProgress: e.inProgress }
     })
-    const results = await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd })
+    const results = packages.length > 0 ? await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd }) : []
     for (const r of results) {
       out(r.error !== undefined ? `#${r.issue} error: ${r.error}` : r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)
     }
+    // With no gate entry there is nothing to report on.
+    if (entries.length > 0) formatReport(entries, results).forEach((line) => out(line))
     return results.some((r) => r.error !== undefined) ? 1 : 0
   } catch (e) {
     err(firstLine(e?.message || e))
