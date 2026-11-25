@@ -212,7 +212,7 @@ function envStringWords(value) {
 //     - Anything `readCluster` does not read as an option letter does not
 //       count: the value of another letter (`-uS`, `-CS`, `-u -S`), an `S`
 //       after a stop character in a word that expands (`-$S`), a word after
-//       `--`, or after the command.
+//       `--`, after an assignment, or after the command.
 //     - If the option is the last word, it adds no words. env refuses that form
 //       and runs nothing.
 //
@@ -263,8 +263,21 @@ function envStringWords(value) {
 //     cluster reading applies everywhere, also to a wrapper named inside the
 //     string (`'sudo -Eu root'`).
 //
-// Two older readings stay. Options are read after an assignment, which errs
-// towards a deny (ruled on #587). A lone `-` is read as the command.
+// R8. Where env's options end. `env` stops reading options at `--`, or at the
+//     first word that is not an option (an assignment is such a word). From
+//     there on no word is read as an option: no `-i`, `-u`, `-C`, and no
+//     split-string option. Every following word that holds a `=` is an
+//     assignment, whatever stands before the `=` (`--foo=bar` and `a-b=1` are
+//     assignments there). The first following word that holds no `=` is the
+//     command, also when it starts with a dash: `env A=1 -i git push` runs a
+//     program named `-i`. The manual says so: options must precede operands,
+//     and the first operand with no `=` is the program.
+//     A word that expands keeps the readings the guard has for it: a word of
+//     its own that expands is the command, and one that holds a `=` is an
+//     assignment, also when the `=` stands next to the expansion (`A=$x`).
+//
+// A lone `-` is read as the command (it is `-i` to env, and `env - <command>`
+// is not covered).
 function skipEnv(words, state) {
   const list = words.slice()
   let i = 0
@@ -272,10 +285,7 @@ function skipEnv(words, state) {
   const replace = (value, count) => list.splice(i, count, ...envStringWords(value))
   while (i < list.length) {
     const t = list[i].text
-    if (ASSIGNMENT.test(t)) {
-      state.env.push(assignedName(t))
-      i++
-    } else if (t === '--') {
+    if (t === '--') {
       i++
       break
     } else if (t === '--split-string') {
@@ -302,6 +312,11 @@ function skipEnv(words, state) {
     } else {
       break
     }
+  }
+  while (i < list.length && list[i].text.includes('=')) {
+    const t = list[i].text
+    state.env.push(ASSIGNMENT.test(t) ? assignedName(t) : t.slice(0, t.indexOf('=')))
+    i++
   }
   return list.slice(i)
 }

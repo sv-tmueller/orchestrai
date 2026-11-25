@@ -731,7 +731,7 @@ describe('merge-rule: push-default', () => {
   describe('env -S and --split-string are read as env reads them (#600)', () => {
     // `env` puts the words of the string in the place of `-S` and its value, and
     // goes on reading its own options from there. The guard reads the same way
-    // (rules R1 to R7 in the comment above `skipEnv` in shell.mjs). The option
+    // (rules R1 to R8 in the comment above `skipEnv` in shell.mjs). The option
     // is `-S`, `-S<text>`, an `S` inside a cluster (`-iS`, `-iSgit`),
     // `--split-string <word>` and `--split-string=<text>`. The words after the
     // string stay words after it, so an option of `env` in the string takes the
@@ -873,6 +873,41 @@ describe('merge-rule: push-default', () => {
         // A comment, and an escape (R6).
         "env -S '#c' git push origin main",
         "env -S 'git\\_push\\_origin\\_main'",
+      ])
+    })
+
+    // `env` stops reading options at `--`, or at the first word that is not an
+    // option, and an assignment is such a word (R8). From there on every word
+    // that holds a `=` is an assignment, whatever stands before the `=`, and the
+    // first word without a `=` is the command. So a word like
+    // `--split-string=...` after an assignment, or after `--`, is an assignment,
+    // not an option, and the command behind it is the push.
+    describe("where env's options end: a word with a = is an assignment (R8)", () => {
+      defineDenyRows('push-default', [
+        "env A=1 --split-string='sudo -c' git push origin main",
+        "env A=1 --split-string='git status' git push origin main",
+        "env A=1 --split-string='doas -a' git push origin main",
+        "env A=1 -iS'A=1 git' git push origin main",
+        'env -S -- --split-string="it\'s" git push origin main',
+        'env env -S -- --split-string="\'a" A=1 git push origin main',
+        'env -- --foo=bar git push origin main',
+        "env 'a-b=1' git push origin main",
+        'env -i A=1 B=2 git push origin main',
+        'env -- A=1 git push origin main',
+      ])
+    })
+
+    // After an assignment, or after `--`, a word with no `=` is the command,
+    // also when it starts with a dash. The real env takes `-i`, `-S` and `--`
+    // there as the name of the program, finds none, and runs nothing. (The
+    // manual's own example runs the program `--` after `PATH=/energy`.)
+    describe("where env's options end: a word without a = is the program name (R8)", () => {
+      defineAllowRows('wrapper', [
+        'env A=1 -i git push origin main',
+        "env A=1 -S 'git push origin main'",
+        'env -- -i git push origin main',
+        'env A=1 -- git push origin main',
+        'env A=1 -u X git push origin main',
       ])
     })
 

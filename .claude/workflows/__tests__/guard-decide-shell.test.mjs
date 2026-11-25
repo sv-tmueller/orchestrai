@@ -482,8 +482,14 @@ describe('parseCommandLine: unwrapping', () => {
       assert.deepEqual(texts("env -S 'git push' origin main"), [['git', 'push', 'origin', 'main']])
     })
 
-    test('env -S with variables in front still gives the command', () => {
-      assert.deepEqual(texts("env A=1 -S 'git push origin main'"), [['git', 'push', 'origin', 'main']])
+    // An assignment ends env's options (R8), so `-S` after it is the name of
+    // the program and the string is its argument.
+    test('env -S after an assignment is the program name, not the option', () => {
+      assert.deepEqual(texts("env A=1 -S 'git push origin main'"), [['-S', 'git push origin main']])
+    })
+
+    test('env -S with an assignment inside the string still gives the command', () => {
+      assert.deepEqual(texts("env -S 'A=1 git push origin main'"), [['git', 'push', 'origin', 'main']])
     })
   })
 
@@ -1016,11 +1022,11 @@ describe('parseCommandLine: the env -S string (#600)', () => {
       assert.deepEqual(texts('env --split-string= git push'), [['git', 'push']])
     })
 
-    test('a -S with no word after it adds no words', () => {
+    test('a -S with no word after it adds no words, except after an assignment (R8)', () => {
       assert.deepEqual(parse('env -S'), [])
       assert.deepEqual(parse('env -iS'), [])
       assert.deepEqual(parse('env --split-string'), [])
-      assert.deepEqual(parse('env A=1 -S'), [])
+      assert.deepEqual(texts('env A=1 -S'), [['-S']])
       assert.deepEqual(parse('env -S -S -S'), [])
     })
 
@@ -1054,6 +1060,66 @@ describe('parseCommandLine: the env -S string (#600)', () => {
       assert.deepEqual(texts("env git -S 'a b'"), [['git', '-S', 'a b']])
       assert.deepEqual(texts("env A=1 git --split-string 'a b'"), [['git', '--split-string', 'a b']])
     })
+  })
+})
+
+describe("parseCommandLine: where env's options end (R8)", () => {
+  const first = (line) => parse(line)[0]
+  const names = (line) => first(line).env
+
+  test('a word with a = after an assignment is an assignment, whatever stands before the =', () => {
+    const c = first("env A=1 --split-string='sudo -c' git push origin main")
+    assert.deepEqual(c.words.map((w) => w.text), ['git', 'push', 'origin', 'main'])
+    assert.deepEqual(c.env, ['A', '--split-string'])
+    assert.deepEqual(names('env -i A=1 B=2 git push'), ['A', 'B'])
+    assert.deepEqual(names("env 'a-b=1' git push"), ['a-b'])
+  })
+
+  test('a word with a = after -- is an assignment', () => {
+    assert.deepEqual(texts('env -- --foo=bar git push origin main'), [['git', 'push', 'origin', 'main']])
+    assert.deepEqual(names('env -- --foo=bar git push origin main'), ['--foo'])
+    assert.deepEqual(texts('env -- A=1 git push'), [['git', 'push']])
+  })
+
+  test('a word with a = that starts at an expansion, or holds one, is an assignment too', () => {
+    assert.deepEqual(texts('env A=$x git push'), [['git', 'push']])
+    assert.deepEqual(names('env A=$x git push'), ['A'])
+    assert.deepEqual(texts('env A=1 --foo=$x git push'), [['git', 'push']])
+  })
+
+  test('the first word without a = is the command, also when it starts with a dash', () => {
+    assert.deepEqual(texts('env A=1 -i git push'), [['-i', 'git', 'push']])
+    assert.deepEqual(texts('env A=1 -u X git push'), [['-u', 'X', 'git', 'push']])
+    assert.deepEqual(texts('env -- -i git push'), [['-i', 'git', 'push']])
+    assert.deepEqual(names('env A=1 -i git push'), ['A'])
+  })
+
+  test('-- after an assignment is the command, as in the manual example with PATH=/energy', () => {
+    assert.deepEqual(texts('env A=1 -- git push'), [['--', 'git', 'push']])
+  })
+
+  test('no option is read after an assignment: -C sets no afterCd, and -S splits nothing', () => {
+    assert.equal(first('env A=1 -C /tmp git push').afterCd, false)
+    assert.deepEqual(texts('env A=1 -C /tmp git push'), [['-C', '/tmp', 'git', 'push']])
+    assert.deepEqual(texts("env A=1 --split-string 'a b' c"), [['--split-string', 'a b', 'c']])
+  })
+
+  test('options before the first assignment are still read', () => {
+    assert.deepEqual(texts('env -i -u X A=1 git push'), [['git', 'push']])
+    assert.equal(first('env -C /tmp A=1 git push').afterCd, true)
+    assert.deepEqual(texts("env -S 'a b' c"), [['a', 'b', 'c']])
+  })
+
+  test('the words of a -S string are read by the same loop', () => {
+    assert.deepEqual(texts('env -S -- --split-string="it\'s" git push origin main'), [['git', 'push', 'origin', 'main']])
+    assert.deepEqual(names('env -S -- --split-string="it\'s" git push origin main'), ['--split-string'])
+    // The string holds an assignment, then `-i`, which is the program.
+    assert.deepEqual(texts("env -S 'A=1 -i git'"), [['-i', 'git']])
+    assert.deepEqual(texts("env -S 'A=1' -i git push"), [['-i', 'git', 'push']])
+  })
+
+  test('a lone dash is the command, as before', () => {
+    assert.deepEqual(texts('env - git push'), [['-', 'git', 'push']])
   })
 })
 
