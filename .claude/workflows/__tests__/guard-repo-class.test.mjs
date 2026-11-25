@@ -32,7 +32,7 @@ const LISTING = 'api --paginate --slurp user/repos?affiliation=owner&per_page=10
 const UPGRADE = 'Upgrade to GitHub Pro or make this repository public to enable this feature.'
 
 const TIDY_PROTECTION = json({
-  required_status_checks: { strict: true, contexts: ['Unit tests'] },
+  required_status_checks: { strict: false, contexts: ['Unit tests'] },
   required_pull_request_reviews: {},
   allow_force_pushes: { enabled: false },
   enforce_admins: { enabled: true },

@@ -12,8 +12,10 @@ below.
 You are the lead and the message bus. Agents cannot call each other; every
 handoff is you routing one agent's report into the next agent's task. Keep
 your own context lean: delegate the work, route the verdicts, decide the
-escalations. The flow is `docs/architecture/light-flow.md`; this skill is how
-you run it. If the two disagree, the flow doc wins.
+escalations. This skill is complete on its own. The design reference is
+`docs/architecture/light-flow.md`, which exists in the orchestrai repo only; a
+consumer repo ships `.claude/` and nothing else. Where the two disagree in
+the orchestrai repo, the flow doc wins.
 
 Packages to run: $ARGUMENTS (issue numbers, or `label:<name>` to select by
 label). With no arguments, ask which issues to run. For `label:<name>`, run
@@ -30,7 +32,7 @@ Create the labels the flow uses (`--force` makes a second run a no-op):
 
 ```
 gh label create "size:S"      --color "c2e0c6" --description "Under 1 hour. One focused change." --force
-gh label create "size:M"      --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
+gh label create "size:M"      --color "BFD4F2" --description "1 to 3 hours." --force
 gh label create "size:L"      --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
 gh label create "size:XL"     --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
 gh label create "in-progress" --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
@@ -39,9 +41,15 @@ gh label create "needs-human" --color "B60205" --description "Agent loop exhaust
 
 Then read each issue (`gh issue view <n> --comments`) and check it:
 
-- Unsized, or `size:L` or `size:XL`: do not run it. Ask the architect for a
+- Unsized: you size it yourself (S or M, from the body) and label it.
+- `size:L` or `size:XL`: do not run it. Ask the architect for a
   `JOB: SPLIT_PROPOSAL` and report the split.
-- An open `Blocked by: #N` line: skip it until #N has merged.
+- An open `Blocked by: #N` line: skip it until #N has merged. When a blocker
+  merges during the run, start the blocked issue in this run.
+- An issue with `in-progress` or an open PR resumes per section 3 instead of a
+  fresh developer dispatch. Find the PR with
+  `gh pr list --search "<n> in:body" --state open --json number,headRefName`
+  (or an open PR whose `closingIssuesReferences` names the issue).
 - An issue with no `## Approach` section in the body or the comments: you write
   one as an issue comment (a few bullets: the approach, the files expected to
   change, the verification step). The lead never dispatches a developer with no
@@ -52,7 +60,8 @@ Worktree isolation keeps packages apart. Within a package the steps are serial.
 
 ## 2. Per package
 
-1. Label the issue `in-progress`. Dispatch the `developer` with the issue number.
+1. Label the issue `in-progress`. Dispatch the `developer` with the issue
+   number (a resume skips this, see section 3).
 2. Route the developer's report:
    - `DONE` or `DONE_WITH_CONCERNS`: go to the review gate.
    - `NEEDS_CONTEXT`: answer from the issue and the repo docs. If you cannot,
@@ -66,8 +75,10 @@ Worktree isolation keeps packages apart. Within a package the steps are serial.
      dependency manifest or lockfile;
    - the developer reported `DONE_WITH_CONCERNS`.
 
-   Otherwise check that every command on the developer's `CHECKS` line exited
-   0, post a PR comment `Review not required (size S)`, and ship.
+   Otherwise check the developer's `CHECKS` line. If a command did not exit 0,
+   send the package back to the developer as a fix round (it counts toward the
+   cap of 2 below), then check again. When every command exited 0, post a PR
+   comment `Review not required (size S)` and ship.
 4. Reviewer dispatch: give it the PR number and the issue number. Post its
    report verbatim as a PR comment, the next one numbered `Review round <k>`.
    - `APPROVE`: ship.
@@ -88,13 +99,15 @@ found outside the PR's scope.
 Do not send a seat the same prompt twice. A seat that returns nothing, or text
 with no `STATUS:` or `VERDICT:` report, gets a `SendMessage` asking for its
 report, not a new dispatch. A reviewer that dies on a usage limit is dispatched
-again once on the `sonnet` model; say so in the PR comment.
+again once on the `sonnet` model; say so in the PR comment. A Sonnet-fallback
+`APPROVE` ships like any `APPROVE`.
 
 ## 3. Review gate on a resume
 
 A session can drop at any point. Read GitHub state only:
 
-- `in-progress` and no PR: restart the developer.
+- `in-progress` and no PR: restart the developer. Look for the PR first (see
+  Prepare for how to find it).
 - A PR and no review comment: run the review gate (step 3). On a size S issue
   this still means the gate, not a new developer dispatch.
 - A review comment (`Review round <k>`, or `Review not required`): continue
@@ -114,26 +127,26 @@ A session can drop at any point. Read GitHub state only:
    For a package the gate skipped, use `-f description='not required (size S)'`.
    Do not wait for CI: auto merge waits for every required context.
 3. `gh pr ready <pr>`.
-4. If `gh api 'repos/{owner}/{repo}' --jq .allow_auto_merge` is `true`, queue the
-   merge: `gh pr merge <pr> --squash --auto --match-head-commit <sha>`. Never
-   `--admin`, and never merge without `--auto`. If the repo does not allow it or
-   the call fails, leave the PR ready and report it as waiting for a human
-   merge. That is not a park.
+4. Queue auto merge only when `allow_auto_merge` is true AND the default branch
+   is protected. Read `gh api 'repos/{owner}/{repo}' --jq '.allow_auto_merge, .default_branch'`,
+   then either `gh api repos/{owner}/{repo}/branches/<default> --jq .protected`
+   is `true` (classic protection) or
+   `gh api repos/{owner}/{repo}/rules/branches/<default> --jq length` is above 0
+   (a ruleset). On an unprotected branch `--auto` merges at once, before CI.
+   When both hold, queue it:
+   `gh pr merge <pr> --squash --auto --match-head-commit <sha>`. Never `--admin`,
+   and never merge without `--auto`. Otherwise, or if the call fails, leave the
+   PR ready and report it as waiting for a human merge. That is not a park.
 5. Remove `in-progress`. Post a short summary comment on the issue: the PR,
    the verdict, and queued or waiting for a human merge.
 
-### A queued PR that falls behind main
+### A queued PR that conflicts
 
-The protection on `main` is strict, so a queued PR can fall behind it. Before
-the wave ends, check each queued PR that has not merged
-(`gh pr view <pr> --json mergeStateStatus,headRefOid`). For `BEHIND`, the lead
-runs `gh api -X PUT repos/{owner}/{repo}/pulls/<n>/update-branch -f expected_head_sha=<head>`,
-reads the new head, re-posts `orchestrai/review` on the new head as in step 2
-(the approval carries over a clean merge from main), and queues auto merge
-again with that head. If the update conflicts, a developer dispatch resolves it
-(`issue #<n>, branch <branch>: merge origin/main and resolve the conflicts`),
-then the review gate runs again on the new head. A second conflict parks the
-package.
+Before the wave ends, check each queued PR that has not merged
+(`gh pr view <pr> --json mergeStateStatus`). One that GitHub reports as
+conflicting (`DIRTY`) goes to a developer dispatch (`issue #<n>, branch
+<branch>: merge origin/main and resolve the conflicts`), then the review gate
+runs again. A second conflict parks the package.
 
 ## 5. Park
 
@@ -144,7 +157,12 @@ happens, so a dropped session can resume from it.
 
 ## 6. Wave end
 
-When every package is shipped or parked, print:
+When every package is shipped or parked, prune worktrees first: `git fetch
+origin` and `git worktree prune`, then remove each `.claude/worktrees/agent-*`
+worktree (`git worktree list --porcelain`) whose HEAD commit is on origin
+(`git branch -r --contains <sha>` prints something) and that has no
+uncommitted changes (`git -C <path> status --porcelain` prints nothing). Never
+force-remove a dirty one. Then print:
 
 ```
 ## What happened

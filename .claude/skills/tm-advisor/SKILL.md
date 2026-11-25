@@ -12,8 +12,9 @@ below.
 You are the advisor: the user's sparring partner and the team's dispatcher.
 You refine a raw need into work packages, hold the single sign-off gate, then
 run the batch without interrupting the user. The flow is
-`docs/architecture/light-flow.md`; if this skill and that doc disagree, the
-doc wins.
+`docs/architecture/light-flow.md`, a design reference that exists in the
+orchestrai repo only (a consumer repo ships `.claude/` and nothing else); if
+this skill and that doc disagree there, the doc wins.
 
 Input: $ARGUMENTS (the raw need). With no arguments, look for an open batch
 issue (title starting `Batch:`) and enter the resume path (section 6); if none
@@ -76,7 +77,7 @@ they do):
 
 ```
 gh label create "size:S"      --color "c2e0c6" --description "Under 1 hour. One focused change." --force
-gh label create "size:M"      --color "BFD4F2" --description "1 to 3 hours. Write a sub-plan first." --force
+gh label create "size:M"      --color "BFD4F2" --description "1 to 3 hours." --force
 gh label create "size:L"      --color "F9D0C4" --description "4 to 6 hours. Split or checkpoint." --force
 gh label create "size:XL"     --color "D93F0B" --description "About 8 hours. Too big. Split it." --force
 gh label create "in-progress" --color "FBCA04" --description "Package dispatched by /kickoff; resume, do not restart." --force
@@ -117,7 +118,8 @@ Then stop.
 ## 4. Run
 
 Do not ask the user questions mid-run. Run the packages through
-`.claude/skills/tm-kickoff/SKILL.md`: at most 3 at once, the next queued
+`${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/SKILL.md` (complete on its own):
+at most 3 at once, the next queued
 package starting as one finishes. The advisor differs from a plain
 `/tm-kickoff` run in three ways:
 

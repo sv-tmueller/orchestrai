@@ -5,7 +5,7 @@
  *
  * The pins cover the parts that must not drift: the section headings other
  * files link to, the review gate, the fix-round cap, the issue body
- * template, the merge gate and the behind-main rule. Whitespace is collapsed
+ * template, the merge gate and the conflict rule. Whitespace is collapsed
  * first, so re-wrapping a line cannot break a pin.
  */
 
@@ -75,8 +75,8 @@ describe('light flow doc', () => {
     }
   })
 
-  test('stays under 120 lines', () => {
-    assert.ok(raw.split('\n').length < 120)
+  test('stays under 130 lines', () => {
+    assert.ok(raw.split('\n').length < 130)
   })
 
   test('ties orchestrai/review to the head the reviewer tested', () => {
@@ -84,12 +84,26 @@ describe('light flow doc', () => {
     assert.ok(text.includes('equals the PR head'), 'status posted only when the SHA equals the PR head')
   })
 
-  test('says what happens to a queued PR that falls behind main', () => {
-    assert.ok(text.includes('strict'), 'main protection is strict')
-    assert.ok(text.includes('gh api -X PUT repos/{owner}/{repo}/pulls/<n>/update-branch'))
-    assert.ok(text.includes('re-posts `orchestrai/review` on the new head'))
-    assert.ok(text.includes('a developer dispatch resolves it'), 'conflict goes to a developer')
+  test('queues auto merge only on a protected default branch', () => {
+    assert.ok(text.includes('allow_auto_merge'))
+    assert.ok(text.includes('default branch is protected'))
+    assert.ok(text.includes('waiting for a human merge'))
+  })
+
+  test('does not carry a behind-main rule, and says a conflict goes to a developer', () => {
+    assert.ok(!text.includes('update-branch'), 'update-branch rule is gone')
+    assert.ok(!/\bstrict\b/.test(text), 'main protection is no longer strict')
+    assert.ok(text.includes('DIRTY'))
+    assert.ok(text.includes('merge main and resolve'))
     assert.ok(text.includes('review gate runs again'))
+  })
+
+  test('says how an issue is sized, resumed and unblocked, and what a red CHECKS line does', () => {
+    assert.ok(text.includes('sizes an unsized issue itself'), 'the lead sizes an unsized issue')
+    assert.ok(text.includes('closingIssuesReferences'), 'how to find the PR on a resume')
+    assert.ok(text.includes('starts in the same run'), 'a blocker that merges mid-run')
+    assert.match(text, /did not exit 0[^.]*fix round/)
+    assert.ok(text.includes('Sonnet'), 'the Sonnet fallback')
   })
 })
 
@@ -114,6 +128,7 @@ describe('claude skills', () => {
 
   test('kickoff posts the review status the flow doc names', () => {
     assert.ok(kickoff.includes('orchestrai/review'))
+    assert.ok(kickoff.includes('approved by reviewer'))
     assert.ok(kickoff.includes('not required (size S)'))
     assert.ok(kickoff.includes('needs-human'))
     assert.ok(kickoff.includes('2 fix rounds'))
@@ -134,11 +149,74 @@ describe('claude skills', () => {
     assert.ok(kickoff.includes('starts with the head SHA'))
   })
 
-  test('kickoff updates a queued PR that fell behind main, then re-posts the status', () => {
-    assert.ok(kickoff.includes('gh api -X PUT repos/{owner}/{repo}/pulls/<n>/update-branch'))
-    assert.ok(kickoff.includes('re-posts `orchestrai/review` on the new head'))
-    assert.ok(kickoff.includes('a developer dispatch resolves it'))
+  test('kickoff queues auto merge only on a protected default branch', () => {
+    assert.ok(kickoff.includes('allow_auto_merge'))
+    assert.ok(kickoff.includes('--jq .protected'))
+    assert.ok(kickoff.includes('rules/branches/<default> --jq length'))
+    assert.ok(kickoff.includes('waiting for a human merge'))
+  })
+
+  test('kickoff has no behind-main rule and sends a DIRTY PR to a developer', () => {
+    assert.ok(!kickoff.includes('update-branch'), 'update-branch rule is gone')
+    assert.ok(!/\bBEHIND\b/.test(kickoff), 'BEHIND is no longer handled')
+    assert.ok(kickoff.includes('`DIRTY`'))
+    assert.ok(kickoff.includes('merge origin/main and resolve'))
     assert.ok(kickoff.includes('review gate runs again'))
+  })
+
+  test('kickoff sends a gate-skipped package with a red CHECKS line back as a fix round', () => {
+    assert.match(kickoff, /did not exit 0[^.]*fix round[^.]*cap of 2/)
+  })
+
+  test('kickoff sizes an unsized issue itself and splits only L and XL', () => {
+    assert.match(kickoff, /Unsized: you size it[^.]*S or M[^.]*label it/)
+    assert.match(kickoff, /`size:L` or `size:XL`: do not run it\. Ask the architect for a `JOB: SPLIT_PROPOSAL`/)
+  })
+
+  test('kickoff resumes an in-progress issue or an open PR, and says how to find the PR', () => {
+    assert.match(kickoff, /`in-progress` or an open PR[^.]*resumes/)
+    assert.ok(kickoff.includes('gh pr list --search "<n> in:body" --state open'))
+    assert.ok(kickoff.includes('closingIssuesReferences'))
+  })
+
+  test('kickoff starts a blocked issue in the same run once its blocker merges', () => {
+    assert.match(kickoff, /blocker merges during the run[^.]*start/i)
+  })
+
+  test('kickoff ships a Sonnet-fallback APPROVE like any APPROVE', () => {
+    assert.ok(kickoff.includes('A Sonnet-fallback `APPROVE` ships like any `APPROVE`'))
+  })
+
+  test('kickoff prunes worktrees at wave end, and never force-removes a dirty one', () => {
+    assert.ok(kickoff.includes('git worktree prune'))
+    assert.ok(kickoff.includes('.claude/worktrees/agent-*'))
+    assert.ok(kickoff.includes('git branch -r --contains <sha>'))
+    assert.ok(kickoff.includes('Never force-remove a dirty one'))
+  })
+
+  test('kickoff is complete on its own and names the flow doc as a design reference only', () => {
+    assert.ok(kickoff.includes('complete on its own'))
+    assert.ok(kickoff.includes('orchestrai repo only'))
+  })
+
+  test('advisor reaches kickoff through the plugin root', () => {
+    const advisor = advisorRaw.replace(/\s+/g, ' ')
+    assert.ok(advisor.includes('${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/SKILL.md'))
+    assert.ok(advisor.includes('orchestrai repo only'))
+  })
+
+  test('the size:M label no longer promises a sub-plan, in either skill', () => {
+    assert.ok(!kickoffRaw.includes('Write a sub-plan first'))
+    assert.ok(!advisorRaw.includes('Write a sub-plan first'))
+    assert.ok(kickoffRaw.includes('"size:M"'))
+    assert.ok(advisorRaw.includes('"size:M"'))
+  })
+
+  test('tm-ab-test points at kickoff wave end and marks the removed token-report script', () => {
+    const ab = read('tm-ab-test')
+    assert.ok(ab.replace(/\s+/g, ' ').includes('SKILL.md\'s "6. Wave end" section'))
+    assert.ok(!ab.includes('Worktree cleanup (deterministic)'))
+    assert.ok(ab.includes('(script removed in #630)'))
   })
 
   test('the reviewer may get only a PR number, so the lead passes the PR and the issue', () => {

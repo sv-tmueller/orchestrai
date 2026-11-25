@@ -115,8 +115,8 @@ row or a past report; the ledger only appends.
 ## 6. Cleanup
 
 Close each arm's scratch issue and its draft PR once both diffs are linked
-in the report. For worktree and branch cleanup, follow `tm-kickoff`
-SKILL.md's "Worktree cleanup (deterministic)" section; it is not repeated
+in the report. For worktree cleanup, follow `tm-kickoff`
+SKILL.md's "6. Wave end" section (the prune step); it is not repeated
 here.
 
 ## Headless `claude -p` checklist
@@ -238,7 +238,7 @@ the fix held), and the source. Report files are under `docs/reviews/`
     the lead only; `modelUsage` also covers subagents.
   - Source: #400 report "Per-pair comparison" (after the "Cost, three ways"
     table) and "Cost-measurement gap"; #405 protocol "Arm run 2 result".
-- **`modelUsage` vs `token-report.mjs`.**
+- **`modelUsage` vs `token-report.mjs` (script removed in #630).**
   - Trap: the script estimates subagent output as visible characters divided
     by 4 and leaves out thinking (before #425 it did the same for the lead's
     output, which it now reads from `usage.output_tokens`). Measured output was 3.76x the estimate on #400 arm A
