@@ -138,14 +138,15 @@ report. Read them as printed. The driver does not merge.
 When a package is parked, read its reason on the issue and decide:
 
 - **Within the signed-off scope and acceptance criteria** (a missing `## Approach`
-  section, a finding the developer disputes, an interpretation call): decide it,
+  section, an interpretation call): decide it,
   post the decision with its reasoning on the batch issue and as a comment on the
   package issue, remove `needs-human` from the package issue, and run the driver
   again on the parked packages. A package whose reason is `fix rounds exhausted`
   is not retried: the count lives on the PR and parks it again.
-- **Anything else** (a change to scope or acceptance criteria, a new dependency or
-  cost, anything irreversible or outward-facing, a conflict with
-  `docs/architecture/`): leave `needs-human` on and hold it for the report.
+- **Anything else** (a finding the developer disputes, a change to scope or
+  acceptance criteria, a new dependency or cost, anything irreversible or
+  outward-facing, a conflict with `docs/architecture/`): leave `needs-human` on and
+  hold it for the report. A dispute is the owner's to settle, not yours.
 
 Run the driver again on the packages you cleared, once. Do not interrupt the user
 unless every package is parked; then report at once.

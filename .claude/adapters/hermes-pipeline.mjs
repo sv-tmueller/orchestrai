@@ -63,14 +63,18 @@ export function needsReview({ size, paths = [], status } = {}) {
   return paths.some((p) => RISKY_PATHS.some((r) => p === r || p.startsWith(`${r}/`) || p.endsWith(`/${r}`)))
 }
 
-// The lead's own check for a skipped review: every command on CHECKS exited 0.
+// The CHECKS block of a report: the key's line and every line up to the next report key.
+const checksBlock = (report) =>
+  /^CHECKS:([^\n]*(?:\n(?![A-Z][A-Z _-]*:)[^\n]*)*)/m.exec(textOf(report?.raw))?.[1] ?? textOf(report?.CHECKS)
+
+// The lead's own check for a skipped review: every command in the CHECKS block exited 0.
 const checksPass = (report) => {
-  const codes = [...textOf(report?.CHECKS ?? report?.checks).matchAll(/->\s*(\d+)/g)]
+  const codes = [...checksBlock(report).matchAll(/->\s*(\d+)/g)]
   return codes.length > 0 && codes.every((m) => m[1] === '0')
 }
 
-// The head sha a reviewer says it tested: the first token of its CHECKS line.
-const testedSha = (report) => /^[\s`]*([0-9a-f]{7,40})\b/i.exec(textOf(report?.CHECKS))?.[1].toLowerCase()
+// The head sha a reviewer says it tested: the first token of its CHECKS block.
+const testedSha = (report) => /^[\s`]*([0-9a-f]{7,40})\b/i.exec(checksBlock(report))?.[1].toLowerCase()
 
 // A developer disputes a finding with `pushback: finding <k>: <why>` on its own line.
 const PUSHBACK_LINE = /^[ \t]*(?:(?:DEVIATIONS|NOTES):[ \t]*)?(?:[-*][ \t]+|\d+\.[ \t]+)?pushback: finding \d+:/
@@ -146,7 +150,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   const review = async () => {
     for (;;) {
       const after = state.fixRounds ? ` after fix round ${state.fixRounds}/${MAX_FIX_ROUNDS}` : ''
-      const moved = staleReviews ? ' The PR head moved since the last review: review the current head.' : ''
+      const moved = staleReviews ? ' The last review did not cover the PR head: review the current head, and start CHECKS with its sha.' : ''
       lastReview = await dispatch(
         'reviewer',
         `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue, whose ## Approach section is the plan${after}. Two passes: spec compliance, then code quality.${moved}`,
@@ -181,7 +185,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   }
 
   // The review gate. With no developer report (a resume at the gate) there is no CHECKS line to trust.
-  const reviewing =
+  let reviewing =
     stage === 'fix' ||
     (stage !== 'done' &&
       (!devReport || !checksPass(devReport) || needsReview({ size: opts.size, paths: dryRun ? [] : await gh.prPaths(state.pr), status: textOf(devReport.STATUS) })))
@@ -189,6 +193,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   log(state.reviewed ? 'review gate: reviewer required' : 'review gate: not required (size S)')
 
   let head = null
+  if (stage === 'done') lastReview = { raw: resume.review } // its comment is the review to match against the head
   for (;;) {
     if (reviewing && !(await review())) return state
     if (!dryRun) {
@@ -197,14 +202,16 @@ export async function runPipeline(issueNumber, opts = {}) {
       if (!view.closingIssuesReferences.some((ref) => ref?.number === issueNumber)) return stop(`PR #${view.number} does not close #${issueNumber}`)
       head = view.headRefOid
     }
-    // A review that tested another commit does not cover the head: review again, once.
+    // A review with no sha, or one for another commit, does not cover the head: review again, once.
     const sha = testedSha(lastReview)
-    if (!sha || !head || head.toLowerCase().startsWith(sha)) break
-    if (staleReviews++) return stop('the PR head moved after two reviews, so no review covers it')
-    log('the reviewed commit is not the PR head, reviewing again')
+    if (!state.reviewed || !head || (sha && head.toLowerCase().startsWith(sha))) break
+    if (staleReviews++) return stop(sha ? 'the PR head moved after two reviews, so no review covers it' : 'two reviews gave no head sha on CHECKS, so no review covers the head')
+    log('the review does not cover the PR head, reviewing again')
+    reviewing = state.reviewed = true
   }
 
   await ensureInProgress() // a resume past the developer has not added it, and removing a missing label is an error
+  if (!state.reviewed) await gh.prComment(state.pr, 'Review not required (size S)')
   await gh.postStatus(head || 'dry-run', state.reviewed ? 'approved by the reviewer' : 'not required (size S)')
   await gh.prReady(state.pr)
   await gh.removeLabel(issueNumber, 'in-progress')
@@ -216,17 +223,21 @@ export async function runPipeline(issueNumber, opts = {}) {
   return state
 }
 
-// Runs up to 3 packages at once: an issue number or { issue, resume, title, inProgress, size }.
+// Runs packages in a rolling pool of 3 (the next starts when one finishes): an issue number or { issue, resume, title, inProgress, size }.
 // One that throws gets an error entry and does not hide the others.
 export async function runWave(packages, opts = {}) {
+  const queue = packages.map((p) => (typeof p === 'number' ? { issue: p } : p))
   const results = []
-  for (let i = 0; i < packages.length; i += 3) {
-    const batch = packages.slice(i, i + 3).map((p) => (typeof p === 'number' ? { issue: p } : p))
-    const settled = await Promise.allSettled(batch.map(({ issue, ...own }) => runPipeline(issue, { ...opts, ...own })))
-    settled.forEach((s, k) =>
-      results.push(s.status === 'fulfilled' ? s.value : { issue: batch[k].issue, done: false, parked: null, error: s.reason?.reason ?? firstLine(s.reason?.message || s.reason) })
-    )
+  let next = 0
+  // A rolling pool: each of 3 workers takes the next package as soon as its own one finishes.
+  const worker = async () => {
+    while (next < queue.length) {
+      const k = next++
+      const { issue, ...own } = queue[k]
+      results[k] = await runPipeline(issue, { ...opts, ...own }).catch((e) => ({ issue, done: false, parked: null, error: e?.reason ?? firstLine(e?.message || e) }))
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker))
   return results
 }
 
@@ -294,7 +305,7 @@ export const defaultRun = (cmd, args, { cwd } = {}) =>
 // Created by main before the gate.
 export const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
-  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours.' },
   { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
   { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
   { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched; resume, do not restart.' },
@@ -440,6 +451,7 @@ async function gateIssue(issue, gh, view) {
     const stage = resumeStage(comments, { hasPr: true })
     const resume = { stage, branch: draft.headRefName, pr: draft.number, fixRounds: countFixRounds(comments) }
     if (stage === 'fix') resume.findings = String(latestReview(comments).body)
+    if (stage === 'done') resume.review = String(latestReview(comments).body)
     result = entry('resume', `draft PR #${draft.number}, resuming at ${stage}`, { resume })
   } else {
     const branchRef = inProgress && (await gh.remoteHeads()).find((r) => new RegExp(`^refs/heads/[^/]+/${n}-`).test(r))

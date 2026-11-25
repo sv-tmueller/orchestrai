@@ -267,7 +267,8 @@ The gate reads each issue and decides one outcome per package: `run`, `resume`,
 
 An unmerged `Blocked by: #N` blocker (a whole line, closed as completed) turns a
 `run` or `resume` into a `wait`. Only wave 1 runs, because a later wave's blocker
-cannot be merged during the run. The gate writes nothing.
+cannot be merged during the run. Wave 1 runs as a rolling pool of 3: the next
+package starts when any one finishes. The gate writes nothing.
 
 Resume reads GitHub state only. The stage comes from the latest PR comment that
 has a line starting with `VERDICT: APPROVE` or `VERDICT: CHANGES_REQUESTED`:
@@ -277,7 +278,7 @@ has a line starting with `VERDICT: APPROVE` or `VERDICT: CHANGES_REQUESTED`:
 | no PR | `develop` |
 | a PR, no review comment | `gate`: run the review gate. On an S issue this is still the gate, never a new developer |
 | last review `CHANGES_REQUESTED` | `fix`: the developer gets that comment, then a re-review |
-| last review `APPROVE` | `done`: ship |
+| last review `APPROVE` | `done`: ship, if the sha on that comment's `CHECKS` block is the PR head; else the gate (a reviewer runs again) |
 
 `countFixRounds` counts the `CHANGES_REQUESTED` comments on the PR, so a resumed
 run starts with the count the stopped run had. A package parked on a used-up
@@ -301,9 +302,10 @@ only, and a quoted line does not count.
    developer reported `DONE_WITH_CONCERNS`. `RISKY_PATHS` is `.claude/agents`,
    `.claude/skills`, `.claude/workflows`, `.github/workflows`, and the names of
    dependency manifests and lockfiles at any depth. It also runs when the
-   developer's `CHECKS` line has no command or a command that did not exit 0, and
-   at a resume into the gate, where there is no `CHECKS` line to trust. Otherwise
-   the lead's own check stands: every command on `CHECKS` exited 0.
+   developer's `CHECKS` block (the line and every line up to the next report key)
+   has no command or a command that did not exit 0, and at a resume into the gate,
+   where there is no `CHECKS` block to trust. Otherwise the lead's own check
+   stands: every command in the block exited 0.
 4. The reviewer's `VERDICT` must be exactly `APPROVE` or `CHANGES_REQUESTED`. The
    driver posts every reviewer report on the PR as
    `**Reviewer report: <VERDICT> (issue #<n>)**`, then the report as the seat
@@ -332,16 +334,19 @@ an `error` line and is not done:
    `gh pr view <pr> --json closingIssuesReferences,headRefOid,number`. The PR has
    to close the issue (GitHub's own list, not the words of the body), else the
    package parks with `PR #<number> does not close #<n>` and the PR stays a draft.
-2. If the reviewer's `CHECKS` line starts with a commit sha (7 to 40 hex digits)
-   and the PR head does not start with it, the review covers another commit. The
-   driver posts nothing and runs the review gate again. A second mismatch parks
-   with `the PR head moved after two reviews, so no review covers it`. A re-review
-   is not a fix round. A report with no sha is not checked.
+2. The reviewer's `CHECKS` block must start with a commit sha (7 to 40 hex
+   digits) that the PR head starts with. With another sha, or none, the review
+   does not cover the head: the driver posts nothing and runs the review gate
+   again. A second miss parks with `the PR head moved after two reviews, so no
+   review covers it`, or `two reviews gave no head sha on CHECKS, so no review
+   covers the head`. A re-review is not a fix round. A resume at `done` takes the
+   sha from the latest review comment and goes through the same check.
 3. `orchestrai/review` = `success` is posted on the head read in step 1:
    `gh api -X POST repos/{owner}/{repo}/statuses/<head> -f state=success -f context=orchestrai/review -f description=<d>`,
    with `<d>` = `approved by the reviewer`, or `not required (size S)` when the
-   gate skipped the reviewer. This is the only status the driver posts, and `main`
-   never requires `orchestrai/test`.
+   gate skipped the reviewer; in that case a PR comment
+   `Review not required (size S)` goes on first. This is the only status the
+   driver posts, and `main` never requires `orchestrai/test`.
 4. `gh pr ready`, `in-progress` comes off, and the summary comment goes on the
    issue: `Pipeline complete: PR <pr> is ready for review.`, then
    `Reviewer: <APPROVE | not required (size S)>. Fix rounds used: <c>/2.`
