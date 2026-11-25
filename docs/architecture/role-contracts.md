@@ -123,8 +123,12 @@ dismissed, with the reason.
 The reviewer runs the check suite itself on every dispatch, once, on top
 of the two review passes: no other stage verifies the change. Check out
 the branch and run the full check suite, recording each command and its
-exit code. A non-zero exit is a must-fix finding, regardless of what the
-two review passes found.
+exit code. Start the CHECKS line with the full SHA of the head you tested
+(`git rev-parse HEAD`), so the lead can tie `orchestrai/review` to that
+commit. A non-zero exit is a must-fix finding, regardless of what the two
+review passes found. A failure that comes from the reviewer's environment (a
+missing tool, no network) is not a finding: rerun it once in a clean setup
+before reporting it.
 
 ### Report contract
 
@@ -135,7 +139,7 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
-CHECKS: <each check command and its exit code, e.g. `npm test` -> 0>
+CHECKS: <full head SHA you tested>; <each check command and its exit code, e.g. `npm test` -> 0>
 LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
 
