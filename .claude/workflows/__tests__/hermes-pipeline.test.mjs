@@ -1267,7 +1267,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
 
     test('NEEDS_DECISION with no question at all still parks, and ships nothing', async () => {
       const r = await pipeline({ architect: arch('NEEDS_DECISION') })
-      assert.match(r.state.parked, /^architect NEEDS_DECISION/)
+      assert.equal(r.state.parked, 'architect NEEDS_DECISION')
       assert.deepEqual(roles(r.state), ['architect'])
       assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
     })
