@@ -418,7 +418,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     log('stage 5: ship')
     await ensureInProgress()
     // A package is done when its PR closes the issue, by GitHub's own list of
-    // closing references. A dry run has no PR to read.
+    // closing references. A dry run makes no read.
     if (!dryRun) {
       const view = await gh.prView(state.pr)
       state.prNumber = view?.number
@@ -783,7 +783,7 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
   const gh = {
     async issueView(n) {
       const view = await readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title'])
-      return isObject(view) && isNumber(view.number) ? view : malformed('gh issue view')
+      return isObject(view) && isNumber(view.number) && Array.isArray(view.labels) && Array.isArray(view.comments) ? view : malformed('gh issue view')
     },
     async issueList(label) {
       const rows = await readJson('gh', [
@@ -796,11 +796,16 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
       prs ??= readJson('gh', [
         'pr', 'list', '--state', 'open', '--limit', '100',
         '--json', 'closingIssuesReferences,headRefName,isDraft,number,url',
-      ]).then((list) => (Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number)) ? list : malformed('gh pr list')))
+      ]).then((list) =>
+        Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number) && Array.isArray(p.closingIssuesReferences))
+          ? list
+          : malformed('gh pr list')
+      )
       return prs
     },
     async prComments(pr) {
-      return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
+      const view = await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])
+      return isObject(view) && Array.isArray(view.comments) ? view.comments : malformed('gh pr view')
     },
     // The PR's own number and the issues it closes, as GitHub lists them.
     async prView(pr) {
@@ -876,7 +881,7 @@ async function gateIssue(issue, gh, view) {
   if (size === 'size:L' || size === 'size:XL') return entry('stop', `${size}, split it first`)
   if (size === 'unsized') return entry('park', 'no size label, not guessing a size')
 
-  const prs = (await gh.prList()).filter((p) => (p.closingIssuesReferences || []).some((r) => r.number === n))
+  const prs = (await gh.prList()).filter((p) => p.closingIssuesReferences.some((r) => r?.number === n))
   const highest = (list) => list.reduce((best, p) => (!best || p.number > best.number ? p : best), null)
   const ready = highest(prs.filter((p) => !p.isDraft))
   if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`, { pr: ready.number })

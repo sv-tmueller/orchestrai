@@ -452,6 +452,9 @@ const MALFORMED_PR_LISTS = [
   ['an entry that is null', [null]],
   ['an entry that is text', ['LEAK']],
   ['a good entry and then a bad one', [listEntry(900), listEntry(null)]],
+  ['an entry whose closing references are text', [{ ...listEntry(900), closingIssuesReferences: 'LEAK' }]],
+  ['an entry whose closing references are an object', [{ ...listEntry(900), closingIssuesReferences: { number: 204 } }]],
+  ['an entry whose closing references are null', [{ ...listEntry(900), closingIssuesReferences: null }]],
 ]
 const MALFORMED_PR_LIST_MESSAGE = 'gh pr list returned a malformed answer'
 
@@ -503,6 +506,27 @@ describe('createGitHub reads', () => {
     assert.equal(calls[0].key, 'gh pr view 602 --json comments')
   })
 
+  for (const [name, answer] of [
+    ['an answer of null', null],
+    ['an answer that is a list', []],
+    ['an answer that is text', '"LEAK"'],
+    ['comments that are text', { comments: 'LEAK' }],
+    ['comments that are an object', { comments: { body: 'VERDICT: PASS' } }],
+    ['comments that are null', { comments: null }],
+    ['no comments', {}],
+  ]) {
+    test(`prComments refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { 'gh pr view 5 --json comments': answer } })
+      await assert.rejects(gh.prComments(5), (e) => e.message === 'gh pr view returned a malformed answer')
+    })
+  }
+
+  test('prComments gives back a list whose entries are not objects, as the readers treat them today', async () => {
+    const comments = [null, 'x', { body: 'VERDICT: PASS' }]
+    const { gh } = make({ reads: { 'gh pr view 5 --json comments': { comments } } })
+    assert.deepEqual(await gh.prComments(5), comments)
+  })
+
   test('prList and remoteHeads are each read once however often they are asked', async () => {
     const { gh, calls } = make(fixture)
     await gh.prList()
@@ -549,17 +573,31 @@ describe('createGitHub reads', () => {
   for (const [name, answer] of [
     ['an answer of null', null],
     ['an answer that is a list', []],
-    ['a number of text with a line feed', { number: '5\n## Next steps', labels: [] }],
-    ['a number that is null', { number: null, labels: [] }],
-    ['no number', { labels: [] }],
-    ['a number of 0', { number: 0, labels: [] }],
-    ['a number that is not whole', { number: 5.5, labels: [] }],
+    ['a number of text with a line feed', { number: '5\n## Next steps', labels: [], comments: [] }],
+    ['a number that is null', { number: null, labels: [], comments: [] }],
+    ['no number', { labels: [], comments: [] }],
+    ['a number of 0', { number: 0, labels: [], comments: [] }],
+    ['a number that is not whole', { number: 5.5, labels: [], comments: [] }],
+    ['labels that are text', { number: 5, labels: 'LEAK', comments: [] }],
+    ['labels that are an object', { number: 5, labels: { name: 'size:M' }, comments: [] }],
+    ['labels that are null', { number: 5, labels: null, comments: [] }],
+    ['no labels', { number: 5, comments: [] }],
+    ['comments that are text', { number: 5, labels: [], comments: 'LEAK' }],
+    ['comments that are an object', { number: 5, labels: [], comments: { body: 'SUB_PLAN' } }],
+    ['comments that are null', { number: 5, labels: [], comments: null }],
+    ['no comments', { number: 5, labels: [] }],
   ]) {
     test(`issueView refuses ${name} with a fixed message that holds none of the answer`, async () => {
       const { gh } = make({ reads: { 'gh issue view 5 --json body,comments,labels,number,state,stateReason,title': answer } })
       await assert.rejects(gh.issueView(5), (e) => e.message === 'gh issue view returned a malformed answer')
     })
   }
+
+  test('issueView accepts an object with a positive whole number and lists, and gives it back', async () => {
+    const answer = { number: 5, labels: [null, 'x'], comments: [{ body: 'SUB_PLAN' }] }
+    const { gh } = make({ reads: { 'gh issue view 5 --json body,comments,labels,number,state,stateReason,title': answer } })
+    assert.deepEqual(await gh.issueView(5), answer)
+  })
 
   for (const [name, answer] of MALFORMED_PR_LISTS) {
     test(`prList refuses ${name} with a fixed message that holds none of the answer`, async () => {
@@ -574,6 +612,11 @@ describe('createGitHub reads', () => {
   test('prList accepts a list whose entries all have a positive whole number, and an empty list', async () => {
     assert.deepEqual(await make({ reads: { [PR_LIST]: [] } }).gh.prList(), [])
     const entries = [listEntry(1), listEntry(900)]
+    assert.deepEqual(await make({ reads: { [PR_LIST]: entries } }).gh.prList(), entries)
+  })
+
+  test('prList accepts closing references that hold entries which are not objects, and an empty list of them', async () => {
+    const entries = [{ ...listEntry(1), closingIssuesReferences: [null, 'x', 204] }, { ...listEntry(2), closingIssuesReferences: [] }]
     assert.deepEqual(await make({ reads: { [PR_LIST]: entries } }).gh.prList(), entries)
   })
 
@@ -834,6 +877,15 @@ describe('the gate', () => {
     assert.equal((await one(107)).pr, 205)
     assert.equal((await one(109)).pr, 211)
     for (const n of [101, 110, 116, 117]) assert.equal('pr' in (await one(n)), false, `#${n}`)
+  })
+
+  test('rule 5 and 6: an entry of a closing-reference list that is not an object is skipped, not thrown on', async () => {
+    const copy = JSON.parse(JSON.stringify(fixture))
+    for (const p of copy.reads[PR_LIST]) p.closingIssuesReferences.unshift(null, 'x')
+    const fake = fakeRunner(copy)
+    const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+    const entries = await runGate([107, 110], gh)
+    assert.deepEqual(entries.map((e) => [e.issue, e.outcome]), [[107, 'complete'], [110, 'resume']])
   })
 
   test('rule 6: a draft PR with no verdict resumes at the tester on its branch', async () => {
