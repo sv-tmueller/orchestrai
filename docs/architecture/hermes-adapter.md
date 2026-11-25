@@ -60,11 +60,8 @@ Claude Code and Codex adapter tables keep.
 The adapter realizes the tier split for every seat it spawns: `buildArgv`
 passes the model, provider and effort of the seat's tier. The driver
 dispatches only through it, and so does the orchestrai skill, which runs the
-driver. The tm-advisor Hermes skill still dispatches by hand, because
-`delegate_task` has a single global model pin (`delegation.model` in
-`~/.hermes/config.yaml`): its worker roles go through `delegate_task`, and its
-judgment roles (architect, reviewer) run as one-shot Hermes subprocess seats
-(`hermes chat -q -m <judgment-model> --reasoning max "<prompt>"`).
+driver. The tm-advisor Hermes skill runs the same driver for its batch, so
+it dispatches no seat by hand.
 
 To use a cheaper model for the worker tier, edit the `worker` entry:
 
@@ -104,19 +101,13 @@ by the adapter take model, provider, and effort from the table.
 `HERMES_ADAPTER_TABLE` is read only by the adapter module. It selects the
 variant for the driver (`hermes-pipeline.mjs`), and so for the orchestrai skill
 that runs it, and for anything else that spawns seats through
-`hermes-adapter.mjs`. The tm-advisor Hermes skill's own dispatch ignores it:
-there, workers follow `delegation.model` and the provider in
-`~/.hermes/config.yaml`, and judgment seats use the command hardcoded in
-`.claude/skills/tm-advisor/SKILL.hermes.md`. To run that path on Kimi, set
-`delegation.model` to `moonshotai/kimi-k3.1-pro` with provider `openrouter`
-and `delegation.reasoning_effort` to `xhigh` (children otherwise inherit the
-parent's level, which can be `max`), and dispatch judgment seats with
-`-m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+`hermes-adapter.mjs`. The tm-advisor Hermes skill runs the driver too, so the
+variable applies to it the same way.
 
 Effort policy. OpenRouter is a paid provider, so the paid-API policy applies,
 unlike the self-hosted default table: `effort_ceiling` is `xhigh` and
 `forbidden_efforts` is `["max", "ultra"]`. A seat on this table never runs at
-`max`, provided the lead and the tm-advisor skill's workers are set to `xhigh` as above.
+`max`, provided the lead session is set to `xhigh` as above.
 
 Cost profile (OpenRouter listing, 2026-10-24, USD per 1M tokens, 1M context
 for both models):
@@ -319,8 +310,7 @@ only, and a quoted line does not count.
    under `DEVIATIONS`, one line per disputed finding,
    `pushback: finding <k>: <why it is wrong>`. The driver reads that line (also
    after `DEVIATIONS:` or `NOTES:`, a list marker or a number) in the report's
-   raw text. No seat settles the dispute here: a person decides, or the advisor
-   skill does between driver runs.
+   raw text. No seat settles the dispute here: the owner decides.
 7. Anything else, and a seat that returns nothing, parks with
    `<role> seat returned no usable report`. A dry run uses placeholders in place
    of seat output instead.
@@ -343,7 +333,7 @@ an `error` line and is not done:
    sha from the latest review comment and goes through the same check.
 3. `orchestrai/review` = `success` is posted on the head read in step 1:
    `gh api -X POST repos/{owner}/{repo}/statuses/<head> -f state=success -f context=orchestrai/review -f description=<d>`,
-   with `<d>` = `approved by the reviewer`, or `not required (size S)` when the
+   with `<d>` = `approved by reviewer`, or `not required (size S)` when the
    gate skipped the reviewer; in that case a PR comment
    `Review not required (size S)` goes on first. This is the only status the
    driver posts, and `main` never requires `orchestrai/test`.
@@ -351,10 +341,14 @@ an `error` line and is not done:
    issue: `Pipeline complete: PR <pr> is ready for review.`, then
    `Reviewer: <APPROVE | not required (size S)>. Fix rounds used: <c>/2.`
 
-The driver does not queue auto merge and does not update a branch that falls
-behind `main`. A queued PR that falls behind needs `gh api -X PUT
-repos/{owner}/{repo}/pulls/<n>/update-branch` and a new `orchestrai/review` post
-on the new head; that is not automated here.
+Hermes exceptions to `docs/architecture/light-flow.md`, because the driver has
+no lead seat to judge:
+
+- It does not queue auto merge. The PR is left ready for a person to merge.
+- A developer `CHECKS` block with a nonzero exit goes to the reviewer instead
+  of back to the developer as a fix round. Safe, at the cost of one reviewer
+  dispatch.
+- An unsized issue parks at the gate instead of being sized by the lead.
 
 ### Parking
 
