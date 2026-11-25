@@ -471,6 +471,87 @@ describe('the fake runner', () => {
   })
 })
 
+// A developer's pushback (issue #619). The matcher reads `raw` only, with the
+// readers' rule: a line feed starts a line, a CR before it is dropped.
+describe('pushedBack', () => {
+  const { pushedBack } = driver
+  const raw = (...lines) => ({ raw: lines.join('\n') })
+
+  for (const line of [
+    'pushback: finding 1: the test already covers it',
+    'pushback: finding 12: two digits',
+    '  pushback: finding 1: indented',
+    '\tpushback: finding 1: tab indented',
+    'DEVIATIONS: pushback: finding 1: after the key',
+    'NOTES: pushback: finding 2: after the notes key',
+    'DEVIATIONS:   pushback: finding 1: more spaces',
+    '- pushback: finding 1: a dash item',
+    '* pushback: finding 1: a star item',
+    '1. pushback: finding 1: a numbered item',
+    '10. pushback: finding 1: a two digit item',
+    'DEVIATIONS: - pushback: finding 1: key and item',
+    '  NOTES:\t3. pushback: finding 3: everything at once',
+  ]) {
+    test(`reads ${JSON.stringify(line)} as a pushback`, () => {
+      assert.equal(pushedBack(raw('STATUS: DONE', line, 'NOTES: none')), true)
+    })
+  }
+
+  for (const [name, line] of [
+    ['upper case', 'PUSHBACK: FINDING 1: x'],
+    ['a capital first letter', 'Pushback: finding 1: x'],
+    ['mixed case after the key', 'DEVIATIONS: Pushback: Finding 1: x'],
+    ['no colon after the number', 'pushback: finding 1 the test covers it'],
+    ['no number', 'pushback: finding x: nothing'],
+    ['an empty number', 'pushback: finding : nothing'],
+    ['a quoted line', '> pushback: finding 1: x'],
+    ['text before it on the line', 'I say pushback: finding 1: x'],
+    ['another word after the key', 'DEVIATIONS: none, pushback: finding 1: x'],
+    ['a bullet that is not a bullet', '-pushback: finding 1: x'],
+    ['an item number with no space', '1.pushback: finding 1: x'],
+    ['the line of the prompt suffix, echoed back', 'If a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'],
+    ['the format of the suffix at the start of a line', 'pushback: finding <k>: <why it is wrong>'],
+    ['a json object line', '{"DEVIATIONS": "pushback: finding 1: x"}'],
+  ]) {
+    test(`does not read ${name} as a pushback`, () => {
+      assert.equal(pushedBack(raw('STATUS: DONE', line)), false)
+    })
+  }
+
+  test('reads a pushback line after CRLF line ends', () => {
+    assert.equal(pushedBack({ raw: 'STATUS: DONE\r\nDEVIATIONS: none\r\npushback: finding 1: x\r\n' }), true)
+  })
+
+  for (const [name, ch] of LINE_ENDS.filter(([, c]) => c !== '\n')) {
+    test(`does not start a pushback line after ${name}`, () => {
+      assert.equal(pushedBack({ raw: `STATUS: DONE${ch}pushback: finding 1: x` }), false)
+      assert.equal(pushedBack({ raw: `STATUS: DONE${ch}DEVIATIONS: pushback: finding 1: x` }), false)
+      assert.equal(pushedBack({ raw: `${ch}pushback: finding 1: x` }), false)
+    })
+  }
+
+  test('reads raw only: a pushback that is only a field from the json block is not read', () => {
+    const report = parseReport('developer', [
+      'STATUS: DONE', 'BRANCH: feat/7-work', 'PR: 12', 'CHECKS: `npm test` -> 0', 'NOTES: none', '',
+      '```json', JSON.stringify({ DEVIATIONS: 'pushback: finding 1: x' }), '```',
+    ].join('\n'))
+    assert.equal(report.DEVIATIONS, 'pushback: finding 1: x', 'the premise: the parser copies the field')
+    assert.equal(pushedBack(report), false)
+  })
+
+  test('a field of the report that is not raw is not read', () => {
+    assert.equal(pushedBack({ raw: 'STATUS: DONE', DEVIATIONS: 'pushback: finding 1: x', NOTES: 'pushback: finding 1: x' }), false)
+  })
+
+  test('a raw that is not text never throws and is no pushback', () => {
+    for (const value of [undefined, null, {}, [], ['pushback: finding 1: x'], true, 0]) {
+      assert.equal(pushedBack({ raw: value }), false)
+    }
+    assert.equal(pushedBack(undefined), false)
+    assert.equal(pushedBack(null), false)
+  })
+})
+
 describe('createGitHub reads', () => {
   const { createGitHub } = driver
   const make = (fixture, extra = {}) => {
@@ -2524,6 +2605,8 @@ describe('each seat accepts only the report its contract prescribes', () => {
       reviewer: [CHANGES(), CHANGES(), CHANGES(), APPROVE()],
     })
     const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
+    // The end of every reviewer fix prompt whose round has no outcome yet (issue #619).
+    const SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
 
     test('the longest run ships: three tester rounds and three reviewer rounds, a re-test FAIL after a reviewer round among them', async () => {
       const r = await pipeline(longest())
@@ -2719,7 +2802,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.ok(body.includes('2. second'))
       assert.equal(
         tasks(r.calls, 'developer')[1],
-        `Issue #7, branch feat/7-pending, reviewer fix round 1/3: fix exactly the must-fix findings of this review:\n${body}`
+        `Issue #7, branch feat/7-pending, reviewer fix round 1/3: fix exactly the must-fix findings of this review:\n${body}${SUFFIX}`
       )
     })
 
@@ -2802,7 +2885,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         )
         assert.equal(
           tasks(r.calls, 'developer')[0],
-          `Issue #7, branch feat/7-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${findings}${PICKUP}`
+          `Issue #7, branch feat/7-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${findings}${SUFFIX}${PICKUP}`
         )
         assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
         assert.match(tasks(r.calls, 'tester')[0], / verify the change after reviewer fix round 2\/3\./)

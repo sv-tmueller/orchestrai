@@ -121,6 +121,10 @@ const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
 // Fix rounds each seat may have, counted by the reports posted on the PR.
 const MAX_ROUNDS = 3
 
+// The end of a reviewer fix prompt: how the developer disputes a finding. A tester
+// finding is settled by the re-test, so a tester fix prompt does not carry it.
+const PUSHBACK_SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
+
 // Added to the first seat of a resumed run. The run that stopped may have sent
 // the very same prompt as its last dispatch, and a seat is never sent one prompt twice.
 const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
@@ -268,7 +272,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   // first line of a multi-line FINDINGS.
   const fixTask = (kind, round, body) =>
     `Issue #${issueNumber}, branch ${state.branch}, ${kind} fix round ${round}/${MAX_ROUNDS}: ` +
-    `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}`
+    `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}` +
+    (kind === 'reviewer' ? PUSHBACK_SUFFIX : '')
   const exhausted = (kind) => stop(`${kind} fix rounds exhausted (${MAX_ROUNDS}/${MAX_ROUNDS})`)
 
   // Posts one seat's report on the PR and returns the comment body. The seat's
@@ -539,6 +544,18 @@ const linesOf = (body) => String(body || '').split('\n').map((line) => line.repl
 const SIZE_EXCEEDS = /^Size check: exceeds\b/
 const exceedsSize = (raw) => SIZE_EXCEEDS.test(linesOf(textOf(raw)).filter((line) => line.trim() !== '').at(-1) ?? '')
 
+// A developer's pushback line, read with the readers' rule: a line feed starts a line.
+const PUSHBACK_LINE = /^[ \t]*(?:(?:DEVIATIONS|NOTES):[ \t]*)?(?:[-*][ \t]+|\d+\.[ \t]+)?pushback: finding \d+:/
+
+/**
+ * pushedBack(report) -> boolean
+ *
+ * Does a developer's fix-round report push back on a finding? It reads `raw`
+ * only: a field the parser copied from the json block is not read, so a
+ * pushback that sits only there is not arbitrated.
+ */
+export const pushedBack = (report) => linesOf(textOf(report?.raw)).some((line) => PUSHBACK_LINE.test(line))
+
 // The parser accepts any spacing after the colon, so the reader does too.
 const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/
 
@@ -665,6 +682,11 @@ const textOf = (value) => (typeof value === 'string' ? value : typeof value === 
 // characters, since other consumers of its output may end a line at more than a
 // line feed.
 const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+
+// Seat text as a quoted block: every line end of the writer's rule starts a new
+// `> ` line, so no line of it starts with SUB_PLAN or VERDICT: where the gate
+// and the readers look. A park comment and an arbitration outcome quote this way.
+const quote = (text) => text.split(LINE_END).map((line) => `> ${line}`).join('\n')
 
 // A line that is only a code fence marker, with or without a language word.
 const FENCE_LINE = /^(?:`{3,}|~{3,})[^\s`~]*$/
@@ -829,10 +851,9 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
 
     // Parking: the reason on the issue, needs-human on, in-progress off only
     // when the issue has it (removing a missing label is an error). details is
-    // seat text. It is quoted line by line, every line end starting a new line,
-    // so no line of it starts with SUB_PLAN or VERDICT: where the gate reads comments.
+    // seat text, written as a quoted block (quote).
     async park(n, reason, { inProgress = false, details } = {}) {
-      const quoted = details ? `\n\n${details.split(LINE_END).map((l) => `> ${l}`).join('\n')}` : ''
+      const quoted = details ? `\n\n${quote(details)}` : ''
       await gh.comment(n, `Parked: ${reason}${quoted}`)
       await gh.addLabel(n, 'needs-human')
       if (inProgress) await gh.removeLabel(n, 'in-progress')
