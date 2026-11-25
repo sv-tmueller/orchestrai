@@ -641,12 +641,16 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
     comment: (n, body) => write('gh', ['issue', 'comment', String(n), '--body', body]),
     addLabel: (n, label) => write('gh', ['issue', 'edit', String(n), '--add-label', label]),
     removeLabel: (n, label) => write('gh', ['issue', 'edit', String(n), '--remove-label', label]),
+    prComment: (pr, body) => write('gh', ['pr', 'comment', String(pr), '--body', body]),
     prReady: (pr) => write('gh', ['pr', 'ready', String(pr)]),
 
     // Parking: the reason on the issue, needs-human on, in-progress off only
-    // when the issue has it (removing a missing label is an error).
-    async park(n, reason, { inProgress = false } = {}) {
-      await gh.comment(n, `Parked: ${reason}`)
+    // when the issue has it (removing a missing label is an error). details is
+    // seat text. It is quoted line by line, so no line of it starts with
+    // SUB_PLAN or VERDICT: where the gate reads comments.
+    async park(n, reason, { inProgress = false, details } = {}) {
+      const quoted = details ? `\n\n${details.replace(/\r/g, '').split('\n').map((l) => `> ${l}`).join('\n')}` : ''
+      await gh.comment(n, `Parked: ${reason}${quoted}`)
       await gh.addLabel(n, 'needs-human')
       if (inProgress) await gh.removeLabel(n, 'in-progress')
     },

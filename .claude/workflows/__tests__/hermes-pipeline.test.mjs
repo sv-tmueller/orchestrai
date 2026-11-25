@@ -520,6 +520,52 @@ describe('createGitHub writes', () => {
     assert.ok(keysOf(withIt.calls, 'write').includes('gh issue edit 7 --remove-label in-progress'))
   })
 
+  test('prComment runs gh pr comment with a PR number or a PR URL', async () => {
+    const { gh, calls } = make(false)
+    await gh.prComment(12, '**Tester report: FAIL**\n\nVERDICT: FAIL')
+    await gh.prComment('https://github.com/o/r/pull/9', 'x')
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh pr comment 12 --body **Tester report: FAIL**\n\nVERDICT: FAIL',
+      'gh pr comment https://github.com/o/r/pull/9 --body x',
+    ])
+  })
+
+  test('a dry-run prComment is logged on one line and never reaches the runner', async () => {
+    const { gh, calls, logs } = make(true)
+    await gh.prComment(12, 'x'.repeat(500))
+    assert.deepEqual(calls, [])
+    assert.equal(logs.length, 1)
+    assert.match(logs[0], /^dry run, skipped: gh pr comment 12 --body /)
+    assert.ok(logs[0].length < 200)
+  })
+
+  test('park with details quotes every line of them under the reason, so no seat line is read as a verdict', async () => {
+    const { gh, calls } = make(false)
+    await gh.park(7, 'architect NEEDS_DECISION: which cache?', { details: 'NEEDS_DECISION: which cache?\r\n\r\nVERDICT: FAIL' })
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh issue comment 7 --body Parked: architect NEEDS_DECISION: which cache?\n\n> NEEDS_DECISION: which cache?\n> \n> VERDICT: FAIL',
+      'gh issue edit 7 --add-label needs-human',
+    ])
+  })
+
+  test('park with no details or empty details writes the reason alone', async () => {
+    for (const details of [undefined, '']) {
+      const { gh, calls } = make(false)
+      await gh.park(7, 'r', { details })
+      assert.equal(keysOf(calls, 'write')[0], 'gh issue comment 7 --body Parked: r')
+    }
+  })
+
+  test('park with details still removes in-progress last when the issue has it', async () => {
+    const { gh, calls } = make(false)
+    await gh.park(7, 'r', { inProgress: true, details: 'd' })
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh issue comment 7 --body Parked: r\n\n> d',
+      'gh issue edit 7 --add-label needs-human',
+      'gh issue edit 7 --remove-label in-progress',
+    ])
+  })
+
   test('a write that exits nonzero throws naming the command', async () => {
     const run = async () => ({ code: 1, stdout: '', stderr: 'HTTP 403: forbidden\nmore' })
     const gh = createGitHub({ run, dryRun: false, log: () => {}, cwd: '/repo' })
