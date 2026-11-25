@@ -82,8 +82,11 @@ reader needs first.
   whose commits are on origin. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
   "Wave end".
 
-These apply to Claude Code. On Hermes the pipeline driver
-(`.claude/adapters/hermes-pipeline.mjs`) enforces the same flow in code.
+Worktree cleanup, auto merge, and capped seat reports apply to Claude Code only for now; Hermes and Codex
+mirroring is pending. On Hermes the pipeline driver
+(`.claude/adapters/hermes-pipeline.mjs`) follows the light flow
+(`docs/architecture/light-flow.md`): a developer, a reviewer only when the
+review gate says so, and at most 2 fix rounds.
 
 ## Components
 
@@ -378,8 +381,8 @@ in `docs/architecture/hermes-adapter.md`.
 Two Hermes skills ship with this repo:
 
 - **orchestrai** - runs the pipeline driver,
-  `.claude/adapters/hermes-pipeline.mjs` (architect, developer, tester,
-  reviewer), and reads its output back to you. Auto-discovered at
+  `hermes-pipeline.mjs` (a developer, then a reviewer when the review gate
+  says so), and reads its output back to you. Auto-discovered at
   `~/.hermes/skills/autonomous-ai-agents/orchestrai/`.
 - **tm-advisor** - the batch advisor (refine a need, propose a batch,
   get sign-off, dispatch the pipeline). Auto-discovered at
@@ -425,7 +428,11 @@ hermes -s orchestrai chat -q "Run the orchestrator team on issue #42"
 ```
 
 The lead session reads the skill and runs the driver from the repo you want
-worked on: first with `DRY_RUN=true`, which prints the gate and the wave plan
+worked on. The skill finds the driver through `ORCHESTRAI_ROOT`, the folder that
+holds `adapters/` (default `.claude`). In a repo that has no
+`.claude/adapters`, set it once to the `.claude` folder of an orchestrai
+checkout: `export ORCHESTRAI_ROOT=~/orchestrai/.claude`. The driver still works
+on the repo in the current directory. It runs first with `DRY_RUN=true`, which prints the gate and the wave plan
 and writes nothing, then, once you confirm, live. The driver spawns each seat
 as a `hermes -z` subprocess with the model of its tier from the adapter table,
 and the adapter loads the role prompts from `.claude/adapters/prompts/`. The
@@ -456,14 +463,10 @@ tracking issues and continues or proposes the next batch:
 hermes -s tm-advisor
 ```
 
-The advisor loads the orchestrai pipeline via `skill_view` at dispatch
-time, so you do not need to preload orchestrai separately. The advisor
-holds the sign-off gate; after it, the run is unattended.
-
-Since #605 the orchestrai skill holds no pipeline stages: it runs the driver.
-The advisor's run and resume steps still refer to those stages, and issue #624
-moves them to the driver. Until then, run a batch's packages on Hermes with the
-orchestrai skill.
+After the sign-off the advisor runs the batch through the same driver, found
+the same way, so you do not need to preload orchestrai separately. The advisor
+holds the sign-off gate, which stands in for the driver's dry-run confirmation;
+after it, the run is unattended.
 
 #### Skill bundles
 
@@ -541,7 +544,7 @@ it from the repo you want worked on, with issue numbers or `label:<name>`:
 
 ```bash
 HERMES_ADAPTER_TABLE=hermes-openrouter.json \
-  node .claude/adapters/hermes-pipeline.mjs 42 43 label:size:S
+  node "${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs" 42 43 label:size:S
 ```
 
 Run it with `DRY_RUN=true` first. A dry run reads GitHub, prints the gate and
@@ -554,17 +557,9 @@ and it puts `HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of its
 commands. The lead session is not spawned by the adapter, so start it on Kimi
 yourself: `hermes -s orchestrai chat -m moonshotai/kimi-k3.1-pro --provider
 openrouter --reasoning xhigh` (without `--reasoning` it uses
-`agent.reasoning_effort`, which can be `max`). The tm-advisor skill still
-dispatches its seats itself and does not read the env var. To put it on Kimi,
-make these changes by hand:
-
-- Judgment seats (architect, reviewer): dispatch
-  `hermes chat -q -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh "<prompt>"`.
-- Worker children: in `~/.hermes/config.yaml`, set `delegation.model` to
-  `moonshotai/kimi-k3.1-pro`, the delegation provider to `openrouter`, and
-  `delegation.reasoning_effort` to `xhigh`.
-- Lead session: start it with
-  `hermes -s tm-advisor chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
+`agent.reasoning_effort`, which can be `max`). The tm-advisor skill runs the
+same driver, so the env var applies to it too. Start its lead session with
+`hermes -s tm-advisor chat -m moonshotai/kimi-k3.1-pro --provider openrouter --reasoning xhigh`.
 
 Prices, selection details, and the customer-repo exclusion:
 `docs/architecture/hermes-adapter.md`.

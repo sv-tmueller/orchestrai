@@ -79,7 +79,7 @@ const FORBIDDEN_EFFORTS = [
   // Table-level policy (self-hosted exemption empties it) UNION the
   // host-extra levels the effort-policy test hardcodes as the authority:
   // Hermes --reasoning accepts ultra above max, so ultra stays forbidden
-  // even though max itself is allowed (batch #437 arbitration). A Set,
+  // even though max itself is allowed (batch #437 ruling). A Set,
   // because a paid table already lists ultra and the error message would
   // otherwise repeat it.
   ...new Set([...(adapterTable.forbidden_efforts || []), 'ultra']),
@@ -241,7 +241,7 @@ export function detectFailure(result, role) {
  * within tier; otherwise the ladder is cross-tier (judgment to worker),
  * as the parent design specifies.
  *
- * Within-tier exists because a cross-tier retry would hand an arbitration
+ * Within-tier exists because a cross-tier retry would hand an architect ruling
  * or a review verdict to the worker tier. That is correct on Claude Code,
  * where the worker tier is a capable generalist, and wrong wherever the
  * worker tier is a cheap task-specialised model.
@@ -420,7 +420,7 @@ export async function retry(task, opts = {}, fallbackTier) {
 function dryRunSpawn(role, task, opts) {
   // Role-specific verdicts so the pipeline driver can route correctly.
   const VERDICTS = {
-    architect: { KIND: 'SUB_PLAN', output: 'SUB_PLAN: approach, files, order, verification.' },
+    architect: { KIND: 'SPLIT_PROPOSAL', output: 'SPLIT_PROPOSAL: the parts of the split.' },
     developer: { STATUS: 'DONE', BRANCH: 'dry-run-branch', PR: 'https://github.com/example/dry-run' },
     reviewer: { VERDICT: 'APPROVE', STAGE: 'both clean', FINDINGS: 'none' },
     'fact-checker': { VERDICT: 'GROUNDED', COMMIT: 'abc123', CLAIMS: [], SUMMARY: '0 verified, 0 contradicted' },

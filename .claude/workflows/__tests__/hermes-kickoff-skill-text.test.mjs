@@ -23,6 +23,10 @@
  * The skill also carries one command of its own, the split proposal. A third
  * half takes it out of the skill text and runs it against a stand-in for the
  * hermes binary, one case per reply, because its accept rule is code.
+ *
+ * Both commands find the driver through ORCHESTRAI_ROOT, default `.claude`
+ * (issue #627). A fourth half runs them as the skill prints them, from a folder
+ * that has no `.claude/adapters`, with the variable pointing at the real one.
  */
 
 import { test, describe, before, after } from 'node:test'
@@ -34,6 +38,8 @@ import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { LABELS, USAGE, formatReport } from '../../adapters/hermes-pipeline.mjs'
 
+const ROOT_VAR = '"${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs"'
+
 const __dir = dirname(fileURLToPath(import.meta.url))
 const claudeDir = join(__dir, '..', '..')
 const raw = readFileSync(join(claudeDir, 'skills', 'tm-kickoff', 'SKILL.hermes.md'), 'utf8')
@@ -41,16 +47,16 @@ const text = raw.replace(/\s+/g, ' ')
 const repoRoot = join(claudeDir, '..')
 
 describe('thin Hermes kickoff skill: what it keeps', () => {
-  test('it runs the driver in a dry run first, on its own line', () => {
-    assert.match(raw, /^DRY_RUN=true node \.claude\/adapters\/hermes-pipeline\.mjs /m, 'the dry-run command line is missing')
+  test('it runs the driver in a dry run first, on its own line, through the root variable', () => {
+    assert.ok(raw.split('\n').some((l) => l.startsWith(`DRY_RUN=true node ${ROOT_VAR} `)), 'the dry-run command line is missing')
   })
 
-  test('it then runs the driver live, on its own line', () => {
-    assert.match(raw, /^node \.claude\/adapters\/hermes-pipeline\.mjs /m, 'the live command line is missing')
+  test('it then runs the driver live, on its own line, through the root variable', () => {
+    assert.ok(raw.split('\n').some((l) => l.startsWith(`node ${ROOT_VAR} `)), 'the live command line is missing')
   })
 
   test('the command it names is the one the driver prints in its usage line', () => {
-    assert.ok(USAGE.startsWith('usage: node .claude/adapters/hermes-pipeline.mjs '), 'the driver usage line changed; update the skill and this test')
+    assert.ok(USAGE.startsWith(`usage: node ${ROOT_VAR} `), 'the driver usage line changed; update the skill and this test')
   })
 
   test('it points to the driver description, which exists', () => {
@@ -95,8 +101,14 @@ describe('thin Hermes kickoff skill: what it keeps', () => {
     for (const code of [0, 1, 2]) assert.match(raw, new RegExp(`^- ${code}:`, 'm'), `the exit code ${code} bullet is missing`)
   })
 
-  test('it says what to do when the driver file is not in the repo', () => {
-    assert.ok(text.includes('`.claude/adapters/hermes-pipeline.mjs` is not there'))
+  test('it says what to do when neither the variable nor the default leads to the driver', () => {
+    assert.ok(text.includes('If the driver file is not there'))
+    assert.ok(text.includes('stop and tell the user to set `ORCHESTRAI_ROOT`'))
+  })
+
+  test('it names the variable, its default and what it points at', () => {
+    assert.ok(text.includes('`ORCHESTRAI_ROOT`, the folder that holds `adapters/`'))
+    assert.ok(text.includes('With the variable unset it is `.claude`'))
   })
 })
 
@@ -142,14 +154,19 @@ describe('thin Hermes kickoff skill: what it must not hold', () => {
 
 // The split-proposal command, as the skill carries it: a fenced block that
 // starts with `node --input-type=module -e '`, the script between the single
-// quotes, then the task text in double quotes.
+// quotes, then the root and the task text in double quotes. The whole block is
+// the command, so a test runs it through `sh -c` as the lead would.
 function splitCommand() {
-  const block = raw.match(/^([ \t]*)```\n\1node --input-type=module -e '([^']*)' "([^"]*)"\n\1```$/m)
+  const block = raw.match(/^([ \t]*)```\n\1(node --input-type=module -e '[^']*' "[^"]*" "[^"]*")\n\1```$/m)
   assert.ok(block, 'the split-proposal command block is missing from the skill')
-  const [, indent, script, task] = block
-  const dedent = (str) => str.split('\n').map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l)).join('\n')
-  return { script, task: dedent(task).replace('<n>', '605') }
+  const [, indent, command] = block
+  const dedented = command.split('\n').map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l)).join('\n')
+  return { command: dedented.replace('<n>', '605'), script: dedented.match(/-e '([^']*)'/)[1] }
 }
+
+// A folder that holds no .claude, so only the root variable can lead to the driver.
+const elsewhere = () => mkdtempSync(join(tmpdir(), 'hermes-elsewhere-'))
+const nodeDir = dirname(process.execPath)
 
 describe('thin Hermes kickoff skill: the split-proposal command', () => {
   let dir
@@ -162,15 +179,17 @@ describe('thin Hermes kickoff skill: the split-proposal command', () => {
 
   // Runs the command as the lead would, with the stand-in as the hermes binary.
   // DRY_RUN and the table choice are removed from the environment so the real
-  // path runs, and the stand-in answers instead of a model.
-  function run(reply, code = 0) {
+  // path runs, and the stand-in answers instead of a model. root is the value of
+  // ORCHESTRAI_ROOT, or undefined for the default; cwd is where the lead stands.
+  function run(reply, code = 0, { root, cwd = repoRoot } = {}) {
     writeFileSync(join(dir, 'reply.txt'), reply)
     writeFileSync(join(dir, 'code'), String(code))
-    const { script, task } = splitCommand()
-    const env = { ...process.env, HERMES_BIN: join(dir, 'hermes-stub.sh') }
+    const env = { ...process.env, HERMES_BIN: join(dir, 'hermes-stub.sh'), PATH: `${nodeDir}:/usr/bin:/bin` }
     delete env.DRY_RUN
     delete env.HERMES_ADAPTER_TABLE
-    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script, task], { cwd: repoRoot, env, encoding: 'utf8', timeout: 30000 })
+    delete env.ORCHESTRAI_ROOT
+    if (root) env.ORCHESTRAI_ROOT = root
+    const r = spawnSync('sh', ['-c', splitCommand().command], { cwd, env, encoding: 'utf8', timeout: 30000 })
     assert.equal(r.error, undefined, `the command did not run: ${r.error}`)
     return r
   }
@@ -182,6 +201,28 @@ describe('thin Hermes kickoff skill: the split-proposal command', () => {
     assert.equal(r.status, 0, r.stderr)
     assert.equal(r.stdout, `${PROPOSAL.trim()}\n`)
     assert.ok(r.stdout.startsWith('SPLIT_PROPOSAL'))
+  })
+
+  test('from a folder with no .claude, the root variable leads to the adapter', () => {
+    const cwd = elsewhere()
+    try {
+      const r = run(PROPOSAL, 0, { root: claudeDir, cwd })
+      assert.equal(r.status, 0, r.stderr)
+      assert.equal(r.stdout, `${PROPOSAL.trim()}\n`)
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('from a folder with no .claude and no variable, the default does not find the adapter', () => {
+    const cwd = elsewhere()
+    try {
+      const r = run(PROPOSAL, 0, { cwd })
+      assert.notEqual(r.status, 0)
+      assert.equal(r.stdout, '')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 
   test('leading blank lines and spaces are trimmed, so the check for an existing proposal finds it', () => {
@@ -208,11 +249,11 @@ describe('thin Hermes kickoff skill: the split-proposal command', () => {
     assert.equal(r.stdout, '')
   })
 
-  test('a SUB_PLAN reply exits 1, prints nothing and leaves the reply on stderr', () => {
-    const r = run('SUB_PLAN\n\nApproach: extend the table.\n')
+  test('another report kind exits 1, prints nothing and leaves the reply on stderr', () => {
+    const r = run('ARBITRATION\n\nThe developer is right.\n')
     assert.equal(r.status, 1)
     assert.equal(r.stdout, '')
-    assert.ok(r.stderr.includes('Approach: extend the table.'), r.stderr)
+    assert.ok(r.stderr.includes('The developer is right.'), r.stderr)
   })
 
   test('a kind that comes only from a trailing json block is refused', () => {
@@ -239,5 +280,56 @@ describe('thin Hermes kickoff skill: the split-proposal command', () => {
     const rule = splitCommand().script.match(/\/\^(\w+)/)?.[1]
     assert.ok(word, 'the existing-proposal check is missing')
     assert.equal(rule, word, 'the command must accept the word the existing-proposal check looks for')
+  })
+})
+
+// The driver command lines as the skill prints them, run through `sh -c` with a
+// stand-in gh first on PATH. The gate reads one open size:M issue with an
+// Approach section, so a dry run prints a one-package wave plan.
+describe('thin Hermes kickoff skill: the driver is found through ORCHESTRAI_ROOT (issue #627)', () => {
+  let bin
+  const issue = { number: 5, state: 'OPEN', stateReason: '', title: 'T', body: '## Approach\n- x', labels: [{ name: 'size:M' }], comments: [] }
+  before(() => {
+    bin = mkdtempSync(join(tmpdir(), 'hermes-gh-stub-'))
+    writeFileSync(join(bin, 'issue.json'), JSON.stringify(issue))
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\ncase "$1 $2" in\n"issue view") cat "${bin}/issue.json";;\n"pr list") echo '[]';;\n"label create") ;;\n*) echo "unexpected gh $*" >&2; exit 1;;\nesac\n`)
+    chmodSync(join(bin, 'gh'), 0o755)
+  })
+  after(() => rmSync(bin, { recursive: true, force: true }))
+
+  const dryRunLine = () => raw.split('\n').find((l) => l.startsWith('DRY_RUN=true node ')).replace('<arguments>', '5')
+  function dryRun({ root, cwd }) {
+    const env = { PATH: `${bin}:${nodeDir}:/usr/bin:/bin` }
+    if (root) env.ORCHESTRAI_ROOT = root
+    return spawnSync('sh', ['-c', dryRunLine()], { cwd, env, encoding: 'utf8', timeout: 30000 })
+  }
+  const PLAN = '#5 size:M run: no PR yet, starting at the developer\nwave 1: #5\n'
+
+  test('from a folder with no .claude/adapters, the variable leads to the real driver', () => {
+    const cwd = elsewhere()
+    try {
+      const r = dryRun({ root: claudeDir, cwd })
+      assert.equal(r.status, 0, r.stderr)
+      assert.equal(r.stdout, PLAN)
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('with the variable unset, the .claude default behaves the same from inside the repo', () => {
+    const r = dryRun({ cwd: repoRoot })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stdout, PLAN)
+  })
+
+  test('with the variable unset, a folder with no .claude finds no driver', () => {
+    const cwd = elsewhere()
+    try {
+      const r = dryRun({ cwd })
+      assert.notEqual(r.status, 0)
+      assert.equal(r.stdout, '')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 })

@@ -37,7 +37,7 @@ const ALL_ROLES = [
 // Recorded stdout per role, matching the report contracts in
 // docs/architecture/role-contracts.md. These are fixtures, not live output.
 const FIXTURES = {
-  architect: 'SUB_PLAN\n\nApproach: extend the table.\nFiles: hermes.json\nOrder: table, then adapter.\nVerification: npm test',
+  architect: 'SPLIT_PROPOSAL\n\nPart 1: the table.\nPart 2: the adapter.',
   developer: [
     'Implemented per the sub-plan.',
     '',
@@ -291,7 +291,11 @@ describe('parseReport', () => {
 
   test('reads the architect opener as the report kind', () => {
     const r = parseReport('architect', FIXTURES.architect)
-    assert.equal(r.KIND, 'SUB_PLAN')
+    assert.equal(r.KIND, 'SPLIT_PROPOSAL')
+  })
+
+  test('SUB_PLAN is no longer an architect opener', () => {
+    assert.equal(parseReport('architect', 'SUB_PLAN\n\nApproach: extend the table.').KIND, undefined)
   })
 
   test('reads a NEEDS_DECISION architect report and keeps the question', () => {
