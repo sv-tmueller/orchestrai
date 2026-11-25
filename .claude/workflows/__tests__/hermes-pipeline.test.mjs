@@ -3194,6 +3194,10 @@ describe('each seat accepts only the report its contract prescribes', () => {
           assert.deepEqual(driver.resumeStage(asComments([bodies[1], body])), { stage: 'developer', findings: bodies[1] })
           assert.deepEqual(driver.countFixRounds(asComments([bodies[0], bodies[1], body])), { tester: 0, reviewer: 1 })
           assert.equal(tasks(r.calls, 'developer')[2], ARBITRATED_PROMPT(1, body))
+          assert.ok(tasks(r.calls, 'tester')[1].endsWith(SETTLED(body)), 'the block carries the posted comment as it is')
+          assert.ok(tasks(r.calls, 'reviewer')[1].endsWith(SETTLED(body)))
+          const summary = keysOf(r.calls, 'write').at(-1)
+          assert.ok(summary.endsWith('reviewer 1/3. Arbitrations: 1.') && !NON_LF_END.test(summary), 'the summary line holds a number only')
         })
       }
 

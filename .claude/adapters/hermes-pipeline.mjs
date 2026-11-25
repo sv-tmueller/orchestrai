@@ -121,8 +121,9 @@ const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
 // Fix rounds each seat may have, counted by the reports posted on the PR.
 const MAX_ROUNDS = 3
 
-// The end of a reviewer fix prompt: how the developer disputes a finding. A tester
-// finding is settled by the re-test, so a tester fix prompt does not carry it.
+// The end of a reviewer fix prompt whose round has no outcome yet: how the developer
+// disputes a finding. A tester finding is settled by the re-test, so a tester fix
+// prompt never carries it.
 const PUSHBACK_SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
 
 // Added to the first seat of a resumed run. The run that stopped may have sent
@@ -254,7 +255,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact. exact keeps a prompt as it is,
   // for the one the no-PR ruling on #355 fixed word for word. Every other prompt
-  // ends with the outcomes that stand, then the pick-up line.
+  // gets the outcomes that stand, and the first seat of a resume then the pick-up line.
   let pickUp = Boolean(resume)
   const settled = () =>
     state.arbitrations.length === 0
@@ -280,10 +281,10 @@ export async function runPipeline(issueNumber, opts = {}) {
       : `\n\nUntested claims to rate under CLAIMS: take them from the latest tester report comment on PR ${state.pr}.`
     return `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue and sub-plan${after()}. Two passes: spec compliance then code quality.${claims}`
   }
-  // The fix prompt carries the whole posted report: the parser keeps only the
-  // first line of a multi-line FINDINGS.
   // A round has an outcome when one of the outcomes that stand opens with its header.
   const arbitrated = (round) => state.arbitrations.some((outcome) => linesOf(outcome)[0] === outcomeHeader(issueNumber, round))
+  // The fix prompt carries the whole posted report: the parser keeps only the
+  // first line of a multi-line FINDINGS.
   const fixTask = (kind, round, body) =>
     `Issue #${issueNumber}, branch ${state.branch}, ${kind} fix round ${round}/${MAX_ROUNDS}: ` +
     `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}` +
@@ -307,9 +308,10 @@ export async function runPipeline(issueNumber, opts = {}) {
     return body
   }
 
-  // The developer pushed back on a finding of a reviewer round: the architect
-  // decides, the outcome goes on the PR, and the developer works from it. It is
-  // the same fix round, so no count moves. False when the run stops.
+  // The developer's report of a reviewer fix round may push back on a finding: the
+  // architect decides, the outcome is posted on the PR (a dry run logs that write),
+  // and the developer works from it. It is the same fix round, so no count moves,
+  // and a round that has an outcome is not arbitrated again. False when the run stops.
   const arbitrate = async (devReport, reviewBody) => {
     const { round } = lastFix
     if (!pushedBack(devReport) || arbitrated(round)) return true
@@ -438,8 +440,8 @@ export async function runPipeline(issueNumber, opts = {}) {
     if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
 
-    // A resume with reviewer findings is a reviewer fix round: the developer may push
-    // back on them. The PR is checked first, so no architect is spent on a bad one.
+    // A resume with reviewer findings is a reviewer fix round. The PR check comes
+    // first, so a live run spends no architect on a report with a bad PR.
     if (fixKind === 'reviewer' && !(await arbitrate(devReport, resume.findings))) return state
   }
 

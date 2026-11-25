@@ -308,9 +308,20 @@ described under "Parking". When the error is not a failed command, it is the
 single line of the error's message, cut the same way. A failed command at the
 gate prints one line on stderr instead: the command with its arguments on one
 line (a newline in an argument shows as a space), then the single line of its
-stderr. An answer the gate cannot accept prints its fixed message on stderr: a
-PR list as above, or an issue read (`gh issue list`, `gh issue view`) whose
-`number` is not a positive integer.
+stderr. An answer the driver cannot accept is a failed read with a fixed
+message, `gh <command> returned a malformed answer`, that holds none of the
+answer. At the gate the message is printed on stderr, and in a package it is
+that package's `error` line. A read is accepted only when:
+
+- `gh issue list` is a list of objects, each with a positive integer `number`.
+- `gh issue view` is an object with a positive integer `number` and with
+  `labels` and `comments` that are lists.
+- `gh pr list` is a list of objects, each with a positive integer `number` and
+  a `closingIssuesReferences` that is a list. An entry of
+  `closingIssuesReferences` that is not an object matches no issue.
+- `gh pr view <pr> --json comments` is an object whose `comments` is a list.
+- The closing read of ship is described under "Ship and report".
+
 Progress, dry-run notes and errors go to stderr.
 
 `DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
@@ -380,6 +391,118 @@ The reviewer's prompt carries the latest tester report, for the untested
 claims it rates. After a resume at the reviewer, which has no tester report in
 memory, it names the tester's comment on the PR instead.
 
+#### Arbitration
+
+A developer may dispute a finding of a reviewer round. The fix prompt of every
+reviewer round that has no outcome yet (below) has this after the findings:
+
+```
+
+If a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.
+```
+
+A tester fix prompt does not carry it: a tester finding is settled by the
+re-test, and a tester round is never arbitrated.
+
+**What counts as a pushback.** A line of the developer report's `raw` that
+starts with optional spaces and tabs, then optionally `DEVIATIONS:` or `NOTES:`
+and spaces, then optionally a list marker (`-` or `*` and spaces, or digits, a
+dot and spaces), and then `pushback: finding <digits>:`. The match is
+case-sensitive and uses the readers' rule (see "Fix rounds"): a line feed starts
+a line, and a CR before it is dropped. So the words after a lone carriage return,
+a vertical tab, a form feed, U+0085, U+2028 or U+2029 do not make a pushback, a
+quoted line does not, and neither does the suffix line of the prompt echoed back.
+Only `raw` is read: a pushback that appears only in the json block is not read,
+nothing is arbitrated, and the re-review decides.
+
+**The flow.** The check sits after the developer's report passes the status
+check and before the re-test. On a resume with reviewer findings it sits in the
+developer stage, after the PR check, so a live run spends no architect on a
+report with a bad PR. When the report pushes back, and the round has no outcome
+yet, the driver dispatches the architect (judgment tier, the package worktree):
+
+```
+JOB: ARBITRATION
+
+Issue #<n>, PR <pr>, reviewer fix round <k>/3: the developer pushed back on findings of the reviewer report below. For each finding pushed back on, decide who is right and state the required outcome.
+
+The reviewer report:
+<the posted report body>
+
+The developer's report:
+<the developer's raw>
+```
+
+The reply is accepted only when it is an `ARBITRATION` report with a body (the
+rule of the sub-plan: text after `ARBITRATION:` on the header line, or a
+non-empty line after it). A `NEEDS_DECISION` parks as in the sub-plan stage, in a dry run too.
+Any other reply parks with `architect seat returned no usable report`. A dry run
+accepts any other reply.
+
+The outcome is posted on the PR (a dry run logs the write):
+
+```
+**Arbitration outcome (issue #<n>, reviewer fix round <k>/3)**
+
+> <the architect's reply, trimmed, one `> ` per line>
+```
+
+The reply is quoted the way a park comment quotes seat text (see "Parking"). The
+developer is then dispatched again for the same round:
+
+```
+Issue #<n>, branch <branch>, reviewer fix round <k>/3: the arbitration outcome below is final. Make every change it requires, leave every finding it overrules as it is, and report.
+<the outcome comment's body>
+```
+
+Its `STATUS` is checked like that of any fix-round report (a `BLOCKED` parks),
+and then the re-test follows.
+
+**The same round.** An arbitration is not a new round. It moves no count, the
+re-test and the re-review name `after reviewer fix round <k>/3`, and a `FAIL` in
+that re-test is an ordinary tester round. The architect's dispatch adds to no
+count. A round is arbitrated at most once: the outcomes of the run are keyed by
+their header, and a round that already has one is not arbitrated again. That
+covers a pushback in the second developer report, and a resume after the outcome
+was posted.
+
+**Settled findings.** While the run holds an outcome, every dispatch gets the
+block below after its prompt, and the first seat of a resume gets the pick-up
+line after the block. This includes a later arbitration, which sees the earlier
+outcomes. The one prompt sent word for word (the developer resume for a branch
+with no PR) never gets it. The outcome of the arbitration in progress is in its
+developer prompt and joins the block after that dispatch.
+
+```
+
+Settled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.
+<outcome>
+
+<outcome>
+```
+
+**Resume.** `resumeStage` skips an outcome comment: after its header and an
+empty line every line starts with `> `, so it has no `VERDICT:` line at the start
+of a line. The stage and the findings are read from the latest comment that has
+a verdict line, as before. `countFixRounds` does not count it. The gate reads the
+outcomes from the PR comments it already reads, with no further call. A comment
+is an outcome when its first line, read with the readers' rule, is exactly the
+header above, with the number of this issue and a round number in digits. A
+header on a later line, after another line end, for another issue, or in the
+text of a posted report (the first line of a posted report is the driver's own)
+is not read. The bodies are kept in order of creation, and `resume.arbitrations`
+is set only when there is at least one. The driver does not look at who wrote a
+comment, for an outcome or for a verdict. The run starts with these outcomes. A round that already has one gets its fix prompt
+with no pushback suffix, then the block and the pick-up line, and a pushback in
+the developer's report is not arbitrated.
+
+**Dry run.** `runPipeline` with `dryRun` arbitrates only when a scripted
+developer report pushes back: the adapter's dry-run developer has no `raw`. The
+outcome write is logged as `dry run, skipped: gh pr comment ...`.
+
+Arbitration adds nothing to stdout. A stop inside it is one more `parked` line,
+and the summary comment names the number of arbitrations (see "Ship and report").
+
 ### Ship and report
 
 A package ships when the tester's last verdict is `PASS` and the reviewer's is
@@ -401,20 +524,20 @@ driver does not edit the PR: a person adds `Closes #<n>` and removes
 the `APPROVE` comment. A dry run makes no read.
 
 The driver accepts the answer only when it is an object whose `number` is a
-positive integer and whose `closingIssuesReferences` is a list, and the gate
-accepts its PR list only when every entry has such a `number`. Anything else is
-a failed read: the package, or the run, gets an error.
+positive integer and whose `closingIssuesReferences` is a list. Anything else is
+a failed read: the package gets an error.
 
 The summary comment on the issue is:
 
 ```
 Pipeline complete: PR <pr> is ready for review.
 
-Tester PASS, reviewer APPROVE. Fix rounds used: tester <t>/3, reviewer <r>/3.
+Tester PASS, reviewer APPROVE. Fix rounds used: tester <t>/3, reviewer <r>/3. Arbitrations: <a>.
 ```
 
-`<pr>` is the PR value of the package, cut to its single line, and `<t>` and
-`<r>` are the counts of fix rounds used.
+`<pr>` is the PR value of the package, cut to its single line, `<t>` and `<r>`
+are the counts of fix rounds used, and `<a>` is the number of arbitrations: the
+outcomes of this run and the ones an earlier run left on the PR.
 
 The report is `formatReport(entries, results)`, a pure function that returns
 its lines. `main` prints it after the result lines in a live run with at least
@@ -483,12 +606,15 @@ writer's rule covers:
   is empty only when the whole text is blank. If the reason has no text left, it
   has no colon. The whole text of the seat's report stays in the quoted lines
   under the reason.
-- The quoted details of a park comment. Each of the seven starts a new `> `
-  line and is written as a line feed.
-- So `state.parked`, the first line of a park comment, every line of the summary
-  comment, every result line on stdout and every line of the report hold none of
-  the seven. The `error` line of a package is cut with `oneLine`, the same cut
-  as every other single line. So is the detail of a gate line, which can hold a
+- The quoted details of a park comment, and the quoted reply in an arbitration
+  outcome comment. Each of the seven starts a new `> ` line and is written as a
+  line feed.
+- The header line of an arbitration outcome comment is fixed text with two
+  numbers. An empty line follows it, then the quoted reply.
+- So `state.parked`, the first line of a park comment, the first line of an
+  outcome comment, every line of the summary comment, every result line on
+  stdout and every line of the report hold none of the seven. The `error` line
+  of a package is cut with `oneLine`, the same cut as every other single line. So is the detail of a gate line, which can hold a
   branch name read from origin.
 
 The developer's `PR` value is cut to its single line before it is checked, so a
@@ -501,10 +627,12 @@ the sub-plan reader (see "Fix rounds"). Seat text reaches a comment or a result
 line in three forms only: a posted report body, a quoted block, or a single line
 cut as above.
 
-The stops are: an architect `NEEDS_DECISION`, an architect size check that says
-the work exceeds the size label, a developer `BLOCKED` or `NEEDS_CONTEXT`, a
-seat with no usable report, an exhausted count, no PR to mark ready, a PR that
-does not close the issue, and an unexpected final state. The size-check stop
+The stops are: an architect `NEEDS_DECISION` (in the sub-plan or in an
+arbitration), an architect size check that says the work exceeds the size label,
+a developer `BLOCKED` or `NEEDS_CONTEXT` (also in the report after an outcome),
+a seat with no usable report (an arbitration reply that is not an `ARBITRATION`
+with a body included), an exhausted count, no PR to mark ready, a PR that does
+not close the issue, and an unexpected final state. The size-check stop
 applies in a live run only: a dry run does not stop on a Size check line. The
 result line on stdout is `#<n> parked: <reason>`, with that same one-line reason.
 
