@@ -23,7 +23,7 @@
  * delete the branch), with bodies it validates. The read guard is never
  * loosened for them.
  *
- * Statuses (issue #501) prints the commands that record both verdict statuses
+ * Statuses (issue #501) prints the commands that record the review status
  * on a PR head and queue its merge, for the owner to run in their own shell.
  * It makes four reads through `guarded()` and never writes.
  *
@@ -812,7 +812,7 @@ export function workflowTriggers(text) {
   return names === null || names.length === 0 ? null : [...new Set(names)].sort()
 }
 
-const VERDICT_CHECKS = ['orchestrai/review', 'orchestrai/test']
+const VERDICT_CHECKS = ['orchestrai/review']
 
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
 
@@ -1712,7 +1712,6 @@ const PR_NUMBER = /^[1-9][0-9]*$/
 
 // Start with "by hand: " so a status the owner posted is plain on the commit.
 // None of them matches a description the pipeline writes.
-const HAND_TEST = 'by hand: owner verified'
 const HAND_REVIEW = 'by hand: owner reviewed'
 
 function parseStatusesArgs(argv) {
@@ -1724,7 +1723,7 @@ function parseStatusesArgs(argv) {
   return { typed: argv[0], owner: parts.length === 2 ? parts[0] : null, name: parts[parts.length - 1], pr: argv[1] }
 }
 
-// Prints the commands that record both verdicts and queue the merge. It only
+// Prints the commands that record the review verdict and queue the merge. It only
 // reads, and the owner runs what it prints. It never builds `writeGuarded`.
 // A nonzero exit is always one visible line: gh and API text can carry line
 // breaks and terminal escapes. Every C0 control, DEL, every C1 control and the
@@ -1791,7 +1790,6 @@ function statusesResult(run, argv) {
   const out = [
     `${full} PR #${args.pr}: head ${sha}`,
     'run these in your own shell:',
-    status('orchestrai/test', HAND_TEST),
     status('orchestrai/review', HAND_REVIEW),
   ]
   if (pr.draft === true) out.push(`gh pr ready ${args.pr} --repo ${full}`)
