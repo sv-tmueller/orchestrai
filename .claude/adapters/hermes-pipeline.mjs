@@ -172,6 +172,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     dispatches: [],
     branch: null,
     pr: null,
+    prNumber: null,
     subPlan: null,
     testerVerdict: null,
     reviewerVerdict: null,
@@ -322,7 +323,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   // --- Stage 1: Architect (SUB_PLAN) ---
   if (runs('architect')) {
     log('stage 1: architect SUB_PLAN')
-    const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets.`
+    const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets. ` +
+      'End the sub-plan with one line that starts with `Size check:`: `Size check: fits <label>` or `Size check: exceeds <label>, recommend <label>`.'
     const archReport = await dispatch('architect', archTask, 'judgment')
 
     if (archReport?.KIND === 'NEEDS_DECISION') {
@@ -341,6 +343,10 @@ export async function runPipeline(issueNumber, opts = {}) {
     // The gate finds a sub-plan by a line that is exactly SUB_PLAN, so the
     // posted comment always carries one.
     await gh.comment(issueNumber, hasSubPlan([{ body: state.subPlan }]) ? state.subPlan : `SUB_PLAN\n\n${state.subPlan}`)
+
+    // The sub-plan is on the issue now. The park comment quotes no text and the
+    // reason holds none, so nothing of the sub-plan reaches a line a second time.
+    if (!dryRun && exceedsSize(archReport.raw)) return stop('architect size check: the work exceeds the size label')
   }
 
   // --- Stage 2: Developer (implement, or fix the findings of a resume) ---
@@ -410,13 +416,29 @@ export async function runPipeline(issueNumber, opts = {}) {
   // --- Stage 5: Ship ---
   if (state.reviewerVerdict === 'APPROVE' && state.testerVerdict === 'PASS') {
     log('stage 5: ship')
-    state.done = true
     await ensureInProgress()
+    // A package is done when its PR closes the issue, by GitHub's own list of
+    // closing references. A dry run has no PR to read.
+    if (!dryRun) {
+      const view = await gh.prView(state.pr)
+      state.prNumber = view?.number
+      const closes = Array.isArray(view?.closingIssuesReferences) ? view.closingIssuesReferences : []
+      if (!closes.some((ref) => ref?.number === issueNumber)) {
+        return stop(`PR #${state.prNumber} does not close #${issueNumber}`)
+      }
+    }
     await gh.prReady(state.pr)
     await gh.removeLabel(issueNumber, 'in-progress')
-    await gh.comment(issueNumber, `Pipeline complete. PR ready: ${state.pr}`)
+    await gh.comment(
+      issueNumber,
+      `Pipeline complete: PR ${state.pr} is ready for review.\n\n` +
+        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}.`
+    )
+    // Only a package whose writes all went through is done.
+    state.done = true
   } else {
-    return stop(`unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`)
+    // A dry run reads a verdict leniently, so the word can be any text: one line each.
+    return stop(`unexpected state: tester=${oneLine(state.testerVerdict)}, reviewer=${oneLine(state.reviewerVerdict)}`)
   }
 
   return state
@@ -511,6 +533,11 @@ export function parseBlockers(body) {
 // it. U+2028, U+2029, a lone CR and the rest do not start a line here. A regex
 // with the m flag would start one after U+2028 and U+2029.
 const linesOf = (body) => String(body || '').split('\n').map((line) => line.replace(/\r$/, ''))
+
+// The architect ends a sub-plan with one Size check line. Only its last
+// non-blank line counts, read with the readers' rule.
+const SIZE_EXCEEDS = /^Size check: exceeds\b/
+const exceedsSize = (raw) => SIZE_EXCEEDS.test(linesOf(textOf(raw)).filter((line) => line.trim() !== '').at(-1) ?? '')
 
 // The parser accepts any spacing after the colon, so the reader does too.
 const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/
@@ -667,9 +694,9 @@ function reportedPr(report) {
   return ''
 }
 
-// The first line of an error message or a stderr, for a result line: trimmed
-// text up to its first line end.
-const firstLine = (text) => String(text || '').trim().split(LINE_END)[0]
+// The single line of an error message or a stderr, for a result line. It is the
+// same cut as every other single line (oneLine).
+const firstLine = (text) => oneLine(String(text || ''))
 
 /**
  * The error for a gh or git call that exited nonzero. The message names the
@@ -740,28 +767,45 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
     await exec(cmd, args)
   }
 
+  // A number from GitHub reaches reasons, result lines and the report, so the
+  // reads that bring one refuse an answer whose numbers are not positive
+  // integers. The message is fixed: it holds none of the answer.
+  const isNumber = (n) => Number.isInteger(n) && n > 0
+  const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
+  const malformed = (command) => {
+    throw new Error(`${command} returned a malformed answer`)
+  }
+
   // gh pr list and git ls-remote are read at most once per run.
   let prs
   let heads
 
   const gh = {
-    issueView: (n) =>
-      readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title']),
+    async issueView(n) {
+      const view = await readJson('gh', ['issue', 'view', String(n), '--json', 'body,comments,labels,number,state,stateReason,title'])
+      return isObject(view) && isNumber(view.number) ? view : malformed('gh issue view')
+    },
     async issueList(label) {
       const rows = await readJson('gh', [
         'issue', 'list', '--state', 'open', '--label', label, '--limit', '100', '--json', 'number',
       ])
+      if (!Array.isArray(rows) || !rows.every((r) => isObject(r) && isNumber(r.number))) malformed('gh issue list')
       return rows.map((r) => r.number).sort((a, b) => a - b)
     },
     prList() {
       prs ??= readJson('gh', [
         'pr', 'list', '--state', 'open', '--limit', '100',
         '--json', 'closingIssuesReferences,headRefName,isDraft,number,url',
-      ])
+      ]).then((list) => (Array.isArray(list) && list.every((p) => isObject(p) && isNumber(p.number)) ? list : malformed('gh pr list')))
       return prs
     },
     async prComments(pr) {
       return (await readJson('gh', ['pr', 'view', String(pr), '--json', 'comments'])).comments
+    },
+    // The PR's own number and the issues it closes, as GitHub lists them.
+    async prView(pr) {
+      const view = await readJson('gh', ['pr', 'view', String(pr), '--json', 'closingIssuesReferences,number'])
+      return isObject(view) && isNumber(view.number) && Array.isArray(view.closingIssuesReferences) ? view : malformed('gh pr view')
     },
     remoteHeads() {
       heads ??= exec('git', ['ls-remote', '--heads', 'origin']).then((out) =>
@@ -835,7 +879,7 @@ async function gateIssue(issue, gh, view) {
   const prs = (await gh.prList()).filter((p) => (p.closingIssuesReferences || []).some((r) => r.number === n))
   const highest = (list) => list.reduce((best, p) => (!best || p.number > best.number ? p : best), null)
   const ready = highest(prs.filter((p) => !p.isDraft))
-  if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`)
+  if (ready) return entry('complete', `PR #${ready.number} is ready, awaiting merge`, { pr: ready.number })
 
   let result
   const draft = highest(prs.filter((p) => p.isDraft))
@@ -869,7 +913,59 @@ async function gateIssue(issue, gh, view) {
   return result
 }
 
-export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.detail}`
+// The detail can hold a branch name from origin, which is free text, so it is one
+// line like every other text on stdout.
+export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${oneLine(e.detail)}`
+
+/**
+ * formatReport(entries, results) -> lines
+ *
+ * The wave-end report: what happened to each gate entry, in gate order, and
+ * the next steps that follow. entries are the gate's, results are the wave's.
+ * A run or resume entry takes its line from its result. Every title, reason,
+ * error and gate detail is one line (oneLine), and every line starts with a
+ * fixed prefix that the text follows, so no text starts a line of its own. The
+ * next steps hold issue and PR numbers only.
+ */
+export function formatReport(entries, results = []) {
+  const byIssue = new Map(results.map((r) => [r.issue, r]))
+  const happened = []
+  const merge = []
+  const decide = []
+  let deferred = false
+  const ready = (number, title) => {
+    happened.push(`- PR #${number} ready  - ${oneLine(title)}`)
+    merge.push(`#${number}`)
+  }
+  const parked = (issue, reason) => {
+    happened.push(`- #${issue} parked (needs-human): ${oneLine(reason)}`)
+    decide.push(`#${issue}`)
+  }
+  for (const e of entries) {
+    if (e.outcome === 'complete') ready(e.pr, e.title)
+    else if (e.outcome === 'park') parked(e.issue, e.detail)
+    else if (e.outcome === 'stop') happened.push(`- #${e.issue} stopped: ${oneLine(e.detail)}`)
+    else if (e.outcome === 'skip') happened.push(`- #${e.issue} skipped: ${oneLine(e.detail)}`)
+    else if (e.outcome === 'wait') {
+      happened.push(`- #${e.issue} deferred: ${oneLine(e.detail)}`)
+      deferred = true
+    } else {
+      const r = byIssue.get(e.issue)
+      if (!r) continue
+      if (r.error !== undefined) {
+        happened.push(`- #${e.issue} error: ${oneLine(r.error)}`)
+        decide.push(`#${e.issue}`)
+      } else if (r.done) ready(r.prNumber, e.title)
+      else parked(e.issue, r.parked)
+    }
+  }
+  const steps = []
+  if (merge.length > 0) steps.push(`Review & merge: ${merge.join(', ')}`)
+  if (decide.length > 0) steps.push(`Decide on ${decide.join(', ')} (retry or close)`)
+  if (deferred) steps.push('Run the driver again to start the next wave')
+  if (steps.length === 0) steps.push('Nothing to do')
+  return ['## What happened', ...happened, '', '## Next steps', ...steps.map((step, k) => `${k + 1}. ${step}`)]
+}
 
 // ---------------------------------------------------------------------------
 // The command line.
@@ -914,18 +1010,20 @@ export async function main(argv, { env = process.env, run = defaultRun, spawn: s
     for (const w of waiting) out(`waiting: #${w.issue} (blocked by ${w.blockers.map((b) => `#${b}`).join(', ')})`)
 
     // The dry run stands in for a confirmation step: it shows the plan and stops.
-    if (dryRun || waves.length === 0) return 0
+    if (dryRun) return 0
 
     // Only wave 1 runs. The driver never merges, so a later wave's blocker
     // cannot be merged during this run; the next run picks the later waves up.
-    const packages = waves[0].map((n) => {
+    const packages = (waves[0] || []).map((n) => {
       const e = entries.find((x) => x.issue === n)
       return { issue: n, resume: e.resume, title: e.title, inProgress: e.inProgress }
     })
-    const results = await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd })
+    const results = packages.length > 0 ? await runWave(packages, { dryRun: false, run, spawn: spawnSeat, log: err, repoRoot: cwd }) : []
     for (const r of results) {
       out(r.error !== undefined ? `#${r.issue} error: ${r.error}` : r.done ? `#${r.issue} done: PR ${r.pr}` : `#${r.issue} parked: ${r.parked}`)
     }
+    // With no gate entry there is nothing to report on.
+    if (entries.length > 0) formatReport(entries, results).forEach((line) => out(line))
     return results.some((r) => r.error !== undefined) ? 1 : 0
   } catch (e) {
     err(firstLine(e?.message || e))

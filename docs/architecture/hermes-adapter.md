@@ -252,7 +252,20 @@ In a live run each stage accepts only the report its contract prescribes:
   first non-blank line after the header, outside any fenced block, so it is never
   the fence line of a json block.
   A `SPLIT_PROPOSAL`, an `ARBITRATION` or text with no header is not a
-  sub-plan.
+  sub-plan. The task asks the architect to end the sub-plan with one line that
+  starts with `Size check:`, either `Size check: fits <label>` or
+  `Size check: exceeds <label>, recommend <label>`. The driver reads the last line
+  of an accepted sub-plan that is not blank under JavaScript's `trim()`, with the
+  readers' rule (a line feed ends a line, and a CR before it is dropped). When
+  that line starts with `Size check: exceeds` at its first character, followed by
+  a word boundary (JavaScript's `\b`), the driver posts the sub-plan and
+  then parks the package with the reason
+  `architect size check: the work exceeds the size label`. The comparison is
+  case-sensitive. No developer runs. These do not stop the package: the words on
+  any other line, in a quote, indented, in another case, or on the last line
+  after a vertical tab, a form feed, a lone carriage return, U+0085, U+2028 or
+  U+2029. A sub-plan with no `Size check:` line runs as before. A sub-plan the
+  gate finds on the issue is never read for it.
 - The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
   that is a pull request URL (it holds `/pull/<digits>`) or a number, on the
   single line of the value (see "Parking"). The PR comes from the report, or
@@ -286,15 +299,19 @@ with the reason `<role> seat returned no usable report`. `runPipeline` with
 tests complete.
 
 stdout carries the gate lines, the wave plan and one result line per package.
-A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
-does not stop the others: its line reads `#<n> error: <reason>`, and every
-other package still runs and reports. The reason is the first line of the
-failed command's stderr, cut at any line end of the writer's rule (see
-"Parking"). When the error is not a failed command, it is the first line of the
-error's message. A failure at the gate prints one line on
-stderr instead: the command with its arguments on one line (a newline in an
-argument shows as a space), then the first line of its stderr. Progress,
-dry-run notes and errors go to stderr.
+In a live run with at least one gate entry the report follows the result lines
+(see "Ship and report"). A dry run prints none. A package that throws (a failed
+`git fetch`, `git worktree add` or `gh` write) does not stop the others: its
+line reads `#<n> error: <reason>`, and every other package still runs and
+reports. The reason is the single line of the failed command's stderr, cut as
+described under "Parking". When the error is not a failed command, it is the
+single line of the error's message, cut the same way. A failed command at the
+gate prints one line on stderr instead: the command with its arguments on one
+line (a newline in an argument shows as a space), then the single line of its
+stderr. An answer the gate cannot accept prints its fixed message on stderr: a
+PR list as above, or an issue read (`gh issue list`, `gh issue view`) whose
+`number` is not a positive integer.
+Progress, dry-run notes and errors go to stderr.
 
 `DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
 it creates no label, posts no comment, makes no worktree and starts no seat.
@@ -363,6 +380,78 @@ The reviewer's prompt carries the latest tester report, for the untested
 claims it rates. After a resume at the reviewer, which has no tester report in
 memory, it names the tester's comment on the PR instead.
 
+### Ship and report
+
+A package ships when the tester's last verdict is `PASS` and the reviewer's is
+`APPROVE`. The writes go in this order: `in-progress` is added if this run has
+not added it, the closing references are read, `gh pr ready` runs, `in-progress`
+comes off, and the summary comment is posted on the issue. `state.done` is set
+only after the summary comment succeeded. A write that fails throws, so the
+package ends with an `error` line and is not done.
+
+The PR has to close the issue. The driver reads
+`gh pr view <pr> --json closingIssuesReferences,number` through the runner and
+looks for an entry whose `number` is the issue. The words of the PR body do not
+count, and this is the same test the gate uses to find a package's PR. When no
+entry matches, the package parks with `PR #<number> does not close #<n>`:
+`<number>` is the number in the read and `<n>` is the issue, so the reason holds
+no seat text. `in-progress` comes off and the PR stays a draft. The
+driver does not edit the PR: a person adds `Closes #<n>` and removes
+`needs-human`, and the next gate finds the draft PR and resumes at ship from
+the `APPROVE` comment. A dry run makes no read.
+
+The driver accepts the answer only when it is an object whose `number` is a
+positive integer and whose `closingIssuesReferences` is a list, and the gate
+accepts its PR list only when every entry has such a `number`. Anything else is
+a failed read: the package, or the run, gets an error.
+
+The summary comment on the issue is:
+
+```
+Pipeline complete: PR <pr> is ready for review.
+
+Tester PASS, reviewer APPROVE. Fix rounds used: tester <t>/3, reviewer <r>/3.
+```
+
+`<pr>` is the PR value of the package, cut to its single line, and `<t>` and
+`<r>` are the counts of fix rounds used.
+
+The report is `formatReport(entries, results)`, a pure function that returns
+its lines. `main` prints it after the result lines in a live run with at least
+one gate entry, also when no package ran. It is:
+
+```
+## What happened
+- PR #<p> ready  - <title>
+- #<n> parked (needs-human): <reason>
+- #<n> error: <reason>
+- #<n> stopped: <gate detail>
+- #<n> skipped: <gate detail>
+- #<n> deferred: <gate detail>
+
+## Next steps
+1. Review & merge: #<p>, #<p>
+2. Decide on #<n>, #<n> (retry or close)
+3. Run the driver again to start the next wave
+```
+
+"What happened" has one line per gate entry, in gate order:
+
+- A package shipped in this run and a gate `complete` entry give the PR line.
+  `<p>` is the PR's number from GitHub: the number of the closing read for a
+  package shipped in this run, and the gate's own number for a `complete` entry.
+- A package that parked in this run and a gate `park` give the `parked` line.
+  A package that threw gives the `error` line.
+- A gate `stop`, `skip` and `wait` give `stopped`, `skipped` and `deferred`.
+
+"Next steps" lists only the items that have members, numbered from 1: "Review
+& merge" for the ready PRs, "Decide on" for the parked and errored packages, and
+"Run the driver again" when any package was deferred. With none, the section is
+`1. Nothing to do`. It holds issue and PR numbers only. A title, a reason, an
+error and a gate detail are each one line cut with the writer's rule (see
+"Parking"). Every line starts with a fixed prefix and the text follows it on the
+same line, so no text starts a line of its own.
+
 ### Parking
 
 Every stop of a package writes three things: the comment `Parked: <reason>` on
@@ -379,9 +468,12 @@ reads. They differ on purpose.
 
 **The writer ends a line at any of seven characters:** line feed, carriage
 return, vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one
-line end. The reason is that other consumers of the output (a terminal, a
-script, a model reading stdout) may split on more than a line feed, and a seat
-must not be able to forge a result line for them. The writer's rule covers:
+line end. These seven are Unicode's mandatory line breaks, and a consumer of the
+output may end a line at more than a line feed. The rule does not make the
+output safe against every consumer: other control characters pass through, and
+Python's `str.splitlines`, for one, also ends a line at U+001C, U+001D and
+U+001E. A report body and a sub-plan are posted as the seat wrote them. The
+writer's rule covers:
 
 - The single line of seat text. Where the driver cuts seat text to one line (the
   developer's notes for a reason, the architect's question for a reason, the
@@ -393,9 +485,11 @@ must not be able to forge a result line for them. The writer's rule covers:
   under the reason.
 - The quoted details of a park comment. Each of the seven starts a new `> `
   line and is written as a line feed.
-- So `state.parked`, the first line of a park comment, the completion comment
-  and every result line on stdout hold none of the seven, and the `error` line
-  of a package is cut the same way.
+- So `state.parked`, the first line of a park comment, every line of the summary
+  comment, every result line on stdout and every line of the report hold none of
+  the seven. The `error` line of a package is cut with `oneLine`, the same cut
+  as every other single line. So is the detail of a gate line, which can hold a
+  branch name read from origin.
 
 The developer's `PR` value is cut to its single line before it is checked, so a
 value with a blank first line is judged by its first non-blank line. It is
@@ -407,10 +501,12 @@ the sub-plan reader (see "Fix rounds"). Seat text reaches a comment or a result
 line in three forms only: a posted report body, a quoted block, or a single line
 cut as above.
 
-The stops are: an architect `NEEDS_DECISION`, a developer `BLOCKED` or
-`NEEDS_CONTEXT`, a seat with no usable report, an exhausted count, no PR to
-mark ready, and an unexpected final state. The result line on stdout is
-`#<n> parked: <reason>`, with that same one-line reason.
+The stops are: an architect `NEEDS_DECISION`, an architect size check that says
+the work exceeds the size label, a developer `BLOCKED` or `NEEDS_CONTEXT`, a
+seat with no usable report, an exhausted count, no PR to mark ready, a PR that
+does not close the issue, and an unexpected final state. The size-check stop
+applies in a live run only: a dry run does not stop on a Size check line. The
+result line on stdout is `#<n> parked: <reason>`, with that same one-line reason.
 
 ### Branch name
 

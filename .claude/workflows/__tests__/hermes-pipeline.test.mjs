@@ -367,13 +367,27 @@ const DEFAULT_REPORTS = {
  * A fixture-backed runner plus a fake spawn, sharing one ordered call log.
  * A key in `reads` returns exit 0 with that stdout, a key in `failures`
  * returns exit 1 with that stderr, a known write prefix is recorded and
- * returns exit 0, and anything else throws.
+ * returns exit 0, and anything else throws. One default answer: the closing
+ * references read of ship (`gh pr view <pr> --json closingIssuesReferences,number`)
+ * with no fixture entry says the PR has the number in its URL or the bare
+ * number given, and closes issues 5 to 9. An entry in the fixture wins, and a
+ * test of the check itself uses one that does not close.
  */
+const CLOSES_READ = /^gh pr view (\S+) --json closingIssuesReferences,number$/
 function fakeRunner(fixture, reports = {}) {
   const calls = []
   const scripted = { ...DEFAULT_REPORTS, ...reports }
   const run = async (cmd, args, opts = {}) => {
     const key = [cmd, ...args].join(' ')
+    const closes = CLOSES_READ.exec(key)
+    if (closes && !(key in (fixture.reads || {})) && !(key in (fixture.failures || {}))) {
+      const digits = /\/pull\/(\d+)$/.exec(closes[1])?.[1] ?? /^\d+$/.exec(closes[1])?.[0]
+      if (digits !== undefined) {
+        calls.push({ kind: 'read', key, cwd: opts.cwd })
+        const refs = [5, 6, 7, 8, 9].map((number) => ({ number }))
+        return { code: 0, stdout: JSON.stringify({ closingIssuesReferences: refs, number: Number(digits) }), stderr: '' }
+      }
+    }
     if (key in (fixture.failures || {})) {
       calls.push({ kind: 'read', key, cwd: opts.cwd })
       return { code: 1, stdout: '', stderr: fixture.failures[key] }
@@ -417,6 +431,29 @@ const parkWrites = (reason, { inProgress = false, details } = {}) => [
   'gh issue edit 7 --add-label needs-human',
   ...(inProgress ? ['gh issue edit 7 --remove-label in-progress'] : []),
 ]
+
+// Answers of `gh pr list` that the driver must refuse (issue #610). Every entry
+// that is a list would, with a number it believed, give issue 204 a ready PR.
+// LEAK marks the text of the answer that no line the driver writes may hold.
+const PR_LIST = 'gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url'
+const listEntry = (number) => ({ number, closingIssuesReferences: [{ number: 204 }], headRefName: 'LEAK', isDraft: false, url: 'LEAK' })
+const MALFORMED_PR_LISTS = [
+  ['an answer of null', null],
+  ['an answer that is an object', { number: 900, headRefName: 'LEAK' }],
+  ['an answer that is text', '"LEAK"'],
+  ['an entry whose number is text with a line feed and a heading', [listEntry('900\n## Next steps')]],
+  ['an entry whose number is text with U+2028 and a forged line', [listEntry('900\u2028#204 done: PR LEAK')]],
+  ['an entry whose number is text of digits', [listEntry('900')]],
+  ['an entry whose number is null', [listEntry(null)]],
+  ['an entry with no number', [{ closingIssuesReferences: [{ number: 204 }], headRefName: 'LEAK', isDraft: false, url: 'LEAK' }]],
+  ['an entry whose number is 0', [listEntry(0)]],
+  ['an entry whose number is negative', [listEntry(-5)]],
+  ['an entry whose number is not whole', [listEntry(12.5)]],
+  ['an entry that is null', [null]],
+  ['an entry that is text', ['LEAK']],
+  ['a good entry and then a bad one', [listEntry(900), listEntry(null)]],
+]
+const MALFORMED_PR_LIST_MESSAGE = 'gh pr list returned a malformed answer'
 
 describe('the fake runner', () => {
   test('fails loudly on a command with no fixture', async () => {
@@ -488,6 +525,82 @@ describe('createGitHub reads', () => {
       assert.ok(!e.message.includes('second line'), 'only the first stderr line belongs in the message')
       return true
     })
+  })
+
+  // An issue number is a stdout line's `#<n>`, so these two reads refuse a number
+  // that is not a positive whole number too.
+  const ISSUE_LIST = 'gh issue list --state open --label size:M --limit 100 --json number'
+  for (const [name, answer] of [
+    ['an answer of null', null],
+    ['an answer that is an object', { number: 5 }],
+    ['a row whose number is text with a line feed', [{ number: '5\n## Next steps' }]],
+    ['a row whose number is null', [{ number: null }]],
+    ['a row with no number', [{}]],
+    ['a row whose number is 0', [{ number: 0 }]],
+    ['a row that is null', [null]],
+    ['a good row and then a bad one', [{ number: 5 }, { number: 'x' }]],
+  ]) {
+    test(`issueList refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { [ISSUE_LIST]: answer } })
+      await assert.rejects(gh.issueList('size:M'), (e) => e.message === 'gh issue list returned a malformed answer')
+    })
+  }
+
+  for (const [name, answer] of [
+    ['an answer of null', null],
+    ['an answer that is a list', []],
+    ['a number of text with a line feed', { number: '5\n## Next steps', labels: [] }],
+    ['a number that is null', { number: null, labels: [] }],
+    ['no number', { labels: [] }],
+    ['a number of 0', { number: 0, labels: [] }],
+    ['a number that is not whole', { number: 5.5, labels: [] }],
+  ]) {
+    test(`issueView refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { 'gh issue view 5 --json body,comments,labels,number,state,stateReason,title': answer } })
+      await assert.rejects(gh.issueView(5), (e) => e.message === 'gh issue view returned a malformed answer')
+    })
+  }
+
+  for (const [name, answer] of MALFORMED_PR_LISTS) {
+    test(`prList refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { [PR_LIST]: answer } })
+      await assert.rejects(gh.prList(), (e) => {
+        assert.equal(e.message, MALFORMED_PR_LIST_MESSAGE)
+        return true
+      })
+    })
+  }
+
+  test('prList accepts a list whose entries all have a positive whole number, and an empty list', async () => {
+    assert.deepEqual(await make({ reads: { [PR_LIST]: [] } }).gh.prList(), [])
+    const entries = [listEntry(1), listEntry(900)]
+    assert.deepEqual(await make({ reads: { [PR_LIST]: entries } }).gh.prList(), entries)
+  })
+
+  for (const [name, answer, leak] of [
+    ['a number of text with a line feed', { number: '900\n## Next steps', closingIssuesReferences: [] }, '## Next steps'],
+    ['a number of 0', { number: 0, closingIssuesReferences: [] }],
+    ['a number that is not whole', { number: 1.5, closingIssuesReferences: [] }],
+    ['no number', { closingIssuesReferences: [] }],
+    ['an answer of null', null],
+    ['an answer that is a list', []],
+    ['no closingIssuesReferences', { number: 900 }],
+    ['closingIssuesReferences as text', { number: 900, closingIssuesReferences: 'LEAK' }, 'LEAK'],
+  ]) {
+    test(`prView refuses ${name} with a fixed message that holds none of the answer`, async () => {
+      const { gh } = make({ reads: { 'gh pr view 5 --json closingIssuesReferences,number': answer } })
+      await assert.rejects(gh.prView(5), (e) => {
+        assert.equal(e.message, 'gh pr view returned a malformed answer')
+        assert.ok(leak === undefined || !e.message.includes(leak))
+        return true
+      })
+    })
+  }
+
+  test('prView accepts an object with a positive whole number and a list, and gives it back', async () => {
+    const answer = { number: 5, closingIssuesReferences: [{ number: 7 }, 'x'] }
+    const { gh } = make({ reads: { 'gh pr view 5 --json closingIssuesReferences,number': answer } })
+    assert.deepEqual(await gh.prView(5), answer)
   })
 
   test('output that is not JSON throws naming the command', async () => {
@@ -717,6 +830,12 @@ describe('the gate', () => {
     assert.match(e.detail, /PR #211/)
   })
 
+  test('rule 5: a complete entry carries the number of its PR, and no other entry does', async () => {
+    assert.equal((await one(107)).pr, 205)
+    assert.equal((await one(109)).pr, 211)
+    for (const n of [101, 110, 116, 117]) assert.equal('pr' in (await one(n)), false, `#${n}`)
+  })
+
   test('rule 6: a draft PR with no verdict resumes at the tester on its branch', async () => {
     const e = await one(110)
     assert.equal(e.outcome, 'resume')
@@ -882,6 +1001,141 @@ describe('the gate', () => {
   })
 })
 
+// The wave-end report (issue #610): a pure function of the gate entries and the
+// results of wave 1. Every free text in it is one line (oneLine), and the next
+// steps hold numbers only, so no title or reason can start a heading or a list item.
+describe('formatReport', () => {
+  const { formatReport } = driver
+  const entry = (issue, outcome, detail, extra = {}) =>
+    ({ issue, size: 'size:M', outcome, detail, blockers: [], inProgress: false, title: `Title ${issue}`, ...extra })
+  const done = (issue, prNumber) => ({ issue, done: true, parked: null, prNumber })
+  const parked = (issue, reason) => ({ issue, done: false, parked: reason })
+  const errored = (issue, error) => ({ issue, done: false, parked: null, error })
+
+  test('every kind of line, in gate order, with the next steps they give', () => {
+    const entries = [
+      entry(201, 'run', 'no sub-plan comment, starting at the architect'),
+      entry(202, 'resume', 'draft PR #12, resuming at the tester'),
+      entry(203, 'complete', 'PR #910 is ready, awaiting merge', { pr: 910 }),
+      entry(204, 'park', 'no size label, not guessing a size'),
+      entry(205, 'stop', 'size:L, split it first'),
+      entry(206, 'skip', 'closed'),
+      entry(207, 'wait', 'blocked by #201'),
+      entry(208, 'run', 'sub-plan comment found, starting at the developer'),
+      entry(209, 'resume', 'draft PR #13, resuming at the reviewer'),
+    ]
+    const results = [done(201, 900), parked(202, 'architect NEEDS_DECISION: which cache?'), errored(208, 'fatal: boom'), done(209, 13)]
+    assert.deepEqual(formatReport(entries, results), [
+      '## What happened',
+      '- PR #900 ready  - Title 201',
+      '- #202 parked (needs-human): architect NEEDS_DECISION: which cache?',
+      '- PR #910 ready  - Title 203',
+      '- #204 parked (needs-human): no size label, not guessing a size',
+      '- #205 stopped: size:L, split it first',
+      '- #206 skipped: closed',
+      '- #207 deferred: blocked by #201',
+      '- #208 error: fatal: boom',
+      '- PR #13 ready  - Title 209',
+      '',
+      '## Next steps',
+      '1. Review & merge: #900, #910, #13',
+      '2. Decide on #202, #204, #208 (retry or close)',
+      '3. Run the driver again to start the next wave',
+    ])
+  })
+
+  const steps = (entries, results = []) => formatReport(entries, results).slice(formatReport(entries, results).indexOf('## Next steps') + 1)
+
+  test('the next steps list only the items that have members, numbered from 1', () => {
+    assert.deepEqual(steps([entry(1, 'complete', 'd', { pr: 5 })]), ['1. Review & merge: #5'])
+    assert.deepEqual(steps([entry(1, 'park', 'd')]), ['1. Decide on #1 (retry or close)'])
+    assert.deepEqual(steps([entry(1, 'run', 'd')], [errored(1, 'e')]), ['1. Decide on #1 (retry or close)'])
+    assert.deepEqual(steps([entry(1, 'wait', 'd')]), ['1. Run the driver again to start the next wave'])
+    assert.deepEqual(steps([entry(1, 'complete', 'd', { pr: 5 }), entry(2, 'wait', 'd')]), [
+      '1. Review & merge: #5', '2. Run the driver again to start the next wave',
+    ])
+    assert.deepEqual(steps([entry(1, 'park', 'd'), entry(2, 'wait', 'd')]), [
+      '1. Decide on #1 (retry or close)', '2. Run the driver again to start the next wave',
+    ])
+  })
+
+  test('a stopped or skipped package is no next step: with nothing else the section is Nothing to do', () => {
+    assert.deepEqual(steps([entry(1, 'stop', 'd'), entry(2, 'skip', 'd')]), ['1. Nothing to do'])
+  })
+
+  test('the shape is fixed: the heading first with no blank line before it, one empty line before the next steps', () => {
+    const lines = formatReport([entry(1, 'skip', 'closed')], [])
+    assert.deepEqual(lines, ['## What happened', '- #1 skipped: closed', '', '## Next steps', '1. Nothing to do'])
+  })
+
+  test('a package that is parked in a run and one that is parked at the gate read the same', () => {
+    const lines = formatReport([entry(1, 'run', 'd'), entry(2, 'park', 'why')], [parked(1, 'why')])
+    assert.deepEqual(lines.slice(1, 3), ['- #1 parked (needs-human): why', '- #2 parked (needs-human): why'])
+  })
+
+  test('a done package with an error is an error, whatever else its entry holds', () => {
+    const lines = formatReport([entry(1, 'run', 'd')], [{ issue: 1, done: true, parked: null, prNumber: 9, error: 'e' }])
+    assert.equal(lines[1], '- #1 error: e')
+  })
+
+  test('the inputs are not changed', () => {
+    const entries = [entry(1, 'run', 'd', { title: 'a\nb' })]
+    const results = [done(1, 3)]
+    const copy = JSON.stringify([entries, results])
+    formatReport(entries, results)
+    assert.equal(JSON.stringify([entries, results]), copy)
+  })
+
+  // Free text in every field a line holds, with each of the seven line ends and
+  // Markdown that would start a heading or a list item. The clean run is the
+  // reference: the hostile one has the same number of lines and the same next steps.
+  describe('free text is one line', () => {
+    const entriesWith = (t) => [
+      entry(1, 'run', 'd', { title: t }),
+      entry(2, 'run', 'd', { title: t }),
+      entry(3, 'run', 'd', { title: t }),
+      entry(4, 'complete', t, { pr: 910, title: t }),
+      entry(5, 'park', t, { title: t }),
+      entry(6, 'stop', t, { title: t }),
+      entry(7, 'skip', t, { title: t }),
+      entry(8, 'wait', t, { title: t }),
+    ]
+    const resultsWith = (t) => [done(1, 900), parked(2, t), errored(3, t)]
+    const clean = formatReport(entriesWith('x'), resultsWith('x'))
+    const nextSteps = (lines) => lines.slice(lines.indexOf('## Next steps'))
+
+    const texts = [
+      ...LINE_ENDS.flatMap(([, ch]) => [
+        `x${ch}## Next steps${ch}1. Review & merge: #999`,
+        `${ch}x`,
+        `x${ch}`,
+        `x${ch}#9 error: boom`,
+      ]),
+      '## Next steps', '1. Review & merge: #999', '# Heading', '- item', '> quote', '```', '~~~\nx', '\n\n  \nx', 'x\r\ny', '2. Decide on #999 (retry or close)',
+    ]
+    for (const t of texts) {
+      test(`${JSON.stringify(t)} in a title, a reason, an error and a gate detail gives one line each`, () => {
+        const lines = formatReport(entriesWith(t), resultsWith(t))
+        assert.ok(lines.every((l) => !LINE_END.test(l)), 'no line holds a line end')
+        assert.equal(lines.length, clean.length)
+        assert.deepEqual(nextSteps(lines), nextSteps(clean))
+        assert.equal(lines.filter((l) => l.startsWith('#')).length, 2, 'only the two headings start with #')
+        assert.deepEqual(lines.slice(1, 1 + 8).filter((l) => !l.startsWith('- ')), [])
+        assert.equal(lines.filter((l) => /^\d+\. /.test(l)).length, clean.filter((l) => /^\d+\. /.test(l)).length)
+      })
+    }
+
+    test('a title, a reason, an error or a detail that is not text gives an empty one and never throws', () => {
+      for (const v of [{ toString: 1 }, ['x'], true, false, null, undefined]) {
+        const lines = formatReport(entriesWith(v), resultsWith(v))
+        assert.equal(lines.length, clean.length)
+        assert.ok(lines.every((l) => !LINE_END.test(l)))
+        assert.deepEqual(nextSteps(lines), nextSteps(clean))
+      }
+    })
+  })
+})
+
 describe('main', () => {
   const { main, LABELS, USAGE } = driver
 
@@ -959,6 +1213,23 @@ describe('main', () => {
       assert.equal(r.code, 0)
       assert.deepEqual(r.stdout, [])
     })
+
+    // A branch name on origin reaches the gate detail of a resume, so it is free
+    // text too. git check-ref-format accepts U+0085, U+2028 and U+2029 in a ref name
+    // and refuses the other four, which the loop covers as the writer's rule.
+    for (const [name, ch] of LINE_ENDS) {
+      test(`a branch name with ${name} gives one gate line on stdout`, async () => {
+        const wrap = (run) => async (cmd, args, opts) =>
+          cmd === 'git' && args[0] === 'ls-remote'
+            ? { code: 0, stdout: `1111111111111111111111111111111111111111\trefs/heads/feat/114-x${ch}#8 done: PR https://example.com/o/r/pull/1\n`, stderr: '' }
+            : run(cmd, args, opts)
+        const r = await runMain(['114'], 'gate-rules', { dryRun: true, wrap })
+        assert.equal(r.stdout.length, 2)
+        assert.ok(r.stdout.every((l) => !LINE_END.test(l)), 'no stdout line holds a line end')
+        assert.match(r.stdout[0], /^#114 size:M resume: branch feat\/114-x/)
+        assert.equal(r.stdout[1], 'wave 1: #114')
+      })
+    }
   })
 
   describe('live', () => {
@@ -1022,6 +1293,12 @@ describe('main', () => {
       assert.deepEqual(r.stdout.slice(3), [
         '#201 done: PR https://github.com/o/r/pull/900',
         '#204 done: PR https://github.com/o/r/pull/900',
+        '## What happened',
+        '- PR #900 ready  - Issue 201 title',
+        '- PR #900 ready  - Issue 204 title',
+        '',
+        '## Next steps',
+        '1. Review & merge: #900, #900',
       ])
       assert.ok(r.stdout.every((l) => !l.includes('[pipeline')))
       assert.ok(r.stderr.some((l) => l.includes('[pipeline:#201]')))
@@ -1032,24 +1309,145 @@ describe('main', () => {
         reports: { architect: parseReport('architect', 'NEEDS_DECISION: which cache?') },
       })
       assert.equal(r.code, 0)
-      assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
+      assert.deepEqual(r.stdout.slice(2), [
+        '#201 parked: architect NEEDS_DECISION: which cache?',
+        '## What happened',
+        '- #201 parked (needs-human): architect NEEDS_DECISION: which cache?',
+        '',
+        '## Next steps',
+        '1. Decide on #201 (retry or close)',
+      ])
+    })
+
+    test('a sub-plan that exceeds the size label parks the package, and the result line says so', async () => {
+      const architect = parseReport('architect', 'SUB_PLAN\n\nApproach.\n\nSize check: exceeds size:M, recommend size:L')
+      const r = await runMain(['201'], 'main-live', { reports: { architect } })
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout.slice(2), [
+        '#201 parked: architect size check: the work exceeds the size label',
+        '## What happened',
+        '- #201 parked (needs-human): architect size check: the work exceeds the size label',
+        '',
+        '## Next steps',
+        '1. Decide on #201 (retry or close)',
+      ])
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn').map((c) => c.role), ['architect'])
+    })
+
+    test('a PR that does not close its issue parks the package, and the result line and the report say so', async () => {
+      const key = 'gh pr view https://github.com/o/r/pull/900 --json closingIssuesReferences,number'
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === key
+          ? { code: 0, stdout: JSON.stringify({ number: 900, closingIssuesReferences: [{ number: 9 }] }), stderr: '' }
+          : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { wrap })
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout.slice(2), [
+        '#204 parked: PR #900 does not close #204',
+        '## What happened',
+        '- #204 parked (needs-human): PR #900 does not close #204',
+        '',
+        '## Next steps',
+        '1. Decide on #204 (retry or close)',
+      ])
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('a closing read with a malformed answer is an error line and an error in the report, and nothing is shipped', async () => {
+      const key = 'gh pr view https://github.com/o/r/pull/900 --json closingIssuesReferences,number'
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === key
+          ? { code: 0, stdout: JSON.stringify({ number: '900\n## Next steps', closingIssuesReferences: [{ number: 204 }] }), stderr: '' }
+          : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { wrap })
+      assert.equal(r.code, 1)
+      assert.match(r.stdout[0], /^#204 size:S run: /)
+      assert.deepEqual(r.stdout.slice(1), [
+        'wave 1: #204',
+        '#204 error: gh pr view returned a malformed answer',
+        '## What happened',
+        '- #204 error: gh pr view returned a malformed answer',
+        '',
+        '## Next steps',
+        '1. Decide on #204 (retry or close)',
+      ])
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete') || k.includes('remove-label')))
+      assert.ok(!r.stderr.some((l) => l.includes('## Next steps')))
+    })
+
+    test('a live run with no wave 1 package still prints the report, and starts no seat', async () => {
+      const r = await runMain(['203'], 'main-live')
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout, [
+        '#203 size:M wait: blocked by #201',
+        'waiting: #203 (blocked by #201)',
+        '## What happened',
+        '- #203 deferred: blocked by #201',
+        '',
+        '## Next steps',
+        '1. Run the driver again to start the next wave',
+      ])
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+    })
+
+    test('a live run of gate outcomes only reports each of them: a ready PR, a skip, a park and a stop', async () => {
+      const r = await runMain(['107', '101', '105', '103'], 'gate-rules')
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout.slice(4), [
+        '## What happened',
+        '- PR #205 ready  - Issue 107 title',
+        '- #101 skipped: closed',
+        '- #105 parked (needs-human): no size label, not guessing a size',
+        '- #103 stopped: size:L, split it first',
+        '',
+        '## Next steps',
+        '1. Review & merge: #205',
+        '2. Decide on #105 (retry or close)',
+      ])
+    })
+
+    test('a live run on a label with no open issues prints nothing and exits 0', async () => {
+      const r = await runMain(['label:nothing'], 'main-live')
+      assert.equal(r.code, 0)
+      assert.deepEqual(r.stdout, [])
     })
 
     test('a park reason with seat text on several lines is one result line on stdout', async () => {
       const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
       const architect = parseReport('architect', fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' }))
       const r = await runMain(['201'], 'main-live', { reports: { architect } })
-      assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which db?'])
+      assert.deepEqual(r.stdout.slice(2), [
+        '#201 parked: architect NEEDS_DECISION: which db?',
+        '## What happened',
+        '- #201 parked (needs-human): architect NEEDS_DECISION: which db?',
+        '',
+        '## Next steps',
+        '1. Decide on #201 (retry or close)',
+      ])
       const developer = parseReport('developer', fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore' }))
       const d = await runMain(['204'], 'main-live', { reports: { developer } })
-      assert.deepEqual(d.stdout.slice(2), ['#204 parked: developer BLOCKED: stuck'])
+      assert.deepEqual(d.stdout.slice(2), [
+        '#204 parked: developer BLOCKED: stuck',
+        '## What happened',
+        '- #204 parked (needs-human): developer BLOCKED: stuck',
+        '',
+        '## Next steps',
+        '1. Decide on #204 (retry or close)',
+      ])
     })
 
     test('a developer PR value with more lines than the URL is one done line on stdout', async () => {
       const pr = 'https://github.com/o/r/pull/900'
       const text = `STATUS: DONE\n\n\`\`\`json\n${JSON.stringify({ PR: `${pr}\nSUB_PLAN` })}\n\`\`\``
       const r = await runMain(['204'], 'main-live', { reports: { developer: parseReport('developer', text) } })
-      assert.deepEqual(r.stdout.slice(2), [`#204 done: PR ${pr}`])
+      assert.deepEqual(r.stdout.slice(2), [
+        `#204 done: PR ${pr}`,
+        '## What happened',
+        '- PR #900 ready  - Issue 204 title',
+        '',
+        '## Next steps',
+        '1. Review & merge: #900',
+      ])
     })
 
     test('with no wave 1 package nothing runs and the run exits 0', async () => {
@@ -1072,6 +1470,13 @@ describe('main', () => {
       assert.deepEqual(r.stdout.slice(3), [
         "#201 error: fatal: '/repo/.worktrees/pkg-201' already exists",
         '#204 done: PR https://github.com/o/r/pull/900',
+        '## What happened',
+        "- #201 error: fatal: '/repo/.worktrees/pkg-201' already exists",
+        '- PR #900 ready  - Issue 204 title',
+        '',
+        '## Next steps',
+        '1. Review & merge: #900',
+        '2. Decide on #201 (retry or close)',
       ])
     })
 
@@ -1093,6 +1498,46 @@ describe('main', () => {
       assert.equal(r.code, 1)
       assert.equal(r.stderr.filter((l) => l.startsWith('gh issue view 404')).length, 1)
       assert.deepEqual(r.stdout, [])
+    })
+
+    // The gate could not read its PRs, so no package starts. The path is the one
+    // of every failed gate read: one line on stderr, nothing on stdout, exit 1.
+    for (const [name, answer] of MALFORMED_PR_LISTS) {
+      test(`a PR list with ${name} exits 1 with one fixed line on stderr, an empty stdout and no seat`, async () => {
+        const wrap = (run) => async (cmd, args, opts) =>
+          [cmd, ...args].join(' ') === PR_LIST
+            ? { code: 0, stdout: typeof answer === 'string' ? answer : JSON.stringify(answer), stderr: '' }
+            : run(cmd, args, opts)
+        const r = await runMain(['204'], 'main-live', { wrap })
+        assert.equal(r.code, 1)
+        assert.deepEqual(r.stdout, [])
+        assert.deepEqual(r.stderr.filter((l) => !l.startsWith('[pipeline')), [MALFORMED_PR_LIST_MESSAGE])
+        assert.ok(![...r.stdout, ...r.stderr].some((l) => l.includes('LEAK') || l.includes('Next steps')))
+        assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+        assert.ok(keysOf(r.calls, 'write').every((k) => k.startsWith('gh label create')))
+      })
+    }
+
+    test('an issue read with a number of text exits 1 with one fixed line on stderr and an empty stdout', async () => {
+      const key = 'gh issue view 204 --json body,comments,labels,number,state,stateReason,title'
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === key
+          ? { code: 0, stdout: JSON.stringify({ number: '204\n## Next steps', labels: [], comments: [], body: '' }), stderr: '' }
+          : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { wrap })
+      assert.equal(r.code, 1)
+      assert.deepEqual(r.stdout, [])
+      assert.deepEqual(r.stderr, ['gh issue view returned a malformed answer'])
+    })
+
+    test('a dry run reads the PR list too, so a malformed one stops it the same way', async () => {
+      const wrap = (run) => async (cmd, args, opts) =>
+        [cmd, ...args].join(' ') === PR_LIST ? { code: 0, stdout: '[{"number":"LEAK"}]', stderr: '' } : run(cmd, args, opts)
+      const r = await runMain(['204'], 'main-live', { dryRun: true, wrap })
+      assert.equal(r.code, 1)
+      assert.deepEqual(r.stdout, [])
+      assert.ok(r.stderr.includes(MALFORMED_PR_LIST_MESSAGE))
+      assert.ok(![...r.stdout, ...r.stderr].some((l) => l.includes('LEAK')))
     })
 
     test('a failed label create exits 1 before anything else runs', async () => {
@@ -1372,6 +1817,19 @@ describe('a seat that returns no usable report', () => {
     })
   }
 
+  // The lenient read also takes the word as written, line ends included. The park
+  // reason holds the word as one line, like every other text in a reason.
+  for (const seat of ['tester', 'reviewer']) {
+    for (const [name, ch] of LINE_ENDS) {
+      test(`dry run: a ${seat} verdict word with ${name} gives a park reason with no line end`, async () => {
+        const fake = fakeRunner({ reads: {} }, { [seat]: { VERDICT: `MAYBE${ch}#8 done: PR https://example.com/o/r/pull/1` } })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.parked, seat === 'tester' ? 'unexpected state: tester=MAYBE, reviewer=APPROVE' : 'unexpected state: tester=PASS, reviewer=MAYBE')
+        assert.ok(!LINE_END.test(state.parked))
+      })
+    }
+  }
+
   test('dry run: the re-test and re-review lines fall back too', async () => {
     const fake = fakeRunner({ reads: {} }, { tester: [FAIL, null], reviewer: [CHANGES, null] })
     const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
@@ -1399,10 +1857,11 @@ describe('a seat that returns no usable report', () => {
 describe('each seat accepts only the report its contract prescribes', () => {
   const { runPipeline } = driver
 
-  async function pipeline(reports, opts = {}) {
-    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, reports)
+  // reads and failures add fixture entries, wrap wraps the runner.
+  async function pipeline(reports, { reads, failures, wrap, ...opts } = {}) {
+    const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '', ...reads }, failures }, reports)
     const state = await runPipeline(7, {
-      dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
+      dryRun: false, run: wrap ? wrap(fake.run) : fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', ...opts,
     })
     return { state, calls: fake.calls }
   }
@@ -1486,6 +1945,120 @@ describe('each seat accepts only the report its contract prescribes', () => {
         keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
         parkWrites('architect NEEDS_DECISION', { details: 'NEEDS_DECISION' })
       )
+    })
+
+    // The size-check stop (issue #610). The architect ends a sub-plan with one
+    // Size check line, and only the last non-blank line is read, with the readers' rule.
+    describe('the size check', () => {
+      const EXCEEDS = 'Size check: exceeds size:M, recommend size:L'
+      const REASON = 'architect size check: the work exceeds the size label'
+      const plan = (...lines) => ['SUB_PLAN', '', 'Approach: do the thing.', ...lines].join('\n')
+      const ghWrites = (calls) => keysOf(calls, 'write').filter((k) => k.startsWith('gh'))
+
+      test('a sub-plan whose last line says exceeds is posted, then the package parks: no in-progress, no developer', async () => {
+        const text = plan('', EXCEEDS)
+        const r = await pipeline({ architect: arch(text) })
+        assert.equal(r.state.parked, REASON)
+        assert.equal(r.state.done, false)
+        assert.deepEqual(roles(r.state), ['architect'])
+        assert.deepEqual(ghWrites(r.calls), [`gh issue comment 7 --body ${text}`, ...parkWrites(REASON)])
+        assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn' && c.role !== 'architect'), [])
+      })
+
+      test('the park comment quotes no text: the sub-plan is already on the issue', async () => {
+        const r = await pipeline({ architect: arch(plan('', EXCEEDS)) })
+        assert.equal(ghWrites(r.calls)[1], `gh issue comment 7 --body Parked: ${REASON}`)
+      })
+
+      test('a CRLF last line stops, since the readers drop the CR', async () => {
+        const r = await pipeline({ architect: arch(`SUB_PLAN\r\n\r\nApproach.\r\n${EXCEEDS}\r\n`) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('blank lines after the size-check line do not hide it', async () => {
+        const r = await pipeline({ architect: arch(`${plan('', EXCEEDS)}\n\n  \n\t\n`) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('the stop needs only the words: exceeds with nothing after them stops too', async () => {
+        const r = await pipeline({ architect: arch(plan('', 'Size check: exceeds')) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('a fits line runs the whole pipeline', async () => {
+        const r = await pipeline({ architect: arch(plan('', 'Size check: fits size:M')) })
+        assert.equal(r.state.parked, null)
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a sub-plan with no size-check line runs as it did before', async () => {
+        const r = await pipeline({ architect: arch(plan()) })
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
+      const FENCE = '```'
+      const NON_LF = LINE_ENDS.filter(([, ch]) => ch !== '\n')
+      const keepsRunning = [
+        ['the words on an earlier line, a fits line last', plan('', EXCEEDS, 'Size check: fits size:M')],
+        ['the words in a fenced example, a fits line last', plan('', FENCE, EXCEEDS, FENCE, '', 'Size check: fits size:M')],
+        ['the words as the last line of a fenced example, the closing fence after them', plan('', FENCE, EXCEEDS, FENCE)],
+        ['a quoted last line', plan('', `> ${EXCEEDS}`)],
+        ['an indented last line', plan('', `  ${EXCEEDS}`)],
+        ['a tab-indented last line', plan('', `\t${EXCEEDS}`)],
+        ['a lower-case last line', plan('', 'size check: exceeds size:M, recommend size:L')],
+        ['an upper-case last line', plan('', 'SIZE CHECK: EXCEEDS size:M, recommend size:L')],
+        ['a list item last line', plan('', `- ${EXCEEDS}`)],
+        ['a bold last line', plan('', `**${EXCEEDS}**`)],
+        ['text before the words on the same line', plan('', `Result. ${EXCEEDS}`)],
+        ['a longer word than exceeds', plan('', 'Size check: exceedsx size:M')],
+        ...NON_LF.flatMap(([name, ch]) => [
+          [`${name} in front of the words on the last line`, plan('', `Approach.${ch}${EXCEEDS}`)],
+          [`${name} at the start of the last line`, plan('', `${ch}${EXCEEDS}`)],
+        ]),
+      ]
+      for (const [name, text] of keepsRunning) {
+        test(`does not stop the package: ${name}`, async () => {
+          const r = await pipeline({ architect: arch(text) })
+          assert.equal(r.state.parked, null)
+          assert.deepEqual(roles(r.state), ALL)
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('a last line of only U+0085 is not blank under trim(), so the Size check line before it does not stop', async () => {
+        const r = await pipeline({ architect: arch(`${plan('', EXCEEDS)}\n\u0085`) })
+        assert.equal(r.state.parked, null)
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a sub-plan that exceeds the size and ends with another line is not read: only the last line counts', async () => {
+        const r = await pipeline({ architect: arch(plan('', EXCEEDS, 'Next: wait for the answer.')) })
+        assert.equal(r.state.parked, null)
+      })
+
+      test('the SUB_PLAN task asks for the Size check line, in the two forms', async () => {
+        const r = await pipeline({})
+        const task = r.calls.find((c) => c.kind === 'spawn' && c.role === 'architect').task
+        assert.ok(task.startsWith('JOB: SUB_PLAN\n\nIssue #7: read the issue and its comments, then produce a sub-plan with checkpoint bullets.'))
+        assert.ok(task.includes('End the sub-plan with one line that starts with `Size check:`'))
+        assert.ok(task.includes('`Size check: fits <label>`'))
+        assert.ok(task.includes('`Size check: exceeds <label>, recommend <label>`'))
+      })
+
+      test('the stop never reads a sub-plan the gate found on the issue', async () => {
+        const r = await pipeline({}, { resume: { stage: 'developer' } })
+        assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
+      })
+
+      test('a dry run does not stop on it', async () => {
+        const fake = fakeRunner({ reads: {} }, { architect: arch(plan('', EXCEEDS)) })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.parked, null)
+        assert.equal(state.done, true)
+      })
     })
 
     for (const [name, text] of [
@@ -1675,6 +2248,210 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assertStopped(r, 'reviewer', [...ALL, 'developer', 'tester', 'reviewer'])
       })
     }
+  })
+
+  // Ship (issue #610). A package is done only with a tester PASS, a reviewer
+  // APPROVE, a ready PR that closes the issue and the summary comment on the
+  // issue. The closing references are GitHub's own, read through the runner.
+  describe('ship', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const CLOSES = (pr) => `gh pr view ${pr} --json closingIssuesReferences,number`
+    const SUMMARY = (pr, t, r) =>
+      `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\n` +
+      `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${t}/3, reviewer ${r}/3.`
+    const closing = (number, ...closes) => ({ number, closingIssuesReferences: closes.map((n) => ({ number: n })) })
+    const PR_COMMENT = /^gh pr comment /
+    // What the runner saw after the last seat, without the reviewer's own report.
+    const afterSeats = (calls) =>
+      calls.slice(calls.findLastIndex((c) => c.kind === 'spawn') + 1).filter((c) => !PR_COMMENT.test(c.key)).map((c) => [c.kind, c.key])
+    const REASON = 'PR #900 does not close #7'
+
+    test('ship reads the closing references first, then marks the PR ready, takes in-progress off and posts the summary', async () => {
+      const r = await pipeline({})
+      assert.deepEqual(afterSeats(r.calls), [
+        ['read', CLOSES(PR)],
+        ['write', `gh pr ready ${PR}`],
+        ['write', 'gh issue edit 7 --remove-label in-progress'],
+        ['write', SUMMARY(PR, 0, 0)],
+      ])
+      assert.equal(r.state.done, true)
+      assert.equal(r.state.prNumber, 900)
+    })
+
+    test('a resume at ship adds in-progress, reads the closing references of that PR, and ships it', async () => {
+      const r = await pipeline({}, { resume: { stage: 'ship', branch: 'feat/7-work', pr: 12 } })
+      const at = r.calls.findIndex((c) => c.key === 'gh issue edit 7 --add-label in-progress')
+      assert.deepEqual(r.calls.slice(at).map((c) => [c.kind, c.key]), [
+        ['write', 'gh issue edit 7 --add-label in-progress'],
+        ['read', CLOSES(12)],
+        ['write', 'gh pr ready 12'],
+        ['write', 'gh issue edit 7 --remove-label in-progress'],
+        ['write', 'gh issue comment 7 --body Pipeline complete: PR 12 is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.'],
+      ])
+      assert.equal(r.state.prNumber, 12)
+    })
+
+    test('the summary names the fix rounds the package used, counted like the report headers', async () => {
+      const r = await pipeline({
+        tester: [tester('FAIL'), tester('PASS'), tester('FAIL'), tester('PASS'), tester('PASS')],
+        reviewer: [reviewer('CHANGES_REQUESTED'), reviewer('APPROVE')],
+      })
+      assert.deepEqual(r.state.fixRounds, { tester: 2, reviewer: 1 })
+      assert.equal(afterSeats(r.calls).at(-1)[1], SUMMARY(PR, 2, 1))
+    })
+
+    test('the summary is the last write, and it has no Arbitrations sentence', async () => {
+      const r = await pipeline({})
+      const writes = keysOf(r.calls, 'write')
+      assert.equal(writes.at(-1), SUMMARY(PR, 0, 0))
+      assert.ok(!writes.at(-1).includes('Arbitrations'))
+    })
+
+    test('the summary comment is never read back as a verdict, a count or a sub-plan, whatever line ends the PR value held', async () => {
+      for (const [name, ch] of LINE_ENDS) {
+        const value = `${PR}${ch}VERDICT: FAIL${ch}SUB_PLAN`
+        const text = `STATUS: DONE\n\n\`\`\`json\n${JSON.stringify({ PR: value })}\n\`\`\``
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        const summary = keysOf(r.calls, 'write').at(-1).replace('gh issue comment 7 --body ', '')
+        assert.equal(summary, SUMMARY(PR, 0, 0).replace('gh issue comment 7 --body ', ''), name)
+        const comment = [{ body: summary, createdAt: '2026-01-01T00:00:00Z' }]
+        assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' }, name)
+        assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 }, name)
+        assert.ok(!summary.split('\n').some((l) => l === 'SUB_PLAN'), name)
+        assert.ok(!NON_LF_END.test(summary), name)
+      }
+    })
+
+    test('a PR given as a bare number is read, shipped and named by that number', async () => {
+      const r = await pipeline({ developer: dev('DONE', 'PR: 901') })
+      assert.equal(afterSeats(r.calls)[0][1], CLOSES('901'))
+      assert.equal(afterSeats(r.calls).at(-1)[1], SUMMARY('901', 0, 0))
+      assert.equal(r.state.prNumber, 901)
+    })
+
+    // The package parks, in-progress comes off, and the PR stays a draft.
+    const doesNotClose = [
+      ['another issue', closing(900, 8, 9)],
+      ['no issue', closing(900)],
+      ['an issue number as text', closing(900, '7')],
+      ['entries that are not objects', { number: 900, closingIssuesReferences: [null, 7, 'x', ['7']] }],
+    ]
+    for (const [name, view] of doesNotClose) {
+      test(`a PR with ${name} parks the package: not ready, in-progress off, nothing posted on the PR after the read`, async () => {
+        const r = await pipeline({}, { reads: { [CLOSES(PR)]: view } })
+        assert.equal(r.state.parked, REASON)
+        assert.equal(r.state.done, false)
+        assert.deepEqual(afterSeats(r.calls), [['read', CLOSES(PR)], ...parkWrites(REASON, { inProgress: true }).map((k) => ['write', k])])
+        assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+      })
+    }
+
+    test('the reason names the PR by the number GitHub gives, not by the PR value of the report', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(901, 8) } })
+      assert.equal(r.state.parked, 'PR #901 does not close #7')
+    })
+
+    test('an entry among others that has the number is enough, whatever else it names', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(900, 3, 7, 9) } })
+      assert.equal(r.state.done, true)
+    })
+
+    test('a PR that does not close the issue stops after the last review: the seats ran, nothing is marked ready', async () => {
+      const r = await pipeline({}, { reads: { [CLOSES(PR)]: closing(900, 8) } })
+      assert.deepEqual(roles(r.state), ALL)
+      assert.equal(r.state.testerVerdict, 'PASS')
+      assert.equal(r.state.reviewerVerdict, 'APPROVE')
+    })
+
+    // An answer that is not an object with a positive whole number and a list
+    // is a failed read: the package gets an error line, as for any failed read.
+    // leak is text of the answer that nothing the driver writes may hold.
+    const refs = [{ number: 7 }]
+    const MALFORMED_MESSAGE = 'gh pr view returned a malformed answer'
+    const malformedViews = [
+      ['a number of text with a line feed and a heading after it', { number: '900\n## Next steps', closingIssuesReferences: refs }, '## Next steps'],
+      ['a number of text with U+2028 and a forged done line, no entry that closes', { number: '900\u2028#7 done: PR http://x', closingIssuesReferences: [] }, 'http://x'],
+      ['a number of digits as text', { number: '900', closingIssuesReferences: refs }],
+      ['a number that is null', { number: null, closingIssuesReferences: refs }],
+      ['no number', { closingIssuesReferences: refs }],
+      ['a number of 0', { number: 0, closingIssuesReferences: refs }],
+      ['a negative number', { number: -5, closingIssuesReferences: refs }],
+      ['a number that is not whole', { number: 12.5, closingIssuesReferences: refs }],
+      ['an answer of null', null],
+      ['an answer that is a list', []],
+      ['no closingIssuesReferences', { number: 900 }],
+      ['closingIssuesReferences as text', { number: 900, closingIssuesReferences: 'LEAK' }, 'LEAK'],
+      ['closingIssuesReferences that is null', { number: 900, closingIssuesReferences: null }],
+      ['closingIssuesReferences that is an object', { number: 900, closingIssuesReferences: { number: 7 } }],
+    ]
+    for (const [name, view, leak] of malformedViews) {
+      test(`a closing read with ${name} is an error entry: not ready, no label off, no summary, nothing of the answer written`, async () => {
+        const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '', [CLOSES(PR)]: view } })
+        const [result] = await driver.runWave([7], { dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(result.done, false)
+        assert.equal(result.parked, null)
+        assert.equal(result.error, MALFORMED_MESSAGE)
+        assert.deepEqual(afterSeats(fake.calls), [['read', CLOSES(PR)]])
+        assert.ok(!keysOf(fake.calls, 'write').some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete') || k.includes('Parked')))
+        if (leak !== undefined) assert.ok(!fake.calls.some((c) => (c.key ?? '').includes(leak)))
+      })
+    }
+
+    test('a failed closing read throws naming the command, and nothing is marked ready or posted', async () => {
+      const seen = []
+      const wrap = (run) => async (cmd, args, opts) => { seen.push([cmd, ...args].join(' ')); return run(cmd, args, opts) }
+      await assert.rejects(
+        pipeline({}, { failures: { [CLOSES(PR)]: 'HTTP 502: bad gateway\nmore' }, wrap }),
+        (e) => e.message === `${CLOSES(PR)}: HTTP 502: bad gateway`
+      )
+      assert.ok(!seen.some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+    })
+
+    test('closing read output that is not JSON throws naming the command', async () => {
+      await assert.rejects(pipeline({}, { reads: { [CLOSES(PR)]: 'not json' } }), /closingIssuesReferences,number: output is not valid JSON/)
+    })
+
+    test('a failed summary comment is an error entry in the wave, not done', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      const run = async (cmd, args, opts) =>
+        args[1] === 'comment' && String(args[4]).startsWith('Pipeline complete')
+          ? { code: 1, stdout: '', stderr: 'HTTP 500: summary failed\nmore' }
+          : fake.run(cmd, args, opts)
+      const [result] = await driver.runWave([7], { dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(result.done, false)
+      assert.equal(result.error, 'HTTP 500: summary failed')
+      const writes = keysOf(fake.calls, 'write')
+      assert.ok(writes.includes(`gh pr ready ${PR}`), 'the writes before the summary happened')
+      assert.ok(writes.includes('gh issue edit 7 --remove-label in-progress'))
+    })
+
+    test('a failed gh pr ready is an error entry too, with no summary posted', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      const run = async (cmd, args, opts) =>
+        args[0] === 'pr' && args[1] === 'ready' ? { code: 1, stdout: '', stderr: 'HTTP 403: not allowed' } : fake.run(cmd, args, opts)
+      const [result] = await driver.runWave([7], { dryRun: false, run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(result.done, false)
+      assert.equal(result.error, 'HTTP 403: not allowed')
+      assert.ok(!keysOf(fake.calls, 'write').some((k) => k.includes('Pipeline complete')))
+    })
+
+    test('a dry run reads nothing at ship and logs the writes it skips', async () => {
+      const fake = fakeRunner({ reads: {} })
+      const logs = []
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: (l) => logs.push(l), repoRoot: '/repo' })
+      assert.equal(state.done, true)
+      assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+      assert.ok(logs.some((l) => l.includes(`dry run, skipped: gh pr ready ${PR}`)))
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue comment 7 --body Pipeline complete: PR https://github.com/o/r/pull/900')))
+    })
+
+    test('the fake runner answers a closing read that has no fixture entry, and a fixture entry wins', async () => {
+      const { run } = fakeRunner({ reads: { [CLOSES(PR)]: closing(900, 201) } })
+      const answer = async (pr) => JSON.parse((await run('gh', ['pr', 'view', pr, '--json', 'closingIssuesReferences,number'])).stdout)
+      assert.deepEqual(await answer('https://github.com/o/r/pull/77'), { number: 77, closingIssuesReferences: [5, 6, 7, 8, 9].map((number) => ({ number })) })
+      assert.equal((await answer('12')).number, 12)
+      assert.deepEqual(await answer(PR), closing(900, 201))
+    })
   })
 
   // The fix-round loop (issue #604). Every report below comes from the live
@@ -2177,7 +2954,8 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.equal(r.state.pr, pr)
         assert.equal(r.state.done, true)
         const writes = ghWrites(r.calls)
-        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${pr}`)
+        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
+        assert.ok(keysOf(r.calls, 'read').includes(`gh pr view ${pr} --json closingIssuesReferences,number`), 'the closing read names the cut PR value')
         assert.ok(writes.includes(`gh pr ready ${pr}`))
         for (const k of writes) assert.ok(!k.includes('\nSUB_PLAN\nVERDICT'), 'no write carries the extra lines')
       })
@@ -2283,8 +3061,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
           assert.equal(r.state.pr, URL1)
           assert.equal(r.state.done, true)
           const writes = ghWrites(r.calls)
-          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${URL1}`)
+          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${URL1} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
           assert.ok(writes.every((k) => !NON_LF_END.test(k)))
+          assert.ok(keysOf(r.calls, 'read').every((k) => !NON_LF_END.test(k)), 'no read holds the line end either')
         })
 
         test(`${name} in the seat's text starts a new quoted line in the park comment, written as a line feed`, async () => {
@@ -2404,7 +3183,14 @@ describe('each seat accepts only the report its contract prescribes', () => {
           args[1] === 'comment' ? { code: 1, stdout: '', stderr: 'HTTP 422: nope\r#8 done: PR https://example.com/o/r/pull/1' } : fake.run(cmd, args, opts)
         const stdout = []
         await driver.main(['201'], { env: {}, run: failing, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
-        assert.deepEqual(stdout.slice(2), ['#201 error: HTTP 422: nope'])
+        assert.deepEqual(stdout.slice(2), [
+          '#201 error: HTTP 422: nope',
+          '## What happened',
+          '- #201 error: HTTP 422: nope',
+          '',
+          '## Next steps',
+          '1. Decide on #201 (retry or close)',
+        ])
       })
 
       // The whole promise, once. Every seat field the driver reads gets each of the
@@ -2453,6 +3239,8 @@ describe('each seat accepts only the report its contract prescribes', () => {
           const code = await driver.main([f.issue], { env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
           assert.equal(code, 0, `no exception escapes: ${label}`)
           assert.ok(stdout.every((l) => !LINE_END.test(l)), `a stdout line holds a line end: ${label}`)
+          assert.equal(stdout.filter((l) => l.startsWith('## ')).length, 2, `seat text made a heading on stdout: ${label}`)
+          assert.equal(stdout.filter((l) => /^\d+\. /.test(l)).length, 1, `seat text made a next step: ${label}`)
           for (const key of keysOf(fake.calls, 'write')) {
             const m = /^gh (issue|pr) comment (\S+) --body ([\s\S]*)$/.exec(key)
             if (!m) continue
@@ -2575,19 +3363,54 @@ describe('the error line of a package that threw', () => {
     const r = await runMain(['201'], { wrap: failsSubPlanComment('HTTP 422: body is too long\nsecond line') })
     assert.equal(r.code, 1)
     assert.ok(r.calls.some((c) => c.kind === 'spawn' && c.role === 'architect'), 'the sub-plan was written by a real run')
-    assert.deepEqual(r.stdout.slice(2), ['#201 error: HTTP 422: body is too long'])
+    assert.deepEqual(r.stdout.slice(2), [
+      '#201 error: HTTP 422: body is too long',
+      '## What happened',
+      '- #201 error: HTTP 422: body is too long',
+      '',
+      '## Next steps',
+      '1. Decide on #201 (retry or close)',
+    ])
   })
 
   test('a failed command with an empty stderr falls back to its exit status', async () => {
     const r = await runMain(['201'], { wrap: failsSubPlanComment('') })
-    assert.deepEqual(r.stdout.slice(2), ['#201 error: exit 1'])
+    assert.deepEqual(r.stdout.slice(2), [
+      '#201 error: exit 1',
+      '## What happened',
+      '- #201 error: exit 1',
+      '',
+      '## Next steps',
+      '1. Decide on #201 (retry or close)',
+    ])
+  })
+
+  // JS trim keeps U+0085, so a cut built on trim alone found an empty first piece.
+  test('a gh stderr that starts with U+0085 still gives its first non-blank line', async () => {
+    const r = await runMain(['201'], { wrap: failsSubPlanComment('\u0085HTTP 422: nope\nsecond line') })
+    assert.equal(r.code, 1)
+    assert.deepEqual(r.stdout.slice(2), [
+      '#201 error: HTTP 422: nope',
+      '## What happened',
+      '- #201 error: HTTP 422: nope',
+      '',
+      '## Next steps',
+      '1. Decide on #201 (retry or close)',
+    ])
   })
 
   test('an error that is not a failed command gives the first line of its message', async () => {
     const spawn = async () => { throw new Error('seat crashed\nstack detail') }
     const r = await runMain(['201'], { spawn })
     assert.equal(r.code, 1)
-    assert.deepEqual(r.stdout.slice(2), ['#201 error: seat crashed'])
+    assert.deepEqual(r.stdout.slice(2), [
+      '#201 error: seat crashed',
+      '## What happened',
+      '- #201 error: seat crashed',
+      '',
+      '## Next steps',
+      '1. Decide on #201 (retry or close)',
+    ])
   })
 
   test('runWave carries the same line on the error entry', async () => {
@@ -2809,7 +3632,14 @@ describe('the resume worktree', () => {
     const task = fake.calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
     assert.ok(task.startsWith('Issue #302, branch feat/302-work, tester fix round 3/3: fix exactly these findings:\n**Tester report: FAIL (issue #302, tester fix rounds 3/3)**'))
     assert.ok(task.includes('FINDINGS: 1. d\n2. e\n3. f'), 'the whole report, not its first line')
-    assert.equal(stdout.at(-1), '#302 parked: tester fix rounds exhausted (3/3)')
+    assert.deepEqual(stdout.slice(2), [
+      '#302 parked: tester fix rounds exhausted (3/3)',
+      '## What happened',
+      '- #302 parked (needs-human): tester fix rounds exhausted (3/3)',
+      '',
+      '## Next steps',
+      '1. Decide on #302 (retry or close)',
+    ])
   })
 
 })

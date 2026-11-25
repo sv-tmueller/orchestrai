@@ -74,7 +74,25 @@
         }
       ]
     },
-    "git worktree list --porcelain": ""
+    "git worktree list --porcelain": "",
+    "gh pr view 310 --json closingIssuesReferences,number": {
+      "closingIssuesReferences": [
+        {
+          "id": "I_301",
+          "number": 301,
+          "repository": {
+            "id": "R_x",
+            "name": "r",
+            "owner": {
+              "id": "U_x",
+              "login": "o"
+            }
+          },
+          "url": "https://github.com/o/r/issues/301"
+        }
+      ],
+      "number": 310
+    }
   },
   "failures": {}
 }
