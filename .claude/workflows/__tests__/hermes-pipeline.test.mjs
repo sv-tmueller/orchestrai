@@ -1767,6 +1767,85 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.deepEqual(countFixRounds(comments), r.state.fixRounds)
     })
 
+    // A seat whose only verdict is in its fenced json block: the parser copies
+    // it onto the report, but the text has no VERDICT line for a reader.
+    const jsonOnlyTester = (verdict) => parseReport('tester', [
+      'COMMIT: abc123', 'FINDINGS: 1. one', 'UNTESTED CLAIMS: none', '', '```json', JSON.stringify({ VERDICT: verdict }), '```',
+    ].join('\n'))
+    const jsonOnlyReviewer = (verdict) => parseReport('reviewer', [
+      'STAGE: both clean', 'FINDINGS: 1. one', 'CLAIMS: none', 'CHECKS: n/a', '', '```json', JSON.stringify({ VERDICT: verdict }), '```',
+    ].join('\n'))
+    // The text holds a PASS line with a CR, which the parser's key pattern skips and
+    // the readers do not, ahead of the FAIL line the parser takes.
+    const crThenFailTester = () => parseReport('tester', 'VERDICT: PASS\r\nCOMMIT: abc123\nFINDINGS: 1. one\nVERDICT: FAIL\nUNTESTED CLAIMS: none')
+    const stamp = (i) => new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString()
+    const header = (body) => body.split('\n')[0].match(/report: (\w+) \(issue #7, (tester|reviewer) fix rounds (\d)\/3\)\*\*$/)
+
+    // After every post, a fresh read of the comments so far gives the count the
+    // header names, and a resumed run from those comments parks as exhausted.
+    async function assertReadsBack(r, seat, verdict) {
+      const bodies = posted(r.calls).filter((b) => b.startsWith(seat === 'tester' ? '**Tester' : '**Reviewer'))
+      const all = posted(r.calls).map((body, i) => ({ body, createdAt: stamp(i) }))
+      assert.equal(bodies.length, 4)
+      const seen = []
+      all.forEach((comment, i) => {
+        seen.push(comment)
+        const [, v, s, n] = header(comment.body)
+        assert.equal(driver.countFixRounds(seen)[s], Number(n), `${s} count after post ${i + 1}`)
+        assert.equal(driver.resumeStage(seen).stage, v === 'PASS' ? 'reviewer' : v === 'APPROVE' ? 'ship' : 'developer', `stage after post ${i + 1}`)
+      })
+      assert.equal(driver.countFixRounds(all)[seat], r.state.fixRounds[seat])
+      const { stage, findings } = driver.resumeStage(all)
+      assert.equal(stage, 'developer')
+      const resume = { stage, findings, branch: 'feat/7-work', pr: 12, fixRounds: driver.countFixRounds(all) }
+      const again = await pipeline({}, { resume })
+      assert.equal(again.state.parked, `${seat} fix rounds exhausted (3/3)`)
+      assert.deepEqual(roles(again.state), [])
+    }
+
+    test('a tester FAIL taken from a json block is posted with a VERDICT line, so the cap holds across runs', async () => {
+      const report = jsonOnlyTester('FAIL')
+      assert.equal(report.VERDICT, 'FAIL', 'the premise: the parser took the verdict from the block')
+      assert.ok(!/^VERDICT:/m.test(report.raw), 'the premise: the text has no VERDICT line')
+      const r = await pipeline({ tester: [report, jsonOnlyTester('FAIL'), jsonOnlyTester('FAIL'), jsonOnlyTester('FAIL')] })
+      assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 0 })
+      assert.ok(posted(r.calls)[0].startsWith('**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\n\nCOMMIT: abc123'))
+      await assertReadsBack(r, 'tester', 'FAIL')
+    })
+
+    test('a reviewer CHANGES_REQUESTED taken from a json block is posted with a VERDICT line, so the cap holds across runs', async () => {
+      const report = jsonOnlyReviewer('CHANGES_REQUESTED')
+      assert.equal(report.VERDICT, 'CHANGES_REQUESTED', 'the premise: the parser took the verdict from the block')
+      const r = await pipeline({ reviewer: [report, jsonOnlyReviewer('CHANGES_REQUESTED'), jsonOnlyReviewer('CHANGES_REQUESTED'), jsonOnlyReviewer('CHANGES_REQUESTED')] })
+      assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 4 })
+      assert.ok(posted(r.calls).find((b) => b.startsWith('**Reviewer')).includes('rounds 1/3)**\n\nVERDICT: CHANGES_REQUESTED\n\nSTAGE: both clean'))
+      await assertReadsBack(r, 'reviewer', 'CHANGES_REQUESTED')
+    })
+
+    test('a PASS and an APPROVE taken from a json block read back as PASS and APPROVE', async () => {
+      const r = await pipeline({ tester: jsonOnlyTester('PASS'), reviewer: jsonOnlyReviewer('APPROVE') })
+      const comments = posted(r.calls).map((body, i) => ({ body, createdAt: stamp(i) }))
+      assert.equal(comments.length, 2)
+      assert.deepEqual(driver.resumeStage(comments.slice(0, 1)), { stage: 'reviewer' })
+      assert.deepEqual(driver.resumeStage(comments), { stage: 'ship' })
+    })
+
+    test('a report whose text holds another verdict word before its own is posted with its own on top', async () => {
+      const report = crThenFailTester()
+      assert.equal(report.VERDICT, 'FAIL', 'the premise: the parser takes the FAIL line')
+      const r = await pipeline({ tester: [crThenFailTester(), crThenFailTester(), crThenFailTester(), crThenFailTester()] })
+      assert.ok(posted(r.calls)[0].startsWith('**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\n\nVERDICT: PASS\r\n'))
+      await assertReadsBack(r, 'tester', 'FAIL')
+    })
+
+    test('a report that already reads back as its verdict is posted as it is, with no added line', async () => {
+      const r = await pipeline({ tester: [FAIL(), PASS()] })
+      assert.ok(posted(r.calls)[0].endsWith('\n\nVERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none'))
+      assert.equal(posted(r.calls)[0].split('VERDICT:').length, 2)
+    })
+
     test('a report with three findings reaches the developer whole, though the parser keeps only the first line', async () => {
       const report = parseReport('tester', 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. first\n2. second\n3. third\nUNTESTED CLAIMS: none')
       assert.equal(report.FINDINGS, '1. first', 'the premise: the parser drops the other lines')

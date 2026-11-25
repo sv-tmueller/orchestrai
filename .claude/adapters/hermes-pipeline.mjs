@@ -270,12 +270,16 @@ export async function runPipeline(issueNumber, opts = {}) {
   const exhausted = (kind) => stop(`${kind} fix rounds exhausted (${MAX_ROUNDS}/${MAX_ROUNDS})`)
 
   // Posts one seat's report on the PR and returns the comment body. The seat's
-  // own text follows the header unchanged, so its VERDICT line starts a line
-  // and a later run reads it back (resumeStage, countFixRounds).
+  // own text follows the header unchanged. A later run reads the verdict back
+  // (resumeStage, countFixRounds), so when the first verdict line those readers
+  // find is not the accepted verdict (none, as with a verdict the parser took
+  // from a json block, or another word), the driver adds its own above the text.
   const postReport = async (seat, verdict, report) => {
     const text = report?.raw?.trim() || [`VERDICT: ${verdict}`, report?.FINDINGS ? `FINDINGS: ${report.FINDINGS}` : null].filter(Boolean).join('\n')
     const name = seat === 'tester' ? 'Tester' : 'Reviewer'
-    const body = `**${name} report: ${verdict} (issue #${issueNumber}, ${seat} fix rounds ${state.fixRounds[seat]}/${MAX_ROUNDS})**\n\n${text}`
+    const top = `**${name} report: ${verdict} (issue #${issueNumber}, ${seat} fix rounds ${state.fixRounds[seat]}/${MAX_ROUNDS})**\n\n`
+    const plain = `${top}${text}`
+    const body = readVerdict(plain) === verdict ? plain : `${top}VERDICT: ${verdict}\n\n${text}`
     await gh.prComment(state.pr, body)
     if (seat === 'tester') testerBody = body
     return body

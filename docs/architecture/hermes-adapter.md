@@ -308,11 +308,17 @@ Every tester and reviewer report is posted on the PR with `gh pr comment`,
 ```
 
 `<c>` is that seat's count once this report is counted, so the report that
-uses up the cap reads `4/3`. The seat's own `VERDICT:` line starts a line, so
+uses up the cap reads `4/3`. The comment always carries a `VERDICT:` line at
+the start of a line: the seat's own, or one the driver adds under the header
+when the report text has none the readers can read (a verdict the parser took
+from a json block, or another verdict word ahead of the real one). So
 `resumeStage` reads the stage back from it. The same lines give the counts:
 `countFixRounds` counts a `FAIL` as a tester round and a `CHANGES_REQUESTED` as
 a reviewer round, from the first verdict line of each comment. A bold header, a
-quoted line and a fact-checker verdict do not count. The gate reads the PR's
+quoted line and a fact-checker verdict do not count. The readers split a
+comment at a line feed only (a CR before it is dropped), as GitHub does:
+U+2028, U+2029, a lone CR, a vertical tab, a form feed and U+0085 do not
+start a line. The gate reads the PR's
 comments once and hands the counts to the resumed run, so a run that starts
 later has the numbers the run that stopped had. A package that parked on a
 used-up count parks again if it is resumed, because the count comes from the
@@ -330,6 +336,8 @@ review prompts name the latest fix round they follow, the fix prompts name
 their own round, and the counts only rise. The first seat of a resumed run
 gets one more line asking it to check the branch and the PR for work an
 earlier run left, since the run that stopped may have sent the same text.
+The one exception is the developer resume for a branch with no PR: it keeps
+the exact prompt of #355's ruling and gets no pick-up line.
 The reviewer's prompt carries the latest tester report, for the untested
 claims it rates. After a resume at the reviewer, which has no tester report in
 memory, it names the tester's comment on the PR instead.
@@ -340,8 +348,10 @@ Every stop of a package writes three things: the comment `Parked: <reason>` on
 the issue, the `needs-human` label, and removal of `in-progress` when this run
 or the gate had put it on. Where the stop has seat text (a `NEEDS_DECISION`,
 `BLOCKED` or `NEEDS_CONTEXT` report), the comment quotes it line by line under
-the reason, so no line of it starts with `SUB_PLAN` or `VERDICT:` where the
-gate reads comments. The stops are: an architect `NEEDS_DECISION`, a developer
+the reason, one `> ` per line-feed line, so no line of it starts with
+`SUB_PLAN` or `VERDICT:` where the gate reads comments. A developer
+`BLOCKED` or `NEEDS_CONTEXT` report with no notes parks as `developer BLOCKED`
+or `developer NEEDS_CONTEXT`, with no colon. The stops are: an architect `NEEDS_DECISION`, a developer
 `BLOCKED` or `NEEDS_CONTEXT`, a seat with no usable report, an exhausted
 count, no PR to mark ready, and an unexpected final state. The result line on
 stdout is unchanged: `#<n> parked: <reason>`.
