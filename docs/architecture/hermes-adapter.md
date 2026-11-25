@@ -257,8 +257,11 @@ In a live run each stage accepts only the report its contract prescribes:
   that is a pull request URL (it holds `/pull/<digits>`) or a number, on the
   single line of the value (see "Parking"). The PR comes from the report, or
   from the gate on a resume when the report names none. It is missing only when
-  the whole value is blank. Any other value that is no pull request URL or
-  number stops the package, also when the gate knows a PR.
+  the field is absent, is json `null`, or is text with no non-blank character.
+  With no PR known the package then stops. Any other value must be a pull request
+  URL or a number on its single line (a json number counts as its digits). An
+  object, an array, a boolean, or text that is neither stops the package, also
+  when the gate knows a PR.
   `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
   holds in a fix round too, as far as the `STATUS` goes. `NEEDS_CONTEXT`
   always parks: no seat contract has a job that answers a question, so the
@@ -271,9 +274,11 @@ In a live run each stage accepts only the report its contract prescribes:
 A seat field that is not text never throws. A json number is read as its
 digits. Any other json value that is not a string (an object, an array, a
 boolean, `null`) is read as an absent field: the stage that needs it stops with
-`<role> seat returned no usable report` (a `STATUS`, a `VERDICT`, a `PR` on a run
-that has no PR from the gate), and a note or a question that is absent leaves the
-reason without a colon.
+`<role> seat returned no usable report` (a `STATUS`, a `VERDICT`), and a note or
+a question that is absent leaves the reason without a colon. The `PR` is the
+exception, because it can also come from the gate: see the developer bullet
+above. There `null` is a missing PR, and an object, an array or a boolean is an
+invalid one.
 
 Anything else, and a seat that returns nothing, stops the package: it parks
 with the reason `<role> seat returned no usable report`. `runPipeline` with

@@ -2346,12 +2346,35 @@ describe('each seat accepts only the report its contract prescribes', () => {
           assertStopped(await pipeline({ developer: devWith({ PR: value }) }), 'developer', ['architect', 'developer'])
         })
 
-        test(`a developer PR that is ${name} is an absent field on a resume: the gate's PR is used`, async () => {
-          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
-          assert.equal(r.state.pr, 12)
-          assert.equal(r.state.done, true)
-        })
+        // json null is a missing PR. An object, an array or a boolean is an invalid one.
+        if (value === null) {
+          test('a developer PR that is null is missing on a resume: the gate\'s PR is used', async () => {
+            const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+            assert.equal(r.state.pr, 12)
+            assert.equal(r.state.done, true)
+          })
+        } else {
+          test(`a developer PR that is ${name} is invalid: it stops the package on a resume, and no completion comment is posted`, async () => {
+            const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+            assert.equal(r.state.parked, 'developer seat returned no usable report')
+            assert.equal(r.state.done, false)
+            assert.deepEqual(roles(r.state), ['developer'])
+            assert.ok(!ghWrites(r.calls).some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+          })
+        }
       }
+
+      test('a developer PR that is an empty string is missing on a resume: the gate\'s PR is used', async () => {
+        const r = await pipeline({ developer: devWith({ PR: '' }) }, { resume: AT })
+        assert.equal(r.state.pr, 12)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a developer PR that is a json number is that PR number, also on a resume with a gate PR', async () => {
+        const r = await pipeline({ developer: devWith({ PR: 901 }) }, { resume: AT })
+        assert.equal(r.state.pr, '901')
+        assert.equal(r.state.done, true)
+      })
 
       test('a json number is read as its digits: notes, a question and a PR', async () => {
         const notes = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 42 })

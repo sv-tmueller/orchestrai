@@ -370,9 +370,9 @@ export async function runPipeline(issueNumber, opts = {}) {
     if (!(await developerOk(devReport))) return state
 
     // A PR the report names must be a pull request URL or a number on its
-    // single line. A blank or missing one falls back to the gate's.
-    const reported = oneLine(devReport?.pr) || oneLine(devReport?.PR)
-    if (!dryRun && reported && !isPullRequest(reported)) return noReport('developer')
+    // single line. A missing one falls back to the gate's.
+    const reported = reportedPr(devReport)
+    if (!dryRun && (reported === null || (reported && !isPullRequest(reported)))) return noReport('developer')
     state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
@@ -647,6 +647,21 @@ const FENCE_LINE = /^(?:`{3,}|~{3,})[^\s`~]*$/
 function oneLine(value) {
   const lines = textOf(value).split(LINE_END).map((line) => line.trim()).filter(Boolean)
   return lines.find((line) => !FENCE_LINE.test(line)) ?? lines[0] ?? ''
+}
+
+// The developer's PR, as one line of text. '' when the PR is missing: the field is
+// absent, json null, or text with no non-blank character. null when the value is
+// invalid for a non-text kind (an object, an array, a boolean). A dry run treats
+// that as missing, since it has placeholders instead.
+function reportedPr(report) {
+  for (const key of ['pr', 'PR']) {
+    const value = report?.[key]
+    if (value === undefined || value === null) continue
+    if (typeof value !== 'string' && typeof value !== 'number') return null
+    const line = oneLine(value)
+    if (line) return line
+  }
+  return ''
 }
 
 // The first line of an error message or a stderr, for a result line: trimmed
