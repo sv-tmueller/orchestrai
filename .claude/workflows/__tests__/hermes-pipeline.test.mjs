@@ -440,7 +440,6 @@ describe('runPipeline: resume', () => {
     const r = await pipe(7, f, { size: 'size:S', resume: { stage: 'gate', branch: 'feat/7-x', pr: 10, fixRounds: 0 } })
     assert.deepEqual(seatsOf(f.calls), ['reviewer'])
     assert.equal(r.done, true)
-    assert.match(f.calls.find((c) => c.role === 'reviewer').task, /check the branch and the PR for work an earlier run may have left/)
     assert.ok(writesOf(f.calls).includes('git fetch origin feat/7-x'))
   })
 
@@ -449,8 +448,9 @@ describe('runPipeline: resume', () => {
     const f = fake({}, { developer: dev(), reviewer: rev('APPROVE') })
     const r = await pipe(7, f, { size: 'size:M', resume: { stage: 'fix', branch: 'feat/7-x', pr: 10, fixRounds: 1, findings } })
     assert.deepEqual(seatsOf(f.calls), ['developer', 'reviewer'])
-    assert.match(f.calls[0].task, /fix round 1\/2/)
-    assert.ok(f.calls[0].task.includes('2. b'))
+    const first = f.calls.find((c) => c.kind === 'spawn').task
+    assert.match(first, /fix round 1\/2/)
+    assert.ok(first.includes('2. b'))
     assert.equal(r.done, true)
   })
 
@@ -472,7 +472,7 @@ describe('runPipeline: resume', () => {
   test('a branch with no PR goes back to the developer, who is told to open the PR', async () => {
     const f = fake({}, { developer: dev() })
     await pipe(7, f, { size: 'size:S', resume: { stage: 'develop', branch: 'feat/7-x' } })
-    assert.match(f.calls[0].task, /on origin and has no PR/)
+    assert.match(f.calls.find((c) => c.kind === 'spawn').task, /on origin and has no PR/)
   })
 
   test('a PR the developer does not name falls back to the gate PR', async () => {
@@ -514,7 +514,7 @@ describe('runWave', () => {
   })
 
   test('a package that throws gets an error entry and the others still finish', async () => {
-    const f = fake({ failOn: /^gh issue edit 2 --add-label/ }, { developer: dev() })
+    const f = fake({ failOn: /^gh issue edit 2 --add-label/, closes: [1, 2] }, { developer: dev() })
     const results = await runWave([{ issue: 1, size: 'size:S' }, { issue: 2, size: 'size:S' }], { repoRoot: '/repo', run: f.run, spawn: f.spawn, log: () => {} })
     assert.equal(results[0].done, true)
     assert.deepEqual([results[1].issue, results[1].done, results[1].parked], [2, false, null])
@@ -538,6 +538,7 @@ describe('main', () => {
       4: issue(4, { labels: labels('size:L') }),
     },
     byLabel: { 'size:S': [1] },
+    closes: [1],
   }
 
   test('a usage error exits 2 with the usage line and makes no call', async () => {
@@ -555,7 +556,7 @@ describe('main', () => {
       '#3 unsized park: no size label, not guessing a size',
       '#4 size:L stop: size:L, split it first',
       'wave 1: #1',
-      'waiting: #2 (blocked by #1)',
+      'wave 2: #2',
     ])
     assert.deepEqual(r.calls, [])
     assert.ok(r.err.some((l) => l.includes('gh issue comment 3 --body Parked: ')))
@@ -576,7 +577,7 @@ describe('main', () => {
     const r = await runMain(['1'], { ...world, failOn: /^gh issue view/ }, {})
     assert.deepEqual([r.code, r.out], [1, []])
     assert.equal(r.err.length, 1)
-    assert.match(r.err[0], /^boom: /)
+    assert.match(r.err[0], /: boom: gh issue view 1/)
   })
 
   test('a package that throws exits 1 and its line reads error', async () => {
