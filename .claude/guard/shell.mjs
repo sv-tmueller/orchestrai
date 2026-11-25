@@ -97,9 +97,10 @@ function readCluster(text, expands, takesValue, seen) {
 // arguments are removed. `env` collects the names assigned in front of the
 // command. `chdir` is set when a wrapper carries its change-directory flag.
 //
-// `skipFlags` reads a `--long` word as one flag, and a word with a single dash
-// as a short-option cluster. Its `chdir` argument names the wrapper's own
-// change-directory flag: a short form and a long form.
+// `skipFlags` reads a `--long` word as one flag, which takes the next word when
+// it is in `valueFlags`, and a word with a single dash as a short-option
+// cluster. Its `chdir` argument names the wrapper's own change-directory flag:
+// a short form and a long form.
 function skipFlags(words, valueFlags, state, chdir = null) {
   let i = 0
   while (i < words.length) {
