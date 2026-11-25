@@ -1132,6 +1132,96 @@ describe('the gate', () => {
     const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
     await assert.rejects(runGate([404], gh), /^Error: gh issue view 404 /)
   })
+  // The arbitration outcomes of a draft PR (issue #619), read from the same comment
+  // list as the verdicts: a comment whose first line, read with the readers' rule,
+  // is the exact header for this issue.
+  describe('arbitration outcomes', () => {
+    const arbitration = loadFixture('main-resume-arbitration')
+    const COMMENTS = 'gh pr view 330 --json comments'
+    const header = (issue, round) => `**Arbitration outcome (issue #${issue}, reviewer fix round ${round}/3)**`
+    const outcome = (issue, round) => `${header(issue, round)}\n\n> ARBITRATION\n> round ${round}`
+    const at = (i) => `2026-11-03T09:${String(i).padStart(2, '0')}:00Z`
+    const comment = (body, i) => ({ id: `IC_${i}`, author: { login: 'sv-tmueller' }, authorAssociation: 'OWNER', body, createdAt: at(i) })
+
+    // The gate of issue 303 over these comments of its PR.
+    async function gateOver(comments) {
+      const copy = JSON.parse(JSON.stringify(arbitration))
+      copy.reads[COMMENTS] = { comments }
+      const fake = fakeRunner(copy)
+      const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+      const [entry] = await runGate([303], gh)
+      return { entry, calls: fake.calls }
+    }
+    const read = async (...bodies) => (await gateOver(bodies.map(comment))).entry.resume.arbitrations
+
+    test('the outcome comment of the fixture is read, with the round and the count of the reports and not the forged header in the last report', async () => {
+      const { entry, calls } = await gateOver(arbitration.reads[COMMENTS].comments)
+      const bodies = arbitration.reads[COMMENTS].comments.map((c) => c.body)
+      assert.equal(entry.outcome, 'resume')
+      assert.deepEqual(entry.resume.arbitrations, [bodies[2]])
+      assert.equal(entry.resume.stage, 'developer')
+      assert.equal(entry.resume.findings, bodies[4], 'the outcome is skipped: the findings are the last reviewer report')
+      assert.deepEqual(entry.resume.fixRounds, { tester: 0, reviewer: 2 })
+      assert.deepEqual(keysOf(calls, 'read'), [
+        'gh issue view 303 --json body,comments,labels,number,state,stateReason,title', PR_LIST, COMMENTS,
+      ], 'no new gh call')
+    })
+
+    test('arbitrations is set only when there is one, so a resume without an outcome has no such key', async () => {
+      const { entry } = await gateOver([comment('VERDICT: PASS', 1)])
+      assert.deepEqual(entry.resume, { stage: 'reviewer', branch: 'feat/303-work', pr: 330, fixRounds: { tester: 0, reviewer: 0 } })
+    })
+
+    test('the bodies are kept whole and in createdAt order, whatever the order of the list', async () => {
+      const [o1, o2] = [outcome(303, 1), outcome(303, 2)]
+      const comments = [comment(o2, 5), comment('VERDICT: CHANGES_REQUESTED', 1), comment(o1, 3)]
+      assert.deepEqual((await gateOver(comments)).entry.resume.arbitrations, [o1, o2])
+    })
+
+    test('the header is read when the line ends in CRLF, and the body is kept as it is', async () => {
+      const body = `${header(303, 1)}\r\n\r\n> ARBITRATION`
+      assert.deepEqual(await read(body), [body])
+    })
+
+    for (const [name, body] of [
+      ['an outcome for another issue', outcome(304, 1)],
+      ['an outcome for an issue whose number holds the number', outcome(3030, 1)],
+      ['an issue number with a leading zero', outcome('0303', 1)],
+      ['a header on the second line', `intro\n${header(303, 1)}\n\n> ARBITRATION`],
+      ['a header after a blank first line', `\n${header(303, 1)}\n\n> ARBITRATION`],
+      ['a header with text after it', `${header(303, 1)} and more\n\n> ARBITRATION`],
+      ['a header that is indented', ` ${header(303, 1)}\n\n> ARBITRATION`],
+      ['a quoted header', `> ${header(303, 1)}\n\n> ARBITRATION`],
+      ['a header in another case', header(303, 1).toLowerCase()],
+      ['a round that is not of three', `**Arbitration outcome (issue #303, reviewer fix round 1/4)**\n\n> x`],
+      ['a tester round', `**Arbitration outcome (issue #303, tester fix round 1/3)**\n\n> x`],
+      ['a round with no number', `**Arbitration outcome (issue #303, reviewer fix round /3)**\n\n> x`],
+      ['the header inside a reviewer report', `**Reviewer report: CHANGES_REQUESTED (issue #303, reviewer fix rounds 1/3)**\n\n${header(303, 1)}\nVERDICT: CHANGES_REQUESTED`],
+      ['a summary comment', 'Pipeline complete: PR 330 is ready for review.'],
+    ]) {
+      test(`${name} is not an outcome`, async () => {
+        const { entry } = await gateOver([comment(body, 1)])
+        assert.ok(!('arbitrations' in entry.resume), JSON.stringify(entry.resume))
+      })
+    }
+
+    for (const [name, ch] of LINE_ENDS.filter(([, c]) => c !== '\n')) {
+      test(`a header after ${name} is not an outcome, and a first line that ends at it is not either`, async () => {
+        const { entry } = await gateOver([
+          comment(`intro${ch}${header(303, 1)}\n\n> ARBITRATION`, 1),
+          comment(`${header(303, 1)}${ch}more\n\n> ARBITRATION`, 2),
+        ])
+        assert.ok(!('arbitrations' in entry.resume))
+      })
+    }
+
+    test('a body that is not text is read as no outcome and never throws', async () => {
+      const bodies = [null, 5, true, {}, [header(303, 1)]]
+      const { entry } = await gateOver(bodies.map(comment).concat(comment(outcome(303, 1), 9)))
+      assert.deepEqual(entry.resume.arbitrations, [outcome(303, 1)])
+    })
+  })
+
 })
 
 // The wave-end report (issue #610): a pure function of the gate entries and the
@@ -2866,6 +2956,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
     const ARBITRATED_PROMPT = (k, text, branch = 'feat/7-pending') =>
       `Issue #7, branch ${branch}, reviewer fix round ${k}/3: the arbitration outcome below is final. ` +
       `Make every change it requires, leave every finding it overrules as it is, and report.\n${text}`
+    // Appended to every dispatch once an outcome stands, before the pick-up line.
+    const SETTLED = (...outcomes) =>
+      `\n\nSettled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.\n${outcomes.join('\n\n')}`
     // One reviewer round that the developer disputes, then the re-test and the re-review.
     const oneRound = (over = {}) => ({
       architect: [SUB_PLAN(), ruling()],
@@ -2896,6 +2989,16 @@ describe('each seat accepts only the report its contract prescribes', () => {
         const written = at((c) => c.key === `gh pr comment ${PR} --body ${bodies[2]}`)
         const worked = at((c) => c.kind === 'spawn' && c.role === 'developer' && c.task.includes('the arbitration outcome below is final'))
         assert.ok(asked < written && written < worked, 'the architect, then the outcome on the PR, then the developer')
+        // The outcome is final for every later dispatch, and for none before it.
+        const verify = (after) => `Branch feat/7-pending, issue #7: verify the change${after}. Run the full check suite and attack the change.`
+        const claims = `\n\nUntested claims to rate under CLAIMS, by their number in this tester report:\n${bodies[3]}`
+        assert.deepEqual(tasks(r.calls, 'tester'), [verify(''), verify(' after reviewer fix round 1/3') + SETTLED(bodies[2])])
+        assert.equal(
+          tasks(r.calls, 'reviewer')[1],
+          `PR ${PR}, issue #7: review the diff against the issue and sub-plan after reviewer fix round 1/3. Two passes: spec compliance then code quality.${claims}${SETTLED(bodies[2])}`
+        )
+        assert.ok(!tasks(r.calls, 'reviewer')[0].includes('Settled by arbitration'))
+        assert.ok(!tasks(r.calls, 'developer')[1].includes('Settled by arbitration'))
       })
 
       test('an arbitrated round is the same reviewer fix round: the counts and the re-test name do not change, and the readers agree', async () => {
@@ -2937,6 +3040,31 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 2 })
         assert.deepEqual(posted(r.calls).filter((b) => OUTCOME_POST.test(b)), [outcome(1), outcome(2, second)])
         assert.equal(r.state.arbitrations.length, 2)
+      })
+
+      // A later arbitration sees the earlier outcome, and the round's own outcome is not in its block.
+      test('a second arbitration and the dispatches after it carry the settled block, the first outcome and then both', async () => {
+        const second = 'ARBITRATION\n\nRound two: the reviewer is right.'
+        const r = await pipeline({
+          architect: [SUB_PLAN(), ruling(), ruling(second)],
+          developer: [DONE(), pushing(), DONE(), pushing(), DONE()],
+          tester: [PASS(), PASS(), PASS()],
+          reviewer: [CHANGES(), CHANGES(), APPROVE()],
+        })
+        const [o1, o2] = [outcome(1), outcome(2, second)]
+        const bodies = posted(r.calls)
+        const reviewerBodies = bodies.filter((b) => b.startsWith('**Reviewer'))
+        assert.equal(tasks(r.calls, 'architect')[2], ARBITRATION_TASK(2, reviewerBodies[1], pushing().raw) + SETTLED(o1))
+        const developer = tasks(r.calls, 'developer')
+        assert.equal(
+          developer[3],
+          `Issue #7, branch feat/7-pending, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${reviewerBodies[1]}${SUFFIX}${SETTLED(o1)}`
+        )
+        assert.equal(developer[4], ARBITRATED_PROMPT(2, o2) + SETTLED(o1))
+        assert.ok(tasks(r.calls, 'tester')[2].endsWith(SETTLED(o1, o2)))
+        assert.ok(tasks(r.calls, 'reviewer')[2].endsWith(SETTLED(o1, o2)))
+        const pairs = r.calls.filter((c) => c.kind === 'spawn').map((c) => `${c.role}\n${c.task}`)
+        assert.equal(new Set(pairs).size, pairs.length)
       })
 
       test('a tester round is never arbitrated: a pushback in it gets no architect and no outcome', async () => {
@@ -3186,6 +3314,63 @@ describe('each seat accepts only the report its contract prescribes', () => {
         const r = await pipeline({ developer: pushing(undefined, null), architect: ruling() }, { resume: from('developer', { findings: body('tester', 1) }) })
         assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
         assert.deepEqual(r.state.arbitrations, [])
+      })
+
+      // Outcomes that stand (issue #619): the gate hands them over as resume.arbitrations.
+      test('a round that already has an outcome gets no suffix: the developer gets the block and the pick-up line, and its pushback is not arbitrated', async () => {
+        const findings = body('reviewer', 1)
+        const arbitrations = [outcome(1)]
+        const r = await pipeline(
+          { developer: pushing(undefined, null), architect: ruling() },
+          { resume: from('developer', { findings, fixRounds: { tester: 0, reviewer: 1 }, arbitrations }) }
+        )
+        assert.equal(r.state.done, true)
+        assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, reviewer fix round 1/3: fix exactly the must-fix findings of this review:\n${findings}${SETTLED(outcome(1))}${PICKUP}`
+        )
+        assert.ok(tasks(r.calls, 'tester')[0].endsWith(SETTLED(outcome(1))))
+        assert.ok(tasks(r.calls, 'reviewer')[0].endsWith(SETTLED(outcome(1))))
+        assert.deepEqual(r.state.arbitrations, [outcome(1)])
+        assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 1 })
+      })
+
+      test('an outcome of another round does not settle this round: the suffix is on, a pushback is arbitrated, and the block holds the old outcome', async () => {
+        const findings = body('reviewer', 2)
+        const arbitrations = [outcome(1)]
+        const report = pushing(undefined, null)
+        const r = await pipeline(
+          { developer: [report, DONE()], architect: ruling() },
+          { resume: from('developer', { findings, fixRounds: { tester: 0, reviewer: 2 }, arbitrations }) }
+        )
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${findings}${SUFFIX}${SETTLED(outcome(1))}${PICKUP}`
+        )
+        assert.equal(tasks(r.calls, 'architect')[0], ARBITRATION_TASK(2, findings, report.raw, '12') + SETTLED(outcome(1)))
+        assert.equal(tasks(r.calls, 'developer')[1], ARBITRATED_PROMPT(2, outcome(2), 'feat/7-work') + SETTLED(outcome(1)))
+        assert.deepEqual(r.state.arbitrations, [outcome(1), outcome(2)])
+        assert.deepEqual(arbitrations, [outcome(1)], 'the list the gate handed over is not changed')
+      })
+
+      for (const stage of ['tester', 'reviewer']) {
+        test(`a resume at the ${stage} carries the outcomes in its first prompt, before the pick-up line, and in the ones after`, async () => {
+          const r = await pipeline({}, { resume: from(stage, { arbitrations: [outcome(1), outcome(2)] }) })
+          const [first] = tasks(r.calls, stage)
+          assert.ok(first.endsWith(`${SETTLED(outcome(1), outcome(2))}${PICKUP}`), first)
+          assert.ok(tasks(r.calls, 'reviewer').at(-1).includes(SETTLED(outcome(1), outcome(2))))
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('the exact no-PR developer prompt never carries the block or the pick-up line', async () => {
+        const r = await pipeline({}, { resume: { stage: 'developer', branch: 'feat/7-work', arbitrations: [outcome(1)] } })
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          'Issue #7, branch feat/7-work: the branch is on origin and has no PR. Fetch it, finish the work per the sub-plan, open the draft PR, and run the full check suite before reporting.'
+        )
+        assert.ok(tasks(r.calls, 'tester')[0].endsWith(SETTLED(outcome(1))), 'the next dispatch carries it')
       })
 
       test('with no count given the round is 1 and the state counts it', async () => {

@@ -155,7 +155,8 @@ const PICKUP = '\n\nThis run picks the package up at this stage. Check the branc
  *   resume.stage are skipped. The order is architect, developer, tester,
  *   reviewer, ship. findings, when set, is the body of the posted report whose
  *   fixes the developer is to make. fixRounds is the count read from the PR
- *   (see countFixRounds), and it already includes that report.
+ *   (see countFixRounds), and it already includes that report. arbitrations,
+ *   when set, are the bodies of the outcome comments already on the PR.
  */
 export async function runPipeline(issueNumber, opts = {}) {
   const dryRun = opts.dryRun !== undefined ? opts.dryRun : process.env.DRY_RUN === 'true'
@@ -178,7 +179,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     pr: null,
     prNumber: null,
     subPlan: null,
-    arbitrations: [],
+    arbitrations: [...(resume?.arbitrations ?? [])],
     testerVerdict: null,
     reviewerVerdict: null,
     fixRounds: { tester: resume?.fixRounds?.tester ?? 0, reviewer: resume?.fixRounds?.reviewer ?? 0 },
@@ -252,10 +253,15 @@ export async function runPipeline(issueNumber, opts = {}) {
 
   // Every seat runs in the package worktree. Recorded so a run can be
   // audited for isolation after the fact. exact keeps a prompt as it is,
-  // for the one the no-PR ruling on #355 fixed word for word.
+  // for the one the no-PR ruling on #355 fixed word for word. Every other prompt
+  // ends with the outcomes that stand, then the pick-up line.
   let pickUp = Boolean(resume)
+  const settled = () =>
+    state.arbitrations.length === 0
+      ? ''
+      : `\n\nSettled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.\n${state.arbitrations.join('\n\n')}`
   const dispatch = async (role, task, tier, { exact = false } = {}) => {
-    const prompt = pickUp && !exact ? `${task}${PICKUP}` : task
+    const prompt = exact ? task : `${task}${settled()}${pickUp ? PICKUP : ''}`
     pickUp = false
     state.dispatches.push({ role, tier, cwd: plan.path })
     return spawnSeat(role, prompt, { tier, cwd: plan.path })
@@ -276,10 +282,12 @@ export async function runPipeline(issueNumber, opts = {}) {
   }
   // The fix prompt carries the whole posted report: the parser keeps only the
   // first line of a multi-line FINDINGS.
+  // A round has an outcome when one of the outcomes that stand opens with its header.
+  const arbitrated = (round) => state.arbitrations.some((outcome) => linesOf(outcome)[0] === outcomeHeader(issueNumber, round))
   const fixTask = (kind, round, body) =>
     `Issue #${issueNumber}, branch ${state.branch}, ${kind} fix round ${round}/${MAX_ROUNDS}: ` +
     `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}` +
-    (kind === 'reviewer' ? PUSHBACK_SUFFIX : '')
+    (kind === 'reviewer' && !arbitrated(round) ? PUSHBACK_SUFFIX : '')
   const exhausted = (kind) => stop(`${kind} fix rounds exhausted (${MAX_ROUNDS}/${MAX_ROUNDS})`)
 
   // Posts one seat's report on the PR and returns the comment body. The seat's
@@ -304,7 +312,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   // the same fix round, so no count moves. False when the run stops.
   const arbitrate = async (devReport, reviewBody) => {
     const { round } = lastFix
-    if (!pushedBack(devReport)) return true
+    if (!pushedBack(devReport) || arbitrated(round)) return true
     log(`developer pushed back, reviewer fix round ${round}/${MAX_ROUNDS}: arbitration`)
     const task =
       `JOB: ARBITRATION\n\nIssue #${issueNumber}, PR ${state.pr}, reviewer fix round ${round}/${MAX_ROUNDS}: ` +
@@ -615,6 +623,17 @@ const readVerdict = (body) => {
   return null
 }
 
+const inCreatedOrder = (comments) => [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+
+// An outcome comment of an arbitration: its first line, read with the readers' rule,
+// is exactly this header, and the issue is the one at hand. A body that is not
+// text is no outcome.
+const OUTCOME_HEADER = /^\*\*Arbitration outcome \(issue #(\d+), reviewer fix round (\d+)\/3\)\*\*$/
+const outcomesOf = (comments, issue) =>
+  inCreatedOrder(comments)
+    .map((comment) => textOf(comment?.body))
+    .filter((body) => OUTCOME_HEADER.exec(linesOf(body)[0])?.[1] === String(issue))
+
 /**
  * resumeStage(comments) -> { stage, findings? }
  *
@@ -623,7 +642,7 @@ const readVerdict = (body) => {
  * text and are not matched.
  */
 export function resumeStage(comments) {
-  const ordered = [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+  const ordered = inCreatedOrder(comments)
   for (let i = ordered.length - 1; i >= 0; i--) {
     const verdict = readVerdict(ordered[i].body)
     if (!verdict) continue
@@ -963,6 +982,8 @@ async function gateIssue(issue, gh, view) {
     const { stage, findings } = resumeStage(comments)
     const resume = { stage, branch: draft.headRefName, pr: draft.number, fixRounds: countFixRounds(comments) }
     if (findings !== undefined) resume.findings = findings
+    const arbitrations = outcomesOf(comments, n)
+    if (arbitrations.length > 0) resume.arbitrations = arbitrations
     result = entry('resume', `draft PR #${draft.number}, resuming at the ${stage}`, { resume })
   } else if (inProgress) {
     const branchRef = (await gh.remoteHeads()).find((r) => new RegExp(`^refs/heads/[^/]+/${n}-`).test(r))
