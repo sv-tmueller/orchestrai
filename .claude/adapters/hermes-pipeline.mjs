@@ -906,8 +906,8 @@ export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.de
  * the next steps that follow. entries are the gate's, results are the wave's.
  * A run or resume entry takes its line from its result. Every title, reason,
  * error and gate detail is one line (oneLine), and every line starts with a
- * fixed prefix, so no text can start a heading or a list item. The next steps
- * hold issue and PR numbers only.
+ * fixed prefix that the text follows, so no text starts a line of its own. The
+ * next steps hold issue and PR numbers only.
  */
 export function formatReport(entries, results = []) {
   const byIssue = new Map(results.map((r) => [r.issue, r]))
