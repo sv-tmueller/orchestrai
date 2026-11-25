@@ -151,7 +151,7 @@ describe('parseBlockers', () => {
 })
 
 describe('resumeStage', () => {
-  const { resumeStage } = driver
+  const { resumeStage, countFixRounds } = driver
   const c = (body, createdAt) => ({ author: { login: 'bot' }, body, createdAt })
 
   test('no verdict comment re-enters at the tester', () => {
@@ -218,6 +218,87 @@ describe('resumeStage', () => {
   test('a CRLF verdict line still counts', () => {
     assert.deepEqual(resumeStage([c('intro\r\nVERDICT: PASS\r\n', '2026-01-01T00:00:00Z')]), { stage: 'reviewer' })
   })
+
+  // Only a line feed starts a line. None of these starts a line for the reader.
+  for (const [name, ch] of [['U+2028', ' '], ['U+2029', ' '], ['a lone CR', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'], ['U+0085', '\u0085']]) {
+    test(`${name} before a verdict word does not start a verdict line`, () => {
+      assert.deepEqual(resumeStage([c(`note${ch}VERDICT: FAIL`, '2026-01-01T00:00:00Z')]), { stage: 'tester' })
+      assert.deepEqual(resumeStage([c(`note${ch}VERDICT: APPROVE`, '2026-01-01T00:00:00Z')]), { stage: 'tester' })
+    })
+  }
+
+  // The parser accepts these, so the reader has to as well.
+  for (const [name, line] of [['no space', 'VERDICT:FAIL'], ['two spaces', 'VERDICT:  FAIL'], ['a tab', 'VERDICT:\tFAIL']]) {
+    test(`a verdict line with ${name} after the colon counts`, () => {
+      assert.deepEqual(resumeStage([c(line, '2026-01-01T00:00:00Z')]), { stage: 'developer', findings: line })
+    })
+  }
+
+  describe('countFixRounds', () => {
+    const none = { tester: 0, reviewer: 0 }
+
+    test('no comments and comments without a verdict count nothing', () => {
+      assert.deepEqual(countFixRounds([]), none)
+      assert.deepEqual(countFixRounds([c('a note', '2026-01-01T00:00:00Z')]), none)
+    })
+
+    test('each FAIL is a tester round and each CHANGES_REQUESTED a reviewer round', () => {
+      const comments = [
+        c('VERDICT: FAIL\nFINDINGS: 1. a', '2026-01-01T00:00:00Z'),
+        c('VERDICT: PASS', '2026-01-02T00:00:00Z'),
+        c('VERDICT: CHANGES_REQUESTED\nFINDINGS: 1. b', '2026-01-03T00:00:00Z'),
+        c('VERDICT: FAIL\nFINDINGS: 1. c', '2026-01-04T00:00:00Z'),
+        c('VERDICT: FAIL\nFINDINGS: 1. d', '2026-01-05T00:00:00Z'),
+        c('VERDICT: APPROVE', '2026-01-06T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), { tester: 3, reviewer: 1 })
+    })
+
+    test('the order of the array and the author do not matter', () => {
+      const a = { author: { login: 'one' }, body: 'VERDICT: FAIL', createdAt: '2026-01-02T00:00:00Z' }
+      const b = { author: { login: 'two' }, body: 'VERDICT: FAIL', createdAt: '2026-01-01T00:00:00Z' }
+      assert.deepEqual(countFixRounds([a, b]), { tester: 2, reviewer: 0 })
+      assert.deepEqual(countFixRounds([b, a]), { tester: 2, reviewer: 0 })
+    })
+
+    test('a quoted verdict, a fact-checker verdict and a verdict word in a header are ignored', () => {
+      const comments = [
+        c('> VERDICT: FAIL\nI disagree.', '2026-01-01T00:00:00Z'),
+        c('VERDICT: CONTRADICTED\nCLAIMS: 1', '2026-01-02T00:00:00Z'),
+        c('**Tester report, round 1 (VERDICT: FAIL)**\n\nsee below', '2026-01-03T00:00:00Z'),
+        c('VERDICT: FAILED', '2026-01-04T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), none)
+    })
+
+    test('only the first verdict line of a comment counts', () => {
+      assert.deepEqual(countFixRounds([c('VERDICT: FAIL\nVERDICT: CHANGES_REQUESTED', '2026-01-01T00:00:00Z')]), { tester: 1, reviewer: 0 })
+    })
+
+    test('a CRLF verdict line and the spacing the parser accepts count', () => {
+      const comments = [
+        c('intro\r\nVERDICT: FAIL\r\n', '2026-01-01T00:00:00Z'),
+        c('VERDICT:CHANGES_REQUESTED', '2026-01-02T00:00:00Z'),
+        c('VERDICT:  FAIL', '2026-01-03T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), { tester: 2, reviewer: 1 })
+    })
+
+    for (const [name, ch] of [['U+2028', ' '], ['U+2029', ' '], ['a lone CR', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'], ['U+0085', '\u0085']]) {
+      test(`${name} before a verdict word does not start a verdict line`, () => {
+        const comments = [c(`note${ch}VERDICT: FAIL`, '2026-01-01T00:00:00Z'), c(`note${ch}VERDICT: CHANGES_REQUESTED`, '2026-01-02T00:00:00Z')]
+        assert.deepEqual(countFixRounds(comments), none)
+      })
+    }
+
+    test('a verdict line after one of those characters and a line feed still counts', () => {
+      assert.deepEqual(countFixRounds([c('a b\nVERDICT: FAIL', '2026-01-01T00:00:00Z')]), { tester: 1, reviewer: 0 })
+    })
+
+    test('a comment that does not parse as one string is skipped', () => {
+      assert.deepEqual(countFixRounds([{ createdAt: '2026-01-01T00:00:00Z' }, { body: null }]), none)
+    })
+  })
 })
 
 describe('planWaves', () => {
@@ -264,7 +345,7 @@ describe('planWaves', () => {
 const FIXTURE_DIR = new URL('./fixtures/hermes-pipeline/', import.meta.url)
 const loadFixture = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURE_DIR), 'utf8'))
 
-// #604 extends this list if it adds a new write command.
+// Every write command the driver runs has a prefix here. A new one is added here.
 const WRITE_PREFIXES = [
   'gh label create',
   'gh issue comment',
@@ -317,6 +398,25 @@ function fakeRunner(fixture, reports = {}) {
 }
 
 const keysOf = (calls, kind) => calls.filter((c) => c.kind === kind).map((c) => c.key)
+
+// What a stop writes for issue 7: the reason on the issue, needs-human on, and
+// in-progress off when this run or the gate had put it on. details is the seat
+// text, quoted line by line under the reason.
+// The writer ends a line at any of the seven line ends (CRLF is one). The
+// readers (resumeStage, countFixRounds, the sub-plan reader) end it at LF only.
+const LINE_ENDS = [
+  ['a line feed', '\n'], ['a carriage return', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'],
+  ['U+0085', '\u0085'], ['U+2028', '\u2028'], ['U+2029', '\u2029'],
+]
+const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+// Everything of the seven except LF, which a multi-line comment does hold.
+const NON_LF_END = /[\r\v\f\u0085\u2028\u2029]/
+const quoted = (text) => text.split(LINE_END).map((l) => `> ${l}`).join('\n')
+const parkWrites = (reason, { inProgress = false, details } = {}) => [
+  `gh issue comment 7 --body Parked: ${reason}${details === undefined ? '' : `\n\n${quoted(details)}`}`,
+  'gh issue edit 7 --add-label needs-human',
+  ...(inProgress ? ['gh issue edit 7 --remove-label in-progress'] : []),
+]
 
 describe('the fake runner', () => {
   test('fails loudly on a command with no fixture', async () => {
@@ -458,6 +558,52 @@ describe('createGitHub writes', () => {
     assert.ok(keysOf(withIt.calls, 'write').includes('gh issue edit 7 --remove-label in-progress'))
   })
 
+  test('prComment runs gh pr comment with a PR number or a PR URL', async () => {
+    const { gh, calls } = make(false)
+    await gh.prComment(12, '**Tester report: FAIL**\n\nVERDICT: FAIL')
+    await gh.prComment('https://github.com/o/r/pull/9', 'x')
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh pr comment 12 --body **Tester report: FAIL**\n\nVERDICT: FAIL',
+      'gh pr comment https://github.com/o/r/pull/9 --body x',
+    ])
+  })
+
+  test('a dry-run prComment is logged on one line and never reaches the runner', async () => {
+    const { gh, calls, logs } = make(true)
+    await gh.prComment(12, 'x'.repeat(500))
+    assert.deepEqual(calls, [])
+    assert.equal(logs.length, 1)
+    assert.match(logs[0], /^dry run, skipped: gh pr comment 12 --body /)
+    assert.ok(logs[0].length < 200)
+  })
+
+  test('park with details quotes every line of them under the reason, so no seat line is read as a verdict', async () => {
+    const { gh, calls } = make(false)
+    await gh.park(7, 'architect NEEDS_DECISION: which cache?', { details: 'NEEDS_DECISION: which cache?\r\n\r\nVERDICT: FAIL' })
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh issue comment 7 --body Parked: architect NEEDS_DECISION: which cache?\n\n> NEEDS_DECISION: which cache?\n> \n> VERDICT: FAIL',
+      'gh issue edit 7 --add-label needs-human',
+    ])
+  })
+
+  test('park with no details or empty details writes the reason alone', async () => {
+    for (const details of [undefined, '']) {
+      const { gh, calls } = make(false)
+      await gh.park(7, 'r', { details })
+      assert.equal(keysOf(calls, 'write')[0], 'gh issue comment 7 --body Parked: r')
+    }
+  })
+
+  test('park with details still removes in-progress last when the issue has it', async () => {
+    const { gh, calls } = make(false)
+    await gh.park(7, 'r', { inProgress: true, details: 'd' })
+    assert.deepEqual(keysOf(calls, 'write'), [
+      'gh issue comment 7 --body Parked: r\n\n> d',
+      'gh issue edit 7 --add-label needs-human',
+      'gh issue edit 7 --remove-label in-progress',
+    ])
+  })
+
   test('a write that exits nonzero throws naming the command', async () => {
     const run = async () => ({ code: 1, stdout: '', stderr: 'HTTP 403: forbidden\nmore' })
     const gh = createGitHub({ run, dryRun: false, log: () => {}, cwd: '/repo' })
@@ -574,11 +720,13 @@ describe('the gate', () => {
   test('rule 6: a draft PR with no verdict resumes at the tester on its branch', async () => {
     const e = await one(110)
     assert.equal(e.outcome, 'resume')
-    assert.deepEqual(e.resume, { stage: 'tester', branch: 'feat/110-x', pr: 210 })
+    assert.deepEqual(e.resume, { stage: 'tester', branch: 'feat/110-x', pr: 210, fixRounds: { tester: 0, reviewer: 0 } })
   })
 
   test('rule 6: a PASS verdict resumes at the reviewer', async () => {
-    assert.deepEqual((await one(111)).resume, { stage: 'reviewer', branch: 'feat/111-x', pr: 212 })
+    assert.deepEqual((await one(111)).resume, {
+      stage: 'reviewer', branch: 'feat/111-x', pr: 212, fixRounds: { tester: 0, reviewer: 0 },
+    })
   })
 
   test('rule 6: a FAIL verdict resumes at the developer with the findings', async () => {
@@ -589,8 +737,19 @@ describe('the gate', () => {
     assert.match(e.resume.findings, /VERDICT: FAIL\nFINDINGS: 1\. exit code is 0 on a failed read/)
   })
 
+  test('rule 6: the fix rounds already used are counted from the verdict comments of the PR', async () => {
+    // PR 213 holds a PASS and, later, one FAIL.
+    assert.deepEqual((await one(112)).resume.fixRounds, { tester: 1, reviewer: 0 })
+  })
+
+  test('the entry carries the issue title, for the branch name', async () => {
+    assert.equal((await one(116)).title, 'Issue 116 title')
+  })
+
   test('rule 6: an APPROVE verdict on a draft resumes at ship', async () => {
-    assert.deepEqual((await one(113)).resume, { stage: 'ship', branch: 'feat/113-x', pr: 214 })
+    assert.deepEqual((await one(113)).resume, {
+      stage: 'ship', branch: 'feat/113-x', pr: 214, fixRounds: { tester: 0, reviewer: 0 },
+    })
   })
 
   test('rule 6: with several draft PRs the highest number is used', async () => {
@@ -636,6 +795,18 @@ describe('the gate', () => {
 
   test('rule 8: the SUB_PLAN line is found on a later CRLF line of a comment', async () => {
     assert.deepEqual((await one(119)).resume, { stage: 'developer' })
+  })
+
+  test('rule 8: only a line feed starts a SUB_PLAN line, so no other line end makes a sub-plan comment', async () => {
+    for (const ch of [' ', ' ', '\r', '\v', '\f', '\u0085']) {
+      const key = 'gh issue view 118 --json body,comments,labels,number,state,stateReason,title'
+      const copy = JSON.parse(JSON.stringify(fixture))
+      copy.reads[key].comments[0].body = `intro${ch}SUB_PLAN${ch}more`
+      const fake = fakeRunner(copy)
+      const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+      const [e] = await runGate([118], gh)
+      assert.equal(e.resume, undefined, `U+${ch.codePointAt(0).toString(16)} must not start a line`)
+    }
   })
 
   test('a blocker closed as completed does not block', async () => {
@@ -862,6 +1033,23 @@ describe('main', () => {
       })
       assert.equal(r.code, 0)
       assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
+    })
+
+    test('a park reason with seat text on several lines is one result line on stdout', async () => {
+      const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
+      const architect = parseReport('architect', fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' }))
+      const r = await runMain(['201'], 'main-live', { reports: { architect } })
+      assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which db?'])
+      const developer = parseReport('developer', fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore' }))
+      const d = await runMain(['204'], 'main-live', { reports: { developer } })
+      assert.deepEqual(d.stdout.slice(2), ['#204 parked: developer BLOCKED: stuck'])
+    })
+
+    test('a developer PR value with more lines than the URL is one done line on stdout', async () => {
+      const pr = 'https://github.com/o/r/pull/900'
+      const text = `STATUS: DONE\n\n\`\`\`json\n${JSON.stringify({ PR: `${pr}\nSUB_PLAN` })}\n\`\`\``
+      const r = await runMain(['204'], 'main-live', { reports: { developer: parseReport('developer', text) } })
+      assert.deepEqual(r.stdout.slice(2), [`#204 done: PR ${pr}`])
     })
 
     test('with no wave 1 package nothing runs and the run exits 0', async () => {
@@ -1102,9 +1290,9 @@ describe('a seat that returns no usable report', () => {
     })
   }
 
-  test('live: an architect that returns nothing posts no sub-plan comment and adds no label', async () => {
+  test('live: an architect that returns nothing posts no sub-plan and adds no in-progress, and writes only the park', async () => {
     const { calls } = await pipeline(7, { architect: null })
-    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh issue')), [])
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh issue')), parkWrites('architect seat returned no usable report'))
   })
 
   test('live: a known PR carries over when the developer reports none, but a null report still parks', async () => {
@@ -1116,10 +1304,10 @@ describe('a seat that returns no usable report', () => {
     assert.equal(nul.state.parked, 'developer seat returned no usable report')
   })
 
-  test('live: all four seats failing writes nothing to GitHub', async () => {
+  test('live: all four seats failing stops at the architect and writes only its park', async () => {
     const { state, calls } = await pipeline(7, { architect: null, developer: null, tester: null, reviewer: null })
     assert.equal(state.done, false)
-    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), [])
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), parkWrites('architect seat returned no usable report'))
   })
 
   // What the live adapter returns: parseReport() output, with the text in
@@ -1172,13 +1360,25 @@ describe('a seat that returns no usable report', () => {
     assert.equal(state.reviewerVerdict, 'APPROVE')
   })
 
+  // The lenient dry-run read can hand back a word that is neither verdict. The loop must not
+  // take it for a FAIL it can fix, so it ends at the ship check with the old reason.
+  for (const [seat, word] of [['tester', 'MAYBE'], ['reviewer', 'LATER']]) {
+    test(`dry run: a ${seat} verdict that is neither word ends the run at the ship check instead of looping`, { timeout: 3000 }, async () => {
+      const fake = fakeRunner({ reads: {} }, { [seat]: { VERDICT: word } })
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(state.done, false)
+      assert.match(state.parked, new RegExp(`^unexpected state: .*${seat}=${word}`))
+      assert.equal(state.dispatches.filter((d) => d.role === seat).length, 1)
+    })
+  }
+
   test('dry run: the re-test and re-review lines fall back too', async () => {
     const fake = fakeRunner({ reads: {} }, { tester: [FAIL, null], reviewer: [CHANGES, null] })
     const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
     assert.equal(state.done, true)
   })
 
-  test('main shows the stop on stdout only, with no park comment and no label', async () => {
+  test('main shows the stop on stdout and parks the issue: the reason, needs-human on, in-progress off', async () => {
     const fake = fakeRunner(loadFixture('main-live'), { developer: null })
     const stdout = []
     const code = await main(['204'], {
@@ -1186,8 +1386,13 @@ describe('a seat that returns no usable report', () => {
     })
     assert.equal(code, 0)
     assert.ok(stdout.includes('#204 parked: developer seat returned no usable report'))
-    const writes = keysOf(fake.calls, 'write').slice(6)
-    assert.ok(!writes.some((k) => k.includes('needs-human') || k.includes('Parked') || k.startsWith('gh pr ready')))
+    assert.deepEqual(keysOf(fake.calls, 'write').slice(6), [
+      'git worktree add /repo/.worktrees/pkg-204 -b feat/204-issue-204-title origin/main',
+      'gh issue edit 204 --add-label in-progress',
+      'gh issue comment 204 --body Parked: developer seat returned no usable report',
+      'gh issue edit 204 --add-label needs-human',
+      'gh issue edit 204 --remove-label in-progress',
+    ])
   })
 })
 
@@ -1208,18 +1413,24 @@ describe('each seat accepts only the report its contract prescribes', () => {
   const tester = (verdict) => parseReport('tester', `VERDICT: ${verdict}\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none`)
   const reviewer = (verdict) => parseReport('reviewer', `VERDICT: ${verdict}\nSTAGE: both clean\nFINDINGS: 1. one\nCLAIMS: none\nCHECKS: n/a`)
 
-  const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress']
+  const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress', 'gh pr comment']
 
-  // The stop: the reason, the seats that ran, nothing after the last seat, and
-  // no write beyond the setup ones that came before it.
+  // The stop: the reason, the seats that ran, after the last seat only the park
+  // writes (in-progress comes off once the developer has been dispatched), and
+  // before it no write beyond the setup ones and the reports already posted.
   function assertStopped({ state, calls }, role, dispatched) {
-    assert.equal(state.parked, `${role} seat returned no usable report`)
+    const reason = `${role} seat returned no usable report`
+    assert.equal(state.parked, reason)
     assert.equal(state.done, false)
     assert.deepEqual(roles(state), dispatched)
     assert.deepEqual(calls.filter((c) => c.kind === 'spawn').map((c) => c.role), dispatched)
-    assert.equal(calls.at(-1).kind, 'spawn', 'nothing follows the last seat')
-    assert.equal(calls.at(-1).role, dispatched.at(-1))
-    const stray = keysOf(calls, 'write').filter((k) => !ALLOWED_WRITES.some((p) => k.startsWith(p)))
+    const last = calls.findLastIndex((c) => c.kind === 'spawn')
+    assert.equal(calls[last].role, dispatched.at(-1))
+    assert.deepEqual(
+      calls.slice(last + 1).map((c) => [c.kind, c.key]),
+      parkWrites(reason, { inProgress: dispatched.includes('developer') }).map((k) => ['write', k])
+    )
+    const stray = keysOf(calls.slice(0, last), 'write').filter((k) => !ALLOWED_WRITES.some((p) => k.startsWith(p)))
     assert.deepEqual(stray, [])
   }
   const ALL = ['architect', 'developer', 'tester', 'reviewer']
@@ -1255,21 +1466,26 @@ describe('each seat accepts only the report its contract prescribes', () => {
       ['after the bare word', 'NEEDS_DECISION\n\nwhich one, A or B\nmore detail'],
       ['after leading blank lines', '\n\nNEEDS_DECISION\nwhich one, A or B'],
     ]) {
-      test(`NEEDS_DECISION with the question ${form} parks with the question and posts nothing`, async () => {
+      test(`NEEDS_DECISION with the question ${form} parks with the question, the architect's text quoted under it`, async () => {
         const r = await pipeline({ architect: arch(text) })
         assert.equal(r.state.parked, 'architect NEEDS_DECISION: which one, A or B')
         assert.equal(r.state.done, false)
         assert.deepEqual(roles(r.state), ['architect'])
-        assert.equal(r.calls.at(-1).kind, 'spawn')
-        assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+        assert.deepEqual(
+          keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
+          parkWrites('architect NEEDS_DECISION: which one, A or B', { details: text.trim() })
+        )
       })
     }
 
-    test('NEEDS_DECISION with no question at all still parks, and ships nothing', async () => {
+    test('NEEDS_DECISION with no question at all still parks, with no colon, and ships nothing', async () => {
       const r = await pipeline({ architect: arch('NEEDS_DECISION') })
-      assert.match(r.state.parked, /^architect NEEDS_DECISION/)
+      assert.equal(r.state.parked, 'architect NEEDS_DECISION')
       assert.deepEqual(roles(r.state), ['architect'])
-      assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+      assert.deepEqual(
+        keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
+        parkWrites('architect NEEDS_DECISION', { details: 'NEEDS_DECISION' })
+      )
     })
 
     for (const [name, text] of [
@@ -1336,7 +1552,10 @@ describe('each seat accepts only the report its contract prescribes', () => {
         const r = await pipeline({ developer: report })
         assert.equal(r.state.parked, `developer ${status}: the base is wrong`)
         assert.deepEqual(roles(r.state), ['architect', 'developer'])
-        assert.equal(r.calls.at(-1).kind, 'spawn')
+        assert.deepEqual(
+          r.calls.slice(r.calls.findLastIndex((c) => c.kind === 'spawn') + 1).map((c) => c.key),
+          parkWrites(`developer ${status}: the base is wrong`, { inProgress: true, details: report.raw })
+        )
         assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
       })
     }
@@ -1458,6 +1677,855 @@ describe('each seat accepts only the report its contract prescribes', () => {
     }
   })
 
+  // The fix-round loop (issue #604). Every report below comes from the live
+  // parser, and every write goes through the fake runner.
+  describe('the fix-round loop', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const COMMENT = /^gh pr comment \S+ --body /
+    const posted = (calls) => keysOf(calls, 'write').filter((k) => COMMENT.test(k)).map((k) => k.replace(COMMENT, ''))
+    const tasks = (calls, role) => calls.filter((c) => c.kind === 'spawn' && c.role === role).map((c) => c.task)
+    const FAIL = () => tester('FAIL')
+    const PASS = () => tester('PASS')
+    const CHANGES = () => reviewer('CHANGES_REQUESTED')
+    const APPROVE = () => reviewer('APPROVE')
+    // Three tester rounds and three reviewer rounds, one of the tester rounds
+    // opened by the re-test that follows a reviewer round.
+    const longest = () => ({
+      tester: [FAIL(), PASS(), FAIL(), PASS(), FAIL(), PASS(), PASS()],
+      reviewer: [CHANGES(), CHANGES(), CHANGES(), APPROVE()],
+    })
+    const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
+
+    test('the longest run ships: three tester rounds and three reviewer rounds, a re-test FAIL after a reviewer round among them', async () => {
+      const r = await pipeline(longest())
+      assert.equal(r.state.parked, null)
+      assert.equal(r.state.done, true)
+      assert.deepEqual(r.state.fixRounds, { tester: 3, reviewer: 3 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester',
+        'reviewer',
+      ])
+      assert.equal(posted(r.calls).length, 11, 'seven tester reports and four reviewer reports')
+      assert.ok(keysOf(r.calls, 'write').includes(`gh pr ready ${PR}`))
+    })
+
+    test('a fourth tester FAIL is posted as 4/3 and parks, with no fifth dispatch and no ship', async () => {
+      const r = await pipeline({ tester: [FAIL(), FAIL(), FAIL(), FAIL()] })
+      assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 0 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'developer', 'tester', 'developer', 'tester', 'developer', 'tester',
+      ])
+      assert.deepEqual(posted(r.calls).map((b) => b.split('\n')[0]), [1, 2, 3, 4].map(
+        (k) => `**Tester report: FAIL (issue #7, tester fix rounds ${k}/3)**`
+      ))
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('a fourth reviewer CHANGES_REQUESTED is posted as 4/3 and parks', async () => {
+      const r = await pipeline({ reviewer: [CHANGES(), CHANGES(), CHANGES(), CHANGES()] })
+      assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 4 })
+      assert.equal(roles(r.state).filter((x) => x === 'developer').length, 4, 'the implement run and three fix rounds')
+      assert.equal(roles(r.state).at(-1), 'reviewer')
+      const headers = posted(r.calls).map((b) => b.split('\n')[0]).filter((h) => h.startsWith('**Reviewer'))
+      assert.equal(headers.at(-1), '**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 4/3)**')
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('the old one-round parks are gone: a tester FAIL after a fix round goes to a second round', async () => {
+      const r = await pipeline({ tester: [FAIL(), FAIL(), PASS()] })
+      assert.equal(r.state.parked, null)
+      assert.deepEqual(r.state.fixRounds, { tester: 2, reviewer: 0 })
+      assert.equal(r.state.done, true)
+    })
+
+    test('a reviewer round whose re-test FAILs counts a tester round and goes through the tester loop', async () => {
+      const r = await pipeline({ reviewer: [CHANGES(), APPROVE()], tester: [PASS(), FAIL(), PASS(), PASS()] })
+      assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 1 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'reviewer', 'developer', 'tester', 'developer', 'tester', 'reviewer',
+      ])
+      assert.equal(r.state.done, true)
+    })
+
+    test('the report comment has the exact header, then the seat\'s own text trimmed and unquoted', async () => {
+      const failRaw = 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none'
+      const passRaw = 'VERDICT: PASS\nCOMMIT: def456\nFINDINGS: none\nUNTESTED CLAIMS: none'
+      const approveRaw = 'VERDICT: APPROVE\nSTAGE: both clean\nFINDINGS: none\nCLAIMS: none\nCHECKS: n/a'
+      const r = await pipeline({
+        tester: [parseReport('tester', `\n${failRaw}\n\n`), parseReport('tester', passRaw)],
+        reviewer: parseReport('reviewer', `${approveRaw}\n`),
+      })
+      assert.deepEqual(keysOf(r.calls, 'write').filter((k) => COMMENT.test(k)), [
+        `gh pr comment ${PR} --body **Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\n${failRaw}`,
+        `gh pr comment ${PR} --body **Tester report: PASS (issue #7, tester fix rounds 1/3)**\n\n${passRaw}`,
+        `gh pr comment ${PR} --body **Reviewer report: APPROVE (issue #7, reviewer fix rounds 0/3)**\n\n${approveRaw}`,
+      ])
+    })
+
+    test('a report with no raw text is posted as its verdict, with the findings when it has them', async () => {
+      const r = await pipeline({ tester: [{ VERDICT: 'FAIL', FINDINGS: 'one' }, { VERDICT: 'PASS' }], reviewer: { VERDICT: 'APPROVE' } })
+      assert.deepEqual(posted(r.calls), [
+        '**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\nFINDINGS: one',
+        '**Tester report: PASS (issue #7, tester fix rounds 1/3)**\n\nVERDICT: PASS',
+        '**Reviewer report: APPROVE (issue #7, reviewer fix rounds 0/3)**\n\nVERDICT: APPROVE',
+      ])
+    })
+
+    test('round trip: every posted report reads back as the stage it leaves and the count its header names', async () => {
+      const { resumeStage, countFixRounds } = driver
+      const r = await pipeline(longest())
+      const bodies = posted(r.calls)
+      const comments = bodies.map((body, i) => ({ body, createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString() }))
+      const stageAfter = { PASS: 'reviewer', APPROVE: 'ship', FAIL: 'developer', CHANGES_REQUESTED: 'developer' }
+      bodies.forEach((body, i) => {
+        const [, verdict, seat, n] = body.split('\n')[0].match(/report: (\w+) \(issue #7, (tester|reviewer) fix rounds (\d)\/3\)\*\*$/)
+        const read = resumeStage(comments.slice(0, i + 1))
+        assert.equal(read.stage, stageAfter[verdict], `stage after comment ${i + 1}`)
+        if (read.findings !== undefined) assert.equal(read.findings, body)
+        assert.equal(countFixRounds(comments.slice(0, i + 1))[seat], Number(n), `${seat} count after comment ${i + 1}`)
+      })
+      assert.deepEqual(countFixRounds(comments), r.state.fixRounds)
+    })
+
+    // A seat whose only verdict is in its fenced json block: the parser copies
+    // it onto the report, but the text has no VERDICT line for a reader.
+    const jsonOnlyTester = (verdict) => parseReport('tester', [
+      'COMMIT: abc123', 'FINDINGS: 1. one', 'UNTESTED CLAIMS: none', '', '```json', JSON.stringify({ VERDICT: verdict }), '```',
+    ].join('\n'))
+    const jsonOnlyReviewer = (verdict) => parseReport('reviewer', [
+      'STAGE: both clean', 'FINDINGS: 1. one', 'CLAIMS: none', 'CHECKS: n/a', '', '```json', JSON.stringify({ VERDICT: verdict }), '```',
+    ].join('\n'))
+    // The text holds a PASS line with a CR, which the parser's key pattern skips and
+    // the readers do not, ahead of the FAIL line the parser takes.
+    const crThenFailTester = () => parseReport('tester', 'VERDICT: PASS\r\nCOMMIT: abc123\nFINDINGS: 1. one\nVERDICT: FAIL\nUNTESTED CLAIMS: none')
+    const stamp = (i) => new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString()
+    const header = (body) => body.split('\n')[0].match(/report: (\w+) \(issue #7, (tester|reviewer) fix rounds (\d)\/3\)\*\*$/)
+
+    // After every post, a fresh read of the comments so far gives the count the
+    // header names, and a resumed run from those comments parks as exhausted.
+    async function assertReadsBack(r, seat, verdict) {
+      const bodies = posted(r.calls).filter((b) => b.startsWith(seat === 'tester' ? '**Tester' : '**Reviewer'))
+      const all = posted(r.calls).map((body, i) => ({ body, createdAt: stamp(i) }))
+      assert.equal(bodies.length, 4)
+      const seen = []
+      all.forEach((comment, i) => {
+        seen.push(comment)
+        const [, v, s, n] = header(comment.body)
+        assert.equal(driver.countFixRounds(seen)[s], Number(n), `${s} count after post ${i + 1}`)
+        assert.equal(driver.resumeStage(seen).stage, v === 'PASS' ? 'reviewer' : v === 'APPROVE' ? 'ship' : 'developer', `stage after post ${i + 1}`)
+      })
+      assert.equal(driver.countFixRounds(all)[seat], r.state.fixRounds[seat])
+      const { stage, findings } = driver.resumeStage(all)
+      assert.equal(stage, 'developer')
+      const resume = { stage, findings, branch: 'feat/7-work', pr: 12, fixRounds: driver.countFixRounds(all) }
+      const again = await pipeline({}, { resume })
+      assert.equal(again.state.parked, `${seat} fix rounds exhausted (3/3)`)
+      assert.deepEqual(roles(again.state), [])
+    }
+
+    test('a tester FAIL taken from a json block is posted with a VERDICT line, so the cap holds across runs', async () => {
+      const report = jsonOnlyTester('FAIL')
+      assert.equal(report.VERDICT, 'FAIL', 'the premise: the parser took the verdict from the block')
+      assert.ok(!/^VERDICT:/m.test(report.raw), 'the premise: the text has no VERDICT line')
+      const r = await pipeline({ tester: [report, jsonOnlyTester('FAIL'), jsonOnlyTester('FAIL'), jsonOnlyTester('FAIL')] })
+      assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 0 })
+      assert.ok(posted(r.calls)[0].startsWith('**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\n\nCOMMIT: abc123'))
+      await assertReadsBack(r, 'tester', 'FAIL')
+    })
+
+    test('a reviewer CHANGES_REQUESTED taken from a json block is posted with a VERDICT line, so the cap holds across runs', async () => {
+      const report = jsonOnlyReviewer('CHANGES_REQUESTED')
+      assert.equal(report.VERDICT, 'CHANGES_REQUESTED', 'the premise: the parser took the verdict from the block')
+      const r = await pipeline({ reviewer: [report, jsonOnlyReviewer('CHANGES_REQUESTED'), jsonOnlyReviewer('CHANGES_REQUESTED'), jsonOnlyReviewer('CHANGES_REQUESTED')] })
+      assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 4 })
+      assert.ok(posted(r.calls).find((b) => b.startsWith('**Reviewer')).includes('rounds 1/3)**\n\nVERDICT: CHANGES_REQUESTED\n\nSTAGE: both clean'))
+      await assertReadsBack(r, 'reviewer', 'CHANGES_REQUESTED')
+    })
+
+    test('a PASS and an APPROVE taken from a json block read back as PASS and APPROVE', async () => {
+      const r = await pipeline({ tester: jsonOnlyTester('PASS'), reviewer: jsonOnlyReviewer('APPROVE') })
+      const comments = posted(r.calls).map((body, i) => ({ body, createdAt: stamp(i) }))
+      assert.equal(comments.length, 2)
+      assert.deepEqual(driver.resumeStage(comments.slice(0, 1)), { stage: 'reviewer' })
+      assert.deepEqual(driver.resumeStage(comments), { stage: 'ship' })
+    })
+
+    test('a report whose text holds another verdict word before its own is posted with its own on top', async () => {
+      const report = crThenFailTester()
+      assert.equal(report.VERDICT, 'FAIL', 'the premise: the parser takes the FAIL line')
+      const r = await pipeline({ tester: [crThenFailTester(), crThenFailTester(), crThenFailTester(), crThenFailTester()] })
+      assert.ok(posted(r.calls)[0].startsWith('**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\n\nVERDICT: PASS\r\n'))
+      await assertReadsBack(r, 'tester', 'FAIL')
+    })
+
+    test('a report that already reads back as its verdict is posted as it is, with no added line', async () => {
+      const r = await pipeline({ tester: [FAIL(), PASS()] })
+      assert.ok(posted(r.calls)[0].endsWith('\n\nVERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none'))
+      assert.equal(posted(r.calls)[0].split('VERDICT:').length, 2)
+    })
+
+    test('a report with three findings reaches the developer whole, though the parser keeps only the first line', async () => {
+      const report = parseReport('tester', 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. first\n2. second\n3. third\nUNTESTED CLAIMS: none')
+      assert.equal(report.FINDINGS, '1. first', 'the premise: the parser drops the other lines')
+      const r = await pipeline({ tester: [report, PASS()] })
+      const [body] = posted(r.calls)
+      assert.ok(body.includes('2. second') && body.includes('3. third'))
+      assert.equal(
+        tasks(r.calls, 'developer')[1],
+        `Issue #7, branch feat/7-pending, tester fix round 1/3: fix exactly these findings:\n${body}`
+      )
+    })
+
+    test('a reviewer fix round uses the must-fix wording and carries the whole review', async () => {
+      const report = parseReport('reviewer', 'VERDICT: CHANGES_REQUESTED\nSTAGE: spec\nFINDINGS: 1. first\n2. second\nCLAIMS: none\nCHECKS: n/a')
+      const r = await pipeline({ reviewer: [report, APPROVE()] })
+      const body = posted(r.calls).find((b) => b.startsWith('**Reviewer'))
+      assert.ok(body.includes('2. second'))
+      assert.equal(
+        tasks(r.calls, 'developer')[1],
+        `Issue #7, branch feat/7-pending, reviewer fix round 1/3: fix exactly the must-fix findings of this review:\n${body}`
+      )
+    })
+
+    test('every re-test and review prompt names the fix round it follows, and the reviewer gets the latest tester report', async () => {
+      const r = await pipeline({ tester: [FAIL(), PASS(), PASS()], reviewer: [CHANGES(), APPROVE()] })
+      const bodies = posted(r.calls)
+      const claims = (body) => `\n\nUntested claims to rate under CLAIMS, by their number in this tester report:\n${body}`
+      const verify = (after) => `Branch feat/7-pending, issue #7: verify the change${after}. Run the full check suite and attack the change.`
+      const review = (after) => `PR ${PR}, issue #7: review the diff against the issue and sub-plan${after}. Two passes: spec compliance then code quality.`
+      assert.deepEqual(tasks(r.calls, 'tester'), [
+        verify(''), verify(' after tester fix round 1/3'), verify(' after reviewer fix round 1/3'),
+      ])
+      assert.deepEqual(tasks(r.calls, 'reviewer'), [
+        review(' after tester fix round 1/3') + claims(bodies[1]),
+        review(' after reviewer fix round 1/3') + claims(bodies[3]),
+      ])
+    })
+
+    test('no (role, task) pair is dispatched twice in the longest run', async () => {
+      const r = await pipeline(longest())
+      const pairs = r.calls.filter((c) => c.kind === 'spawn').map((c) => `${c.role}\n${c.task}`)
+      assert.equal(new Set(pairs).size, pairs.length)
+    })
+
+    test('the first seat of a resume gets the pick-up line, and no other seat does', async () => {
+      const r = await pipeline({}, { resume: { stage: 'tester', branch: 'feat/7-work', pr: 12 } })
+      const [first] = tasks(r.calls, 'tester')
+      assert.equal(first, `Branch feat/7-work, issue #7: verify the change. Run the full check suite and attack the change.${PICKUP}`)
+      assert.ok(!tasks(r.calls, 'reviewer')[0].includes('picks the package up'))
+      const fresh = await pipeline({})
+      assert.ok(!fresh.calls.filter((c) => c.kind === 'spawn').some((c) => c.task.includes('picks the package up')))
+    })
+
+    test('a resume at the reviewer points the reviewer to the tester comment instead of quoting one', async () => {
+      const r = await pipeline({}, { resume: { stage: 'reviewer', branch: 'feat/7-work', pr: 12 } })
+      assert.equal(
+        tasks(r.calls, 'reviewer')[0],
+        'PR 12, issue #7: review the diff against the issue and sub-plan. Two passes: spec compliance then code quality.' +
+          `\n\nUntested claims to rate under CLAIMS: take them from the latest tester report comment on PR 12.${PICKUP}`
+      )
+    })
+
+    describe('on a resume', () => {
+      const body = (kind, count) =>
+        kind === 'tester'
+          ? `**Tester report: FAIL (issue #7, tester fix rounds ${count}/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. a`
+          : `**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds ${count}/3)**\n\nVERDICT: CHANGES_REQUESTED\nFINDINGS: 1. a`
+      const from = (stage, extra) => ({ stage, branch: 'feat/7-work', pr: 12, ...extra })
+
+      test('the count read from the PR is the round of the findings, and a FAIL after it is the 4th and parks', async () => {
+        const findings = body('tester', 3)
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' }, tester: [FAIL()] },
+          { resume: from('developer', { findings, fixRounds: { tester: 3, reviewer: 1 } }) }
+        )
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, tester fix round 3/3: fix exactly these findings:\n${findings}${PICKUP}`
+        )
+        assert.equal(tasks(r.calls, 'tester')[0], 'Branch feat/7-work, issue #7: verify the change after tester fix round 3/3. Run the full check suite and attack the change.')
+        assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 1 })
+        assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+        assert.equal(posted(r.calls)[0].split('\n')[0], '**Tester report: FAIL (issue #7, tester fix rounds 4/3)**')
+        assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+      })
+
+      for (const kind of ['tester', 'reviewer']) {
+        test(`findings of a ${kind} count already above 3 park before any seat is dispatched`, async () => {
+          const r = await pipeline({}, { resume: from('developer', { findings: body(kind, 4), fixRounds: { tester: 4, reviewer: 4 } }) })
+          assert.equal(r.state.parked, `${kind} fix rounds exhausted (3/3)`)
+          assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+        })
+      }
+
+      test('reviewer findings use the reviewer count and wording, then the re-test and the re-review', async () => {
+        const findings = body('reviewer', 2)
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' } },
+          { resume: from('developer', { findings, fixRounds: { tester: 0, reviewer: 2 } }) }
+        )
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${findings}${PICKUP}`
+        )
+        assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
+        assert.match(tasks(r.calls, 'tester')[0], / verify the change after reviewer fix round 2\/3\./)
+        assert.equal(r.state.done, true)
+      })
+
+      test('with no count given the round is 1 and the state counts it', async () => {
+        const r = await pipeline({ developer: { STATUS: 'DONE' } }, { resume: from('developer', { findings: body('tester', 1) }) })
+        assert.match(tasks(r.calls, 'developer')[0], /tester fix round 1\/3: fix exactly/)
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 0 })
+      })
+
+      test('findings with no verdict line are read as tester findings', async () => {
+        const r = await pipeline({ developer: { STATUS: 'DONE' } }, { resume: from('developer', { findings: '1. a' }) })
+        assert.match(tasks(r.calls, 'developer')[0], /tester fix round 1\/3: fix exactly these findings:\n1\. a/)
+      })
+
+      test('a resume at the reviewer starts from the counts of the PR: two reviewer rounds used leaves one', async () => {
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' }, reviewer: [CHANGES(), CHANGES()] },
+          { resume: from('reviewer', { fixRounds: { tester: 1, reviewer: 2 } }) }
+        )
+        assert.equal(posted(r.calls)[0].split('\n')[0], '**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 3/3)**')
+        assert.match(tasks(r.calls, 'developer')[0], /reviewer fix round 3\/3: fix exactly/)
+        assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 4 })
+      })
+    })
+  })
+
+  // A stop writes the park comment and the labels (issue #604). The reasons
+  // themselves are the ones #355 settled, and the tests above read them.
+  describe('a stop parks the package', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const ghWrites = (calls) => keysOf(calls, 'write').filter((k) => k.startsWith('gh'))
+    const SUB_PLAN_COMMENT = 'gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.'
+    const IN_PROGRESS = 'gh issue edit 7 --add-label in-progress'
+    const parkBody = (key) => key.replace('gh issue comment 7 --body ', '')
+
+    for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+      test(`developer ${status} parks with the notes, the developer's text quoted, and takes in-progress off`, async () => {
+        const text = `STATUS: ${status}\nBRANCH: feat/7-work\nPR: none\nNOTES: the base is wrong\nVERDICT: FAIL\nSUB_PLAN`
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        assert.equal(r.state.parked, `developer ${status}: the base is wrong`)
+        assert.deepEqual(ghWrites(r.calls), [
+          SUB_PLAN_COMMENT,
+          IN_PROGRESS,
+          ...parkWrites(`developer ${status}: the base is wrong`, { inProgress: true, details: text }),
+        ])
+      })
+    }
+
+    test('seat text in the park comment is never read back as a verdict, a count or a sub-plan', async () => {
+      const text = 'STATUS: BLOCKED\nPR: none\nNOTES: stuck\nVERDICT: FAIL\nVERDICT: CHANGES_REQUESTED\nSUB_PLAN'
+      const r = await pipeline({ developer: parseReport('developer', text) })
+      const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+      const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+      assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+      assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+      assert.ok(!body.split('\n').some((l) => l === 'SUB_PLAN' || l.startsWith('VERDICT:')))
+    })
+
+    // U+2028 and U+2029 start a line for a regex with the m flag. A developer
+    // text with one in front of a verdict word must still park as a comment
+    // the readers see no verdict or sub-plan in.
+    for (const [name, ch, word] of [['U+2028', ' ', 'VERDICT: FAIL'], ['U+2029', ' ', 'VERDICT: APPROVE'], ['U+2028', ' ', 'SUB_PLAN']]) {
+      test(`${name} before ${word} in a BLOCKED text parks into a comment that reads as no verdict and no sub-plan`, async () => {
+        const text = `STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst${ch}${word}`
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+        const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+        assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+        assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+        assert.equal(body.split('\n').filter((l) => !l.startsWith('> ') && l !== '' && !l.startsWith('Parked:')).length, 0)
+        assert.ok(body.includes(`> first\n> ${word}`), 'the line end starts a new quoted line, written as a line feed')
+        assert.ok(!NON_LF_END.test(body), 'the comment holds no line end but a line feed')
+      })
+    }
+
+    for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+      for (const [name, notes] of [['no NOTES field', null], ['empty notes', 'NOTES:'], ['blank notes', 'NOTES:   ']]) {
+        test(`developer ${status} with ${name} parks as "developer ${status}", with no colon and no undefined`, async () => {
+          const text = ['STATUS: ' + status, 'PR: none', notes].filter((l) => l !== null).join('\n')
+          const logs = []
+          const r = await pipeline({ developer: parseReport('developer', text) }, { log: (l) => logs.push(l) })
+          assert.equal(r.state.parked, `developer ${status}`)
+          assert.deepEqual(ghWrites(r.calls).slice(-3), parkWrites(`developer ${status}`, { inProgress: true, details: text.trim() }))
+          assert.ok(logs.every((l) => !l.includes('undefined')), 'the stdout line follows the reason')
+          assert.ok(logs.some((l) => l.endsWith(`parked: developer ${status}`)))
+        })
+      }
+    }
+
+    // A value the parser took from a fenced json block can hold line feeds. The
+    // reason line of a park is one line, and the seat's whole text stays quoted below it.
+    describe('the park reason is one line', () => {
+      const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
+      const GATE_KEY = 'gh issue view 118 --json body,comments,labels,number,state,stateReason,title'
+      const gateSeesSubPlan = async (body) => {
+        const copy = JSON.parse(JSON.stringify(loadFixture('gate-rules')))
+        copy.reads[GATE_KEY].comments[0].body = body
+        const fake = fakeRunner(copy)
+        const gh = driver.createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+        const [e] = await driver.runGate([118], gh)
+        return e.resume !== undefined
+      }
+
+      // The park comment, its readers and the log line, for one seat report.
+      async function assertParkedOnOneLine(reports, reason, details, inProgress) {
+        const logs = []
+        const r = await pipeline(reports, { log: (l) => logs.push(l) })
+        assert.equal(r.state.parked, reason)
+        assert.ok(!reason.includes('\n'))
+        const writes = ghWrites(r.calls)
+        assert.deepEqual(writes.slice(inProgress ? -3 : -2), parkWrites(reason, { inProgress, details }))
+        const body = parkBody(writes.find((k) => k.includes('Parked:')))
+        const [first, ...rest] = body.split('\n')
+        assert.equal(first, `Parked: ${reason}`)
+        assert.ok(!NON_LF_END.test(body), 'the comment holds no line end but a line feed')
+        assert.ok(rest.every((l) => l === '' || l.startsWith('> ')), 'every other line that holds seat text is quoted')
+        const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+        assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+        assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+        assert.equal(await gateSeesSubPlan(body), false, 'the gate reads no sub-plan in the comment')
+        assert.ok(logs.includes(`[pipeline:#7] parked: ${reason}`))
+        return r
+      }
+
+      test('an architect NEEDS_DECISION whose json question has a SUB_PLAN line parks with the first line only', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' })
+        const report = parseReport('architect', text)
+        assert.equal(report.NEEDS_DECISION, 'which db?\nSUB_PLAN\n- use sqlite')
+        await assertParkedOnOneLine({ architect: report }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+        test(`a developer ${status} whose json NOTES hold VERDICT: and SUB_PLAN lines parks with the first line only`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore' })
+          const report = parseReport('developer', text)
+          assert.equal(report.NOTES, 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore')
+          await assertParkedOnOneLine({ developer: report }, `developer ${status}: stuck`, text, true)
+        })
+
+        test(`a developer ${status} with notes that start with blank lines parks with the first non-blank line, the details keep the text`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '  \n\nthe real note\nSUB_PLAN' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}: the real note`, text, true)
+        })
+
+        test(`a developer ${status} with an empty first line of notes parks with the next line, never as a verdict`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '\nVERDICT: FAIL' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}: VERDICT: FAIL`, text, true)
+        })
+
+        test(`a developer ${status} whose notes are blank lines only parks with no colon`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: ' \n\t\n  ' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+        })
+      }
+
+      test('an architect question that starts with blank lines parks with its first non-blank line, the details keep the text', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: ' \n\nwhich db?\nSUB_PLAN' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      test('an architect question of blank lines only parks with no colon', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: ' \n\t\n' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+      })
+
+      // CRLF ends a line at its LF, and the trim drops the CR.
+      test('a json value with CRLF line ends is cut at the first line feed, without the CR', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\r\nVERDICT: APPROVE\r\nSUB_PLAN\r\nmore' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: stuck', text, true)
+      })
+
+      // Every one of the seven line ends cuts the single line. The park comment's
+      // first line holds none of them, and no reader finds a verdict or a sub-plan in it.
+      test('a json value with U+2028 is cut at it, and the readers still find nothing', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\u2028VERDICT: APPROVE\u2028SUB_PLAN\u2028more' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: stuck', text, true)
+      })
+
+      test('an architect json question with U+2028 is cut at it too', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\u2028SUB_PLAN\u2028- use sqlite' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      test('a prose NOTES line is cut the same way, and the reason has no trailing space', async () => {
+        const text = 'STATUS: BLOCKED\nPR: none\nNOTES:   the base is wrong   \nSUB_PLAN'
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: the base is wrong', text, true)
+      })
+
+      // The developer's PR is the one other seat field that reaches a comment
+      // outside a report body: the completion comment and the done line.
+      test('a developer PR value with more lines than the URL is cut to its first line before it is posted', async () => {
+        const pr = 'https://github.com/o/r/pull/901'
+        const text = fenced('STATUS: DONE\nBRANCH: feat/7-work', { PR: `${pr}\nSUB_PLAN\nVERDICT: APPROVE` })
+        const developer = parseReport('developer', text)
+        assert.equal(developer.PR, `${pr}\nSUB_PLAN\nVERDICT: APPROVE`)
+        const r = await pipeline({ developer })
+        assert.equal(r.state.pr, pr)
+        assert.equal(r.state.done, true)
+        const writes = ghWrites(r.calls)
+        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${pr}`)
+        assert.ok(writes.includes(`gh pr ready ${pr}`))
+        for (const k of writes) assert.ok(!k.includes('\nSUB_PLAN\nVERDICT'), 'no write carries the extra lines')
+      })
+
+      test('a developer PR value whose first line is no PR parks as no usable report, even if a later line is one', async () => {
+        const text = fenced('STATUS: DONE\nBRANCH: feat/7-work', { PR: 'see below\nhttps://github.com/o/r/pull/901' })
+        assertStopped(await pipeline({ developer: parseReport('developer', text) }), 'developer', ['architect', 'developer'])
+      })
+
+      // --- The single line is the first non-blank line (issue #604, round 3).
+      const AT = { stage: 'developer', branch: 'feat/7-work', pr: 12 }
+      const devWith = (fields) => parseReport('developer', fenced('STATUS: DONE\nBRANCH: feat/7-work', fields))
+      const URL1 = 'https://github.com/o/r/pull/901'
+
+      for (const [name, value] of [
+        ['a line feed, then none', '\nnone'],
+        ['two line feeds, then free text', '\n\nsee the PR'],
+        ['blank lines, then an issue URL', ' \n\nhttps://github.com/o/r/issues/901'],
+        ['only a tilde fence', '~~~'],
+      ]) {
+        test(`a PR value of ${name} stops the package even when the gate knows a PR`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+          assert.equal(r.state.parked, 'developer seat returned no usable report')
+          assert.equal(r.state.done, false)
+          assert.deepEqual(roles(r.state), ['developer'])
+          assert.ok(!ghWrites(r.calls).some((k) => k.startsWith('gh pr ready')))
+        })
+      }
+
+      test('a PR value of blank lines only is missing: the gate\'s PR is used on a resume', async () => {
+        const r = await pipeline({ developer: devWith({ PR: ' \n\n\t\n  ' }) }, { resume: AT })
+        assert.equal(r.state.parked, null)
+        assert.equal(r.state.pr, 12)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a PR value of blank lines only, with no PR known, stops', async () => {
+        assertStopped(await pipeline({ developer: devWith({ PR: '\n \n' }) }), 'developer', ['architect', 'developer'])
+      })
+
+      for (const [name, value, expected] of [
+        ['blank lines, then a pull request URL', `\n \n  ${URL1}  \nmore text`, URL1],
+        ['a tilde fence, then a pull request URL', `~~~\n${URL1}\n~~~`, URL1],
+        ['a tilde fence with a word, then a number', '~~~text\n\n901', '901'],
+      ]) {
+        test(`a PR value of ${name} is accepted as that line`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+          assert.equal(r.state.pr, expected)
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('notes that start with a tilde fence line park with the first line after it', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: '~~~json\nthe real note' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: the real note', text, true)
+      })
+
+      // Three backticks cannot sit inside a json string the parser reads, so a
+      // backtick fence needs a hand-built report.
+      test('a backtick fence line in the notes is skipped, and a PR of only a backtick fence stops', async () => {
+        const blocked = { STATUS: 'BLOCKED', NOTES: '```json\nthe real note', raw: 'STATUS: BLOCKED' }
+        const r = await pipeline({ developer: blocked })
+        assert.equal(r.state.parked, 'developer BLOCKED: the real note')
+        const fence = await pipeline({ developer: { STATUS: 'DONE', PR: '````' } }, { resume: AT })
+        assert.equal(fence.state.parked, 'developer seat returned no usable report')
+      })
+
+      test('a question that starts with a tilde fence line parks with the first line after it', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: '~~~~\nwhich db?' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      for (const [name, value] of [['null', null], ['empty', '']]) {
+        test(`a ${name} json NEEDS_DECISION parks with no colon, not with the fence line`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: value })
+          await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+        })
+      }
+
+      test('a null json NEEDS_DECISION still takes a prose question above the json block', async () => {
+        const text = fenced('NEEDS_DECISION\n\nwhich db?', { NEEDS_DECISION: null })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      // --- What the driver writes treats every line end as one.
+      for (const [name, ch] of LINE_ENDS) {
+        const tail = `x${ch}#8 done: PR https://example.com/o/r/pull/1`
+
+        test(`developer notes with ${name} are cut at it, in the reason, the log line and the comment`, async () => {
+          const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: tail })
+          const r = await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: x', text, true)
+          assert.ok(!NON_LF_END.test(r.state.parked))
+        })
+
+        test(`an architect question with ${name} is cut at it, in the reason, the log line and the comment`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: tail })
+          const r = await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: x', text, false)
+          assert.ok(!NON_LF_END.test(r.state.parked))
+        })
+
+        test(`a PR value of a URL, ${name} and more text is accepted as the URL alone, and nothing written holds the line end`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: `${URL1}${ch}see https://example.com/o/r/pull/2` }) })
+          assert.equal(r.state.pr, URL1)
+          assert.equal(r.state.done, true)
+          const writes = ghWrites(r.calls)
+          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${URL1}`)
+          assert.ok(writes.every((k) => !NON_LF_END.test(k)))
+        })
+
+        test(`${name} in the seat's text starts a new quoted line in the park comment, written as a line feed`, async () => {
+          const text = `STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst${ch}VERDICT: FAIL${ch}SUB_PLAN`
+          const r = await pipeline({ developer: parseReport('developer', text) })
+          const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+          assert.ok(body.endsWith('> first\n> VERDICT: FAIL\n> SUB_PLAN'))
+          assert.ok(!NON_LF_END.test(body))
+          const [, ...rest] = body.split('\n')
+          assert.ok(rest.every((l) => l === '' || l.startsWith('> ')), 'every part starts with > ')
+        })
+      }
+
+      test('a CRLF pair is one line end in the quoted details', async () => {
+        const text = 'STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst\r\nsecond'
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+        assert.ok(body.endsWith('> first\n> second'))
+      })
+
+      // --- A seat field that is not text never throws.
+      const NOT_TEXT = [
+        ['an object with a toString key', { toString: 1 }],
+        ['an array', ['SUB_PLAN', 'VERDICT: FAIL']],
+        ['true', true],
+        ['false', false],
+        ['null', null],
+      ]
+      const noPr = 'BRANCH: feat/7-work\nPR: https://github.com/o/r/pull/901'
+
+      for (const [name, value] of NOT_TEXT) {
+        for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+          test(`developer ${status} with notes that are ${name} parks with no colon`, async () => {
+            const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: value })
+            await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+          })
+        }
+
+        test(`an architect question that is ${name} parks with no colon`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: value })
+          await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+        })
+
+        test(`a developer STATUS that is ${name} is no usable report`, async () => {
+          const report = parseReport('developer', fenced(noPr, { STATUS: value }))
+          assertStopped(await pipeline({ developer: report }), 'developer', ['architect', 'developer'])
+        })
+
+        test(`a tester VERDICT that is ${name} is no usable report`, async () => {
+          assertStopped(await pipeline({ tester: parseReport('tester', fenced('COMMIT: abc', { VERDICT: value })) }), 'tester', ALL.slice(0, 3))
+        })
+
+        test(`a reviewer VERDICT that is ${name} is no usable report`, async () => {
+          assertStopped(await pipeline({ reviewer: parseReport('reviewer', fenced('STAGE: both clean', { VERDICT: value })) }), 'reviewer', ALL)
+        })
+
+        test(`a developer PR that is ${name} is no usable report when no PR is known`, async () => {
+          assertStopped(await pipeline({ developer: devWith({ PR: value }) }), 'developer', ['architect', 'developer'])
+        })
+
+        // json null is a missing PR. An object, an array or a boolean is an invalid one.
+        if (value === null) {
+          test('a developer PR that is null is missing on a resume: the gate\'s PR is used', async () => {
+            const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+            assert.equal(r.state.pr, 12)
+            assert.equal(r.state.done, true)
+          })
+        } else {
+          test(`a developer PR that is ${name} is invalid: it stops the package on a resume, and no completion comment is posted`, async () => {
+            const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+            assert.equal(r.state.parked, 'developer seat returned no usable report')
+            assert.equal(r.state.done, false)
+            assert.deepEqual(roles(r.state), ['developer'])
+            assert.ok(!ghWrites(r.calls).some((k) => k.startsWith('gh pr ready') || k.includes('Pipeline complete')))
+          })
+        }
+      }
+
+      test('a developer PR that is an empty string is missing on a resume: the gate\'s PR is used', async () => {
+        const r = await pipeline({ developer: devWith({ PR: '' }) }, { resume: AT })
+        assert.equal(r.state.pr, 12)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a developer PR that is a json number is that PR number, also on a resume with a gate PR', async () => {
+        const r = await pipeline({ developer: devWith({ PR: 901 }) }, { resume: AT })
+        assert.equal(r.state.pr, '901')
+        assert.equal(r.state.done, true)
+      })
+
+      test('a json number is read as its digits: notes, a question and a PR', async () => {
+        const notes = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 42 })
+        await assertParkedOnOneLine({ developer: parseReport('developer', notes) }, 'developer BLOCKED: 42', notes, true)
+        const question = fenced('NEEDS_DECISION', { NEEDS_DECISION: 7 })
+        await assertParkedOnOneLine({ architect: parseReport('architect', question) }, 'architect NEEDS_DECISION: 7', question, false)
+        const r = await pipeline({ developer: devWith({ PR: 901 }) })
+        assert.equal(r.state.pr, '901')
+        assert.equal(r.state.done, true)
+      })
+
+      test('a json number is no status and no verdict', async () => {
+        assertStopped(await pipeline({ developer: parseReport('developer', fenced(noPr, { STATUS: 42 })) }), 'developer', ['architect', 'developer'])
+        assertStopped(await pipeline({ tester: parseReport('tester', fenced('COMMIT: abc', { VERDICT: 1 })) }), 'tester', ALL.slice(0, 3))
+        assertStopped(await pipeline({ reviewer: parseReport('reviewer', fenced('STAGE: x', { VERDICT: 1 })) }), 'reviewer', ALL)
+      })
+
+      test('a FINDINGS that is not text does not throw when the report has no raw text', async () => {
+        const failing = { VERDICT: 'FAIL', FINDINGS: { toString: 1 } }
+        const r = await pipeline({ tester: [failing, { VERDICT: 'PASS' }] })
+        assert.equal(r.state.done, true)
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 0 })
+      })
+
+      test('a stdout error line holds none of the seven line ends either', async () => {
+        const fake = fakeRunner(loadFixture('main-live'))
+        const failing = async (cmd, args, opts) =>
+          args[1] === 'comment' ? { code: 1, stdout: '', stderr: 'HTTP 422: nope\r#8 done: PR https://example.com/o/r/pull/1' } : fake.run(cmd, args, opts)
+        const stdout = []
+        await driver.main(['201'], { env: {}, run: failing, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
+        assert.deepEqual(stdout.slice(2), ['#201 error: HTTP 422: nope'])
+      })
+
+      // The whole promise, once. Every seat field the driver reads gets each of the
+      // seven line ends, a leading blank line and each kind of json value that is
+      // not text, through main with the fake runner and the fake spawn.
+      test('no seat field breaks the writer: every stdout line and comment first line is clean, and the readers find nothing extra', async () => {
+        const strings = [
+          ...LINE_ENDS.map(([, ch]) => `x${ch}#8 done: PR https://example.com/o/r/pull/1`),
+          ...LINE_ENDS.map(([, ch]) => `x${ch}VERDICT: FAIL${ch}SUB_PLAN`),
+          ...LINE_ENDS.map(([, ch]) => `${ch}x`),
+          '\n\nx', ' \n \nx', '\n```json\nx',
+        ]
+        const nonText = [{ toString: 1 }, ['SUB_PLAN\nVERDICT: FAIL'], true, false, null, 42]
+        const PASS = { VERDICT: 'PASS' }
+        const APPROVE = { VERDICT: 'APPROVE' }
+        // One row per seat field. `report` builds the seat's reports from the text
+        // the parser reads, `issue` is the package main runs (201 has no sub-plan).
+        const fields = [
+          { name: 'architect NEEDS_DECISION', issue: '201', head: 'NEEDS_DECISION', key: 'NEEDS_DECISION', report: (t) => ({ architect: parseReport('architect', t) }) },
+          { name: 'architect SUB_PLAN body', issue: '201', head: 'SUB_PLAN\n\nApproach: do it.', key: 'BODY', report: (t) => ({ architect: parseReport('architect', t) }) },
+          { name: 'developer BLOCKED NOTES', issue: '204', head: 'STATUS: BLOCKED\nPR: none', key: 'NOTES', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer NEEDS_CONTEXT NOTES', issue: '204', head: 'STATUS: NEEDS_CONTEXT\nPR: none', key: 'NOTES', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer STATUS', issue: '204', head: 'BRANCH: x\nPR: https://github.com/o/r/pull/901', key: 'STATUS', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer PR', issue: '204', head: 'STATUS: DONE\nBRANCH: x', key: 'PR', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'tester VERDICT', issue: '204', head: 'COMMIT: abc', key: 'VERDICT', report: (t) => ({ tester: parseReport('tester', t) }) },
+          { name: 'tester FINDINGS', issue: '204', head: 'VERDICT: FAIL', key: 'FINDINGS', report: (t) => ({ tester: [parseReport('tester', t), PASS, PASS] }) },
+          { name: 'reviewer VERDICT', issue: '204', head: 'STAGE: both clean', key: 'VERDICT', report: (t) => ({ reviewer: parseReport('reviewer', t) }) },
+          { name: 'reviewer FINDINGS', issue: '204', head: 'VERDICT: CHANGES_REQUESTED', key: 'FINDINGS', report: (t) => ({ reviewer: [parseReport('reviewer', t), APPROVE, APPROVE] }) },
+        ]
+        const jsonText = (head, key, value) => (key === 'BODY' ? `${head}\n${value}` : fenced(head, { [key]: value }))
+        const proseText = (head, key, value) => (key === 'BODY' ? `${head}\n${value}` : `${head}\n${key}: ${value}`)
+        const cases = []
+        for (const f of fields) {
+          for (const v of strings) {
+            cases.push({ f, how: 'json', text: jsonText(f.head, f.key, v) })
+            if (f.key !== 'BODY') cases.push({ f, how: 'prose', text: proseText(f.head, f.key, v) })
+          }
+          if (f.key !== 'BODY') for (const v of nonText) cases.push({ f, how: 'json non-text', text: jsonText(f.head, f.key, v) })
+        }
+
+        const verdictStage = { PASS: 'reviewer', APPROVE: 'ship', FAIL: 'developer', CHANGES_REQUESTED: 'developer' }
+        for (const { f, how, text } of cases) {
+          const label = `${f.name} (${how}): ${JSON.stringify(text)}`
+          const fake = fakeRunner(loadFixture('main-live'), f.report(text))
+          const stdout = []
+          const code = await driver.main([f.issue], { env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
+          assert.equal(code, 0, `no exception escapes: ${label}`)
+          assert.ok(stdout.every((l) => !LINE_END.test(l)), `a stdout line holds a line end: ${label}`)
+          for (const key of keysOf(fake.calls, 'write')) {
+            const m = /^gh (issue|pr) comment (\S+) --body ([\s\S]*)$/.exec(key)
+            if (!m) continue
+            const [, kind, , body] = m
+            assert.ok(!LINE_END.test(body.split('\n')[0]), `a comment first line holds a line end: ${label}`)
+            if (kind === 'pr') {
+              const verdict = /^\*\*(?:Tester|Reviewer) report: ([A-Z_]+) \(/.exec(body)?.[1]
+              assert.ok(verdict in verdictStage, `a posted report names its accepted verdict: ${label}`)
+              assert.equal(driver.resumeStage([{ body, createdAt: '2026-01-01T00:00:00Z' }]).stage, verdictStage[verdict], label)
+              const counts = driver.countFixRounds([{ body }])
+              assert.equal(counts.tester + counts.reviewer, verdict === 'FAIL' || verdict === 'CHANGES_REQUESTED' ? 1 : 0, label)
+            } else if (body.startsWith('SUB_PLAN')) {
+              assert.equal(body.split('\n')[0], 'SUB_PLAN', label)
+            } else {
+              assert.ok(!NON_LF_END.test(body), `a park or completion comment holds a line end: ${label}`)
+              assert.deepEqual(driver.resumeStage([{ body, createdAt: '2026-01-01T00:00:00Z' }]), { stage: 'tester' }, label)
+              assert.equal(await gateSeesSubPlan(body), false, `the gate reads a sub-plan in: ${label}`)
+            }
+          }
+        }
+        assert.equal(cases.length, 10 * 24 + 9 * 24 + 9 * 6)
+      })
+    })
+
+    test('a developer BLOCKED in a tester fix round parks after the FAIL report was posted', async () => {
+      const report = parseReport('developer', 'STATUS: BLOCKED\nNOTES: stuck')
+      const r = await pipeline({ tester: [tester('FAIL')], developer: [dev('DONE'), report] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith('gh pr comment https://github.com/o/r/pull/901 --body **Tester report: FAIL (issue #7, tester fix rounds 1/3)**'))
+      assert.deepEqual(w.slice(-3), parkWrites('developer BLOCKED: stuck', { inProgress: true, details: 'STATUS: BLOCKED\nNOTES: stuck' }))
+    })
+
+    test('the fourth tester FAIL posts its 4/3 report, then parks with the reason alone', async () => {
+      const r = await pipeline({ tester: [tester('FAIL'), tester('FAIL'), tester('FAIL'), tester('FAIL')] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith(`gh pr comment ${PR} --body **Tester report: FAIL (issue #7, tester fix rounds 4/3)**`))
+      assert.deepEqual(w.slice(-3), parkWrites('tester fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('the fourth reviewer CHANGES_REQUESTED posts its 4/3 report, then parks with the reason alone', async () => {
+      const changes = () => reviewer('CHANGES_REQUESTED')
+      const r = await pipeline({ reviewer: [changes(), changes(), changes(), changes()] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith(`gh pr comment ${PR} --body **Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 4/3)**`))
+      assert.deepEqual(w.slice(-3), parkWrites('reviewer fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('findings of a used-up count park before any seat, and the gate\'s in-progress label comes off', async () => {
+      const findings = '**Tester report: FAIL (issue #7, tester fix rounds 4/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. a'
+      const resume = { stage: 'developer', branch: 'feat/7-work', pr: 12, findings, fixRounds: { tester: 4, reviewer: 0 } }
+      const r = await pipeline({}, { resume, inProgress: true })
+      assert.deepEqual(ghWrites(r.calls), parkWrites('tester fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('a package with no PR to ship parks, and takes in-progress off only when the gate said it had it', async () => {
+      const resume = { stage: 'tester', branch: 'feat/7-work' }
+      const without = await pipeline({}, { resume })
+      assert.deepEqual(ghWrites(without.calls), parkWrites('no PR to mark ready'))
+      const withLabel = await pipeline({}, { resume, inProgress: true })
+      assert.deepEqual(ghWrites(withLabel.calls), parkWrites('no PR to mark ready', { inProgress: true }))
+    })
+
+    test('a dry-run stop calls no runner and names the skipped park writes', async () => {
+      const fake = fakeRunner({ reads: {} }, { architect: parseReport('architect', 'NEEDS_DECISION: which?') })
+      const logs = []
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: (l) => logs.push(l), repoRoot: '/repo' })
+      assert.equal(state.parked, 'architect NEEDS_DECISION: which?')
+      assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue comment 7 --body Parked: architect NEEDS_DECISION: which?')))
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue edit 7 --add-label needs-human')))
+    })
+  })
+
   describe('a dry run keeps its placeholders', () => {
     test('the dry-run stub shapes still complete the pipeline', async () => {
       const fake = fakeRunner({ reads: {} }, {
@@ -1469,6 +2537,19 @@ describe('each seat accepts only the report its contract prescribes', () => {
       const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
       assert.equal(state.done, true)
     })
+
+    for (const [name, value] of [['an object with a toString key', { toString: 1 }], ['an array', ['x']], ['true', true], ['null', null]]) {
+      test(`a seat field that is ${name} does not throw, and the placeholders stand in`, async () => {
+        const fake = fakeRunner({ reads: {} }, {
+          developer: { STATUS: 'DONE', PR: value },
+          tester: { VERDICT: value, FINDINGS: value },
+          reviewer: { VERDICT: value, FINDINGS: value },
+        })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.done, true)
+        assert.equal(state.pr, 'https://github.com/example/repo/pull/7')
+      })
+    }
   })
 })
 
@@ -1567,6 +2648,84 @@ describe('the resume worktree', () => {
     assert.ok(!keysOf(calls, 'write').some((k) => k.startsWith('git fetch')))
   })
 
+  // The branch comes from the issue title, once, for the worktree and for the developer.
+  describe('the branch name', () => {
+    const developerTask = (calls) => calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    const worktreeBranch = (calls) => keysOf(calls, 'write').find((k) => k.startsWith('git worktree add')).split(' ')[5]
+
+    test('a title with a colon and a hash gives a branch of lowercase words, the same one for the worktree and the developer', async () => {
+      const sub = parseReport('architect', 'SUB_PLAN\n\n# Issue #7: Hermes driver, the second half')
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: sub })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Hermes driver: fix rounds (#7)',
+      })
+      const branch = worktreeBranch(fake.calls)
+      assert.equal(branch, 'feat/7-hermes-driver-fix-rounds-7')
+      assert.match(branch, /^feat\/7-[a-z0-9-]+$/)
+      assert.ok(developerTask(fake.calls).includes(`branch ${branch}: implement per the sub-plan`))
+    })
+
+    test('the sub-plan text no longer has a say in the branch', async () => {
+      const a = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: parseReport('architect', 'SUB_PLAN\n\nAlpha: one') })
+      const b = fakeRunner({ reads: { 'git worktree list --porcelain': '' } }, { architect: parseReport('architect', 'SUB_PLAN\n\nBeta: two') })
+      for (const f of [a, b]) {
+        await runPipeline(7, { dryRun: false, run: f.run, spawn: f.spawn, log: () => {}, repoRoot: '/repo', title: 'Same title' })
+      }
+      assert.equal(worktreeBranch(a.calls), 'feat/7-same-title')
+      assert.equal(worktreeBranch(b.calls), 'feat/7-same-title')
+    })
+
+    test('with no title the branch is feat/<n>-pending in the worktree and in the developer prompt', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, { dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+      assert.equal(worktreeBranch(fake.calls), 'feat/7-pending')
+      assert.ok(developerTask(fake.calls).includes('branch feat/7-pending:'))
+    })
+
+    test('a run that starts at the developer names the same branch as the worktree, not an -impl one', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Fix it', resume: { stage: 'developer' },
+      })
+      assert.equal(worktreeBranch(fake.calls), 'feat/7-fix-it')
+      assert.ok(developerTask(fake.calls).includes('branch feat/7-fix-it:'))
+    })
+
+    test('branchType still picks the prefix', async () => {
+      const fake = fakeRunner({ reads: { 'git worktree list --porcelain': '' } })
+      await runPipeline(7, {
+        dryRun: false, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo', title: 'Crash on empty', branchType: 'fix',
+      })
+      assert.equal(worktreeBranch(fake.calls), 'fix/7-crash-on-empty')
+    })
+
+    test('the resume branch wins over the title', async () => {
+      const calls = await pipeline({ title: 'Other title', resume: { stage: 'developer', branch: 'feat/7-work' } })
+      assert.ok(developerTask(calls).includes('branch feat/7-work:'))
+      assert.ok(keysOf(calls, 'write').includes(WT_ADD_RESUME))
+    })
+
+    test('main passes the issue title: issue 201 is built on feat/201-issue-201-title', async () => {
+      const fake = fakeRunner(loadFixture('main-live'))
+      await main(['201'], { env: {}, run: fake.run, spawn: fake.spawn, out: () => {}, err: () => {}, cwd: '/repo' })
+      assert.ok(keysOf(fake.calls, 'write').includes('git worktree add /repo/.worktrees/pkg-201 -b feat/201-issue-201-title origin/main'))
+      assert.ok(developerTask(fake.calls).includes('branch feat/201-issue-201-title:'))
+    })
+
+    test('slugOf lowercases, turns every run of other characters into one hyphen, trims and cuts at 40', () => {
+      const { slugOf } = driver
+      assert.equal(slugOf('Issue #604: Hermes'), 'issue-604-hermes')
+      assert.equal(slugOf('Hermes driver: fix-round loop, counters and parking'), 'hermes-driver-fix-round-loop-counters-an')
+      assert.equal(slugOf(`${'a'.repeat(39)} b`), 'a'.repeat(39), 'no hyphen is left at the cut')
+      assert.equal(slugOf('  --Hello--  '), 'hello')
+    })
+
+    test('slugOf gives pending for a missing or empty title and for one with no letters or digits', () => {
+      const { slugOf } = driver
+      for (const t of [undefined, null, '', '   ', '!!!', '#:']) assert.equal(slugOf(t), 'pending')
+    })
+  })
+
   test('a first run does not fetch', async () => {
     const calls = await pipeline({})
     assert.ok(keysOf(calls, 'write').includes(WT_ADD_FRESH))
@@ -1627,6 +2786,32 @@ describe('the resume worktree', () => {
       ['developer', 'tester', 'reviewer']
     )
   })
+  test('main resumes a PR at tester fix round 3/3, posts the 4/3 report of the next FAIL and parks the issue', async () => {
+    const failRaw = 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. still broken\nUNTESTED CLAIMS: none'
+    const fake = fakeRunner(loadFixture('main-resume-rounds'), {
+      developer: { STATUS: 'DONE' },
+      tester: [parseReport('tester', failRaw)],
+    })
+    const stdout = []
+    const code = await main(['302'], {
+      env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo',
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(keysOf(fake.calls, 'write').slice(6), [
+      'git fetch origin feat/302-work',
+      'git worktree add /repo/.worktrees/pkg-302 -B feat/302-work origin/feat/302-work',
+      'gh issue edit 302 --add-label in-progress',
+      `gh pr comment 320 --body **Tester report: FAIL (issue #302, tester fix rounds 4/3)**\n\n${failRaw}`,
+      'gh issue comment 302 --body Parked: tester fix rounds exhausted (3/3)',
+      'gh issue edit 302 --add-label needs-human',
+      'gh issue edit 302 --remove-label in-progress',
+    ])
+    const task = fake.calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.ok(task.startsWith('Issue #302, branch feat/302-work, tester fix round 3/3: fix exactly these findings:\n**Tester report: FAIL (issue #302, tester fix rounds 3/3)**'))
+    assert.ok(task.includes('FINDINGS: 1. d\n2. e\n3. f'), 'the whole report, not its first line')
+    assert.equal(stdout.at(-1), '#302 parked: tester fix rounds exhausted (3/3)')
+  })
+
 })
 
 describe('the script entry point', () => {
