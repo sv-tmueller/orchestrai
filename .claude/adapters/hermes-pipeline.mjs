@@ -151,7 +151,7 @@ const PICKUP = '\n\nThis run picks the package up at this stage. Check the branc
  * - log: sink for progress lines (default: console.warn)
  * - title: the issue title, which names the branch (see slugOf)
  * - inProgress: the issue already carries in-progress, so a stop removes it
- * - resume: { stage, branch, pr, findings, fixRounds }. Stages before
+ * - resume: { stage, branch, pr, findings, fixRounds, arbitrations }. Stages before
  *   resume.stage are skipped. The order is architect, developer, tester,
  *   reviewer, ship. findings, when set, is the body of the posted report whose
  *   fixes the developer is to make. fixRounds is the count read from the PR
@@ -178,6 +178,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     pr: null,
     prNumber: null,
     subPlan: null,
+    arbitrations: [],
     testerVerdict: null,
     reviewerVerdict: null,
     fixRounds: { tester: resume?.fixRounds?.tester ?? 0, reviewer: resume?.fixRounds?.reviewer ?? 0 },
@@ -217,6 +218,11 @@ export async function runPipeline(issueNumber, opts = {}) {
   // A live run never turns a missing report into success: the package stops.
   // A dry run has no real seats, so the placeholders below stand in.
   const noReport = (role) => stop(`${role} seat returned no usable report`)
+  // An architect NEEDS_DECISION parks with the question in the reason and the reply quoted.
+  const needsDecision = (report) => {
+    const question = oneLine(decisionQuestion(report))
+    return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', report.raw)
+  }
   // Each seat is read as its contract prescribes. A live run accepts the exact
   // words only; a dry run keeps the old lenient read and the placeholders.
   const verdictOf = (report, valid, dryFallback) => {
@@ -293,11 +299,48 @@ export async function runPipeline(issueNumber, opts = {}) {
     return body
   }
 
+  // The developer pushed back on a finding of a reviewer round: the architect
+  // decides, the outcome goes on the PR, and the developer works from it. It is
+  // the same fix round, so no count moves. False when the run stops.
+  const arbitrate = async (devReport, reviewBody) => {
+    const { round } = lastFix
+    if (!pushedBack(devReport)) return true
+    log(`developer pushed back, reviewer fix round ${round}/${MAX_ROUNDS}: arbitration`)
+    const task =
+      `JOB: ARBITRATION\n\nIssue #${issueNumber}, PR ${state.pr}, reviewer fix round ${round}/${MAX_ROUNDS}: ` +
+      'the developer pushed back on findings of the reviewer report below. For each finding pushed back on, decide who is right and state the required outcome.' +
+      `\n\nThe reviewer report:\n${reviewBody}\n\nThe developer's report:\n${textOf(devReport.raw)}`
+    const reply = await dispatch('architect', task, 'judgment')
+    if (reply?.KIND === 'NEEDS_DECISION') {
+      await needsDecision(reply)
+      return false
+    }
+    const text = textOf(reply?.raw)
+    if (!dryRun && (reply?.KIND !== 'ARBITRATION' || !hasBody(text, 'ARBITRATION'))) {
+      await noReport('architect')
+      return false
+    }
+    // A dry run has no real seat, so a placeholder stands in for an empty reply.
+    const outcome = `${outcomeHeader(issueNumber, round)}\n\n${quote(text.trim() || 'ARBITRATION')}`
+    await gh.prComment(state.pr, outcome)
+    const report = await dispatch(
+      'developer',
+      `Issue #${issueNumber}, branch ${state.branch}, reviewer fix round ${round}/${MAX_ROUNDS}: the arbitration outcome below is final. ` +
+        `Make every change it requires, leave every finding it overrules as it is, and report.\n${outcome}`,
+      'worker'
+    )
+    // The prompt above carries the outcome itself, so it joins the list only now.
+    state.arbitrations.push(outcome)
+    return developerOk(report)
+  }
+
   // The developer fixes the findings of a posted report. False when the run stops.
   const fixRound = async (kind, body) => {
     lastFix = { kind, round: state.fixRounds[kind] }
     log(`${kind} fix round ${lastFix.round}/${MAX_ROUNDS}`)
-    return developerOk(await dispatch('developer', fixTask(kind, lastFix.round, body), 'worker'))
+    const report = await dispatch('developer', fixTask(kind, lastFix.round, body), 'worker')
+    if (!(await developerOk(report))) return false
+    return kind === 'reviewer' ? arbitrate(report, body) : true
   }
 
   // Tests until PASS. Each FAIL is a tester fix round. False when the run stops.
@@ -332,10 +375,7 @@ export async function runPipeline(issueNumber, opts = {}) {
       'End the sub-plan with one line that starts with `Size check:`: `Size check: fits <label>` or `Size check: exceeds <label>, recommend <label>`.'
     const archReport = await dispatch('architect', archTask, 'judgment')
 
-    if (archReport?.KIND === 'NEEDS_DECISION') {
-      const question = oneLine(decisionQuestion(archReport))
-      return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', archReport.raw)
-    }
+    if (archReport?.KIND === 'NEEDS_DECISION') return needsDecision(archReport)
     // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
     // ARBITRATION, text with no header and a bare header are not posted as one.
     if (!dryRun && (archReport?.KIND !== 'SUB_PLAN' || !hasBody(archReport.raw, 'SUB_PLAN'))) return noReport('architect')
@@ -362,9 +402,11 @@ export async function runPipeline(issueNumber, opts = {}) {
     // A branch with no PR and no findings: the work stopped before the draft PR.
     const noPrResume = resume?.stage === 'developer' && resume.branch && !resume.pr && resume.findings === undefined
     let devTask
+    let fixKind = null
     if (resume?.findings !== undefined) {
       // The findings are a posted report, and the count already includes it.
       const kind = readVerdict(resume.findings) === 'CHANGES_REQUESTED' ? 'reviewer' : 'tester'
+      fixKind = kind
       const round = state.fixRounds[kind] || 1
       if (round > MAX_ROUNDS) return exhausted(kind)
       state.fixRounds[kind] = round
@@ -387,6 +429,10 @@ export async function runPipeline(issueNumber, opts = {}) {
     state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
     log(`developer done, PR: ${state.pr}`)
+
+    // A resume with reviewer findings is a reviewer fix round: the developer may push
+    // back on them. The PR is checked first, so no architect is spent on a bad one.
+    if (fixKind === 'reviewer' && !(await arbitrate(devReport, resume.findings))) return state
   }
 
   // No seat prompt is built with a null PR, and a package with no PR cannot ship.
@@ -687,6 +733,9 @@ const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
 // `> ` line, so no line of it starts with SUB_PLAN or VERDICT: where the gate
 // and the readers look. A park comment and an arbitration outcome quote this way.
 const quote = (text) => text.split(LINE_END).map((line) => `> ${line}`).join('\n')
+
+// The first line of an arbitration outcome comment.
+const outcomeHeader = (issue, round) => `**Arbitration outcome (issue #${issue}, reviewer fix round ${round}/${MAX_ROUNDS})**`
 
 // A line that is only a code fence marker, with or without a language word.
 const FENCE_LINE = /^(?:`{3,}|~{3,})[^\s`~]*$/
