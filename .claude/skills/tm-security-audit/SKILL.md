@@ -12,7 +12,7 @@ disable-model-invocation: true
 **How upstream's terms map here.**
 
 - Parent: the session the user typed the command in. This skill does not change that session's model or effort.
-- Task tool: the Agent tool, with `subagent_type: "general-purpose"` for both the `research` and the `general` agent. Do not dispatch orchestrai's role agents (architect, developer, tester, reviewer, fact-checker, docs-writer, perf-investigator); their report contracts do not fit this workflow.
+- Task tool: the Agent tool, with `subagent_type: "general-purpose"` for both the `research` and the `general` agent. Do not dispatch orchestrai's role agents (architect, developer, reviewer, fact-checker, docs-writer, perf-investigator); their report contracts do not fit this workflow.
 - Model: set the Agent tool's `model` on every dispatch. The role decides it, not the agent type:
 
 | Upstream role | Agent type | Defined in | `model` (tier) | Effort |

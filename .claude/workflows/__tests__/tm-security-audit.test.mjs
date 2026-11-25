@@ -175,7 +175,7 @@ test('tm-security-audit: SKILL.md is upstream plus the three orchestrai changes'
 //   sed -n '/orchestrai header: begin/,/orchestrai header: end/p' SKILL.md | sha256sum
 // An edit to the header needs this digest updated on purpose, in the same
 // commit, after a person has read the edit.
-const HEADER_SHA256 = 'd4b62b2b2e004191f1eda729d411210f204dc3a8ebbe263418af5c4b4681baa0';
+const HEADER_SHA256 = 'c03bb937397b00d0fd95dd1c9245430a82d7851b9825bb471f76c05e896058ef';
 
 const skillText = () => readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
 
