@@ -163,7 +163,7 @@ A repo is set up when all of these hold on its default branch:
 - Force pushes and deletion are off.
 - The rule applies to admins too, so admin pushes and merges are stopped as
   well. An admin can still edit or remove the protection itself.
-- A PR must be up to date with the default branch before it merges.
+- A PR does not have to be up to date with the default branch before it merges.
 - Auto merge is on and squash merge is allowed.
 - The required checks match the rule below.
 

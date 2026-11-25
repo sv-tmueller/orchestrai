@@ -219,7 +219,7 @@ function validProtectionBody(b) {
   return (
     isObject(rsc) &&
     hasExactKeys(rsc, ['strict', 'contexts']) &&
-    rsc.strict === true &&
+    rsc.strict === false &&
     Array.isArray(rsc.contexts) &&
     rsc.contexts.every((c) => typeof c === 'string' && c !== '') &&
     b.enforce_admins === true &&
@@ -842,7 +842,7 @@ export function planChanges(facts) {
     if (!p || !p.forcePushesOff) changes.push('force pushes off')
     if (!p || !p.deletionsOff) changes.push('deletion off')
     if (!p || !p.enforceAdmins) changes.push('applies to admins')
-    if (!p || !p.strict) changes.push('up to date required')
+    if (p?.strict) changes.push('up to date off')
     for (const name of requiredChecks) if (!have.includes(name)) changes.push(`required check: ${name}`)
     for (const name of have) if (!requiredChecks.includes(name)) changes.push(`stop requiring: ${name}`)
   }
@@ -913,7 +913,7 @@ export function buildWrites(target, facts) {
       method: 'PUT',
       path: protectionPath(target),
       body: {
-        required_status_checks: { strict: true, contexts: plan.requiredChecks },
+        required_status_checks: { strict: false, contexts: plan.requiredChecks },
         enforce_admins: true,
         required_pull_request_reviews: {
           required_approving_review_count: 0,

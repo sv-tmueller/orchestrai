@@ -1141,7 +1141,7 @@ const PROTECTED = {
   prRequired: true,
   forcePushesOff: true,
   enforceAdmins: true,
-  strict: true,
+  strict: false,
   deletionsOff: true,
   noApprovalNeeded: true,
   carry: CARRY_FALSE,
@@ -1170,7 +1170,7 @@ const FIXTURES = {
   'force pushes on': baseFacts({ protection: { ...PROTECTED, forcePushesOff: false } }),
   'deletion on': baseFacts({ protection: { ...PROTECTED, deletionsOff: false } }),
   'not applied to admins': baseFacts({ protection: { ...PROTECTED, enforceAdmins: false } }),
-  'not strict': baseFacts({ protection: { ...PROTECTED, strict: false } }),
+  'strict on': baseFacts({ protection: { ...PROTECTED, strict: true } }),
   'auto merge off': baseFacts({ allowAutoMerge: false }),
   'squash off': baseFacts({ allowSquashMerge: false }),
   'check not required': baseFacts({ ciChecks: ['Unit tests', 'lint'], prCheckNames: ['Unit tests', 'lint'] }),
@@ -1220,7 +1220,6 @@ describe('planChanges', () => {
       'force pushes off',
       'deletion off',
       'applies to admins',
-      'up to date required',
       'required check: Unit tests',
       'auto merge on',
       'squash merge allowed',
@@ -1241,7 +1240,7 @@ describe('planChanges', () => {
     const protection = classifyProtection({
       code: 0,
       stdout: JSON.stringify({
-        required_status_checks: { strict: true, contexts: ['Unit tests'] },
+        required_status_checks: { strict: false, contexts: ['Unit tests'] },
         required_pull_request_reviews: { required_approving_review_count: 0, require_code_owner_reviews: true },
         allow_force_pushes: { enabled: false },
         enforce_admins: { enabled: true },
@@ -1262,8 +1261,10 @@ describe('planChanges', () => {
     assert.deepEqual(planChanges(FIXTURES['not applied to admins']).changes, ['applies to admins'])
   })
 
-  test('not strict', () => {
-    assert.deepEqual(planChanges(FIXTURES['not strict']).changes, ['up to date required'])
+  test('strict on is turned off, and strict off or no protection lists nothing for it', () => {
+    assert.deepEqual(planChanges(FIXTURES['strict on']).changes, ['up to date off'])
+    assert.deepEqual(planChanges(baseFacts()).changes, [])
+    assert.ok(!planChanges(baseFacts({ protection: { kind: 'none' } })).changes.some((c) => /up to date/.test(c)))
   })
 
   test('a null required_status_checks block reads as not strict and no checks required', () => {
@@ -1276,7 +1277,7 @@ describe('planChanges', () => {
         enforce_admins: { enabled: true },
       }),
     })
-    assert.deepEqual(planChanges(baseFacts({ protection })).changes, ['up to date required', 'required check: Unit tests'])
+    assert.deepEqual(planChanges(baseFacts({ protection })).changes, ['required check: Unit tests'])
   })
 
   test('auto merge off', () => {
@@ -1403,7 +1404,7 @@ describe('evaluate', () => {
 
   test('the new items show as missing', () => {
     assert.deepEqual(evaluate(FIXTURES['not applied to admins']).missing, ['applies to admins'])
-    assert.deepEqual(evaluate(FIXTURES['not strict']).missing, ['up to date required'])
+    assert.deepEqual(evaluate(FIXTURES['strict on']).missing, ['up to date off'])
     assert.deepEqual(evaluate(FIXTURES['squash off']).missing, ['squash merge allowed'])
     assert.deepEqual(evaluate(FIXTURES['deletion on']).missing, ['deletion off'])
     assert.deepEqual(evaluate(FIXTURES['approving count above 0']).missing, ['no approving review required'])
@@ -1505,7 +1506,7 @@ describe('collect', () => {
     // A tidy public repo, fully set up.
     'api repos/octo/widget-api': json({ private: false, allow_auto_merge: true, allow_squash_merge: true, default_branch: 'main' }),
     'api repos/octo/widget-api/branches/main/protection': json({
-      required_status_checks: { strict: true, contexts: ['Unit tests'] },
+      required_status_checks: { strict: false, contexts: ['Unit tests'] },
       required_pull_request_reviews: {},
       allow_force_pushes: { enabled: false },
       enforce_admins: { enabled: true },
@@ -1789,7 +1790,7 @@ describe('render', () => {
         prRequired: true,
         forcePushesOff: true,
         enforceAdmins: true,
-        strict: true,
+        strict: false,
       },
       pipelineLabels: false,
       prCount: 3,
@@ -1860,7 +1861,7 @@ describe('render', () => {
   })
 
   test('lists every required check, including one that never runs on PRs', () => {
-    const protection = { kind: 'present', requiredChecks: ['Unit tests', 'stale-check'], prRequired: true, forcePushesOff: true, enforceAdmins: true, strict: true }
+    const protection = { kind: 'present', requiredChecks: ['Unit tests', 'stale-check'], prRequired: true, forcePushesOff: true, enforceAdmins: true, strict: false }
     const text = render({ login: 'o', entries: [entry('o/a', setUp, { protection })] })
     assert.match(text, /^ {2}required checks: Unit tests, stale-check$/m)
   })
@@ -1905,7 +1906,8 @@ describe('render', () => {
   })
 
   test('prints applies to admins, up to date required and squash merge', () => {
-    const on = render({ login: 'o', entries: [entry('o/a', setUp)] })
+    const strictOn = { kind: 'present', requiredChecks: [], prRequired: true, forcePushesOff: true, enforceAdmins: true, strict: true }
+    const on = render({ login: 'o', entries: [entry('o/a', setUp, { protection: strictOn })] })
     assert.match(on, /^ {2}applies to admins: yes$/m)
     assert.match(on, /^ {2}up to date required: yes$/m)
     assert.match(on, /^ {2}squash merge: allowed$/m)
@@ -1979,7 +1981,7 @@ const noProtection = baseFacts({ protection: { kind: 'none' }, allowAutoMerge: f
 // ---------------------------------------------------------------------------
 describe('buildWrites', () => {
   const putBody = (over = {}) => ({
-    required_status_checks: { strict: true, contexts: ['Unit tests'] },
+    required_status_checks: { strict: false, contexts: ['Unit tests'] },
     enforce_admins: true,
     required_pull_request_reviews: {
       required_approving_review_count: 0,
@@ -2059,9 +2061,16 @@ describe('buildWrites', () => {
     })
     const [put] = buildWrites(TARGET, facts)
     assert.deepEqual(put.body.required_status_checks, {
-      strict: true,
+      strict: false,
       contexts: ['Unit tests', 'orchestrai/review', 'zz'],
     })
+  })
+
+  test('a repo with up to date required gets a PUT that turns it off (#630)', () => {
+    const [put, ...rest] = buildWrites(TARGET, FIXTURES['strict on'])
+    assert.equal(rest.length, 0)
+    assert.equal(put.method, 'PUT')
+    assert.equal(put.body.required_status_checks.strict, false)
   })
 
   test('the branch name is encoded in the path', () => {
@@ -2210,10 +2219,10 @@ describe('confirmToken', () => {
   })
 
   test('a token for a plan without CI is the same as before the ci argument existed', () => {
-    // Pinned from the code as it stood before #551, so a change here breaks every shown token.
-    assert.equal(confirmToken(TARGET, ops), '1b334b7c4fd6')
-    assert.equal(confirmToken(TARGET, ops, undefined), '1b334b7c4fd6')
-    assert.equal(confirmToken(TARGET, ops, null), '1b334b7c4fd6')
+    // Pinned from the code as it stood before #551, so a change here breaks every shown token. Re-taken in #630, when the PUT body went to strict: false.
+    assert.equal(confirmToken(TARGET, ops), '60469ca6464f')
+    assert.equal(confirmToken(TARGET, ops, undefined), '60469ca6464f')
+    assert.equal(confirmToken(TARGET, ops, null), '60469ca6464f')
   })
 
   test('covers the ci object, the file text included', () => {
@@ -2234,7 +2243,7 @@ describe('buildWrites on the CI setup path', () => {
   test('buildWrites on a repo that needs CI requires tests and the review check', () => {
     const put = buildWrites(TARGET, needsCi).find((op) => op.method === 'PUT')
     assert.deepEqual(put.body.required_status_checks, {
-      strict: true,
+      strict: false,
       contexts: ['orchestrai/review', 'tests'],
     })
   })
@@ -2431,10 +2440,10 @@ describe('isAllowedWrite', () => {
     ['last-push approval', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, require_last_push_approval: true } })],
     ['an extra review key', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, bypass_pull_request_allowances: {} } })],
     ['no review block', okPut({ required_pull_request_reviews: null })],
-    ['not strict', okPut({ required_status_checks: { strict: false, contexts: [] } })],
-    ['checks next to contexts', okPut({ required_status_checks: { strict: true, contexts: [], checks: [] } })],
-    ['an empty context name', okPut({ required_status_checks: { strict: true, contexts: [''] } })],
-    ['contexts not an array', okPut({ required_status_checks: { strict: true, contexts: 'Unit tests' } })],
+    ['strict on', okPut({ required_status_checks: { strict: true, contexts: [] } })],
+    ['checks next to contexts', okPut({ required_status_checks: { strict: false, contexts: [], checks: [] } })],
+    ['an empty context name', okPut({ required_status_checks: { strict: false, contexts: [''] } })],
+    ['contexts not an array', okPut({ required_status_checks: { strict: false, contexts: 'Unit tests' } })],
     ['a null status block', okPut({ required_status_checks: null })],
     ['a copied value that is not a boolean', okPut({ lock_branch: 'false' })],
     ['a non-boolean dismiss_stale_reviews', okPut({ required_pull_request_reviews: { ...put.body.required_pull_request_reviews, dismiss_stale_reviews: 'true' } })],
@@ -3057,7 +3066,7 @@ describe('runApply', () => {
 
   // A fully set up repo, as the fake reports it.
   const SET_UP_PROTECTION = {
-    required_status_checks: { strict: true, contexts: ['Unit tests'], checks: [{ context: 'Unit tests', app_id: null }] },
+    required_status_checks: { strict: false, contexts: ['Unit tests'], checks: [{ context: 'Unit tests', app_id: null }] },
     enforce_admins: { enabled: true },
     required_pull_request_reviews: { required_approving_review_count: 0 },
     allow_force_pushes: { enabled: false },
@@ -3091,7 +3100,7 @@ describe('runApply', () => {
     })
 
     test('lists a required check that no longer runs as stop requiring', () => {
-      const prot = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts: ['Unit tests', 'Gone'] } }
+      const prot = { ...SET_UP_PROTECTION, required_status_checks: { strict: false, contexts: ['Unit tests', 'Gone'] } }
       const fake = makeFake({ protection: prot, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { text } = apply(fake, 'widget')
       assert.match(text, /^ {2}stop requiring: Gone$/m)
@@ -3485,7 +3494,7 @@ describe('runApply', () => {
 
     test('still prints the plan when protection already needs nothing, because the file is still needed', () => {
       const contexts = ['orchestrai/review', 'tests']
-      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: false, contexts } }
       const fake = ciFake({ protection, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
@@ -3759,8 +3768,9 @@ describe('runApply', () => {
           tokenOf(apply(makeFake({ prs: [], tree: ['go.mod', 'a_test.go'] }), 'widget').text),
         ]
         // Pinned from the guard before swift support (the ci object keeps its five
-        // keys), then re-taken when orchestrai/test left the required checks.
-        assert.deepEqual(tokens, ['61b40e9ca73d', '76f4499f80a1', '8cc44bef94d5'])
+        // keys), then re-taken when orchestrai/test left the required checks, and
+        // again when the PUT body went to strict: false (#630).
+        assert.deepEqual(tokens, ['692329551cc9', 'fb498d630a40', '6ace8800f630'])
       })
     })
 
@@ -4363,7 +4373,7 @@ describe('runApply', () => {
 
     test('a plan with no protection PUT completes the CI setup, writes no PUT and exits 0', () => {
       const contexts = ['orchestrai/review', 'tests']
-      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+      const protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: false, contexts } }
       const labels = LABELS.map((l) => ({ ...l }))
       const fake = ciFake({ protection, labels, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = confirmCi(fake)
@@ -4651,7 +4661,7 @@ describe('runApply', () => {
               if (t >= 30000 && fake.state.protection === null) {
                 fake.state.protection = {
                   ...SET_UP_PROTECTION,
-                  required_status_checks: { strict: true, contexts: ['x'] },
+                  required_status_checks: { strict: false, contexts: ['x'] },
                   required_pull_request_reviews: { required_approving_review_count: 0, dismiss_stale_reviews: true },
                 }
               }
@@ -4672,7 +4682,7 @@ describe('runApply', () => {
           ci: {
             rollup: (t, ci) => {
               if (t >= 30000 && fake.state.protection === null) {
-                fake.state.protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: true, contexts } }
+                fake.state.protection = { ...SET_UP_PROTECTION, required_status_checks: { strict: false, contexts } }
               }
               return withMergedRollup([done('tests')])(t, ci)
             },
@@ -5003,7 +5013,7 @@ describe('runStatuses', () => {
 
   const REVIEW_ONLY = ['orchestrai/review']
   const protectionWith = (contexts) => ({
-    required_status_checks: { strict: true, contexts, checks: contexts.map((context) => ({ context, app_id: null })) },
+    required_status_checks: { strict: false, contexts, checks: contexts.map((context) => ({ context, app_id: null })) },
     enforce_admins: { enabled: true },
     required_pull_request_reviews: { required_approving_review_count: 0 },
   })
