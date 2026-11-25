@@ -166,7 +166,9 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
 7. Mark the PR ready for review.
 
 For a batch of refined, sized issues, `/tm-kickoff` automates this flow per
-issue (see "Agent team").
+issue (see "Agent team"). In a repo new to orchestrai, type `/tm-setup` first:
+it creates the labels, checks the plugins, adds the docs folders and sets the
+merge rule.
 
 ## Repo layout (team)
 

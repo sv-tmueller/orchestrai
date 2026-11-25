@@ -2,37 +2,34 @@
 
 Run once when adopting the orchestrai plugin into an existing repo.
 
-## 1. Labels
+**Type `/tm-setup` in the repo.** It does the automatable part and is safe to
+re-run (`.claude/skills/tm-setup/SKILL.md`):
 
-- [ ] Create the labels the workflow uses: the sizing set `size:S`,
-      `size:M`, `size:L`, `size:XL` (see process-core.md "Sizing") plus
-      `in-progress` and `needs-human` (see team-guide.md "Agent team").
-      `/tm-kickoff` and `/tm-advisor` create these six automatically on first
-      run, including `/tm-advisor` (file only). Create them before the merge
-      rule (section 5): Apply requires `orchestrai/review` only on a repo that
-      has `in-progress` and `needs-human`. On a repo that needs CI,
-      `/tm-repo-guard apply` creates the six labels itself. A repo that
-      already has CI gets them from `/tm-kickoff` or `/tm-advisor` on first
-      run, not from Apply.
+1. Creates the six flow labels: `size:S`, `size:M`, `size:L`, `size:XL`,
+   `in-progress`, `needs-human`.
+2. Checks that the orchestrai and superpowers plugins are installed and
+   enabled, and prints the `/plugin` commands to type for any that are not.
+   It never installs a plugin or writes settings.
+3. Adds the missing `docs/` folders on a branch with a PR.
+4. Sets the merge rule through `/tm-repo-guard apply`, after you confirm.
+5. Reports what it did and what is left.
+
+The rest of this file is what `/tm-setup` leaves to you, and the by-hand
+fallback.
+
+## Manual items
+
+- [ ] Install the plugins if `/tm-setup` printed commands for them. The
+      superpowers dependency is normally prompted by `.claude/settings.json`;
+      if no prompt appears (a known gap,
+      https://github.com/anthropics/claude-code/issues/32606), run the
+      printed commands.
+- [ ] Check the agent team is loaded: `/agents` should list architect,
+      developer, and reviewer. Check `/skills` lists tm-advisor, tm-kickoff,
+      tm-grill-me, tm-repo-guard, and tm-setup.
 - [ ] (Optional) Create the labels you will filter on, e.g. `type:feat`,
       `type:fix`. The flow itself uses only the six above
       (`docs/architecture/light-flow.md`).
-
-## 2. Claude Code
-
-- [ ] Install the orchestrai plugin via the marketplace (see the README's
-      "Getting the team into your repos"):
-      `/plugin marketplace add sv-tmueller/orchestrai`, then
-      `/plugin install orchestrai@orchestrai`. It depends on the superpowers
-      plugin: accept the prompt that `.claude/settings.json` triggers, or if
-      no prompt appears (a known gap,
-      https://github.com/anthropics/claude-code/issues/32606), run
-      `/plugin marketplace add anthropics/claude-plugins-official`, then
-      `/plugin install superpowers@claude-plugins-official`.
-- [ ] Check the agent team is loaded: `/agents` should list architect,
-      developer, and reviewer.
-- [ ] Check the skills are registered: `/skills` should list tm-advisor,
-      tm-kickoff, tm-grill-me, and tm-repo-guard.
 - [ ] (Optional) If this project builds UI, enable the design plugins. They are
       not on by default, so adoption stays generic and free of third-party
       defaults. Add each to `.claude/settings.json` under `enabledPlugins` and
@@ -51,45 +48,26 @@ Run once when adopting the orchestrai plugin into an existing repo.
         `/plugin install impeccable@impeccable`.
       Vet the two third-party plugins before enabling them in a project others
       build on; their install steps live in their repos and may change.
-
-## 3. Docs structure
-
-- [ ] Create the docs tree:
-  ```
-  docs/architecture/
-  docs/operations/
-  docs/plans/
-  docs/reviews/
-  docs/superpowers/specs/
-  ```
-- [ ] Add the first architecture note under `docs/architecture/` (stack and policy
-      choices).
-
-## 4. Tests and CI/CD
-
+- [ ] Add the first architecture note under `docs/architecture/` (stack and
+      policy choices).
 - [ ] Decide the e2e approach for this app and scaffold `e2e/`.
-- [ ] Where the repo has tests but no CI, section 5's Apply adds it (one
+- [ ] Where the repo has tests but no CI, the merge-rule step adds it (one
       `tests` job), on the same yes. For a fuller pipeline, start from
       `.claude/skills/tm-repo-guard/templates/ci.yml` and keep its cost
       controls: pinned `timeout-minutes` on every job, a `concurrency` group
       with `cancel-in-progress: true`, and e2e/build skipped on draft PRs.
 - [ ] If you deploy, make e2e a pre-deploy gate.
 
-## 5. Merge rule
+## By hand: merge rule
 
-- [ ] After the labels (section 1), type
-      `/tm-repo-guard apply <owner>/<name>` with this repo's full name. It
-      shows the changes and asks before it writes. It requires every check
-      that ran on the newest finished PR, plus `orchestrai/review` once the
-      labels from section 1 exist. It never requires an up to date branch.
-- [ ] If Apply refuses the repo as not your own (an organization repo, or one
-      owned by another account), protect `main` by hand in the repo's GitHub
-      settings instead: block direct pushes, require a PR, require status
-      checks to pass before merge, and make the relevant CI jobs required
-      status checks. A private repo on a plan without branch protection is
-      blocked either way.
+Only if `/tm-repo-guard apply` refuses the repo as not your own (an
+organization repo, or one owned by another account). Protect `main` in the
+repo's GitHub settings instead: block direct pushes, require a PR, require
+status checks to pass before merge, and make the relevant CI jobs required
+status checks. A private repo on a plan without branch protection is blocked
+either way.
 
-## 6. First slice of work
+## First slice of work
 
 - [ ] Brainstorm the first design via `superpowers:brainstorming`; save the spec to
       `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`.

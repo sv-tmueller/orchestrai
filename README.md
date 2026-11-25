@@ -106,6 +106,7 @@ review gate says so, and at most 2 fix rounds.
   `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
   `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
   `/tm-repo-guard` (guard check and apply, CI setup included, for your repos),
+  `/tm-setup` (adopt orchestrai in the current repo),
   `/tm-security-audit` (security review and full audit, vendored from Cloudflare).
   Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
@@ -122,7 +123,7 @@ review gate says so, and at most 2 fix rounds.
 - `AGENTS.md` - the repo's orientation for every harness and seat (what the
   repo is, where decisions live, code style, layout, useful commands).
   `CLAUDE.md` is a thin import of it plus the Claude-only lines.
-- `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist.
+- `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist; `/tm-setup` runs its automatable part.
 
 ## Repo guard
 
@@ -317,6 +318,7 @@ must be committed rather than installed from the marketplace.
 /tm-kickoff 42          # run the light flow on issue #42
 /tm-kickoff 42 43 44    # run a wave of issues (up to 3 concurrent)
 /tm-advisor <need>      # refine a need into a batch, then run it
+/tm-setup               # adopt orchestrai in this repo (labels, plugins check, docs, merge rule)
 /tm-review-changes      # review the current diff
 /tm-review-codebase     # review the whole repo
 /tm-map-codebase        # map the repo architecture
