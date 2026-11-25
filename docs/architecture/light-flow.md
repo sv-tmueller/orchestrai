@@ -58,8 +58,9 @@ Per issue:
 5. Ship: mark the PR ready, queue auto merge where the repo allows it (see
    "Merge gate"), remove `in-progress`.
 
-A developer who disputes a finding, or a third failed fix round, parks the
-package as `needs-human`.
+A developer who disputes a finding: on Claude the lead settles it, asking the
+architect when unsure; the Hermes driver parks the package as `needs-human`.
+A third failed fix round parks it on both.
 
 Should-fix and nit findings go in the review comment on the PR and are not
 carried further. The reviewer never files follow-up issues. The lead files one
