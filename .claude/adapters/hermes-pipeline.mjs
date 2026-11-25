@@ -439,7 +439,8 @@ export function parseBlockers(body) {
   return found
 }
 
-const VERDICT_LINE = /^VERDICT: (PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/m
+// The parser accepts any spacing after the colon, so the reader does too.
+const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/m
 
 /**
  * resumeStage(comments) -> { stage, findings? }
@@ -458,6 +459,24 @@ export function resumeStage(comments) {
     return { stage: 'developer', findings: String(ordered[i].body) }
   }
   return { stage: 'tester' }
+}
+
+/**
+ * countFixRounds(comments) -> { tester, reviewer }
+ *
+ * The fix rounds a PR has used, read from the same verdict lines as
+ * resumeStage: each FAIL is a tester round, each CHANGES_REQUESTED a reviewer
+ * round. Every posted report counts, so the number a fresh run reads is the
+ * number the run that stopped had.
+ */
+export function countFixRounds(comments) {
+  const counts = { tester: 0, reviewer: 0 }
+  for (const comment of comments) {
+    const m = String(comment.body || '').replace(/\r/g, '').match(VERDICT_LINE)
+    if (m?.[1] === 'FAIL') counts.tester++
+    if (m?.[1] === 'CHANGES_REQUESTED') counts.reviewer++
+  }
+  return counts
 }
 
 /**
@@ -649,7 +668,7 @@ const hasSubPlan = (comments) =>
  * runGate(numbers, gh) -> entries[]
  *
  * One entry per issue, in argument order:
- * { issue, size, outcome, detail, blockers, inProgress, resume? }.
+ * { issue, size, outcome, detail, blockers, inProgress, title, resume? }.
  * The first matching rule decides the outcome; blockers then turn a run or
  * resume into a wait. Reads only: the caller does any park write.
  */
@@ -669,7 +688,7 @@ async function gateIssue(issue, gh, view) {
   const labels = issue.labels.map((l) => l.name)
   const size = SIZES.find((s) => labels.includes(s)) || 'unsized'
   const inProgress = labels.includes('in-progress')
-  const entry = (outcome, detail, extra = {}) => ({ issue: n, size, outcome, detail, blockers: [], inProgress, ...extra })
+  const entry = (outcome, detail, extra = {}) => ({ issue: n, size, outcome, detail, blockers: [], inProgress, title: issue.title, ...extra })
 
   if (issue.state === 'CLOSED') return entry('skip', 'closed')
   if (labels.includes('needs-human')) return entry('skip', 'labeled needs-human, resuming it is the user\'s call')
@@ -684,8 +703,9 @@ async function gateIssue(issue, gh, view) {
   let result
   const draft = highest(prs.filter((p) => p.isDraft))
   if (draft) {
-    const { stage, findings } = resumeStage(await gh.prComments(draft.number))
-    const resume = { stage, branch: draft.headRefName, pr: draft.number }
+    const comments = await gh.prComments(draft.number)
+    const { stage, findings } = resumeStage(comments)
+    const resume = { stage, branch: draft.headRefName, pr: draft.number, fixRounds: countFixRounds(comments) }
     if (findings !== undefined) resume.findings = findings
     result = entry('resume', `draft PR #${draft.number}, resuming at the ${stage}`, { resume })
   } else if (inProgress) {

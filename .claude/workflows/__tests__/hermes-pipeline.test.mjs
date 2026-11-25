@@ -151,7 +151,7 @@ describe('parseBlockers', () => {
 })
 
 describe('resumeStage', () => {
-  const { resumeStage } = driver
+  const { resumeStage, countFixRounds } = driver
   const c = (body, createdAt) => ({ author: { login: 'bot' }, body, createdAt })
 
   test('no verdict comment re-enters at the tester', () => {
@@ -217,6 +217,68 @@ describe('resumeStage', () => {
 
   test('a CRLF verdict line still counts', () => {
     assert.deepEqual(resumeStage([c('intro\r\nVERDICT: PASS\r\n', '2026-01-01T00:00:00Z')]), { stage: 'reviewer' })
+  })
+
+  // The parser accepts these, so the reader has to as well.
+  for (const [name, line] of [['no space', 'VERDICT:FAIL'], ['two spaces', 'VERDICT:  FAIL'], ['a tab', 'VERDICT:\tFAIL']]) {
+    test(`a verdict line with ${name} after the colon counts`, () => {
+      assert.deepEqual(resumeStage([c(line, '2026-01-01T00:00:00Z')]), { stage: 'developer', findings: line })
+    })
+  }
+
+  describe('countFixRounds', () => {
+    const none = { tester: 0, reviewer: 0 }
+
+    test('no comments and comments without a verdict count nothing', () => {
+      assert.deepEqual(countFixRounds([]), none)
+      assert.deepEqual(countFixRounds([c('a note', '2026-01-01T00:00:00Z')]), none)
+    })
+
+    test('each FAIL is a tester round and each CHANGES_REQUESTED a reviewer round', () => {
+      const comments = [
+        c('VERDICT: FAIL\nFINDINGS: 1. a', '2026-01-01T00:00:00Z'),
+        c('VERDICT: PASS', '2026-01-02T00:00:00Z'),
+        c('VERDICT: CHANGES_REQUESTED\nFINDINGS: 1. b', '2026-01-03T00:00:00Z'),
+        c('VERDICT: FAIL\nFINDINGS: 1. c', '2026-01-04T00:00:00Z'),
+        c('VERDICT: FAIL\nFINDINGS: 1. d', '2026-01-05T00:00:00Z'),
+        c('VERDICT: APPROVE', '2026-01-06T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), { tester: 3, reviewer: 1 })
+    })
+
+    test('the order of the array and the author do not matter', () => {
+      const a = { author: { login: 'one' }, body: 'VERDICT: FAIL', createdAt: '2026-01-02T00:00:00Z' }
+      const b = { author: { login: 'two' }, body: 'VERDICT: FAIL', createdAt: '2026-01-01T00:00:00Z' }
+      assert.deepEqual(countFixRounds([a, b]), { tester: 2, reviewer: 0 })
+      assert.deepEqual(countFixRounds([b, a]), { tester: 2, reviewer: 0 })
+    })
+
+    test('a quoted verdict, a fact-checker verdict and a verdict word in a header are ignored', () => {
+      const comments = [
+        c('> VERDICT: FAIL\nI disagree.', '2026-01-01T00:00:00Z'),
+        c('VERDICT: CONTRADICTED\nCLAIMS: 1', '2026-01-02T00:00:00Z'),
+        c('**Tester report, round 1 (VERDICT: FAIL)**\n\nsee below', '2026-01-03T00:00:00Z'),
+        c('VERDICT: FAILED', '2026-01-04T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), none)
+    })
+
+    test('only the first verdict line of a comment counts', () => {
+      assert.deepEqual(countFixRounds([c('VERDICT: FAIL\nVERDICT: CHANGES_REQUESTED', '2026-01-01T00:00:00Z')]), { tester: 1, reviewer: 0 })
+    })
+
+    test('a CRLF verdict line and the spacing the parser accepts count', () => {
+      const comments = [
+        c('intro\r\nVERDICT: FAIL\r\n', '2026-01-01T00:00:00Z'),
+        c('VERDICT:CHANGES_REQUESTED', '2026-01-02T00:00:00Z'),
+        c('VERDICT:  FAIL', '2026-01-03T00:00:00Z'),
+      ]
+      assert.deepEqual(countFixRounds(comments), { tester: 2, reviewer: 1 })
+    })
+
+    test('a comment that does not parse as one string is skipped', () => {
+      assert.deepEqual(countFixRounds([{ createdAt: '2026-01-01T00:00:00Z' }, { body: null }]), none)
+    })
   })
 })
 
@@ -574,11 +636,13 @@ describe('the gate', () => {
   test('rule 6: a draft PR with no verdict resumes at the tester on its branch', async () => {
     const e = await one(110)
     assert.equal(e.outcome, 'resume')
-    assert.deepEqual(e.resume, { stage: 'tester', branch: 'feat/110-x', pr: 210 })
+    assert.deepEqual(e.resume, { stage: 'tester', branch: 'feat/110-x', pr: 210, fixRounds: { tester: 0, reviewer: 0 } })
   })
 
   test('rule 6: a PASS verdict resumes at the reviewer', async () => {
-    assert.deepEqual((await one(111)).resume, { stage: 'reviewer', branch: 'feat/111-x', pr: 212 })
+    assert.deepEqual((await one(111)).resume, {
+      stage: 'reviewer', branch: 'feat/111-x', pr: 212, fixRounds: { tester: 0, reviewer: 0 },
+    })
   })
 
   test('rule 6: a FAIL verdict resumes at the developer with the findings', async () => {
@@ -589,8 +653,19 @@ describe('the gate', () => {
     assert.match(e.resume.findings, /VERDICT: FAIL\nFINDINGS: 1\. exit code is 0 on a failed read/)
   })
 
+  test('rule 6: the fix rounds already used are counted from the verdict comments of the PR', async () => {
+    // PR 213 holds a PASS and, later, one FAIL.
+    assert.deepEqual((await one(112)).resume.fixRounds, { tester: 1, reviewer: 0 })
+  })
+
+  test('the entry carries the issue title, for the branch name', async () => {
+    assert.equal((await one(116)).title, 'Issue 116 title')
+  })
+
   test('rule 6: an APPROVE verdict on a draft resumes at ship', async () => {
-    assert.deepEqual((await one(113)).resume, { stage: 'ship', branch: 'feat/113-x', pr: 214 })
+    assert.deepEqual((await one(113)).resume, {
+      stage: 'ship', branch: 'feat/113-x', pr: 214, fixRounds: { tester: 0, reviewer: 0 },
+    })
   })
 
   test('rule 6: with several draft PRs the highest number is used', async () => {
