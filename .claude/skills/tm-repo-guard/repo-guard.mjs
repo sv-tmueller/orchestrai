@@ -164,7 +164,7 @@ const PATCH_KEYS = ['allow_auto_merge', 'allow_squash_merge']
 // accepts exactly these names, colors and descriptions, nothing else.
 const LABELS = [
   { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
-  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours. Write a sub-plan first.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours.' },
   { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
   { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
   { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },

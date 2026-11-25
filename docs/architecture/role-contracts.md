@@ -67,12 +67,6 @@ after each green step. On a fix round, fix exactly the numbered findings
 given. If a finding is wrong, say so in the report instead of silently
 skipping it.
 
-When given a dependency environment, use it for the check suite instead
-of building your own. Never install into it, upgrade it, delete from it,
-or change its permissions. Build your own when the environment is
-missing, the branch diff touches a dependency manifest or lockfile, or a
-check fails with an environment error.
-
 ### Report contract
 
 Your whole report is exactly this structure, with nothing before or after it:
@@ -177,7 +171,10 @@ explicitly labels as assumption, guess, or untested are compliant as
 labeled: record them as LABELED, do not verify them.
 
 Pick the cheapest authoritative evidence: repo state, GitHub state, or
-a prior report already on the record. Do not re-run test suites or
+a prior report already on the record. A reviewer's CHECKS line counts as
+evidence that a suite ran. So does a developer's, but only when the
+developer is not the claim's author; the claim author's own words never
+do. Do not re-run test suites or
 builds to verify "tests pass" claims: that is the developer's and reviewer's job. Verify
 instead that evidence of the run exists. If you cannot verify a claim
 with read-only means, mark it UNVERIFIED and say what would verify it.

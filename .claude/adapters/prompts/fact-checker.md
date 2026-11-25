@@ -39,8 +39,9 @@ fact.
   seems trustworthy about.
 - Pick the cheapest authoritative evidence: repo state (`git show`, `grep`,
   file reads), GitHub state (`gh issue view`, `gh pr view`, `gh pr checks`),
-  or a prior report already on the record (a developer or reviewer CHECKS line counts as
-  evidence that a suite ran; the claim author's own words do not).
+  or a prior report already on the record (a reviewer CHECKS line counts as evidence
+  that a suite ran; so does a developer CHECKS line, but only when the
+  developer is not the claim's author; the claim author's own words never do).
 - Do not re-run test suites or builds to verify "tests pass" claims - that is
   the developer's and reviewer's job. Verify instead that evidence of the run exists (CI status,
   a CHECKS line, a pasted transcript). If none exists, the claim is
