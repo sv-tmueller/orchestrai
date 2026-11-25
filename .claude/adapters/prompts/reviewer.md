@@ -2,11 +2,13 @@
 
 You review; you never fix. You have no write_file or patch access on purpose.
 Terminal is for reading only, plus running the check suite: `gh pr diff`,
-`gh issue view`, `git fetch`, `git diff`, `git log`, `git ls-remote`,
+`gh issue view`, `gh pr view <n> --json headRefName`, `git fetch`,
+`git diff`, `git log`, `git ls-remote`, `git rev-parse`,
 `git checkout --detach`, and the check-suite commands from AGENTS.md
 "Useful commands".
 
-Input: a PR number or branch name plus its issue number. Get the diff with
+Input: a PR number or branch name plus its issue number. With only a PR
+number, read its branch with `gh pr view <n> --json headRefName`. Get the diff with
 `gh pr diff <n>` (preferred); fall back to
 `git remote set-head origin --auto && git fetch origin && git diff origin/HEAD...origin/<branch>`
 only when no PR exists.
@@ -51,8 +53,12 @@ git checkout --detach FETCH_HEAD
 ```
 
 Then run the full check suite from AGENTS.md "Useful commands" and record each
-command and its exit code. A non-zero exit is a must-fix finding, regardless of
-what the two review passes found.
+command and its exit code. Start the CHECKS line with the full SHA of the head
+you tested (`git rev-parse HEAD`), so the lead can tie `orchestrai/review` to
+that commit. A non-zero exit is a must-fix finding, regardless of what the two
+review passes found. A failure that comes from your environment (a missing
+tool, no network) is not a finding: rerun it once in a clean setup before you
+report it.
 
 ## Report contract
 
@@ -63,7 +69,7 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
-CHECKS: <each check command and its exit code, e.g. `npm test` -> 0>
+CHECKS: <full head SHA you tested>; <each check command and its exit code, e.g. `npm test` -> 0>
 LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
 

@@ -226,6 +226,64 @@ describe('role contract sync', () => {
       `CHECKS line lacks the developer shape: ${line}`
     )
     assert.ok(!/n\/a/.test(line), 'the reviewer always runs the checks, so CHECKS is never n/a')
+    assert.ok(
+      line.startsWith('CHECKS: <full head SHA you tested>; '),
+      `CHECKS line does not start with the tested head SHA: ${line}`
+    )
+  })
+
+  // The three reviewer copies, as one map, for the rules below.
+  function reviewerCopies() {
+    const rcSrc = readFileSync(rcPath, 'utf8')
+    const roleIdx = rcSrc.indexOf('## reviewer\n')
+    const nextIdx = rcSrc.indexOf('\n## ', roleIdx + '## reviewer\n'.length)
+    return {
+      'role-contracts.md': rcSrc.slice(roleIdx, nextIdx >= 0 ? nextIdx : rcSrc.length),
+      'reviewer.md': readFileSync(join(agentsDir, 'reviewer.md'), 'utf8'),
+      'adapters/prompts/reviewer.md': readFileSync(join(promptsDir, 'reviewer.md'), 'utf8'),
+    }
+  }
+
+  test('reviewer: all three copies say an environment failure is not a finding', () => {
+    for (const [name, src] of Object.entries(reviewerCopies())) {
+      const flat = src.replace(/\s+/g, ' ')
+      assert.match(flat, /environment[^.]*is not a finding/, `${name} lacks the environment-failure rule`)
+      assert.ok(flat.includes('rerun it once in a clean setup'), `${name} lacks the clean-setup rerun`)
+    }
+  })
+
+  test('reviewer: all three copies tell it to start the CHECKS line with the tested head SHA', () => {
+    for (const [name, src] of Object.entries(reviewerCopies())) {
+      const flat = src.replace(/\s+/g, ' ')
+      assert.ok(flat.includes('Start the CHECKS line with the full SHA of the head you tested'), name)
+      assert.ok(flat.includes('git rev-parse HEAD'), `${name} does not name git rev-parse HEAD`)
+    }
+  })
+
+  test('reviewer: the agent file and the prompt list git rev-parse and the headRefName lookup', () => {
+    const copies = reviewerCopies()
+    for (const name of ['reviewer.md', 'adapters/prompts/reviewer.md']) {
+      const flat = copies[name].replace(/\s+/g, ' ')
+      assert.ok(flat.includes('`git rev-parse`'), `${name}: git rev-parse is not on the command list`)
+      assert.ok(
+        flat.includes('`gh pr view <n> --json headRefName`'),
+        `${name}: the headRefName lookup is not on the command list`
+      )
+    }
+  })
+
+  // The Codex personas are one-line summaries of the contracts. They lag
+  // silently, so pin the parts that changed with the light flow.
+  test('codex personas match the light flow contracts', () => {
+    const personas = join(__dir, '..', '..', 'adapters', 'personas')
+    const architect = readFileSync(join(personas, 'architect.toml'), 'utf8')
+    assert.ok(!/SUB_PLAN/.test(architect), 'architect.toml still carries SUB_PLAN')
+    assert.match(architect, /jobs = "SPLIT_PROPOSAL, ARBITRATION"/)
+    assert.ok(!/Start with SUB_PLAN/.test(architect))
+    const reviewer = readFileSync(join(personas, 'reviewer.toml'), 'utf8')
+    assert.ok(!/sub-plan/i.test(reviewer), 'reviewer.toml still names a sub-plan')
+    assert.match(reviewer, /report_contract = [^\n]*CHECKS/, 'reviewer.toml report contract lacks CHECKS')
+    assert.ok(/head SHA/.test(reviewer), 'reviewer.toml does not mention the head SHA on CHECKS')
   })
 
   // The reviewer carries no tester, lean-track or follow-up-issue wording in
