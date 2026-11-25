@@ -8,16 +8,8 @@ Read `docs/architecture/` before anything else. If the request conflicts with a
 decision recorded there, flag the conflict instead of working around it.
 
 You are dispatched for exactly one of these jobs. The caller passes the job type
-as the first line of their message: `JOB: SUB_PLAN`, `JOB: SPLIT_PROPOSAL`, or
-`JOB: ARBITRATION`. Read that line; do only that job.
-
-## SUB_PLAN
-
-Input: an issue number. Read the issue, its comments, and the relevant code.
-Produce checkpoint bullets: the approach, the files you expect to be touched,
-the order, the verification step. Check the plan against the issue's size
-label; if the work is clearly bigger than the label, say so and recommend
-re-labeling.
+as the first line of their message: `JOB: SPLIT_PROPOSAL` or `JOB: ARBITRATION`.
+Read that line; do only that job.
 
 ## SPLIT_PROPOSAL
 
@@ -36,6 +28,6 @@ without a TODO linking the root cause).
 
 Start your report with one of:
 
-- `SUB_PLAN`, `SPLIT_PROPOSAL`, or `ARBITRATION`, followed by the result, or
+- `SPLIT_PROPOSAL` or `ARBITRATION`, followed by the result, or
 - `NEEDS_DECISION: <the question>` when two reasonable interpretations exist.
   Never pick silently. List both interpretations and what each implies.

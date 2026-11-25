@@ -184,7 +184,7 @@ describe('table resolution', () => {
   })
 
   test('resolves a plain tier string through the tiers map', () => {
-    const seat = resolveSeat('tester')
+    const seat = resolveSeat('fact-checker')
     assert.equal(seat.tier, 'worker')
     assert.equal(seat.model, splitTable.tiers.worker.model)
     assert.equal(seat.effort, splitTable.tiers.worker.effort)
@@ -264,7 +264,7 @@ describe('buildArgv and buildEnv', () => {
     const profile = join(stubDir, 'noris-settings.json')
     writeFileSync(profile, JSON.stringify({ permissions: { blockReadsOutsideWorkingDirectories: true } }))
     process.env.CLAUDE_CODE_NORIS_SETTINGS = profile
-    const argv = buildArgv('tester', 'p', opts())
+    const argv = buildArgv('fact-checker', 'p', opts())
     const settings = JSON.parse(valueOf(argv, '--settings'))
     assert.equal(
       settings.permissions.blockReadsOutsideWorkingDirectories, true,
@@ -282,7 +282,7 @@ describe('buildArgv and buildEnv', () => {
 
   test('accepts an inline JSON profile as well as a file path', () => {
     process.env.CLAUDE_CODE_NORIS_SETTINGS = JSON.stringify({ permissions: { allow: ['Read'] } })
-    const argv = buildArgv('tester', 'p', opts())
+    const argv = buildArgv('fact-checker', 'p', opts())
     const settings = JSON.parse(valueOf(argv, '--settings'))
     assert.deepEqual(settings.permissions.allow, ['Read'])
     assert.equal(settings.enabledPlugins['orchestrai@orchestrai'], false)
@@ -293,7 +293,7 @@ describe('buildArgv and buildEnv', () => {
     delete process.env.CLAUDE_CODE_NORIS_SETTINGS
     try {
       assert.throws(
-        () => buildArgv('tester', 'p', opts()),
+        () => buildArgv('fact-checker', 'p', opts()),
         /CLAUDE_CODE_NORIS_SETTINGS/,
         'an unexpanded placeholder must fail loudly, not reach the CLI'
       )
@@ -354,9 +354,9 @@ describe('parseReport', () => {
     assert.equal(r.BRANCH, 'feat/1-x')
   })
 
-  test('reads a tester verdict', () => {
-    const r = parseReport('tester', 'VERDICT: PASS\nCOMMIT: abc\nFINDINGS: none')
-    assert.equal(r.VERDICT, 'PASS')
+  test('reads a reviewer verdict', () => {
+    const r = parseReport('reviewer', 'VERDICT: APPROVE\nSTAGE: both clean\nFINDINGS: none')
+    assert.equal(r.VERDICT, 'APPROVE')
   })
 
   test('reads the architect opener as the report kind', () => {
@@ -387,12 +387,12 @@ describe('detectFailure', () => {
 
   const clean = {
     code: 0,
-    stdout: JSON.stringify({ result: 'VERDICT: PASS\nFINDINGS: none' }),
+    stdout: JSON.stringify({ result: 'VERDICT: APPROVE\nFINDINGS: none' }),
     stderr: '',
   }
 
   test('a clean contract report is not a failure', () => {
-    assert.equal(detectFailure(clean, 'tester'), false)
+    assert.equal(detectFailure(clean, 'reviewer'), false)
   })
 
   test('a clean parsed report object is not a failure', () => {
@@ -405,43 +405,43 @@ describe('detectFailure', () => {
 
   test('a report object missing its required contract field is a failure', () => {
     assert.equal(
-      detectFailure({ raw: 'looks fine to me' }, 'tester'),
+      detectFailure({ raw: 'looks fine to me' }, 'reviewer'),
       true,
-      'a tester report with no VERDICT must not travel downstream as a PASS'
+      'a reviewer report with no VERDICT must not travel downstream as an APPROVE'
     )
   })
 
   test('a nonzero exit code is a failure', () => {
-    assert.equal(detectFailure({ ...clean, code: 1 }, 'tester'), true)
+    assert.equal(detectFailure({ ...clean, code: 1 }, 'reviewer'), true)
   })
 
   test('empty stdout is a failure', () => {
-    assert.equal(detectFailure({ code: 0, stdout: '   ', stderr: '' }, 'tester'), true)
+    assert.equal(detectFailure({ code: 0, stdout: '   ', stderr: '' }, 'reviewer'), true)
   })
 
   test('a timing-out run is a failure, flagged as stalled', () => {
     const result = { code: null, timedOut: true, stdout: '', stderr: '' }
-    assert.equal(detectFailure(result, 'tester'), true)
+    assert.equal(detectFailure(result, 'reviewer'), true)
   })
 
   test('a report missing its required contract field is a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: JSON.stringify({ result: 'looks fine to me' }), stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: JSON.stringify({ result: 'looks fine to me' }), stderr: '' }, 'reviewer'),
       true,
-      'a tester report with no VERDICT must not travel downstream as a PASS'
+      'a reviewer report with no VERDICT must not travel downstream as an APPROVE'
     )
   })
 
   test('an error envelope from the CLI is a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: JSON.stringify({ is_error: true, result: '' }), stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: JSON.stringify({ is_error: true, result: '' }), stderr: '' }, 'reviewer'),
       true
     )
   })
 
   test('a provider error in either stream is a failure', () => {
     assert.equal(
-      detectFailure({ code: 0, stdout: JSON.stringify({ result: 'HTTP 403: key expired' }), stderr: '' }, 'tester'),
+      detectFailure({ code: 0, stdout: JSON.stringify({ result: 'HTTP 403: key expired' }), stderr: '' }, 'reviewer'),
       true
     )
   })
@@ -468,9 +468,9 @@ describe('detectFailure', () => {
     // classifyFailure is the retry notice's source: the respawn prompt
     // names what went wrong, so it is worth asserting on directly.
     return import('../../adapters/claude-code-subprocess.mjs').then((mod) => {
-      assert.equal(mod.classifyFailure({ code: null, timedOut: true }, 'tester'), 'timeout')
-      assert.equal(mod.classifyFailure({ code: 1, stdout: '', stderr: '' }, 'tester'), 'exit 1')
-      assert.equal(mod.classifyFailure({ code: 0, stdout: '', stderr: '' }, 'tester'), 'empty output')
+      assert.equal(mod.classifyFailure({ code: null, timedOut: true }, 'reviewer'), 'timeout')
+      assert.equal(mod.classifyFailure({ code: 1, stdout: '', stderr: '' }, 'reviewer'), 'exit 1')
+      assert.equal(mod.classifyFailure({ code: 0, stdout: '', stderr: '' }, 'reviewer'), 'empty output')
     })
   })
 })
@@ -590,7 +590,7 @@ describe('spawn and retry', () => {
   })
 
   test('the timeout fires even when a leftover grandchild holds the seat pipes (#467)', async () => {
-    // The never-settle shape the tester reproduced: a developer seat leaves
+    // The never-settle shape that was reproduced: a developer seat leaves
     // a detached grandchild (a dev server, a browser) that inherits the
     // seat's stdout/stderr pipes, then the seat itself stalls. Settling the
     // dispatch on 'close' makes the timeout backstop dead: node fires

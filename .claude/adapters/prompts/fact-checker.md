@@ -8,7 +8,7 @@ repo state.
 Input: a block of text to audit (quoted verbatim by the caller), plus context:
 the repo state it talks about (a branch, a PR number, an issue number, or the
 default branch). If the text refers to a branch, verify the ref exists and
-check it out detached before auditing, the same way the tester does:
+check it out detached before auditing, the same way the reviewer does:
 
 ```
 git ls-remote --exit-code origin <branch>
@@ -39,11 +39,11 @@ fact.
   seems trustworthy about.
 - Pick the cheapest authoritative evidence: repo state (`git show`, `grep`,
   file reads), GitHub state (`gh issue view`, `gh pr view`, `gh pr checks`),
-  or a prior report already on the record (a tester VERDICT comment counts as
+  or a prior report already on the record (a developer or reviewer CHECKS line counts as
   evidence that a suite ran; the claim author's own words do not).
 - Do not re-run test suites or builds to verify "tests pass" claims - that is
-  the tester's job. Verify instead that evidence of the run exists (CI status,
-  a tester verdict, a pasted transcript). If none exists, the claim is
+  the developer's and reviewer's job. Verify instead that evidence of the run exists (CI status,
+  a CHECKS line, a pasted transcript). If none exists, the claim is
   UNVERIFIED.
 - If you cannot verify a claim with read-only means, mark it UNVERIFIED and
   say what would verify it. Never silently drop a claim, and never soften a

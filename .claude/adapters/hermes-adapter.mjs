@@ -206,8 +206,8 @@ export function buildArgv(role, prompt, opts = {}) {
  *
  * For a raw result the five failure shapes are: a nonzero exit code,
  * empty stdout, a provider error in either stream, and a report missing
- * its role's required field. The last one matters most: a tester report
- * with no VERDICT must not travel downstream as a PASS.
+ * its role's required field. The last one matters most: a reviewer report
+ * with no VERDICT must not travel downstream as an APPROVE.
  */
 export function detectFailure(result, role) {
   if (result === null || result === undefined) return true
@@ -422,7 +422,6 @@ function dryRunSpawn(role, task, opts) {
   const VERDICTS = {
     architect: { KIND: 'SUB_PLAN', output: 'SUB_PLAN: approach, files, order, verification.' },
     developer: { STATUS: 'DONE', BRANCH: 'dry-run-branch', PR: 'https://github.com/example/dry-run' },
-    tester: { VERDICT: 'PASS', COMMIT: 'abc123', FINDINGS: 'none', UNTESTED_CLAIMS: 'none' },
     reviewer: { VERDICT: 'APPROVE', STAGE: 'both clean', FINDINGS: 'none' },
     'fact-checker': { VERDICT: 'GROUNDED', COMMIT: 'abc123', CLAIMS: [], SUMMARY: '0 verified, 0 contradicted' },
     'docs-writer': { FILES: [], GAPS_NOT_FILLED: 'none', ASSUMPTIONS: 'none' },

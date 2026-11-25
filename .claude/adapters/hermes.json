@@ -29,8 +29,7 @@
     "docs-writer": "worker",
     "fact-checker": "worker",
     "perf-investigator": "worker",
-    "reviewer": "judgment",
-    "tester": "worker"
+    "reviewer": "judgment"
   },
   "_seats_comment": "The tool surface per seat, passed to `hermes -t`. No seat gets the `delegation` toolset: a seat that can re-delegate breaks the flat-star invariant, so omitting it enforces that rule at the runtime level rather than by prompt instruction. Seats also omit memory and session_search so a seat's judgment is a function of its task and the repo, not of unrelated history. `-t` cannot express read-only: every seat needs `terminal` for git, gh, and the check suite, and terminal implies write capability, so read-only stays a prompt-level contract on this host.",
   "seats": {
@@ -39,8 +38,7 @@
     "docs-writer": { "toolsets": ["file", "terminal"] },
     "fact-checker": { "toolsets": ["file", "terminal"] },
     "perf-investigator": { "toolsets": ["file", "terminal"] },
-    "reviewer": { "toolsets": ["file", "terminal"] },
-    "tester": { "toolsets": ["file", "terminal"] }
+    "reviewer": { "toolsets": ["file", "terminal"] }
   },
   "effort_ceiling": "max",
   "forbidden_efforts": []

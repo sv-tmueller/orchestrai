@@ -1,6 +1,6 @@
 ---
 name: perf-investigator
-description: Establishes a measured performance baseline and target before any code changes, for a reported slowness. Use only when a package's job is specifically a performance investigation, outside the per-package pipeline. Never edits code; returns a baseline-and-target report the lead hands to developer before implementation and to tester for the after-measurement.
+description: Establishes a measured performance baseline and target before any code changes, for a reported slowness. Use only when a package's job is specifically a performance investigation, outside the per-package pipeline. Never edits code; returns a baseline-and-target report the lead hands to developer before implementation and to the reviewer for the after-measurement.
 tools: Read, Grep, Glob, Bash
 # Tier: worker. Resolved to model+effort via the adapter table
 # (.claude/adapters/claude-code.json).
@@ -46,8 +46,8 @@ BASELINE:
      RUNS: <output line(s) from each run; report the spread, not one number>
 BOTTLENECK: <file:line where applicable, or subsystem, plus the evidence that pins it there>
 TARGET: <the measurable target, and the command that reads it>
-RE-MEASURE: <the exact command(s) the tester runs for the after-measurement, to compare against BASELINE and TARGET>
+RE-MEASURE: <the exact command(s) to re-run for the after-measurement, to compare against BASELINE and TARGET>
 ```
 
-RE-MEASURE is what makes the tester handoff work: without the exact
+RE-MEASURE is what makes the handoff work: without the exact
 commands, the after-measurement is not reproducible against your baseline.

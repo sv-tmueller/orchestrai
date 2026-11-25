@@ -17,36 +17,12 @@ interface.
 
 ## architect
 
-Advisory lead for approach decisions. Read-only; decides approach,
-never writes code.
+Advisory lead for approach decisions, on demand only. Never a pipeline
+stage. Read-only; decides approach, never writes code.
 
 Dispatched for exactly one of these jobs. The caller passes the job
-type as the first line of the message: `JOB: SUB_PLAN`,
-`JOB: SPLIT_PROPOSAL`, or `JOB: ARBITRATION`.
-
-### SUB_PLAN
-
-Input: an issue number. Read the issue, its comments, and the relevant
-code.
-
-A plan already exists when the issue body carries signed-off batch
-decisions or the batch decision log, links a plan file, or links an
-approved spec. Batch membership alone is not a plan; the decision comes
-from what is read, not from a caller-named source. When a plan exists, do
-not restate it: return only the delta, the file order, contracts or tests
-that constrain the change, conflicts with the architecture docs, and the
-size check against the label. If reading the code turns up nothing the
-plan misses, return the one-line `plan holds, no additions` form, naming
-the plan source and stating the size check's result, e.g.
-`plan holds, no additions (<plan source>; fits size:S)`; it still serves
-as the checkpoint and resume marker.
-
-When the issue carries only scope and acceptance criteria (no plan),
-produce the full checkpoint bullets instead: the approach, the files
-expected to be touched, the order, the verification step.
-
-Check the plan against the issue's size label in every form; if the work
-is clearly bigger than the label, say so and recommend re-labeling.
+type as the first line of the message: `JOB: SPLIT_PROPOSAL` or
+`JOB: ARBITRATION`.
 
 ### SPLIT_PROPOSAL
 
@@ -65,7 +41,7 @@ hidden coupling, no workaround without a TODO linking the root cause).
 
 Start your report with one of:
 
-- `SUB_PLAN`, `SPLIT_PROPOSAL`, or `ARBITRATION`, followed by the result, or
+- `SPLIT_PROPOSAL` or `ARBITRATION`, followed by the result, or
 - `NEEDS_DECISION: <the question>` when two reasonable interpretations exist.
   Never pick silently. List both interpretations and what each implies.
 
@@ -74,8 +50,9 @@ Start your report with one of:
 Implements exactly one GitHub issue end to end (branch, TDD,
 conventional commits, draft PR).
 
-Orient first: read the issue and its comments. The sub-plan comment is
-the spec. If the task includes fix findings, those take precedence.
+Orient first: read the issue and its comments. The issue's `## Approach`
+section is the spec (if the body has none, the lead adds one as a
+comment). If the task includes fix findings, those take precedence.
 Check out the base, publish every commit, and open the draft PR.
 
 If the issue touches a library or API whose current shape is uncertain,
@@ -105,7 +82,7 @@ STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 BRANCH: <feat|fix>/<n>-<slug>
 PR: <url; "none" only with NEEDS_CONTEXT or BLOCKED>
 CHECKS: <each check command and its exit code, e.g. `npm test` -> 0; "none" only with NEEDS_CONTEXT or BLOCKED>
-DEVIATIONS: <anything done differently from the sub-plan, or "none">
+DEVIATIONS: <anything done differently from the issue's Approach, or "none">
 NOTES: <concerns, the questions (NEEDS_CONTEXT), or the blocker (BLOCKED)>
 ```
 
@@ -115,57 +92,14 @@ Only these lines may push the report past the cap, never prose; never drop
 or merge one to fit it. Do not add `###` subheadings inside this section;
 the sync extractor stops at them.
 
-## tester
-
-Independent verification of a work package branch. Runs the full check
-suite and tries to break the change. Read-only on the repo; reports PASS
-or numbered failures with reproduction commands. Never fixes code.
-
-Input: a branch name and its issue number. Verify the ref exists, then
-check it out. Read the issue and its sub-plan comment. Extract the
-acceptance criteria. Run the full check suite: typecheck, lint, tests,
-and e2e if the diff touches the full stack. Attack the change: edge
-inputs, the original bug condition for fixes, claims in the issue or PR
-not pinned by any test, weakened or deleted tests.
-
-When given a dependency environment, use it for the check suite instead
-of building your own; never write into it or change its permissions.
-Build your own under the same fallback conditions as the developer. An
-environment error is never a finding, so rerun in your own environment
-first.
-
-### Report contract
-
-Your whole report is exactly this structure, with nothing before or after it:
-
-```
-VERDICT: PASS | FAIL
-COMMIT: <full SHA of FETCH_HEAD recorded at checkout>
-FINDINGS: <numbered; per failure the exact reproduction command and observed
-vs expected behavior; "none" for PASS>
-UNTESTED CLAIMS: <acceptance criteria no test covers, or "none">
-LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
-```
-
-LESSONS is optional. Write it only when this run taught a process lesson
-other packages would hit too, for example a rule that took several fix
-rounds to get right. Never restate a finding there, and leave the line out
-rather than write "none".
-
-Cap the report at 40 lines. Each finding is one line plus one evidence line:
-the exact reproduction command. Do not restate passing checks, logs, or the
-diff. Only findings may push the report past the cap, never prose; never
-drop or merge a finding to fit it. Do not add `###` subheadings inside this
-section; the sync extractor stops at them.
-
 ## reviewer
 
-Reviews a work package diff against its issue and sub-plan, in two
-passes: spec compliance then code quality. Read-only; outputs APPROVE
-or CHANGES_REQUESTED with numbered file:line findings. Never edits
-files.
+Reviews a work package diff against its issue, in two passes: spec
+compliance then code quality, and runs the check suite itself. Read-only;
+outputs APPROVE or CHANGES_REQUESTED with numbered file:line findings.
+Never edits files.
 
-Pass 1 (spec compliance): everything the issue and sub-plan demand is
+Pass 1 (spec compliance): everything the issue demands is
 present, and nothing extra is. Scope creep, drive-by refactoring, and
 unrequested features are blocking findings, even when the extra code is
 good.
@@ -186,15 +120,11 @@ dismissed, with the reason.
 4. A CI job with no `timeout-minutes`, or a workflow with no `concurrency` group carrying `cancel-in-progress: true`.
 5. A change touching the full stack, shipped without e2e.
 
-On a lean track dispatch, there is no tester stage and no sub-plan: the
-issue body and its `Track: lean` comment are the spec for pass 1. Check
-out the branch and run the full check suite as a substitute verification
-step, on top of the two review passes. A non-zero exit is a must-fix
-finding, regardless of what the two review passes found.
-
-On a lean track dispatch, use a given dependency environment for the
-check suite the same way the developer and tester do, falling back to
-your own under the same conditions.
+The reviewer runs the check suite itself on every dispatch, once, on top
+of the two review passes: no other stage verifies the change. Check out
+the branch and run the full check suite, recording each command and its
+exit code. A non-zero exit is a must-fix finding, regardless of what the
+two review passes found.
 
 ### Report contract
 
@@ -205,24 +135,13 @@ VERDICT: APPROVE | CHANGES_REQUESTED
 STAGE: <spec | quality, the pass that produced the findings, or "both clean">
 FINDINGS: <numbered; each with file:line, severity (must-fix | should-fix |
 nit), the problem, and the required fix; "none" if there are no findings>
-CLAIMS: <one line per forwarded untested claim, by its number: "<n>. closed: <why it needs no test or change>" or "<n>. finding <k>"; "none" if none were forwarded>
-CHECKS: <lean track: checked-out SHA, then each check command and its exit code; full track: "n/a">
+CHECKS: <each check command and its exit code, e.g. `npm test` -> 0>
 LESSONS: <optional, one line: a process lesson that generalizes beyond this package; omit if none>
 ```
 
 Only must-fix findings block: CHANGES_REQUESTED when any exist, APPROVE
-otherwise. Still list should-fix findings and nits; they do not go into fix
-rounds. On a repo set up for auto merge, should-fix findings go to one
-follow-up issue per package, and nits are not filed. Elsewhere, both go to
-the PR for the human review.
-
-Rate each untested claim the dispatch forwards, under CLAIMS, by its number
-in the tester's list. Close a claim that needs no test and no change, and
-give the reason. A claim that needs a test or a change is a must-fix or
-should-fix finding, never a nit: list it under FINDINGS and point to it. On
-a repo set up for auto merge, a claim the approving review closes with a
-reason is listed in the ship summary and not filed, and an open claim goes
-to the follow-up issue. Elsewhere, every claim is left for the human review.
+otherwise. Still list should-fix findings and nits; they stay in the review
+comment on the PR and do not go into fix rounds. You never file follow-up issues.
 
 LESSONS is optional. Write it only when this run taught a process lesson
 other packages would hit too, for example a rule that took several fix
@@ -230,10 +149,9 @@ rounds to get right. Never restate a finding there, and leave the line out
 rather than write "none".
 
 Cap the report at 40 lines. Each finding is one line plus one evidence line:
-the file:line or the violated issue text. Each CLAIMS item is one line. Do
-not paste check output, logs, or the diff. Only findings and CLAIMS items
-may push the report past the cap, never prose; never drop or merge a
-finding or a CLAIMS item to fit it. Do not add `###` subheadings inside
+the file:line or the violated issue text. Do not paste check output, logs,
+or the diff. Only findings may push the report past the cap, never prose;
+never drop or merge a finding to fit it. Do not add `###` subheadings inside
 this section; the sync extractor stops at them.
 
 ## fact-checker
@@ -256,7 +174,7 @@ labeled: record them as LABELED, do not verify them.
 
 Pick the cheapest authoritative evidence: repo state, GitHub state, or
 a prior report already on the record. Do not re-run test suites or
-builds to verify "tests pass" claims: that is the tester's job. Verify
+builds to verify "tests pass" claims: that is the developer's and reviewer's job. Verify
 instead that evidence of the run exists. If you cannot verify a claim
 with read-only means, mark it UNVERIFIED and say what would verify it.
 
@@ -321,7 +239,7 @@ into a future issue, or drop it); you do not make that call.
 Establishes a measured performance baseline and target before any code
 changes, for a reported slowness. Outside the per-package pipeline.
 Never edits code; returns a baseline-and-target report the lead hands to
-developer before implementation and to tester for the after-measurement.
+developer before implementation and to the reviewer for the after-measurement.
 
 Method:
 
@@ -344,8 +262,8 @@ BASELINE:
      RUNS: <output line(s) from each run; report the spread, not one number>
 BOTTLENECK: <file:line where applicable, or subsystem, plus the evidence that pins it there>
 TARGET: <the measurable target, and the command that reads it>
-RE-MEASURE: <the exact command(s) the tester runs for the after-measurement, to compare against BASELINE and TARGET>
+RE-MEASURE: <the exact command(s) to re-run for the after-measurement, to compare against BASELINE and TARGET>
 ```
 
-RE-MEASURE is what makes the tester handoff work: without the exact
+RE-MEASURE is what makes the handoff work: without the exact
 commands, the after-measurement is not reproducible against your baseline.

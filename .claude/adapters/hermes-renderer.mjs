@@ -245,7 +245,6 @@ const STDOUT_CONTRACT = {
   developer: 'Finally, your ENTIRE reply must end with this exact report block, and start with the STATUS line:\n\nSTATUS: DONE\n\nAny structured lists (areas, findings) must ALSO appear as a fenced ```json block.',
   architect: 'Finally, your ENTIRE reply must START with one of: SUB_PLAN:, SPLIT_PROPOSAL:, ARBITRATION:, NEEDS_DECISION: (the architect report contract). Plain prose without that opener is unparsable and will be discarded.',
   reviewer: 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: APPROVE or VERDICT: CHANGES_REQUESTED.',
-  tester: 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: PASS or VERDICT: FAIL.',
   'fact-checker': 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: CONFIRMED or VERDICT: REFUTED.',
   'docs-writer': 'Finally, your ENTIRE reply must end with a FILES: line listing the files you wrote.',
   'perf-investigator': 'Finally, your ENTIRE reply must end with a BASELINE: line.',
@@ -262,7 +261,7 @@ function contractFooter(role) {
 // short prefix + detailed footer - keeps the contract salient at both
 // ends. Judgment-tier roles (architect) complied with the footer alone.
 function contractPrefix(role) {
-  if (role === 'developer' || role === 'tester' || role === 'fact-checker') {
+  if (role === 'developer' || role === 'fact-checker') {
     return 'OUTPUT CONTRACT (machine-parsed): your reply must BEGIN with a "STATUS:"-style report line per your role contract, and every structured list (areas, findings) must ALSO appear as a fenced ```json block. Replies without them are discarded.'
   }
   return ''

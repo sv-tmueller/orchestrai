@@ -191,6 +191,17 @@ for (const { name, table } of adapterTables) {
       })
     }
 
+    test('no table names the removed tester role', () => {
+      // The light flow has no tester (#632). A row, a seat entry or a
+      // comment naming it would route a dispatch to a role with no agent.
+      for (const value of [...Object.keys(table.roles), ...Object.keys(table.seats ?? {}), ...stringValues(table)]) {
+        assert.ok(
+          !/\btester\b/.test(value),
+          `${name}: "${value}" names the removed tester role`
+        )
+      }
+    })
+
     test('every role in the table has a corresponding agent file', () => {
       const agentNames = readdirSync(agentsDir)
         .filter((f) => f.endsWith('.md'))

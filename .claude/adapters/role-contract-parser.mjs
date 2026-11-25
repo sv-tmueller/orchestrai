@@ -13,7 +13,6 @@
 export const REQUIRED_FIELD = {
   architect: 'KIND',
   developer: 'STATUS',
-  tester: 'VERDICT',
   reviewer: 'VERDICT',
   'fact-checker': 'VERDICT',
   'docs-writer': 'FILES',

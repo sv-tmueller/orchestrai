@@ -35,8 +35,8 @@ BASELINE:
      RUNS: <output line(s) from each run; report the spread, not one number>
 BOTTLENECK: <file:line where applicable, or subsystem, plus the evidence that pins it there>
 TARGET: <the measurable target, and the command that reads it>
-RE-MEASURE: <the exact command(s) the tester runs for the after-measurement, to compare against BASELINE and TARGET>
+RE-MEASURE: <the exact command(s) to re-run for the after-measurement, to compare against BASELINE and TARGET>
 ```
 
-RE-MEASURE is what makes the tester handoff work: without the exact
+RE-MEASURE is what makes the handoff work: without the exact
 commands, the after-measurement is not reproducible against your baseline.
