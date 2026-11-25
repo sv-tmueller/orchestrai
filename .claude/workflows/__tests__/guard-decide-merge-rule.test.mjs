@@ -807,6 +807,10 @@ describe('merge-rule: push-default', () => {
       defineDenyRows('push-default', [
         "env -S 'sudo -Eu root' git push origin main",
         "env -iS bash -c 'sudo -Eu root git push origin main'",
+        // A false deny. The guard gives this row the answer of the same line
+        // without the option, `env eval sudo -Eu root git push origin main`,
+        // which it denies. The real env looks for a program named `eval`, finds
+        // none on a usual system, and runs nothing.
         "env -S '' eval sudo -Eu root git push origin main",
         "env -S '' sudo -c foo git push origin main",
       ])
@@ -833,6 +837,11 @@ describe('merge-rule: push-default', () => {
         'sudo -nD pam doas env -iS git push origin main',
         // The value of `-S` is `-i`, an option of `env`.
         'sudo -ig -D -cC env -S -i git push origin main',
+        // A false deny. The guard gives this row the answer of the same line
+        // without the option, `doas -su -C -au env -i git push origin main`,
+        // which it denies. The real doas takes `-C` as the user name for `-u`
+        // and finds no such user on a usual system, and it refuses a command
+        // word together with `-s` in any case, so it runs nothing.
         'doas -su -C -au env -S -i git push origin main',
         'sudo -nC -C -tp env -S -i git push origin main',
         "eval sudo -nC -C -tp env -S '' -i git push origin main",
