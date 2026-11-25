@@ -244,24 +244,27 @@ In a live run each stage accepts only the report its contract prescribes:
   has a body: text after `SUB_PLAN:` on the header line, or at least one
   non-empty line after it. A bare `SUB_PLAN` line is not a sub-plan. A
   sub-plan is posted on the issue. `NEEDS_DECISION` parks the
-  package, in all three forms (the question on the same line, on the next
-  line, or the bare word): the result line reads
-  `parked: architect NEEDS_DECISION: <the question>`. A `SPLIT_PROPOSAL`, an
-  `ARBITRATION` or text with no header is not a sub-plan.
+  package. The question may be on the same line, on the next line or after the
+  bare word, and the reason reads `architect NEEDS_DECISION: <the question>`.
+  With no question at all it reads `architect NEEDS_DECISION`, with no colon.
+  A `SPLIT_PROPOSAL`, an `ARBITRATION` or text with no header is not a
+  sub-plan.
 - The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
   that is a pull request URL (it holds `/pull/<digits>`) or a number. The PR
   comes from the report, or from the gate on a resume when the report names
   none. `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
-  holds in a fix round too, as far as the `STATUS` goes.
+  holds in a fix round too, as far as the `STATUS` goes. `NEEDS_CONTEXT`
+  always parks: no seat contract has a job that answers a question, so the
+  driver has nobody to ask.
 - The tester's `VERDICT` is exactly `PASS` or `FAIL`, and the reviewer's is
   exactly `APPROVE` or `CHANGES_REQUESTED`, in the first pass and in every
   re-test and re-review. A lower-case word, a word with trailing text or any
   other word is not a verdict.
 
-Anything else, and a seat that returns nothing, stops the package: the result
-line reads `parked: <role> seat returned no usable report` and nothing more is
-written for it. `runPipeline` with `dryRun` uses placeholders in place of seat
-output instead, so the dry-run tests complete.
+Anything else, and a seat that returns nothing, stops the package: it parks
+with the reason `<role> seat returned no usable report`. `runPipeline` with
+`dryRun` uses placeholders in place of seat output instead, so the dry-run
+tests complete.
 
 stdout carries the gate lines, the wave plan and one result line per package.
 A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
@@ -283,6 +286,73 @@ packages are outcomes, not failures), 1 when a `gh` or `git` call failed at
 the gate, when any package ended with an `error` line, or when something
 unexpected happened (a mistyped issue number ends here), and 2 for a usage
 error, before any GitHub call.
+
+### Fix rounds
+
+Each tester `FAIL` and each reviewer `CHANGES_REQUESTED` is one fix round. Each
+seat has up to 3, and the two counts never touch each other. The driver posts
+the report on the PR, the developer fixes it, and the tester runs again. After
+a reviewer fix round the re-test comes first. A `PASS` there goes to the
+re-review. A `FAIL` there is an ordinary tester round: it adds to the tester
+count and goes through the tester loop. The 4th `FAIL` or the 4th
+`CHANGES_REQUESTED` is posted and then parks the package, with the reason
+`tester fix rounds exhausted (3/3)` or `reviewer fix rounds exhausted (3/3)`.
+
+Every tester and reviewer report is posted on the PR with `gh pr comment`,
+`PASS` and `APPROVE` included:
+
+```
+**<Tester|Reviewer> report: <VERDICT> (issue #<n>, <tester|reviewer> fix rounds <c>/3)**
+
+<the seat's report, trimmed, unchanged and unquoted>
+```
+
+`<c>` is that seat's count once this report is counted, so the report that
+uses up the cap reads `4/3`. The seat's own `VERDICT:` line starts a line, so
+`resumeStage` reads the stage back from it. The same lines give the counts:
+`countFixRounds` counts a `FAIL` as a tester round and a `CHANGES_REQUESTED` as
+a reviewer round, from the first verdict line of each comment. A bold header, a
+quoted line and a fact-checker verdict do not count. The gate reads the PR's
+comments once and hands the counts to the resumed run, so a run that starts
+later has the numbers the run that stopped had. A package that parked on a
+used-up count parks again if it is resumed, because the count comes from the
+PR.
+
+The fix prompt carries the whole comment body, not the `FINDINGS` field. The
+report parser keeps only the first line of a multi-line key, so a prompt built
+from the field would drop every finding after the first. On a resume with
+findings, the round is the count of the findings' kind, which already
+includes that report. With no count given it is 1. A count already above 3
+parks before any seat is dispatched.
+
+A seat is never sent the same prompt twice in one run. The re-test and the
+review prompts name the latest fix round they follow, the fix prompts name
+their own round, and the counts only rise. The first seat of a resumed run
+gets one more line asking it to check the branch and the PR for work an
+earlier run left, since the run that stopped may have sent the same text.
+The reviewer's prompt carries the latest tester report, for the untested
+claims it rates. After a resume at the reviewer, which has no tester report in
+memory, it names the tester's comment on the PR instead.
+
+### Parking
+
+Every stop of a package writes three things: the comment `Parked: <reason>` on
+the issue, the `needs-human` label, and removal of `in-progress` when this run
+or the gate had put it on. Where the stop has seat text (a `NEEDS_DECISION`,
+`BLOCKED` or `NEEDS_CONTEXT` report), the comment quotes it line by line under
+the reason, so no line of it starts with `SUB_PLAN` or `VERDICT:` where the
+gate reads comments. The stops are: an architect `NEEDS_DECISION`, a developer
+`BLOCKED` or `NEEDS_CONTEXT`, a seat with no usable report, an exhausted
+count, no PR to mark ready, and an unexpected final state. The result line on
+stdout is unchanged: `#<n> parked: <reason>`.
+
+### Branch name
+
+The branch is `<type>/<n>-<slug>`, and the slug comes from the issue title:
+lowercase, every run of characters other than letters and digits becomes one
+hyphen, hyphens trimmed at both ends, cut at 40 characters, and `pending` when
+nothing is left. The worktree is created on that branch and the developer is
+told the same name. A resume keeps the branch its PR already has.
 
 ## Workflow rendering
 
