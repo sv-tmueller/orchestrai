@@ -632,8 +632,11 @@ const textOf = (value) => (typeof value === 'string' ? value : typeof value === 
 
 // What the driver writes ends a line at any of these: line feed, carriage return,
 // vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one end.
-// The readers above (linesOf) split at a line feed only, on purpose: they read
-// what GitHub shows, and the writer must hold up for any consumer of its output.
+// The readers above (linesOf) split at a line feed only, on purpose: postReport
+// reads a report with the same reader (readVerdict) before it posts it, so a
+// later run finds the verdict the driver accepted. The writer cuts at more
+// characters, since other consumers of its output may end a line at more than a
+// line feed.
 const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
 
 // A line that is only a code fence marker, with or without a language word.

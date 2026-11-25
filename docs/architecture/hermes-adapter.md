@@ -403,9 +403,9 @@ missing only when that line is empty, which means the whole value is blank. A
 report body posted on a PR stays as the seat wrote it.
 
 **The readers split at a line feed only:** `resumeStage`, `countFixRounds` and
-the sub-plan reader (see "Fix rounds"). They read what GitHub shows. Seat text
-reaches a comment or a result line in three forms only: a posted report body, a
-quoted block, or a single line cut as above.
+the sub-plan reader (see "Fix rounds"). Seat text reaches a comment or a result
+line in three forms only: a posted report body, a quoted block, or a single line
+cut as above.
 
 The stops are: an architect `NEEDS_DECISION`, a developer `BLOCKED` or
 `NEEDS_CONTEXT`, a seat with no usable report, an exhausted count, no PR to

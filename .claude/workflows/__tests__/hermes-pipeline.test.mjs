@@ -219,8 +219,7 @@ describe('resumeStage', () => {
     assert.deepEqual(resumeStage([c('intro\r\nVERDICT: PASS\r\n', '2026-01-01T00:00:00Z')]), { stage: 'reviewer' })
   })
 
-  // Only a line feed starts a line. These characters end a line for a regex
-  // with the m flag, but not for GitHub or for the reader.
+  // Only a line feed starts a line. None of these starts a line for the reader.
   for (const [name, ch] of [['U+2028', ' '], ['U+2029', ' '], ['a lone CR', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'], ['U+0085', '\u0085']]) {
     test(`${name} before a verdict word does not start a verdict line`, () => {
       assert.deepEqual(resumeStage([c(`note${ch}VERDICT: FAIL`, '2026-01-01T00:00:00Z')]), { stage: 'tester' })
