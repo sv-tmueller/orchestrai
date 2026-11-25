@@ -72,7 +72,7 @@ this doc does not re-derive that argument.
 codebase map, or a review, as a first-class output of the loop, not a
 side effect. Owned by `.claude/workflows/` (`tm-map-codebase.js`,
 `tm-review-changes.js`, `tm-review-codebase.js`) and the `docs/` layout in
-`CLAUDE.md`.
+`AGENTS.md`.
 
 ## 3. Transition state: identity retired, adoption checklist kept
 

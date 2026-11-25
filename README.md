@@ -124,7 +124,8 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
   `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
   `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
-  `/tm-repo-guard` (guard check and apply, CI setup included, for your repos).
+  `/tm-repo-guard` (guard check and apply, CI setup included, for your repos),
+  `/tm-security-audit` (security review and full audit, vendored from Cloudflare).
   Hermes variants ship as
   `SKILL.hermes.md` alongside the Claude versions; `tm-kickoff` becomes
   the `orchestrai` skill and `tm-advisor` becomes the `tm-advisor` skill
@@ -132,8 +133,11 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
-  commits, tests, CI, writing style). Imported by the repo `CLAUDE.md` or
-  `AGENTS.md`.
+  commits, tests, CI, writing style). Imported by the repo `CLAUDE.md`;
+  `AGENTS.md` names it for other harnesses.
+- `AGENTS.md` - the repo's orientation for every harness and seat (what the
+  repo is, where decisions live, code style, layout, useful commands).
+  `CLAUDE.md` is a thin import of it plus the Claude-only lines.
 - `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist.
 
 ## Repo guard
@@ -305,7 +309,7 @@ Via the marketplace (recommended):
 /plugin install orchestrai@orchestrai
 ```
 
-Installs the agents and all 8 skills under the `orchestrai` namespace
+Installs the agents and all 9 skills under the `orchestrai` namespace
 (e.g. `/orchestrai:tm-kickoff`). Wire the process docs into your
 config-dir `CLAUDE.md`:
 
@@ -599,13 +603,16 @@ Unauthorized reuse of any portion of this code constitutes copyright infringemen
 
 ### Third-party material
 
-One skill carries its own MIT attribution because it is adapted from an
-MIT-licensed source: `.claude/skills/tm-grill-me/SKILL.md` (near-verbatim,
-from `mattpocock/skills`). Its attribution footer and the source project's
-full MIT license text are in `THIRD_PARTY_NOTICES.md`. This does not change
-the license of the rest of the repo above; it is a normal mixed-license
-pattern where a small amount of MIT-derived material keeps its own
-attribution inside an otherwise all-rights-reserved codebase.
+Two skills carry their own MIT attribution because they come from
+MIT-licensed sources: `.claude/skills/tm-grill-me/SKILL.md` (near-verbatim,
+from `mattpocock/skills`) and `.claude/skills/tm-security-audit/` (a verbatim
+copy of `skills/security-audit/` from `cloudflare/security-audit-skill` at a
+pinned commit, with a short orchestrai header in its `SKILL.md`). The
+attribution and each source project's full MIT license text are in
+`THIRD_PARTY_NOTICES.md`. This does not change the license of the rest of the
+repo above; it is a normal mixed-license pattern where MIT-licensed material
+from other projects keeps its own attribution inside an otherwise
+all-rights-reserved codebase.
 
 The research on `vijaythecoder/awesome-claude-agents`
 (`docs/research/2026-07-04-awesome-claude-agents-adoption.md`) and the
