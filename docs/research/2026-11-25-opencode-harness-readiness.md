@@ -53,9 +53,27 @@ headless `claude -p` process (`docs/architecture/adapter-interface.md`,
 | perf-investigator | worker | `vllm/release/deepseek-v41-flash` | max | vllm | `$CLAUDE_CODE_NORIS_SETTINGS` |
 
 So glm is on the developer seat and deepseek is on the other worker seats. To
-change which is which, edit the `roles` map in a copy of the table (the
-developer entry is the override shape the interface doc describes: a role value
-may be a tier string or an object with `tier`, `model`, `effort`, `settings`).
+change which is which, edit the `roles` map (the developer entry is the
+override shape the interface doc describes: a role value may be a tier string
+or an object with `tier`, `model`, `effort`, `settings`).
+
+Where the edited table lives matters, because the spawn module loads a table
+only from the plugin's own `.claude/adapters/` folder, by bare file name
+(`loadAdapterTable` in `claude-code-subprocess.mjs`):
+
+- A copy with a new name in a project's `.claude/adapters/` breaks the run.
+  `CLAUDE_CODE_ADAPTER_TABLE=my-split.json` fails with ENOENT (checked on this
+  branch).
+- A copy with the same name in a project's `.claude/adapters/` shadows the
+  plugin table at the gate. Its `model`, `effort` and `settings` values reach
+  the seats as dispatch options. It must keep each tier's `provider`, because
+  the options carry no provider and the module reads it from its own table
+  (`SKILL.md`, "Subprocess seat dispatch", "Which seat binding reaches the
+  seat"). Swapping glm and deepseek between roles, both on `vllm`, is a change
+  of this safe kind.
+- A change of provider needs a new table in the template's own
+  `.claude/adapters/`. That also puts it under the adapter-table and
+  effort-policy tests, which read every `*.json` in that folder.
 
 The lead session itself is not spawned by the adapter. It runs on whatever
 model the main window uses. The smoke run record says so in section 1
@@ -105,9 +123,11 @@ then the package parks (`adapter-interface.md`, "Retry variants").
   table": the table-level `effort_ceiling` and `forbidden_efforts` carry the
   paid baseline (xhigh, max forbidden). Each tier is then resolved from its own
   `provider`. A paid tier keeps the baseline. A self-hosted tier (provider
-  `vllm`) is exempt and may run at `max`. The `claude-code-split.json` worker
-  tier relies on this, which is why the judgment seats stay at xhigh while the
-  workers run at max.
+  `vllm` or `custom`) is exempt and may run at `max`. The
+  `claude-code-split.json` worker tier relies on this, which is why the
+  judgment seats stay at xhigh while the workers run at max. The exempt set is
+  `SELF_HOSTED_PROVIDERS` in `claude-code-subprocess.mjs`. The interface doc
+  names only `vllm`, so it is behind the code on this point.
 - "Better reasoning and effort" on the judgment seats has a ceiling: on a paid
   provider, `max` is forbidden, and `buildArgv` throws if a paid tier asks for
   it. xhigh is the most the table allows there.
@@ -116,17 +136,27 @@ then the package parks (`adapter-interface.md`, "Retry variants").
   pins it. Fable is only the owner's own `/model` choice for the main window,
   which is the lead, not a seat. Opus is the table's judgment model.
 - If glm or deepseek come from a paid hosted API instead of a self-hosted
-  endpoint, the provider is not `vllm`. Then the paid policy applies to that
-  tier: set a provider other than `vllm` and an effort at or below xhigh in a
-  copy of the table. The exemption set lives in `effort-policy.test.mjs` and is
-  mirrored by `SELF_HOSTED_PROVIDERS` in `claude-code-subprocess.mjs`
-  (`vllm`, `custom`). The effort-policy test has a fixture case that keeps a
-  table without a self-hosted provider on the paid policy. A hosted-provider
-  table was not written or run here.
-- Workflow stages are not covered. The workflow scripts still pin literal model
-  names in their `agent()` calls (`adapter-interface.md`, "Adapter table"), so
-  `tm-review-changes` and the other workflows run on Claude models whatever the
-  table says.
+  endpoint, the provider is outside the exempt set (`vllm`, `custom`). Then the
+  paid policy applies to that tier: set a provider outside that set and an
+  effort at or below xhigh. This is a provider change, so it needs a new table
+  in the template's `.claude/adapters/`, covered by the adapter-table and
+  effort-policy tests. A same-name project copy cannot do it. If it changes a
+  tier's provider, the module still uses the plugin's `vllm` binding: `max` is
+  not blocked and the paid seats are recorded unpriced (`SKILL.md`, "Which
+  seat binding reaches the seat"; `forbiddenEffortsForTier` and `captureUsage`
+  in `claude-code-subprocess.mjs`). The exemption set lives in
+  `effort-policy.test.mjs` and is mirrored by `SELF_HOSTED_PROVIDERS` in the
+  module. The effort-policy test has a fixture case that keeps a table without
+  a self-hosted provider on the paid policy. A hosted-provider table was not
+  written or run here.
+- Workflow stages are not covered. The workflow scripts in
+  `.claude/workflows/*.js` pass `TIER_MODELS[tier]` and `TIER_EFFORTS[tier]`
+  to their `agent()` calls. Those are inline maps that copy `claude-code.json`
+  (opus, sonnet; for example `tm-review-changes.js`), because the workflow
+  runtime has no imports, and `effort-policy.test.mjs` checks them against that
+  table. So `tm-review-changes` and the other workflows run on Claude models
+  whatever table the run selects. `adapter-interface.md` still calls this
+  future Phase B work, so it is behind the code (#314).
 
 ### The per-stage alternative: `.orchestrai/columns.json`
 
@@ -148,9 +178,13 @@ skill:
   of the Claude Code profile do not come from this file.
 
 When the column is `lead`, its model and effort replace the table's tier values
-for that dispatch (SKILL.md, "Subprocess seat dispatch", "columns.json"). So
-the two work together: the table gives the route, a `lead` column can override
-one stage on that route.
+for that dispatch (SKILL.md, "Subprocess seat dispatch", "columns.json"). The
+two can be combined, with one catch. A `lead` column must have provider kind
+`anthropic` (`executeFor` in `columns.mjs`), but `SKILL.md` names only `model`
+and `effort` as replaced, so on a worker stage the seat keeps the table's
+settings for that role, which point at the self-hosted endpoint. A Claude model
+from the column would then be sent to that endpoint. Use a `lead` column only
+on a stage whose seat settings point at the paid route.
 
 ### What is tested, run, and what needs your endpoints
 
@@ -165,12 +199,14 @@ one stage on that route.
 | Parallel packages on the split table | Not run: the smoke run was one package at a time | smoke record, section 1 |
 
 An earlier design in this repo calls routing the Claude CLI to a non-Claude
-model a trap, mainly through a gateway that serves one model to every request
+model a trap, for four reasons: prompt caching stops working, the Workflow tool
+breaks or degrades, extended thinking breaks, and a gateway that serves one
+model to every request collapses the per-seat model policy
 (`docs/superpowers/specs/2026-07-08-codex-readiness-design.md`, section 2). The
 subprocess table is a different shape: the lead stays on Claude and only the
 seat processes talk to the other endpoint. The smoke record logs cache-read
-token counts for the vllm seats, but this repo holds no measurement of cost or
-cache behaviour on that endpoint.
+token counts for the vllm seats, but this repo holds no measurement of cost,
+cache behaviour or extended thinking on that endpoint.
 
 ## Part 2: Hermes and opencode against the adapter interface
 
@@ -193,13 +229,13 @@ opencode column: [run](https://opencode.ai/docs/cli/commands/),
 
 | Need | Hermes (repo) | opencode (docs, not run) |
 |---|---|---|
-| Headless one-shot run of a seat | `hermes -z "<prompt>"` prints only the final response. Adapter adds `--yolo --accept-hooks` because no TTY can answer a prompt (`hermes-adapter.mjs`, `buildArgv`). Run live: batch #437 e2e, per the code comment. | `opencode run "<message>"` sends a message and prints the reply without the interactive UI, described as made for scripts and CI ([run](https://opencode.ai/docs/cli/commands/)). That it exits when done: not found in the docs. Whether stdin is read: not found in the docs. |
+| Headless one-shot run of a seat | `hermes -z "<prompt>"` prints only the final response. Adapter adds `--yolo --accept-hooks` because no TTY can answer a prompt (`hermes-adapter.mjs`, `buildArgv`). Run live: batch #437 e2e, per the code comment. | `opencode run "<message>"` sends a message and prints the reply without the interactive UI, described as designed for scripts and CI jobs ([cli](https://opencode.ai/docs/cli/), "Automation"). That it exits when done: not found in the docs. Whether stdin is read: not found in the docs. |
 | Per-seat model | `-m <model>` per spawn, from the table tier or an override. | `--model provider/model`, with an optional `#variant` suffix ([run](https://opencode.ai/docs/cli/commands/), [models](https://opencode.ai/docs/models/)). An agent can also carry its own `model` ([agents](https://opencode.ai/docs/agents/)). |
 | Per-seat provider | `--provider <p>` per spawn; the endpoint and key live in `~/.hermes/config.yaml` (`hermes-adapter.md`, "Model and provider config"). | The provider is the first segment of the model reference ([models](https://opencode.ai/docs/models/)). Providers are defined in a `providers` object. A custom OpenAI-compatible endpoint takes `package`, `settings.baseURL`, `env` and `models` ([providers](https://opencode.ai/docs/providers/)). A DeepSeek or Z.AI/GLM entry: not found in the docs; the custom route is the documented path. |
 | Per-seat effort | `--reasoning <effort>` per spawn. Hermes accepts `ultra` above `max`, so the adapter forbids it (`hermes-adapter.mjs`). | No `--effort` flag found. A variant is a named option on a model, often a reasoning level, and its names come from the model catalog, so `low`, `high` and `max` are not available for every model; an unknown variant is a resolution error ([models](https://opencode.ai/docs/models/)). `settings.reasoningEffort` can be set on a provider, model or variant (same page). |
 | Different providers in one run | Per spawn, so the seats of one run can differ (`hermes.json` is all `custom`, `hermes-openrouter.json` all `openrouter`; a mixed Hermes table is not in the repo). | Several providers can be defined in one config ([providers](https://opencode.ai/docs/providers/)). Per-seat choice by `--model` on each run ([run](https://opencode.ai/docs/cli/commands/)). Credentials: `/connect`, `env` names or `{env:NAME}` values ([providers](https://opencode.ai/docs/providers/), [config](https://opencode.ai/docs/config/)). The run page advises a private server (`--standalone`) so it receives the provider key passed in the environment ([run](https://opencode.ai/docs/cli/commands/)); by default one shared background server serves all CLI commands of a user ([cli](https://opencode.ai/docs/cli/)). |
-| Instruction file | The adapter prepends the role contract from `.claude/adapters/prompts/<role>.md` to the task in the `-z` prompt (`spawn`). Whether Hermes itself loads `AGENTS.md`: not found in this repo. The prompts tell the seat to follow `AGENTS.md`. | `AGENTS.md` is the main file, global and project; `CLAUDE.md` is read only in a directory that has no `AGENTS.md`; no `@` import support found in the docs; other files load only through the `instructions` key ([instructions](https://opencode.ai/docs/instructions/)). Whether it is loaded in a headless run: not found in the docs. For this repo that means the root `AGENTS.md` loads and the root `CLAUDE.md` does not. `AGENTS.md` uses no `@` imports and tells the reader to read `.claude/process-core.md` itself, so the same file works. |
-| Skills in the repo | Not found in this repo for Hermes seats beyond the `~/.hermes/skills/` install in `hermes-adapter.md`. | `.claude/skills` is read as a compatibility location ([skills](https://opencode.ai/docs/skills/)). `OPENCODE_DISABLE_CLAUDE_CODE=1` skips `.claude` skills and `CLAUDE.md` files ([instructions](https://opencode.ai/docs/instructions/)). A seat inside this repo would then see the `tm-*` skills unless the adapter sets it (inference from the two pages). |
+| Instruction file | The adapter prepends the role contract from `.claude/adapters/prompts/<role>.md` to the task in the `-z` prompt (`spawn`). Whether Hermes itself loads `AGENTS.md`: not found in this repo. The prompts tell the seat to follow `AGENTS.md`. | `AGENTS.md` is the main file, global and project; `CLAUDE.md` is read only in a directory that has no `AGENTS.md`; no `@` import support found in the docs; other files load only through the `instructions` key ([instructions](https://opencode.ai/docs/instructions/)). Whether it is loaded in a headless run: not found in the docs. With no global `~/.config/opencode/AGENTS.md`, opencode reads `~/.claude/CLAUDE.md` instead, so a Claude Code user's global file would reach the seat too. For this repo that means the root `AGENTS.md` loads and the root `CLAUDE.md` does not. `AGENTS.md` uses no `@` imports and tells the reader to read `.claude/process-core.md` itself, so the same file works. |
+| Skills in the repo | Not found in this repo for Hermes seats beyond the `~/.hermes/skills/` install in `hermes-adapter.md`. | `.claude/skills` is read as a compatibility location ([skills](https://opencode.ai/docs/skills/)). `OPENCODE_DISABLE_CLAUDE_CODE=1` skips `.claude` skills and `CLAUDE.md` files ([instructions](https://opencode.ai/docs/instructions/)). The same page says the server reads the variable when it starts, and by default one shared background server serves all CLI commands of a user ([cli](https://opencode.ai/docs/cli/)). `--standalone` runs a private server, and `opencode service set env` passes a variable to the server process ([run](https://opencode.ai/docs/cli/commands/)). Inference from these three pages: a value set per spawn takes effect only with `--standalone`, and `service set env` is a setting of the shared server, not of one spawn. Otherwise a seat inside this repo would see the `tm-*` skills. |
 | Subagents and delegation | No seat gets the `delegation` toolset, so no seat can re-delegate: flat-star is enforced by omission (`hermes.json`, `_seats_comment`). | A `subagent` tool starts a background child session, default depth one ([tools](https://opencode.ai/docs/tools/)). A `subagent` permission can deny `*` ([agents](https://opencode.ai/docs/agents/)). The built-in `general` agent denies subagents ([permissions](https://opencode.ai/docs/permissions/)). A setting that removes the tool outright: not found in the docs. |
 | Permission modes | `--yolo` approves everything. `-t file,terminal` limits tools but cannot express read-only, since `terminal` implies write (`hermes.json`, `hermes-adapter.md`). Read-only is a prompt rule. | Ordered `allow`, `ask`, `deny` rules per action and resource, last match wins, no match means `ask`. An agent's rules are appended after the global ones ([permissions](https://opencode.ai/docs/permissions/)). `--auto` auto-approves what is not explicitly denied ([run](https://opencode.ai/docs/cli/commands/)). What an `ask` does with no `--auto`: not found in the docs. Denying `edit` is expressible, but the base policy allows `shell` ([permissions](https://opencode.ai/docs/permissions/)), and the seats need shell for git and gh, so a shell write stays possible: read-only is still partly a prompt rule (inference from the two pages). |
 | Working directory | Process `cwd` plus `TERMINAL_CWD` in the environment. Hermes v0.20.0 has no `--in` flag (`hermes-adapter.mjs`, `runHermes`). | `run` has no directory flag in the docs read. Config is searched from the current directory upward ([config](https://opencode.ai/docs/config/)). The SDK and API take a directory (`location`) per session ([sdk](https://opencode.ai/docs/build/sdk/), [api](https://opencode.ai/docs/api/)). Whether a spawn `cwd` is enough for `run`: not found in the docs. |
@@ -225,17 +261,21 @@ opencode column: [run](https://opencode.ai/docs/cli/commands/),
   have to know what the variant means for that model.
 - The two harnesses differ most on read-only and flat-star. Hermes enforces
   flat-star by leaving a toolset out. opencode would enforce it with a deny
-  rule on `subagent`, and the docs say the tool itself cannot be removed.
+  rule on `subagent`, and the docs name no setting that removes the tool.
 
 ## Part 3: A proposal for an opencode adapter, as packages
 
-Proposed, not filed. Each is `size:S` or `size:M`. Package 1 has no code and
-needs a machine with opencode installed. The packages run in the order of their
-dependencies, and each leaves `main` green with `npm test`.
+Proposed, not filed. Each is `size:S` or `size:M`. Packages 1, 4 and 6 need a
+machine with opencode installed and live endpoints, which the build machine
+does not have, so a kickoff run on it would park them. The live runs are their
+own packages for that reason, as #461 was split from #453: the adapter
+packages meet their acceptance with stub binaries and fixtures on the build
+machine. The packages run in the order of their dependencies, and each leaves
+`main` green with `npm test`.
 
 One decision comes before filing: is opencode a host for seats under a Claude
 Code lead (as the Codex design planned for its worker seat), or the host of the
-whole team including the lead? Packages 1 to 3 serve both. Package 5 is the
+whole team including the lead? Packages 1 to 6 serve both. Package 7 is the
 first that differs. The current kickoff gate stops a run whose table host is
 not `claude-code` (`SKILL.md`, "Adapter table (once per run)"), so either
 choice needs a gate change.
@@ -247,8 +287,11 @@ small fixed set of one-shot runs and record what happens in a dated research
 entry. Cover: the `--format json` event shape; the exit code and stderr for a
 bad model, a bad key, an unreachable endpoint and a timeout; whether a spawn
 `cwd` selects the project for `opencode run`; whether `AGENTS.md` loads in a
-headless run; what an `ask` does with and without `--auto`; whether a `deny`
-on `subagent` blocks the tool; what `OPENCODE_DISABLE_CLAUDE_CODE=1` skips;
+headless run; whether `~/.claude/CLAUDE.md` loads when no global opencode
+`AGENTS.md` exists; what an `ask` does with and without `--auto`; whether a
+`deny` on `subagent` blocks the tool; what `OPENCODE_DISABLE_CLAUDE_CODE=1`
+skips, and whether a value set per spawn takes effect with the shared
+background server, with `--standalone`, and with `opencode service set env`;
 whether usage appears in the output. Run it against a glm or deepseek endpoint
 and a Claude model. No adapter code and no repo change beyond the entry.
 
@@ -257,7 +300,8 @@ Acceptance.
   or by "no answer from the probe", with the command and output excerpt.
 - The entry names the opencode version run.
 
-Depends on: nothing. Needs the owner's machine and endpoints.
+Depends on: nothing. Needs a machine with opencode installed and live
+endpoints (the owner's).
 
 ### Package 2: opencode adapter table and effort policy (size:S)
 
@@ -279,30 +323,47 @@ Depends on: package 1.
 
 ### Package 3: opencode worker seat adapter (size:M)
 
-Scope. The smallest useful adapter, a worker seat, as the Codex adapter was.
-Add `.claude/adapters/opencode-adapter.mjs` exporting `spawn`, `detectFailure`
-and `retry` for the worker tier: argv built from the table (`run`, `--model`
-with variant, `--auto` only if package 1 shows it is needed, JSON format only if
-it helps), the seat `cwd` as the spawn option, and an environment that turns off
-the `.claude` skills and `CLAUDE.md` fallback if package 1 confirms the
-variable does that. It reuses `role-contract-parser.mjs` and the shared role
-prompts. Failure rules come from package 1's exit codes. Retry is
-respawn-once-then-park, as in `claude-code-subprocess.mjs`, unless package 1
-shows a cheaper tier worth falling to. An `OPENCODE_BIN` override and
-`DRY_RUN=true` keep the tests offline. Add `docs/architecture/opencode-adapter.md`
-and a status line in `adapter-interface.md`. The first live proof is one worker
-role, the tester.
+Scope. The smallest useful adapter, a worker seat, as the Codex readiness
+design planned (option 4). Add `.claude/adapters/opencode-adapter.mjs`
+exporting `spawn`, `detectFailure` and `retry` for the worker tier: argv built
+from the table (`run`, `--model` with variant, `--auto` only if package 1 shows
+it is needed, JSON format only if it helps), the seat `cwd` as the spawn
+option, and `--standalone` on every run when package 1 confirms that
+`OPENCODE_DISABLE_CLAUDE_CODE=1` turns off the `.claude` skills and `CLAUDE.md`
+fallback: the server reads the variable when it starts, so a per-spawn value
+needs a private server (otherwise the owner sets it once with
+`opencode service set env`, and the adapter doc says so). It reuses
+`role-contract-parser.mjs` and the shared role prompts. Failure rules come from
+package 1's exit codes. Retry is respawn-once-then-park, as in
+`claude-code-subprocess.mjs`, unless package 1 shows a cheaper tier worth
+falling to. An `OPENCODE_BIN` override and `DRY_RUN=true` keep the tests
+offline. Add `docs/architecture/opencode-adapter.md` and a status line in
+`adapter-interface.md`.
 
 Acceptance.
 - A test file runs the adapter against a stub binary: argv per tier, a clean
   report, each failure class from package 1, respawn then park, and a model
   pin that cannot reach a forbidden effort.
-- One live run of the tester seat on a glm or deepseek model against a real PR
-  returns a parsed `VERDICT`, recorded in a dated `docs/reviews/` entry.
+- If package 1 confirms the need, the stub test asserts that the argv carries
+  `--standalone` and the environment carries the variable on every spawn.
 
-Depends on: packages 1 and 2.
+Depends on: packages 1 and 2. No live endpoint needed.
 
-### Package 4: opencode judgment seats (size:M)
+### Package 4: live run of the opencode tester seat (size:S)
+
+Scope. One live run of the tester seat through the adapter on a glm or
+deepseek model against a real PR, recorded in a dated `docs/reviews/` entry
+that names the opencode version, the table and any trap the stub tests missed.
+Traps are fixed or filed as their own issues, not fixed inside the run.
+
+Acceptance.
+- The run returns a parsed `VERDICT`.
+- The entry is committed.
+
+Depends on: package 3. Needs a machine with opencode installed and live
+endpoints (the owner's), so it does not run on the build machine.
+
+### Package 5: opencode judgment seats (size:M)
 
 Scope. Add the architect and reviewer to the adapter, with a Claude model on
 the judgment tier through opencode's Anthropic provider. Write the permission
@@ -314,12 +375,25 @@ and reviewer reports go through the same parser.
 Acceptance.
 - The stub-binary tests assert the deny rules reach each seat's invocation for
   all seven roles.
-- One live reviewer run on opencode returns an `APPROVE` or `CHANGES_REQUESTED`
-  verdict on a scratch PR, recorded in a dated entry.
+- The architect and reviewer reports from fixtures parse through the shared
+  parser.
 
-Depends on: package 3.
+Depends on: package 3. No live endpoint needed.
 
-### Package 5: kickoff gate and dispatch for the opencode host (size:M)
+### Package 6: live run of the opencode reviewer seat (size:S)
+
+Scope. One live reviewer run on opencode against a scratch PR, recorded in a
+dated entry as package 4 is. It also checks on a live seat that the `subagent`
+deny holds.
+
+Acceptance.
+- The run returns an `APPROVE` or `CHANGES_REQUESTED` verdict.
+- The entry is committed.
+
+Depends on: packages 4 and 5. Needs a machine with opencode installed and live
+endpoints (the owner's), so it does not run on the build machine.
+
+### Package 7: kickoff gate and dispatch for the opencode host (size:M)
 
 Scope. Make the kickoff gate accept a table whose host is `opencode` and add
 the dispatch section that calls the adapter, following "Subprocess seat
@@ -334,11 +408,11 @@ Acceptance.
 - A `DRY_RUN=true` pipeline run on the opencode table reaches a ready PR with
   synthetic reports.
 
-Depends on: packages 3 and 4.
+Depends on: packages 3 and 5. No live endpoint needed.
 
-Order and size: 1 (S) then 2 (S), 3 (M), 4 (M), 5 (M). About three to four
-working sessions once package 1 is done. Package 1 is the one that moves the
-estimate, since every other package takes its failure rules from it.
+Order and size: 1 (S), 2 (S), 3 (M), 4 (S), 5 (M), 6 (S), 7 (M). About four to
+five working sessions once package 1 is done. Package 1 is the one that moves
+the estimate, since every other package takes its failure rules from it.
 
 ## Recommendation
 
