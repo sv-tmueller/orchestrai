@@ -46,7 +46,7 @@ Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`,
 
 ```
 .claude/
-  agents/            role agents: architect, developer, tester, reviewer,
+  agents/            role agents: architect, developer, reviewer,
                        fact-checker, docs-writer, perf-investigator
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-repo-guard
   workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
@@ -122,7 +122,7 @@ exhausted) is in the addendum of
 
 ### Role agents: execution vs. decision roles, and why fact-checker stays on Sonnet
 
-Supports: "`developer`, `tester`, `fact-checker`, `docs-writer`, and
+Supports: "`developer`, `fact-checker`, `docs-writer`, and
 `perf-investigator` run `sonnet`... The `fact-checker` stays on Sonnet, not
 Haiku."
 

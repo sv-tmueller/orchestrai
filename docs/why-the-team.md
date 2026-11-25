@@ -5,6 +5,13 @@ asking an LLM to just plan and execute a task in one pass? This is not new
 benchmarking. It collects what this repo has already measured or reasoned
 through, cited inline, and leaves out anything under-supported.
 
+The measurements below ran on the earlier four-stage pipeline (architect,
+developer, a separate test stage, reviewer). The team now runs the light
+flow (`docs/architecture/light-flow.md`): a developer, then a reviewer only
+for bigger or risky work. It drops the architect and test stages, so its
+cost sits closer to the lone-dispatch numbers; the figures are kept as the
+measured record, not re-taken.
+
 ## What the team costs
 
 **A single lead-only dispatch (no subagents).** A paired trial ran the same
@@ -18,7 +25,7 @@ pre-registered "comparable quality" band, at low confidence
 **One issue through the full pipeline vs. one developer dispatch alone.** A
 separate paired trial ran the same size:M issue two ways from the same base
 commit. One arm ran the full kickoff pipeline (architect, developer,
-tester, reviewer); the other ran a single developer dispatch with no other
+test stage, reviewer); the other ran a single developer dispatch with no other
 stage. The pipeline took
 15m23s, 4 subagents plus the lead, for $7.55 in weighted total cost across
 all token classes. The lone dispatch took 6m12s, 1 subagent plus the lead,
@@ -30,13 +37,13 @@ cheaper, and wrote more tests
 the session that ran batch #371, plus its follow-on sign-off discussion,
 totals $23.02 at list price across 915 calls. That splits into $15.41 on
 the Opus seats (lead, architect, reviewer) and $7.61 on the Sonnet seats
-(developer, tester). The total undercounts real usage: output tokens are
+(developer, test stage). The total undercounts real usage: output tokens are
 estimated from visible text and tool-call input, and the estimate excludes
 thinking tokens (`docs/research/2026-09-27-batch-371-token-baseline.md`).
 
 ## What it catches that plain plan-and-execute does not
 
-**Independent test and review.** In the same size:M trial above, an
+**Independent test and review (earlier pipeline).** In the same size:M trial above, an
 identical, independent review pass (`tm-review-changes`) was run against
 both diffs afterward. The full-pipeline diff drew 0 must-fix issues (3
 should-fix, 2 nits). The diff from the single, unaudited developer
@@ -46,7 +53,7 @@ fixed-order suffix strip that silently misparses a non-canonical input.
 Each arm's independent critic rated that shared flaw differently:
 should-fix in the pipeline's diff, must-fix in the solo diff. Part of the
 0-vs-1 gap is therefore critic-severity variance, not purely a quality
-difference. The pipeline's own tester and reviewer stages did catch two
+difference. The pipeline's own test and reviewer stages did catch two
 other issues, real but modest (an overstated docstring guarantee and
 unpinned render-path validation). Neither they nor the lone dispatch
 caught the shared ordering flaw; only the separate independent audit pass
@@ -70,16 +77,15 @@ illustrative, not conclusive: the vendor ranks Fable above Opus, so this
 result cannot separate model capability from dispatch-to-dispatch variance
 (`docs/reviews/2026-07-27-ab-judgment-seats.md`).
 
-**Fix rounds, parking, and resumability.** The pipeline loops a failing test
-or review verdict back to the developer for exactly the findings raised,
-then re-tests and re-reviews before a human ever sees it. This runs up to
-3 fix rounds per stage, with the tester and reviewer keeping separate
-counters. A package that exhausts either counter, hits a blocker, or needs
+**Fix rounds, parking, and resumability.** The pipeline loops a failing
+check or review verdict back to the developer for exactly the findings
+raised, then re-reviews before a human ever sees it. The light flow allows
+at most 2 fix rounds. A package that exhausts them, hits a blocker, or needs
 a decision only a human can make is parked instead of looping forever. It
 gets the `needs-human` label (`docs/team-architecture.md`;
-`.claude/skills/tm-kickoff/SKILL.md`'s Cap and Parking bullets). The lead
+`.claude/skills/tm-kickoff/SKILL.md`'s Park section). The lead
 routes
-every handoff and writes state (sub-plan comments, PR verdicts, labels) to
+every handoff and writes state (issue bodies, PR review comments, labels) to
 GitHub instead of holding it in one session. A dropped connection
 therefore resumes from GitHub instead of restarting a lost session.
 
@@ -102,7 +108,7 @@ freeform session's own choices, and not a settled result.
 
 For a small, well-scoped, low-ambiguity change, a single dispatch is
 faster and cheaper. In the paired size:M trial above, the pipeline's extra
-gates (tester, reviewer) caught issues that were real but modest, not the
+gates (test stage, reviewer) caught issues that were real but modest, not the
 overall quality gap between the two diffs. The lone dispatch's one
 must-fix finding was the same ordering flaw the pipeline's diff carried at
 should-fix. Part of that gap is therefore critic-severity variance, not a

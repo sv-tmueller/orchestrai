@@ -49,7 +49,7 @@ Then read each issue (`gh issue view <n> --comments`) and check it:
 - An issue with `in-progress` or an open PR resumes per section 3 instead of a
   fresh developer dispatch. Find the PR with
   `gh pr list --state open --limit 100 --json number,headRefName,closingIssuesReferences --jq '.[] | select(any(.closingIssuesReferences[]; .number == <n>))'`.
-  A bare `<n> in:body` search also matches a PR that only mentions the issue.
+  A search on the body text also matches a PR that only mentions the number.
 - An issue with no `## Approach` section in the body or the comments: you write
   one as an issue comment (a few bullets: the approach, the files expected to
   change, the verification step). The lead never dispatches a developer with no

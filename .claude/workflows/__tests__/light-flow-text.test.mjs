@@ -308,7 +308,8 @@ describe('docs follow the light flow (#633)', () => {
       'docs/architecture/codex-adapter.md',
       'docs/operations/plan-downgrade-runbook.md',
     ]) {
-      const src = read(rel)
+      // The A/B report's file name is a real path, so it is not a mention of the old block.
+      const src = read(rel).replaceAll('ab-plan-status-parser', '')
       for (const word of [/\btester\b/i, /orchestrai\/test/, /plan-status/i, /\bphase:/]) {
         assert.ok(!word.test(src), `${rel} still matches ${word}`)
       }

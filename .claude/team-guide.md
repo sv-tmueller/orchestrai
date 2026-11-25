@@ -15,112 +15,57 @@ Standing preferences for this project:
   verification-before-completion).
 - Parallel work: fan out subagents for independent research or implementation
   streams. Default to parallel over serial.
-- Session hygiene: bound lead-session context growth before it reaches the
-  hundreds of thousands of tokens (compact, `/clear`, or restart), and prefer
-  fresh short-lived dispatches per issue over one long session across many
-  tasks. Measured baseline and the compact-or-clear estimate:
-  docs/team-guide-rationale.md.
+- Session hygiene: compact, `/clear` or restart before lead-session context
+  reaches the hundreds of thousands of tokens, and prefer fresh short-lived
+  dispatches per issue. Measured baseline: docs/team-guide-rationale.md.
 
 ## Agent team
 
-The template ships the role agents in `.claude/agents/` and a set of skills;
-the lead session routes every handoff and GitHub holds the state that makes
-a dropped session resumable (flat-star model, diagram, and per-package
-pipeline: `docs/team-architecture.md`).
+The light flow: a developer per issue, then a reviewer only for bigger or
+risky work. The flow, the review gate, the merge gate and the resume rules
+live once, in `docs/architecture/light-flow.md`; the lead routes every
+handoff, and GitHub holds the state that makes a dropped session resumable.
+Diagrams and rationale: `docs/team-architecture.md`.
 
-- `architect` - advisory, read-only: sub-plans, split proposals, arbitration.
 - `developer` - one issue end to end in an isolated worktree.
-- `tester` - independent verification on the branch, read-only.
-- `reviewer` - spec pass then quality pass, read-only.
+- `reviewer` - spec pass then quality pass, read-only. Runs for `size:M` or
+  larger, for a diff on a risky path, or after `DONE_WITH_CONCERNS`.
+- `architect` - advisory, read-only, on demand only: splits an `L` issue,
+  settles a developer and reviewer dispute. It is not a pipeline stage.
 - `fact-checker` - audits claims in a report or PR description against
   reproducible evidence, read-only (verdict taxonomy:
   `.claude/agents/fact-checker.md`). Dispatch when claims matter but carry
   no evidence; a CONTRADICTED claim is never dropped, it goes back to the
   agent that made it.
-- `docs-writer` - authors or updates user-facing docs (README, guides, API
-  docs) from a gap analysis. Dispatch on demand (for example after
-  `tm-map-codebase`) when docs are missing or stale.
-- `perf-investigator` - establishes a measured baseline and target for a
-  reported slowness before anyone touches code, read-only except for
-  measurement and profiling. Dispatch only for a package whose job is
-  specifically a performance investigation, outside the per-package pipeline
-  (handoff choreography: `docs/team-architecture.md`).
+- `docs-writer` - authors or updates user-facing docs from a gap analysis.
+  Dispatch on demand (for example after `tm-map-codebase`) when docs are
+  missing or stale.
+- `perf-investigator` - measures a baseline and target for a reported
+  slowness before anyone touches code. Dispatch only for a package whose job
+  is specifically a performance investigation.
 
-Refine and size issues in discussion first (`/tm-grill-me` stress-tests the
-plan, `/tm-advisor` file only turns it into sized issues); mark dependencies
-with a literal `Blocked by: #N` line in the issue body. Then `/tm-kickoff <issues>` (user-typed only;
-it does not auto-trigger) runs unblocked issues in parallel waves to ready PRs.
-Under `/tm-kickoff` the sub-plan comment substitutes for the full plan in `docs/plans/`.
-On a repo set up for it, the lead queues the merge once both verdicts are
-recorded; elsewhere merging stays human. Either way the merge gates the next
-wave. Caps, routing, and report contracts live in
-`.claude/skills/tm-kickoff/SKILL.md` and the agent files; they are not
-repeated here.
+The plan is the issue body (`## Approach`); no separate sub-plan is posted.
+Refine and size issues first (`/tm-grill-me` stress-tests the plan,
+`/tm-advisor` file only turns it into sized issues); mark dependencies with
+a literal `Blocked by: #N` line in the body. Then `/tm-kickoff <issues>`
+(user-typed only) runs unblocked issues up to 3 at a time to ready PRs. On a
+repo set up for it, the lead queues the merge; elsewhere a human merges.
 
-The lead builds one read-only dependency environment per run and passes its
-path to the developer, tester, and lean-track reviewer dispatches, instead of
-each seat installing its own. A seat falls back to its own build when the
-line or path is missing, dependencies changed, or a check errors on the
-environment. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Dependency
-environment (once per run)".
-
-### Plan-status block before dispatch
-
-Before the lead spawns any subagent that works a plan or sub-plan, it prints
-a short status block: which steps are done, which step the new subagent is
-about to work on, which steps remain. This covers every tm-kickoff and
-tm-advisor pipeline stage, plus ad-hoc dispatches when a plan exists.
-
-```
-Plan status (issue #42):
-  [x] 1. sub-plan
-  [x] 2. develop
-  [>] 3. test   <- dispatching tester
-  [ ] 4. review
-  [ ] 5. PR ready
-```
-
-`[x]` marks a done step, `[>]` the current step (suffixed
-`<- dispatching <agent>`, or `<- handed to runner <r> (waiting)` when the
-stage goes to a runner instead of a local dispatch), `[ ]` a remaining step,
-`[-]` a step skipped by the lean track (suffixed `skipped (lean)`; see
-"Pipeline tracks" in `.claude/skills/tm-kickoff/SKILL.md`). A fix round
-annotates the current item, for example `[>] 3. test (fix round 2/3)`. In the
-tm- flows the items are the pipeline stages (the skills pin them); an ad-hoc
-plan-backed dispatch uses the active plan's own steps as items. A lean
-package looks like:
-
-```
-Plan status (issue #58):
-  [-] 1. sub-plan skipped (lean)
-  [x] 2. develop
-  [-] 3. test skipped (lean)
-  [>] 4. review   <- dispatching reviewer
-  [ ] 5. PR ready
-```
-
-An ad-hoc dispatch with no plan behind it prints one fixed line instead:
-`Dispatching <agent>: <purpose>`. Agents spawned inside workflow scripts are
-excluded; the workflow progress tree already covers them.
-
-When one message dispatches agents for several packages, print one block per
-package, consecutively, in the same shape. No combined-table variant.
-
-Labels: `in-progress` (package dispatched; resume, do not restart) and
-`needs-human` (parked: question, blocker, or exhausted fix loop), on top of
-the sizing set; plus the `phase:<stage>`, `track:lean`, `runner`, `runner:on`
-and `runner:off` families, and the `run:<runner>` / `claimed:<runner>` labels
-the lead and the pollers create per runner id.
+The default branch requires the CI checks plus `orchestrai/review`, and
+does not require an up to date branch. Labels: the `size:*` set,
+`in-progress` (dispatched; resume, do not restart) and `needs-human`
+(parked: question, blocker, or exhausted fix loop). Nothing else.
 
 ## Operating model (advisor)
 
 `/tm-advisor` (user-typed only) runs the lead session as the user's advisor: it
 refines a raw need into a batch of work packages, gets one sign-off, then
 runs the team uninterrupted and reports (mechanics:
-`.claude/skills/tm-advisor/SKILL.md`). The rules that matter session-wide:
+`.claude/skills/tm-advisor/SKILL.md`; the flow: `docs/architecture/light-flow.md`).
+The rules that matter session-wide:
 
 - A batch is up to 6 independent `size:S`/`size:M` issues, run through the
-  kickoff pipeline 3 at a time. A merge is queued by the lead on a repo set up
+  kickoff flow 3 at a time. A merge is queued by the lead on a repo set up
   for auto merge, and otherwise stays human; dependent work waits for the
   next batch.
 - One sign-off per batch, with two approval outcomes: dispatch (file the
@@ -134,18 +79,13 @@ runs the team uninterrupted and reports (mechanics:
 - Each batch has a tracking issue (title `Batch: <slug>`): the approved
   contract, the decision log, parked questions, the final report. Dropped
   sessions resume from it.
-- Refinement-only effort note: sections 1 (Refine) and 2 (Propose) may run
-  at `/effort high` instead of the session default `xhigh`
-  (docs/reviews/2026-09-28-lead-effort-comparison.md: both decision-rule
-  conditions held, n=3 per arm, one refine-task probe). Typing
-  `/effort high` writes a persistent per-model override into the
-  user-level `settings.json` in the config dir (owner-confirmed
-  2026-10-01), so it stays in force in every later session. Switch back
-  to `/effort xhigh` before replying "dispatch" or "file only"; typing it
-  is what undoes the override. Both replies go on to section 3 (File);
-  sections 3-6 and every other seat are unaffected. This covers the
-  refine-task only, not the run phase; the batch's own deferred run-phase
-  measurement is a separate, not-yet-run package.
+- Refinement-only effort note: the refine and propose steps may run at
+  `/effort high` instead of `xhigh` (docs/reviews/2026-09-28-lead-effort-comparison.md).
+  Typing `/effort high` writes a persistent per-model override into the
+  user-level `settings.json` (owner-confirmed 2026-10-01), so it stays in
+  force in later sessions. Switch back to `/effort xhigh` before replying
+  "dispatch" or "file only"; typing it is what undoes the override. The
+  run phase is not covered.
 
 ## Model policy
 
@@ -160,50 +100,32 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
   Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at xhigh effort, the
   same model family as the judgment seats. Comparable quality to Fable at
   under half the cost per run, at low confidence
-  (docs/reviews/2026-09-23-lead-model-comparison.md; batch #371's own cost
-  analysis, quoted in issue #380, put a lead session at about $9-11 on
-  Opus 5.5 against about $17-23 on Fable 5.1). This adds a shared blind
-  spot worth naming: with the lead on the same model family as every
-  judgment seat, a systematic Opus-class mistake would go uncaught by any
-  seat in the pipeline (comparison report section 8). No lead fallback is
-  prescribed if Opus itself is unavailable; that stays open (comparison
-  report section 9).
-- Fable (main-window user choice only): available only when the user sets
-  the main window itself to Fable. No part of the machinery, this policy
-  included, ever pins Fable or switches to it automatically; a lead session
-  running on Fable is the user's own `/model` choice for that window, not a
-  fallback this policy prescribes.
+  (docs/reviews/2026-09-23-lead-model-comparison.md). Shared blind spot: a
+  systematic Opus-class mistake would go uncaught by any seat in the flow
+  (report section 8). No lead fallback is prescribed if Opus itself is
+  unavailable (report section 9).
+- Fable (main-window user choice only): no part of the machinery, this
+  policy included, ever pins Fable or switches to it automatically; a lead
+  session on Fable is the user's own `/model` choice for that window.
 - Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
-  effort is the primary model, backstopped by the lead and, for architect
-  and reviewer, by the verdict statuses and, where the lead does not queue
-  the merge, the human merge gate. The per-call fallback is Sonnet at
-  the same xhigh effort. The critic stage of every `tm-` workflow
-  (`.claude/workflows/`) already retries on sonnet automatically when Opus
-  returns nothing, though each run still burns one doomed Opus dispatch
-  before the retry fires. An architect or reviewer dispatch hitting Opus
-  quota mid-run triggers a run-long switch, not a single re-dispatch: every
-  later judgment dispatch in that run goes straight to Sonnet, and the run
-  never goes back to Opus even if quota returns mid-run
-  (`.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long fallback
-  and resume)"). The ladder is Opus -> Sonnet, flagged and re-run (the next
-  run reviews the PR head on Opus); nothing in the machinery falls back
-  to Fable. If judgment quality visibly degrades on real batches, log the
-  observation here.
-- Cost-based fallback trigger: superseded by the move to Opus recorded in
-  `docs/reviews/2026-09-23-lead-model-comparison.md`, which followed that
-  report's decision rule (comparable quality, lower cost), not a confirmed
-  trigger condition (that report's section 7 leaves the account's
-  Max-vs-Pro tier, and so whether the trigger itself ever fired, an open
-  question). If Fable's billing terms improve enough to revisit the move,
-  re-run a comparison before switching back; do not switch on an
-  availability event alone (see that report's section 7).
+  effort is the primary model. The per-call fallback is Sonnet at the same
+  xhigh effort. A reviewer that hits a usage limit runs once more on Sonnet,
+  and a Sonnet-fallback APPROVE ships like an Opus APPROVE: the lead posts
+  `orchestrai/review` the same way and queues the merge the same way. The
+  critic stage of every `tm-` workflow (`.claude/workflows/`) already retries
+  on sonnet automatically when Opus returns nothing. Nothing in the machinery
+  falls back to Fable. If judgment quality visibly degrades on real batches,
+  log the observation here.
+- Cost-based fallback trigger: superseded by the move to Opus. To revisit
+  Fable, re-run the comparison first; never switch on availability alone
+  (`docs/reviews/2026-09-23-lead-model-comparison.md`, section 7).
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
   `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
   task with no tm- script.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
-  (`sonnet` is the documented per-call fallback); `developer`, `tester`,
+  (`sonnet` is the documented per-call fallback); `developer`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
   (`fact-checker` stays on Sonnet, not Haiku). Each agent also pins its own
   effort (`sonnet` -> `high`, `opus` -> `xhigh`), independent of the
@@ -217,43 +139,34 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
   describe fails if fable is pinned on any adapter tier, agent or skill
   frontmatter, or workflow stage (issue #380).
 - Workflows: pin worker stages to a cheap model at `high` effort and reserve
-  the strong model for synthesis or critique, bounded by construction so it
-  cannot fan out unboundedly (`.claude/workflows/*.js`;
-  docs/superpowers/specs/2026-06-13-review-codebase-design.md). A
-  cheaper-led session still gets Opus-quality judgment; a Fable-led session
-  never pays Fable rates for worker stages.
+  the strong model for synthesis or critique, bounded by construction
+  (`.claude/workflows/*.js`; docs/superpowers/specs/2026-06-13-review-codebase-design.md).
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. Since Claude Code v2.1.251 it is
   a default, not an override: the per-invocation model parameter and the
   agent definition's `model` frontmatter (including `inherit`) both take
   precedence over it. Flattening every subagent onto one model now takes both
   variables, since `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (v2.1.257+) is what
-  makes Claude Code ignore the frontmatter and the per-call parameter. The
-  guidance stands for two reasons: every agent file here pins `model:` in
-  frontmatter, so the variable alone is a no-op for those seats, and a forced
-  seatbelt (e.g. `claude-sonnet-5` before one heavy ad-hoc run) downgrades
-  the architect and reviewer too.
+  makes Claude Code ignore the frontmatter and the per-call parameter. Every
+  agent file here pins `model:`, so the variable alone is a no-op for those
+  seats, and a forced seatbelt downgrades the architect and reviewer too.
 
 ## How to pick up a task
 
-1. `gh issue list --state open` (add `--label phase:<current>` if you use phase
-   labels) to see what is available.
-2. Pick an unassigned issue with no unresolved blockers. Check its `size:` label;
-   if it is unsized, size it first, and if it is `L` or `XL`, decompose it before
-   starting.
-3. Post a short sub-plan on the issue (the checkpoint bullets in
-   `.claude/process-core.md`'s "Sub-plans" section).
+1. `gh issue list --state open` to see what is available.
+2. Pick an unassigned issue with no unresolved blockers. Check its `size:`
+   label; if it is unsized, size it first, and if it is `L` or `XL`,
+   decompose it before starting.
+3. Read the issue's `## Approach`. A hand-filed issue without one gets a
+   short Approach comment first.
 4. Create a branch and open a draft PR linking the issue (`Closes #N`).
-5. Expand the sub-plan into a full plan via `superpowers:writing-plans`, saved to
-   `docs/plans/<issue-number>-<slug>.md`. If the plan reveals the issue is bigger
-   than its label, re-label and split it into sub-issues before implementing.
-6. Implement with TDD per the plan.
-7. Run the full check suite (typecheck, lint, test, e2e if touched). It must pass
-   before requesting review.
-8. Mark the PR ready for review.
+5. Implement with TDD. If the work turns out bigger than its label, re-label
+   and split it into sub-issues before going on.
+6. Run the full check suite (typecheck, lint, test, e2e if touched). It must
+   pass before requesting review.
+7. Mark the PR ready for review.
 
 For a batch of refined, sized issues, `/tm-kickoff` automates this flow per
-issue, with the sub-plan comment standing in for step 5's full plan (see
-"Agent team").
+issue (see "Agent team").
 
 ## Repo layout (team)
 
@@ -281,4 +194,3 @@ New project commands follow the same rule: name them `tm-<thing>`.
 
 See `.claude/process-core.md`'s "What not to do" for the branch, merge-gate,
 git-hook, and dependency rules.
-<!-- Add project-specific traps here: the mistakes that quietly break this codebase. -->

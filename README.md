@@ -1,8 +1,9 @@
 # OrchestrAI
 
 A tool-independent AI-team-orchestrator: a ready-made agent team that takes
-GitHub issues from sub-plan to ready PR through a flat-star pipeline
-(architect, developer, tester, reviewer). Runs on two hosts:
+GitHub issues to ready PRs through a flat-star light flow (a developer, then
+a reviewer for bigger or risky work; an architect on demand). Runs on two
+hosts:
 
 - **Claude Code** via the plugin marketplace (Opus/Sonnet; Fable is a
   main-window user choice only, never pinned)
@@ -18,7 +19,8 @@ choice, see `docs/why-the-team.md`.
 
 ## How the team works
 
-The same pipeline runs on every host. Models are abstracted through tiers
+The same flow runs on every host (`docs/architecture/light-flow.md`).
+Models are abstracted through tiers
 (judgment, worker, lead); each host's adapter table maps tiers to concrete
 models. The lead session routes every handoff; role agents never call each
 other.
@@ -28,15 +30,13 @@ graph TD
     H["Human<br/>files and sizes issues, merges PRs the lead did not queue"] --> L
     L["Lead - main session<br/>lead tier (xhigh)<br/>routes every handoff"]
 
-    L -->|"1 sub-plan"| A["architect<br/>judgment tier (xhigh)<br/>read-only - approach"]
-    A -.->|"sub-plan"| L
-    L -->|"2 implement"| D["developer<br/>worker tier (high)<br>TDD - draft PR"]
+    L -->|"1 implement"| D["developer<br/>worker tier (high)<br>TDD - draft PR"]
     D -.->|"branch + PR"| L
-    L -->|"3 test"| T["tester<br/>worker tier (high)<br/>read-only - re-runs suite"]
-    T -.->|"verdict"| L
-    L -->|"4 review"| R["reviewer<br/>judgment tier (xhigh)<br/>read-only - spec then quality"]
+    L -->|"2 review, only if the gate says so"| R["reviewer<br/>judgment tier (xhigh)<br/>read-only - spec then quality"]
     R -.->|"verdict"| L
     L -.->|"fix loop"| D
+    L -->|"on demand"| A["architect<br/>judgment tier (xhigh)<br/>read-only - splits, arbitration"]
+    A -.->|"split / ruling"| L
     L -->|"on demand"| F["fact-checker<br/>worker tier<br/>read-only - audits claims"]
     F -.->|"grounded / ungrounded"| L
     L -->|"on demand"| DW["docs-writer<br/>worker tier<br/>gap analysis + author docs"]
@@ -44,8 +44,8 @@ graph TD
     L -->|"on demand"| P["perf-investigator<br/>worker tier<br/>measurement-only - baseline and target"]
     P -.->|"baseline / bottleneck / target"| L
 
-    L -->|"5 ready PR"| G[("GitHub<br/>sub-plans, verdicts, labels")]
-    G -->|"6 merge: queued by the lead, or human"| H
+    L -->|"3 ready PR"| G[("GitHub<br/>issue bodies, review comments, labels")]
+    G -->|"4 merge: queued by the lead, or human"| H
 
     subgraph WF["Review workflows"]
         RC["tm-review-changes<br/>worker reviewers + worker verifiers + 1 judgment critic"]
@@ -58,60 +58,36 @@ graph TD
 Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
 `docs/architecture/adapter-interface.md`.
 
-### Pipeline rules
+### Flow rules
 
-- **Lean vs full track.** A `size:S` package that stays out of
-  `.claude/agents`, `.claude/skills`, `.claude/workflows`,
-  `.github/workflows` and dependency manifests and lockfiles, and changes
-  at most 150 lines outside tests and docs, skips the architect and tester stages;
-  everything else runs the full five-stage pipeline. A script decides
-  (`lean-allowed.mjs`), before dispatch and again on the real diff. On a
-  repo set up for auto merge that has no test files (the repo guard's
-  rule), every package runs the full track, so a merge never rests on the
-  reviewer alone. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
-  "Pipeline tracks (lean and full)".
-- **Dependency environment.** The lead builds one read-only dependency
-  environment per run and passes its path to the developer, tester, and
-  lean-track reviewer dispatches, instead of each seat installing its own.
-  Mechanics: "Dependency environment (once per run)" in the same file.
-- **Worktree cleanup.** Right after a package's PR ships or the package is
-  parked, the lead removes that package's worktree and local branches, but
-  only once their commits are on origin; a wave-end backstop catches the rest,
-  including a lead checkout whose HEAD a dispatched agent moved. Mechanics:
-  "Worktree cleanup (deterministic)" in the same file.
-- **Auto merge.** At the end of a package the lead records both verdicts as
-  commit statuses (`orchestrai/review`, `orchestrai/test`) on every repo. On a
+The full text is `docs/architecture/light-flow.md`; these are the points a
+reader needs first.
+
+- **The plan is the issue body.** Its `## Approach` section is the only plan.
+  No sub-plan comment is posted.
+- **Review gate.** A reviewer runs for a `size:M` or larger issue, for a diff
+  that touches `.claude/agents`, `.claude/skills`, `.claude/workflows`,
+  `.github/workflows`, a dependency manifest or a lockfile, or after a
+  `DONE_WITH_CONCERNS` report. Otherwise the lead reads the developer's
+  CHECKS line and ships.
+- **Fix rounds.** At most 2, then the package parks as `needs-human`.
+- **Merge gate.** The default branch requires the CI checks plus
+  `orchestrai/review`, which the lead posts after an approval (or with
+  `not required (size S)`). The branch does not have to be up to date. On a
   repo that is set up for auto merge (the setting on, plus branch protection
-  or a ruleset) it also queues the merge. Elsewhere, and whenever the review
-  was a run-long fallback or the head moved after the verdicts, the PR waits
-  for a human merge. A queued PR that falls behind the default branch is
-  brought up to date by the lead: a clean update carries the verdicts when the
-  PR's own changes are unchanged and CI is green on the new commit, and
-  anything else gets one repair round (developer, tester, reviewer, then step
-  7 again). A PR that needs a second repair parks. A repair that is
-  interrupted parks too, and a parked repair stays with the owner: the
-  pipeline posts no more verdicts on it. To finish one, bring the branch up
-  to date, check the new head, and run `/tm-repo-guard statuses <repo> <pr>`.
-  It prints the commands that record both verdicts and queue the merge, and
-  runs none of them; you run them in your own shell (see "Repo guard" below).
-  Mechanics:
-  step 7 and "Repair (queued PRs behind the default branch)" in the same file.
-- **Capped seat reports, bounded fix rounds.** Seat reports are capped by the
-  seat contracts, so the lead routes on the short report instead of expanding
-  it or re-dispatching for a longer one; fix rounds are capped at 3 per stage,
-  tracked separately for the tester and the reviewer. Mechanics: "Fix rounds
-  (exact text and lead-verified rounds)" and the routing rules in the same
-  file.
+  or a ruleset) the lead queues the merge; elsewhere the PR waits for a human
+  merge. A Sonnet-fallback `APPROVE` ships like an Opus one.
+- **Labels.** `size:*`, `in-progress` and `needs-human`, nothing else.
+- **Worktree cleanup.** At wave end the lead prunes finished agent worktrees
+  whose commits are on origin. Mechanics: `.claude/skills/tm-kickoff/SKILL.md`,
+  "Wave end".
 
-The lean track, the dependency environment, worktree cleanup, auto merge, and
-capped seat reports apply to Claude Code only for now; Hermes and Codex
-mirroring is pending. On Hermes the pipeline driver
-(`.claude/adapters/hermes-pipeline.mjs`) already caps fix rounds at 3 per stage,
-counted separately for the tester and the reviewer.
+These apply to Claude Code. On Hermes the pipeline driver
+(`.claude/adapters/hermes-pipeline.mjs`) enforces the same flow in code.
 
 ## Components
 
-- `.claude/agents/` - 7 role agents (architect, developer, tester, reviewer,
+- `.claude/agents/` - 6 role agents (architect, developer, reviewer,
   fact-checker, docs-writer, perf-investigator). Each pins a tier, not a
   model name.
 - `.claude/adapters/` - the portable adapter layer. Adapter tables
@@ -122,7 +98,7 @@ counted separately for the tester and the reviewer.
   tm-review-codebase, tm-map-codebase). Fan-out is encoded as JSON data
   specs under `workflows/specs/`; the JS files embed matching SPEC constants
   and a sync test asserts alignment.
-- `.claude/skills/` - slash commands: `/tm-kickoff` (pipeline driver),
+- `.claude/skills/` - slash commands: `/tm-kickoff` (runs the light flow),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
   `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
   `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
@@ -135,6 +111,8 @@ counted separately for the tester and the reviewer.
   `tm-advisor` skill on Hermes.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
+- `docs/architecture/light-flow.md` - the flow itself: advisor, issue body,
+  kickoff, review gate, merge gate, resume.
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
   commits, tests, CI, writing style). Imported by the repo `CLAUDE.md`;
   `AGENTS.md` names it for other harnesses.
@@ -169,8 +147,8 @@ A repo is set up when all of these hold on its default branch:
 
 **The rule for required checks.** Every check that showed up on the newest
 finished PR becomes required, whoever runs it: the repo's own CI or an outside
-service. The `orchestrai/*` verdict statuses are left out of this rule; the
-label rule below covers them. The same rule holds on every repo. The newest finished PR is the
+service. The `orchestrai/review` status is left out of this rule; the
+label rule below covers it. The same rule holds on every repo. The newest finished PR is the
 highest-numbered non-draft PR among the last ten (open, merged or closed)
 whose checks have all finished. A PR from the `orchestrai/ci-setup` branch (the
 one Apply opens to add the CI workflow) counts only once it is merged and
@@ -179,15 +157,15 @@ checks do not count. A check that only
 older PRs ran is no longer required, and the report lists it as "not required:
 no longer runs".
 
-On a repo with the pipeline labels (`in-progress` and `needs-human`), the two
-verdict statuses `orchestrai/review` and `orchestrai/test` are required too.
+On a repo with the pipeline labels (`in-progress` and `needs-human`), the
+status `orchestrai/review` is required too.
 
 Hand-made PRs on a set-up repo follow the same rule. They need every required
-check to pass, and on a repo with the pipeline labels they also need both
-verdict statuses on their head, like any other PR. Without them the PR waits
-until you post both statuses on its head. `/tm-repo-guard statuses <repo> <pr>`
-prints the PR's head commit and the commands that record both verdicts on it
-and queue the merge. You run them in your own shell; the command never does.
+check to pass, and on a repo with the pipeline labels they also need the
+review status on their head, like any other PR. Without it the PR waits
+until you post it on the PR's head. `/tm-repo-guard statuses <repo> <pr>`
+prints the PR's head commit and the commands that record the review status on
+it and queue the merge. You run them in your own shell; the command never does.
 
 ### Check
 
@@ -249,11 +227,10 @@ repo has no test files:
 
 - `no tests, short track off`: CI runs, but there are no tests.
 - `agent verdicts only, short track off`: no CI and no tests. On a repo with
-  the pipeline labels, the two verdict statuses are then the only gate.
+  the pipeline labels, the review status is then the only gate.
 
-The flags only mark the repo in the report. The pipeline checks the same
-rule on its own: on a repo set up for auto merge, no test files means every
-package runs the full track (see "Pipeline rules").
+The flags only mark the repo in the report. The light flow has no short track
+and does not act on them.
 
 ### Apply
 
@@ -321,7 +298,7 @@ config-dir `CLAUDE.md`:
 @plugins/marketplaces/orchestrai/.claude/team-guide.md
 ```
 
-The `developer` and `tester` agents depend on the superpowers plugin:
+The `developer` agent depends on the superpowers plugin:
 
 ```text
 /plugin marketplace add anthropics/claude-plugins-official
@@ -334,14 +311,14 @@ must be committed rather than installed from the marketplace.
 ### Use
 
 ```text
-/tm-kickoff 42          # run the pipeline on issue #42
+/tm-kickoff 42          # run the light flow on issue #42
 /tm-kickoff 42 43 44    # run a wave of issues (up to 3 concurrent)
 /tm-advisor <need>      # refine a need into a batch, then run it
 /tm-review-changes      # review the current diff
 /tm-review-codebase     # review the whole repo
 /tm-map-codebase        # map the repo architecture
 /tm-repo-guard          # report each owned repo's guard state (apply <repo> asks first)
-/tm-repo-guard statuses <repo> <pr>  # print the commands that record both verdicts by hand
+/tm-repo-guard statuses <repo> <pr>  # print the commands that record the review status by hand
 ```
 
 `/tm-repo-guard` is explained under "Repo guard" above.
@@ -353,15 +330,12 @@ The adapter table at `.claude/adapters/claude-code.json`:
 | Tier | Model | Effort | Roles |
 |------|-------|--------|-------|
 | judgment | opus | xhigh | architect, reviewer |
-| worker | sonnet | high | developer, tester, fact-checker, docs-writer, perf-investigator |
+| worker | sonnet | high | developer, fact-checker, docs-writer, perf-investigator |
 | lead | opus | xhigh | the lead session |
 
-Fallback: an Opus quota death on a judgment dispatch (architect or reviewer)
-re-dispatches that call on Sonnet and sends every later judgment dispatch in
-the run straight to Sonnet, logged once as a decision; the run never goes back
-to Opus even if quota returns mid-run, and the next run tries Opus again.
-Mechanics: `.claude/skills/tm-kickoff/SKILL.md`, "Limit deaths (run-long
-fallback and resume)". Nothing runs at max effort. Fable is never pinned in
+Fallback: a reviewer that dies on an Opus usage limit runs once more on
+Sonnet, and a Sonnet-fallback `APPROVE` ships like an Opus one. Mechanics:
+`.claude/skills/tm-kickoff/SKILL.md`, "Per package". Nothing runs at max effort. Fable is never pinned in
 this table; it is available only as the user's own choice for the main window.
 
 Two variant adapter tables ship with the same host, both on the subprocess
