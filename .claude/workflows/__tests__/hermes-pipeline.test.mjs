@@ -1329,7 +1329,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
   const tester = (verdict) => parseReport('tester', `VERDICT: ${verdict}\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none`)
   const reviewer = (verdict) => parseReport('reviewer', `VERDICT: ${verdict}\nSTAGE: both clean\nFINDINGS: 1. one\nCLAIMS: none\nCHECKS: n/a`)
 
-  const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress']
+  const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress', 'gh pr comment']
 
   // The stop: the reason, the seats that ran, nothing after the last seat, and
   // no write beyond the setup ones that came before it.
@@ -1577,6 +1577,254 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assertStopped(r, 'reviewer', [...ALL, 'developer', 'tester', 'reviewer'])
       })
     }
+  })
+
+  // The fix-round loop (issue #604). Every report below comes from the live
+  // parser, and every write goes through the fake runner.
+  describe('the fix-round loop', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const COMMENT = /^gh pr comment \S+ --body /
+    const posted = (calls) => keysOf(calls, 'write').filter((k) => COMMENT.test(k)).map((k) => k.replace(COMMENT, ''))
+    const tasks = (calls, role) => calls.filter((c) => c.kind === 'spawn' && c.role === role).map((c) => c.task)
+    const FAIL = () => tester('FAIL')
+    const PASS = () => tester('PASS')
+    const CHANGES = () => reviewer('CHANGES_REQUESTED')
+    const APPROVE = () => reviewer('APPROVE')
+    // Three tester rounds and three reviewer rounds, one of the tester rounds
+    // opened by the re-test that follows a reviewer round.
+    const longest = () => ({
+      tester: [FAIL(), PASS(), FAIL(), PASS(), FAIL(), PASS(), PASS()],
+      reviewer: [CHANGES(), CHANGES(), CHANGES(), APPROVE()],
+    })
+    const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
+
+    test('the longest run ships: three tester rounds and three reviewer rounds, a re-test FAIL after a reviewer round among them', async () => {
+      const r = await pipeline(longest())
+      assert.equal(r.state.parked, null)
+      assert.equal(r.state.done, true)
+      assert.deepEqual(r.state.fixRounds, { tester: 3, reviewer: 3 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester', 'developer', 'tester',
+        'reviewer', 'developer', 'tester',
+        'reviewer',
+      ])
+      assert.equal(posted(r.calls).length, 11, 'seven tester reports and four reviewer reports')
+      assert.ok(keysOf(r.calls, 'write').includes(`gh pr ready ${PR}`))
+    })
+
+    test('a fourth tester FAIL is posted as 4/3 and parks, with no fifth dispatch and no ship', async () => {
+      const r = await pipeline({ tester: [FAIL(), FAIL(), FAIL(), FAIL()] })
+      assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 0 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'developer', 'tester', 'developer', 'tester', 'developer', 'tester',
+      ])
+      assert.deepEqual(posted(r.calls).map((b) => b.split('\n')[0]), [1, 2, 3, 4].map(
+        (k) => `**Tester report: FAIL (issue #7, tester fix rounds ${k}/3)**`
+      ))
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('a fourth reviewer CHANGES_REQUESTED is posted as 4/3 and parks', async () => {
+      const r = await pipeline({ reviewer: [CHANGES(), CHANGES(), CHANGES(), CHANGES()] })
+      assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+      assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 4 })
+      assert.equal(roles(r.state).filter((x) => x === 'developer').length, 4, 'the implement run and three fix rounds')
+      assert.equal(roles(r.state).at(-1), 'reviewer')
+      const headers = posted(r.calls).map((b) => b.split('\n')[0]).filter((h) => h.startsWith('**Reviewer'))
+      assert.equal(headers.at(-1), '**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 4/3)**')
+      assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+    })
+
+    test('the old one-round parks are gone: a tester FAIL after a fix round goes to a second round', async () => {
+      const r = await pipeline({ tester: [FAIL(), FAIL(), PASS()] })
+      assert.equal(r.state.parked, null)
+      assert.deepEqual(r.state.fixRounds, { tester: 2, reviewer: 0 })
+      assert.equal(r.state.done, true)
+    })
+
+    test('a reviewer round whose re-test FAILs counts a tester round and goes through the tester loop', async () => {
+      const r = await pipeline({ reviewer: [CHANGES(), APPROVE()], tester: [PASS(), FAIL(), PASS(), PASS()] })
+      assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 1 })
+      assert.deepEqual(roles(r.state), [
+        'architect', 'developer', 'tester', 'reviewer', 'developer', 'tester', 'developer', 'tester', 'reviewer',
+      ])
+      assert.equal(r.state.done, true)
+    })
+
+    test('the report comment has the exact header, then the seat\'s own text trimmed and unquoted', async () => {
+      const failRaw = 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. one\nUNTESTED CLAIMS: none'
+      const passRaw = 'VERDICT: PASS\nCOMMIT: def456\nFINDINGS: none\nUNTESTED CLAIMS: none'
+      const approveRaw = 'VERDICT: APPROVE\nSTAGE: both clean\nFINDINGS: none\nCLAIMS: none\nCHECKS: n/a'
+      const r = await pipeline({
+        tester: [parseReport('tester', `\n${failRaw}\n\n`), parseReport('tester', passRaw)],
+        reviewer: parseReport('reviewer', `${approveRaw}\n`),
+      })
+      assert.deepEqual(keysOf(r.calls, 'write').filter((k) => COMMENT.test(k)), [
+        `gh pr comment ${PR} --body **Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\n${failRaw}`,
+        `gh pr comment ${PR} --body **Tester report: PASS (issue #7, tester fix rounds 1/3)**\n\n${passRaw}`,
+        `gh pr comment ${PR} --body **Reviewer report: APPROVE (issue #7, reviewer fix rounds 0/3)**\n\n${approveRaw}`,
+      ])
+    })
+
+    test('a report with no raw text is posted as its verdict, with the findings when it has them', async () => {
+      const r = await pipeline({ tester: [{ VERDICT: 'FAIL', FINDINGS: 'one' }, { VERDICT: 'PASS' }], reviewer: { VERDICT: 'APPROVE' } })
+      assert.deepEqual(posted(r.calls), [
+        '**Tester report: FAIL (issue #7, tester fix rounds 1/3)**\n\nVERDICT: FAIL\nFINDINGS: one',
+        '**Tester report: PASS (issue #7, tester fix rounds 1/3)**\n\nVERDICT: PASS',
+        '**Reviewer report: APPROVE (issue #7, reviewer fix rounds 0/3)**\n\nVERDICT: APPROVE',
+      ])
+    })
+
+    test('round trip: every posted report reads back as the stage it leaves and the count its header names', async () => {
+      const { resumeStage, countFixRounds } = driver
+      const r = await pipeline(longest())
+      const bodies = posted(r.calls)
+      const comments = bodies.map((body, i) => ({ body, createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString() }))
+      const stageAfter = { PASS: 'reviewer', APPROVE: 'ship', FAIL: 'developer', CHANGES_REQUESTED: 'developer' }
+      bodies.forEach((body, i) => {
+        const [, verdict, seat, n] = body.split('\n')[0].match(/report: (\w+) \(issue #7, (tester|reviewer) fix rounds (\d)\/3\)\*\*$/)
+        const read = resumeStage(comments.slice(0, i + 1))
+        assert.equal(read.stage, stageAfter[verdict], `stage after comment ${i + 1}`)
+        if (read.findings !== undefined) assert.equal(read.findings, body)
+        assert.equal(countFixRounds(comments.slice(0, i + 1))[seat], Number(n), `${seat} count after comment ${i + 1}`)
+      })
+      assert.deepEqual(countFixRounds(comments), r.state.fixRounds)
+    })
+
+    test('a report with three findings reaches the developer whole, though the parser keeps only the first line', async () => {
+      const report = parseReport('tester', 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. first\n2. second\n3. third\nUNTESTED CLAIMS: none')
+      assert.equal(report.FINDINGS, '1. first', 'the premise: the parser drops the other lines')
+      const r = await pipeline({ tester: [report, PASS()] })
+      const [body] = posted(r.calls)
+      assert.ok(body.includes('2. second') && body.includes('3. third'))
+      assert.equal(
+        tasks(r.calls, 'developer')[1],
+        `Issue #7, branch feat/7-pending, tester fix round 1/3: fix exactly these findings:\n${body}`
+      )
+    })
+
+    test('a reviewer fix round uses the must-fix wording and carries the whole review', async () => {
+      const report = parseReport('reviewer', 'VERDICT: CHANGES_REQUESTED\nSTAGE: spec\nFINDINGS: 1. first\n2. second\nCLAIMS: none\nCHECKS: n/a')
+      const r = await pipeline({ reviewer: [report, APPROVE()] })
+      const body = posted(r.calls).find((b) => b.startsWith('**Reviewer'))
+      assert.ok(body.includes('2. second'))
+      assert.equal(
+        tasks(r.calls, 'developer')[1],
+        `Issue #7, branch feat/7-pending, reviewer fix round 1/3: fix exactly the must-fix findings of this review:\n${body}`
+      )
+    })
+
+    test('every re-test and review prompt names the fix round it follows, and the reviewer gets the latest tester report', async () => {
+      const r = await pipeline({ tester: [FAIL(), PASS(), PASS()], reviewer: [CHANGES(), APPROVE()] })
+      const bodies = posted(r.calls)
+      const claims = (body) => `\n\nUntested claims to rate under CLAIMS, by their number in this tester report:\n${body}`
+      const verify = (after) => `Branch feat/7-pending, issue #7: verify the change${after}. Run the full check suite and attack the change.`
+      const review = (after) => `PR ${PR}, issue #7: review the diff against the issue and sub-plan${after}. Two passes: spec compliance then code quality.`
+      assert.deepEqual(tasks(r.calls, 'tester'), [
+        verify(''), verify(' after tester fix round 1/3'), verify(' after reviewer fix round 1/3'),
+      ])
+      assert.deepEqual(tasks(r.calls, 'reviewer'), [
+        review(' after tester fix round 1/3') + claims(bodies[1]),
+        review(' after reviewer fix round 1/3') + claims(bodies[3]),
+      ])
+    })
+
+    test('no (role, task) pair is dispatched twice in the longest run', async () => {
+      const r = await pipeline(longest())
+      const pairs = r.calls.filter((c) => c.kind === 'spawn').map((c) => `${c.role}\n${c.task}`)
+      assert.equal(new Set(pairs).size, pairs.length)
+    })
+
+    test('the first seat of a resume gets the pick-up line, and no other seat does', async () => {
+      const r = await pipeline({}, { resume: { stage: 'tester', branch: 'feat/7-work', pr: 12 } })
+      const [first] = tasks(r.calls, 'tester')
+      assert.equal(first, `Branch feat/7-work, issue #7: verify the change. Run the full check suite and attack the change.${PICKUP}`)
+      assert.ok(!tasks(r.calls, 'reviewer')[0].includes('picks the package up'))
+      const fresh = await pipeline({})
+      assert.ok(!fresh.calls.filter((c) => c.kind === 'spawn').some((c) => c.task.includes('picks the package up')))
+    })
+
+    test('a resume at the reviewer points the reviewer to the tester comment instead of quoting one', async () => {
+      const r = await pipeline({}, { resume: { stage: 'reviewer', branch: 'feat/7-work', pr: 12 } })
+      assert.equal(
+        tasks(r.calls, 'reviewer')[0],
+        'PR 12, issue #7: review the diff against the issue and sub-plan. Two passes: spec compliance then code quality.' +
+          `\n\nUntested claims to rate under CLAIMS: take them from the latest tester report comment on PR 12.${PICKUP}`
+      )
+    })
+
+    describe('on a resume', () => {
+      const body = (kind, count) =>
+        kind === 'tester'
+          ? `**Tester report: FAIL (issue #7, tester fix rounds ${count}/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. a`
+          : `**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds ${count}/3)**\n\nVERDICT: CHANGES_REQUESTED\nFINDINGS: 1. a`
+      const from = (stage, extra) => ({ stage, branch: 'feat/7-work', pr: 12, ...extra })
+
+      test('the count read from the PR is the round of the findings, and a FAIL after it is the 4th and parks', async () => {
+        const findings = body('tester', 3)
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' }, tester: [FAIL()] },
+          { resume: from('developer', { findings, fixRounds: { tester: 3, reviewer: 1 } }) }
+        )
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, tester fix round 3/3: fix exactly these findings:\n${findings}${PICKUP}`
+        )
+        assert.equal(tasks(r.calls, 'tester')[0], 'Branch feat/7-work, issue #7: verify the change after tester fix round 3/3. Run the full check suite and attack the change.')
+        assert.deepEqual(r.state.fixRounds, { tester: 4, reviewer: 1 })
+        assert.equal(r.state.parked, 'tester fix rounds exhausted (3/3)')
+        assert.equal(posted(r.calls)[0].split('\n')[0], '**Tester report: FAIL (issue #7, tester fix rounds 4/3)**')
+        assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
+      })
+
+      for (const kind of ['tester', 'reviewer']) {
+        test(`findings of a ${kind} count already above 3 park before any seat is dispatched`, async () => {
+          const r = await pipeline({}, { resume: from('developer', { findings: body(kind, 4), fixRounds: { tester: 4, reviewer: 4 } }) })
+          assert.equal(r.state.parked, `${kind} fix rounds exhausted (3/3)`)
+          assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn'), [])
+        })
+      }
+
+      test('reviewer findings use the reviewer count and wording, then the re-test and the re-review', async () => {
+        const findings = body('reviewer', 2)
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' } },
+          { resume: from('developer', { findings, fixRounds: { tester: 0, reviewer: 2 } }) }
+        )
+        assert.equal(
+          tasks(r.calls, 'developer')[0],
+          `Issue #7, branch feat/7-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${findings}${PICKUP}`
+        )
+        assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
+        assert.match(tasks(r.calls, 'tester')[0], / verify the change after reviewer fix round 2\/3\./)
+        assert.equal(r.state.done, true)
+      })
+
+      test('with no count given the round is 1 and the state counts it', async () => {
+        const r = await pipeline({ developer: { STATUS: 'DONE' } }, { resume: from('developer', { findings: body('tester', 1) }) })
+        assert.match(tasks(r.calls, 'developer')[0], /tester fix round 1\/3: fix exactly/)
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 0 })
+      })
+
+      test('findings with no verdict line are read as tester findings', async () => {
+        const r = await pipeline({ developer: { STATUS: 'DONE' } }, { resume: from('developer', { findings: '1. a' }) })
+        assert.match(tasks(r.calls, 'developer')[0], /tester fix round 1\/3: fix exactly these findings:\n1\. a/)
+      })
+
+      test('a resume at the reviewer starts from the counts of the PR: two reviewer rounds used leaves one', async () => {
+        const r = await pipeline(
+          { developer: { STATUS: 'DONE' }, reviewer: [CHANGES(), CHANGES()] },
+          { resume: from('reviewer', { fixRounds: { tester: 1, reviewer: 2 } }) }
+        )
+        assert.equal(posted(r.calls)[0].split('\n')[0], '**Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 3/3)**')
+        assert.match(tasks(r.calls, 'developer')[0], /reviewer fix round 3\/3: fix exactly/)
+        assert.equal(r.state.parked, 'reviewer fix rounds exhausted (3/3)')
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 4 })
+      })
+    })
   })
 
   describe('a dry run keeps its placeholders', () => {

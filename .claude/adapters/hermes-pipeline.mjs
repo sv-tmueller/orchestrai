@@ -118,12 +118,25 @@ export function slugOf(title) {
 
 const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
 
+// Fix rounds each seat may have, counted by the reports posted on the PR.
+const MAX_ROUNDS = 3
+
+// Added to the first seat of a resumed run. The run that stopped may have sent
+// the very same prompt as its last dispatch, and a seat is never sent one prompt twice.
+const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
+
 /**
  * runPipeline(issueNumber, opts) -> result
  *
  * Runs the flat-star pipeline for a single issue. Returns an object with
  * the final state: PR number, verdicts, fix-round counts, and any parked
  * reason.
+ *
+ * Each tester FAIL and each reviewer CHANGES_REQUESTED is one fix round, up
+ * to 3 per seat. The report is posted on the PR, then the developer fixes it
+ * and the tester runs again. After a reviewer round the re-test comes first,
+ * and a FAIL there is an ordinary tester round. The 4th FAIL or CHANGES_REQUESTED
+ * parks the package.
  *
  * opts:
  * - repoOwner: the GitHub org/user (for gh commands)
@@ -134,9 +147,11 @@ const STAGES = ['architect', 'developer', 'tester', 'reviewer', 'ship']
  * - log: sink for progress lines (default: console.warn)
  * - title: the issue title, which names the branch (see slugOf)
  * - inProgress: the issue already carries in-progress, so a stop removes it
- * - resume: { stage, branch, pr, findings }. Stages before resume.stage are
- *   skipped. The order is architect, developer, tester, reviewer, ship.
- *   findings, when set, go to the developer verbatim as the fix prompt.
+ * - resume: { stage, branch, pr, findings, fixRounds }. Stages before
+ *   resume.stage are skipped. The order is architect, developer, tester,
+ *   reviewer, ship. findings, when set, is the body of the posted report whose
+ *   fixes the developer is to make. fixRounds is the count read from the PR
+ *   (see countFixRounds), and it already includes that report.
  */
 export async function runPipeline(issueNumber, opts = {}) {
   const dryRun = opts.dryRun !== undefined ? opts.dryRun : process.env.DRY_RUN === 'true'
@@ -150,6 +165,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   const plan = worktreePlan(repoRoot, issueNumber, slugOf(opts.title), { type: opts.branchType })
   const gh = createGitHub({ run, dryRun, log, cwd: repoRoot })
 
+  const resume = opts.resume
   const state = {
     issue: issueNumber,
     worktree: plan.path,
@@ -159,12 +175,11 @@ export async function runPipeline(issueNumber, opts = {}) {
     subPlan: null,
     testerVerdict: null,
     reviewerVerdict: null,
-    fixRounds: { tester: 0, reviewer: 0 },
+    fixRounds: { tester: resume?.fixRounds?.tester ?? 0, reviewer: resume?.fixRounds?.reviewer ?? 0 },
     parked: null,
     done: false,
   }
 
-  const resume = opts.resume
   const start = resume ? STAGES.indexOf(resume.stage) : 0
   const runs = (stage) => STAGES.indexOf(stage) >= start
   if (resume) {
@@ -185,14 +200,15 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.addLabel(issueNumber, 'in-progress')
   }
 
-  // A live run never turns a missing report into success: the package stops
-  // and nothing more is written for it. A dry run has no real seats, so the
-  // placeholders below stand in. The park comment and labels are #604's.
-  const noReport = (role) => {
-    state.parked = `${role} seat returned no usable report`
+  // Every stop of the package ends here, so none is silent.
+  const stop = async (reason) => {
+    state.parked = reason
     log(`parked: ${state.parked}`)
     return state
   }
+  // A live run never turns a missing report into success: the package stops.
+  // A dry run has no real seats, so the placeholders below stand in.
+  const noReport = (role) => stop(`${role} seat returned no usable report`)
   // Each seat is read as its contract prescribes. A live run accepts the exact
   // words only; a dry run keeps the old lenient read and the placeholders.
   const verdictOf = (report, valid, dryFallback) => {
@@ -203,26 +219,89 @@ export async function runPipeline(issueNumber, opts = {}) {
   const reviewerVerdict = (report) => verdictOf(report, ['APPROVE', 'CHANGES_REQUESTED'], 'APPROVE')
 
   // True when a developer report lets the run go on. BLOCKED and NEEDS_CONTEXT
-  // park. In a live run any status but DONE and DONE_WITH_CONCERNS stops.
-  const developerOk = (report) => {
+  // park: no seat contract has a job that answers a question. In a live run any
+  // status but DONE and DONE_WITH_CONCERNS stops.
+  const developerOk = async (report) => {
     const status = report?.STATUS
     if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
-      state.parked = `developer ${status}: ${report.NOTES}`
-      log(`parked: ${state.parked}`)
+      await stop(`developer ${status}: ${report.NOTES}`)
       return false
     }
     if (!dryRun && status !== 'DONE' && status !== 'DONE_WITH_CONCERNS') {
-      noReport('developer')
+      await noReport('developer')
       return false
     }
     return true
   }
 
   // Every seat runs in the package worktree. Recorded so a run can be
-  // audited for isolation after the fact.
-  const dispatch = async (role, task, tier) => {
+  // audited for isolation after the fact. exact keeps a prompt as it is,
+  // for the one the no-PR ruling on #355 fixed word for word.
+  let pickUp = Boolean(resume)
+  const dispatch = async (role, task, tier, { exact = false } = {}) => {
+    const prompt = pickUp && !exact ? `${task}${PICKUP}` : task
+    pickUp = false
     state.dispatches.push({ role, tier, cwd: plan.path })
-    return spawnSeat(role, task, { tier, cwd: plan.path })
+    return spawnSeat(role, prompt, { tier, cwd: plan.path })
+  }
+
+  // The latest fix round of this run, named in every re-test and review prompt.
+  // A repeat dispatch always follows a newer round, so no prompt goes out twice.
+  let lastFix = null
+  const after = () => (lastFix ? ` after ${lastFix.kind} fix round ${lastFix.round}/${MAX_ROUNDS}` : '')
+  const testTask = () => `Branch ${state.branch}, issue #${issueNumber}: verify the change${after()}. Run the full check suite and attack the change.`
+  // The reviewer rates the tester's untested claims, so it gets the report that carries them.
+  let testerBody = null
+  const reviewTask = () => {
+    const claims = testerBody
+      ? `\n\nUntested claims to rate under CLAIMS, by their number in this tester report:\n${testerBody}`
+      : `\n\nUntested claims to rate under CLAIMS: take them from the latest tester report comment on PR ${state.pr}.`
+    return `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue and sub-plan${after()}. Two passes: spec compliance then code quality.${claims}`
+  }
+  // The fix prompt carries the whole posted report: the parser keeps only the
+  // first line of a multi-line FINDINGS.
+  const fixTask = (kind, round, body) =>
+    `Issue #${issueNumber}, branch ${state.branch}, ${kind} fix round ${round}/${MAX_ROUNDS}: ` +
+    `${kind === 'tester' ? 'fix exactly these findings:' : 'fix exactly the must-fix findings of this review:'}\n${body}`
+  const exhausted = (kind) => stop(`${kind} fix rounds exhausted (${MAX_ROUNDS}/${MAX_ROUNDS})`)
+
+  // Posts one seat's report on the PR and returns the comment body. The seat's
+  // own text follows the header unchanged, so its VERDICT line starts a line
+  // and a later run reads it back (resumeStage, countFixRounds).
+  const postReport = async (seat, verdict, report) => {
+    const text = report?.raw?.trim() || [`VERDICT: ${verdict}`, report?.FINDINGS ? `FINDINGS: ${report.FINDINGS}` : null].filter(Boolean).join('\n')
+    const name = seat === 'tester' ? 'Tester' : 'Reviewer'
+    const body = `**${name} report: ${verdict} (issue #${issueNumber}, ${seat} fix rounds ${state.fixRounds[seat]}/${MAX_ROUNDS})**\n\n${text}`
+    await gh.prComment(state.pr, body)
+    if (seat === 'tester') testerBody = body
+    return body
+  }
+
+  // The developer fixes the findings of a posted report. False when the run stops.
+  const fixRound = async (kind, body) => {
+    lastFix = { kind, round: state.fixRounds[kind] }
+    log(`${kind} fix round ${lastFix.round}/${MAX_ROUNDS}`)
+    return developerOk(await dispatch('developer', fixTask(kind, lastFix.round, body), 'worker'))
+  }
+
+  // Tests until PASS. Each FAIL is a tester fix round. False when the run stops.
+  const testUntilPass = async () => {
+    for (;;) {
+      const report = await dispatch('tester', testTask(), 'worker')
+      state.testerVerdict = testerVerdict(report)
+      if (!state.testerVerdict) {
+        await noReport('tester')
+        return false
+      }
+      if (state.testerVerdict === 'FAIL') state.fixRounds.tester++
+      const body = await postReport('tester', state.testerVerdict, report)
+      if (state.testerVerdict === 'PASS') return true
+      if (state.fixRounds.tester > MAX_ROUNDS) {
+        await exhausted('tester')
+        return false
+      }
+      if (!(await fixRound('tester', body))) return false
+    }
   }
 
   if (!dryRun) {
@@ -237,9 +316,7 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     if (archReport?.KIND === 'NEEDS_DECISION') {
       const question = decisionQuestion(archReport)
-      state.parked = question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION'
-      log(`parked: ${state.parked}`)
-      return state
+      return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION')
     }
     // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
     // ARBITRATION, text with no header and a bare header are not posted as one.
@@ -247,8 +324,7 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     // A live seat comes back from parseReport(), with its text in `raw`.
     // `output` and `summary` are the dry-run shape.
-    state.subPlan = archReport?.raw?.trim() || archReport?.output || archReport?.summary || (dryRun ? 'sub-plan generated' : null)
-    if (!state.subPlan) return noReport('architect')
+    state.subPlan = archReport?.raw?.trim() || archReport?.output || archReport?.summary || 'sub-plan generated'
     log('sub-plan received')
 
     // The gate finds a sub-plan by a line that is exactly SUB_PLAN, so the
@@ -263,15 +339,24 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     // A branch with no PR and no findings: the work stopped before the draft PR.
     const noPrResume = resume?.stage === 'developer' && resume.branch && !resume.pr && resume.findings === undefined
-    const devTask = resume?.findings !== undefined
-      ? `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${resume.findings}`
-      : noPrResume
-      ? `Issue #${issueNumber}, branch ${state.branch}: the branch is on origin and has no PR. Fetch it, finish the work per the sub-plan, open the draft PR, and run the full check suite before reporting.`
-      : `Issue #${issueNumber}, branch ${state.branch}: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
+    let devTask
+    if (resume?.findings !== undefined) {
+      // The findings are a posted report, and the count already includes it.
+      const kind = /^VERDICT:[ \t]*CHANGES_REQUESTED\b/m.test(resume.findings.replace(/\r/g, '')) ? 'reviewer' : 'tester'
+      const round = state.fixRounds[kind] || 1
+      if (round > MAX_ROUNDS) return exhausted(kind)
+      state.fixRounds[kind] = round
+      lastFix = { kind, round }
+      devTask = fixTask(kind, round, resume.findings)
+    } else if (noPrResume) {
+      devTask = `Issue #${issueNumber}, branch ${state.branch}: the branch is on origin and has no PR. Fetch it, finish the work per the sub-plan, open the draft PR, and run the full check suite before reporting.`
+    } else {
+      devTask = `Issue #${issueNumber}, branch ${state.branch}: implement per the sub-plan. The sub-plan comment is your spec. Use TDD. Run the full check suite before reporting.`
+    }
     await ensureInProgress()
-    const devReport = await dispatch('developer', devTask, 'worker')
+    const devReport = await dispatch('developer', devTask, 'worker', { exact: noPrResume })
 
-    if (!developerOk(devReport)) return state
+    if (!(await developerOk(devReport))) return state
 
     // A PR the report names must be a pull request URL or a number. An empty
     // or missing one falls back to the gate's.
@@ -283,77 +368,30 @@ export async function runPipeline(issueNumber, opts = {}) {
   }
 
   // No seat prompt is built with a null PR, and a package with no PR cannot ship.
-  if (!state.pr) {
-    state.parked = 'no PR to mark ready'
-    log(`parked: ${state.parked}`)
-    return state
-  }
+  if (!state.pr) return stop('no PR to mark ready')
 
   // --- Stage 3: Tester (verify) ---
-  const testTask = `Branch ${state.branch}, issue #${issueNumber}: verify the change. Run the full check suite and attack the change.`
   if (runs('tester')) {
     log('stage 3: tester verify')
     await ensureInProgress()
-    const testReport = await dispatch('tester', testTask, 'worker')
-    state.testerVerdict = testerVerdict(testReport)
-    if (!state.testerVerdict) return noReport('tester')
-
-    if (state.testerVerdict === 'FAIL') {
-      state.fixRounds.tester++
-      if (state.fixRounds.tester > 3) {
-        state.parked = 'tester fix rounds exhausted (3/3)'
-        log(`parked: ${state.parked}`)
-        return state
-      }
-      // Fix round: send findings back to developer, then re-test
-      log(`tester FAIL, fix round ${state.fixRounds.tester}/3`)
-      const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these findings:\n${testReport?.FINDINGS || testReport?.findings || 'findings'}`
-      if (!developerOk(await dispatch('developer', fixTask, 'worker'))) return state
-      // Re-test
-      const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = testerVerdict(reTestReport)
-      if (!state.testerVerdict) return noReport('tester')
-      if (state.testerVerdict === 'FAIL') {
-        state.parked = 'tester FAIL after fix round'
-        log(`parked: ${state.parked}`)
-        return state
-      }
-    }
+    if (!(await testUntilPass())) return state
     log(`tester ${state.testerVerdict}`)
   }
 
   // --- Stage 4: Reviewer (review) ---
-  const reviewTask = `PR ${state.pr}, issue #${issueNumber}: review the diff against the issue and sub-plan. Two passes: spec compliance then code quality.`
   if (runs('reviewer')) {
     log('stage 4: reviewer review')
-    const reviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-    state.reviewerVerdict = reviewerVerdict(reviewReport)
-    if (!state.reviewerVerdict) return noReport('reviewer')
-
-    if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
-      state.fixRounds.reviewer++
-      if (state.fixRounds.reviewer > 3) {
-        state.parked = 'reviewer fix rounds exhausted (3/3)'
-        log(`parked: ${state.parked}`)
-        return state
-      }
-      // Fix round: send must-fix findings to developer, re-test, re-review
-      log(`reviewer CHANGES_REQUESTED, fix round ${state.fixRounds.reviewer}/3`)
-      const fixTask = `Issue #${issueNumber}, branch ${state.branch}: fix exactly these must-fix findings:\n${reviewReport?.FINDINGS || reviewReport?.findings || 'findings'}`
-      if (!developerOk(await dispatch('developer', fixTask, 'worker'))) return state
-      // Re-test
-      const reTestReport = await dispatch('tester', testTask, 'worker')
-      state.testerVerdict = testerVerdict(reTestReport)
-      if (!state.testerVerdict) return noReport('tester')
-      // Re-review
-      const reReviewReport = await dispatch('reviewer', reviewTask, 'judgment')
-      state.reviewerVerdict = reviewerVerdict(reReviewReport)
+    for (;;) {
+      const report = await dispatch('reviewer', reviewTask(), 'judgment')
+      state.reviewerVerdict = reviewerVerdict(report)
       if (!state.reviewerVerdict) return noReport('reviewer')
-      if (state.reviewerVerdict === 'CHANGES_REQUESTED') {
-        state.parked = 'reviewer CHANGES_REQUESTED after fix round'
-        log(`parked: ${state.parked}`)
-        return state
-      }
+      if (state.reviewerVerdict === 'CHANGES_REQUESTED') state.fixRounds.reviewer++
+      const body = await postReport('reviewer', state.reviewerVerdict, report)
+      if (state.reviewerVerdict === 'APPROVE') break
+      if (state.fixRounds.reviewer > MAX_ROUNDS) return exhausted('reviewer')
+      // Fix round: the must-fix findings go to the developer, then the re-test, then the re-review.
+      if (!(await fixRound('reviewer', body))) return state
+      if (!(await testUntilPass())) return state
     }
     log(`reviewer ${state.reviewerVerdict}`)
   }
@@ -367,7 +405,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.removeLabel(issueNumber, 'in-progress')
     await gh.comment(issueNumber, `Pipeline complete. PR ready: ${state.pr}`)
   } else {
-    state.parked = `unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`
+    return stop(`unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`)
   }
 
   return state
