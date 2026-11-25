@@ -258,7 +258,7 @@ In a live run each stage accepts only the report its contract prescribes:
   of an accepted sub-plan that is not blank under JavaScript's `trim()`, with the
   readers' rule (a line feed ends a line, and a CR before it is dropped). When
   that line starts with `Size check: exceeds` at its first character, followed by
-  a non-word character or the end of the line, the driver posts the sub-plan and
+  a word boundary (JavaScript's `\b`), the driver posts the sub-plan and
   then parks the package with the reason
   `architect size check: the work exceeds the size label`. The comparison is
   case-sensitive. No developer runs. These do not stop the package: the words on
@@ -475,7 +475,8 @@ line end. These seven are Unicode's mandatory line breaks, and other consumers o
 - So `state.parked`, the first line of a park comment, every line of the summary
   comment, every result line on stdout and every line of the report hold none of
   the seven. The `error` line of a package is cut with `oneLine`, the same cut
-  as every other single line.
+  as every other single line. So is the detail of a gate line, which can hold a
+  branch name read from origin.
 
 The developer's `PR` value is cut to its single line before it is checked, so a
 value with a blank first line is judged by its first non-blank line. It is

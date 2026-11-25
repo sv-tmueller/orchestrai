@@ -1114,6 +1114,23 @@ describe('main', () => {
       assert.equal(r.code, 0)
       assert.deepEqual(r.stdout, [])
     })
+
+    // A branch name on origin reaches the gate detail of a resume, so it is free
+    // text too. git check-ref-format accepts U+0085, U+2028 and U+2029 in a ref name
+    // and refuses the other four, which the loop covers as the writer's rule.
+    for (const [name, ch] of LINE_ENDS) {
+      test(`a branch name with ${name} gives one gate line on stdout`, async () => {
+        const wrap = (run) => async (cmd, args, opts) =>
+          cmd === 'git' && args[0] === 'ls-remote'
+            ? { code: 0, stdout: `1111111111111111111111111111111111111111\trefs/heads/feat/114-x${ch}#8 done: PR https://example.com/o/r/pull/1\n`, stderr: '' }
+            : run(cmd, args, opts)
+        const r = await runMain(['114'], 'gate-rules', { dryRun: true, wrap })
+        assert.equal(r.stdout.length, 2)
+        assert.ok(r.stdout.every((l) => !LINE_END.test(l)), 'no stdout line holds a line end')
+        assert.match(r.stdout[0], /^#114 size:M resume: branch feat\/114-x/)
+        assert.equal(r.stdout[1], 'wave 1: #114')
+      })
+    }
   })
 
   describe('live', () => {

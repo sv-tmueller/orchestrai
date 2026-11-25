@@ -897,7 +897,9 @@ async function gateIssue(issue, gh, view) {
   return result
 }
 
-export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${e.detail}`
+// The detail can hold a branch name from origin, which is free text, so it is one
+// line like every other text on stdout.
+export const formatGateLine = (e) => `#${e.issue} ${e.size} ${e.outcome}: ${oneLine(e.detail)}`
 
 /**
  * formatReport(entries, results) -> lines
