@@ -133,8 +133,11 @@ mirroring is pending. Hermes already caps fix rounds at 3 per stage.
 - `.claude/team-guide.md` - team process guidance (agent roster, advisor
   model, model policy, how to pick up a task).
 - `.claude/process-core.md` - neutral rules (issues, branches, sizing,
-  commits, tests, CI, writing style). Imported by the repo `CLAUDE.md` or
-  `AGENTS.md`.
+  commits, tests, CI, writing style). Imported by the repo `CLAUDE.md`;
+  `AGENTS.md` names it for other harnesses.
+- `AGENTS.md` - the repo's orientation for every harness and seat (what the
+  repo is, where decisions live, code style, layout, useful commands).
+  `CLAUDE.md` is a thin import of it plus the Claude-only lines.
 - `NEW-PROJECT-SETUP.md` - once-per-repo adoption checklist.
 
 ## Repo guard
