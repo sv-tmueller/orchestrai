@@ -305,9 +305,12 @@ In a live run with at least one gate entry the report follows the result lines
 line reads `#<n> error: <reason>`, and every other package still runs and
 reports. The reason is the single line of the failed command's stderr, cut as
 described under "Parking". When the error is not a failed command, it is the
-single line of the error's message, cut the same way. A failure at the gate
-prints one line on stderr instead: the command with its arguments on one line (a
-newline in an argument shows as a space), then the single line of its stderr.
+single line of the error's message, cut the same way. A failed command at the
+gate prints one line on stderr instead: the command with its arguments on one
+line (a newline in an argument shows as a space), then the single line of its
+stderr. An answer the gate cannot accept prints its fixed message on stderr: a
+PR list as above, or an issue read (`gh issue list`, `gh issue view`) whose
+`number` is not a positive integer.
 Progress, dry-run notes and errors go to stderr.
 
 `DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
@@ -396,6 +399,11 @@ no seat text. `in-progress` comes off and the PR stays a draft. The
 driver does not edit the PR: a person adds `Closes #<n>` and removes
 `needs-human`, and the next gate finds the draft PR and resumes at ship from
 the `APPROVE` comment. A dry run makes no read.
+
+The driver accepts the answer only when it is an object whose `number` is a
+positive integer and whose `closingIssuesReferences` is a list, and the gate
+accepts its PR list only when every entry has such a `number`. Anything else is
+a failed read: the package, or the run, gets an error.
 
 The summary comment on the issue is:
 
@@ -496,8 +504,9 @@ cut as above.
 The stops are: an architect `NEEDS_DECISION`, an architect size check that says
 the work exceeds the size label, a developer `BLOCKED` or `NEEDS_CONTEXT`, a
 seat with no usable report, an exhausted count, no PR to mark ready, a PR that
-does not close the issue, and an unexpected final state. The result line on
-stdout is `#<n> parked: <reason>`, with that same one-line reason.
+does not close the issue, and an unexpected final state. The size-check stop
+applies in a live run only: a dry run does not stop on a Size check line. The
+result line on stdout is `#<n> parked: <reason>`, with that same one-line reason.
 
 ### Branch name
 
