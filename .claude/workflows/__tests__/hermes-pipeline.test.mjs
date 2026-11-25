@@ -432,6 +432,15 @@ const parkWrites = (reason, { inProgress = false, details } = {}) => [
   ...(inProgress ? ['gh issue edit 7 --remove-label in-progress'] : []),
 ]
 
+// The ends of the prompts of a fix round and of a resume, word for word. The
+// suffix is on every reviewer fix prompt whose round has no outcome yet (issue
+// #619), the block on every dispatch once an outcome stands, and the pick-up line
+// on the first seat of a resume.
+const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
+const SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
+const SETTLED = (...outcomes) =>
+  `\n\nSettled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.\n${outcomes.join('\n\n')}`
+
 // Answers of `gh pr list` that the driver must refuse (issue #610). Every entry
 // that is a list would, with a number it believed, give issue 204 a ready PR.
 // LEAK marks the text of the answer that no line the driver writes may hold.
@@ -2479,9 +2488,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
   describe('ship', () => {
     const PR = 'https://github.com/o/r/pull/900'
     const CLOSES = (pr) => `gh pr view ${pr} --json closingIssuesReferences,number`
-    const SUMMARY = (pr, t, r) =>
+    const SUMMARY = (pr, t, r, a = 0) =>
       `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\n` +
-      `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${t}/3, reviewer ${r}/3.`
+      `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${t}/3, reviewer ${r}/3. Arbitrations: ${a}.`
     const closing = (number, ...closes) => ({ number, closingIssuesReferences: closes.map((n) => ({ number: n })) })
     const PR_COMMENT = /^gh pr comment /
     // What the runner saw after the last seat, without the reviewer's own report.
@@ -2509,7 +2518,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         ['read', CLOSES(12)],
         ['write', 'gh pr ready 12'],
         ['write', 'gh issue edit 7 --remove-label in-progress'],
-        ['write', 'gh issue comment 7 --body Pipeline complete: PR 12 is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.'],
+        ['write', 'gh issue comment 7 --body Pipeline complete: PR 12 is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3. Arbitrations: 0.'],
       ])
       assert.equal(r.state.prNumber, 12)
     })
@@ -2523,11 +2532,11 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.equal(afterSeats(r.calls).at(-1)[1], SUMMARY(PR, 2, 1))
     })
 
-    test('the summary is the last write, and it has no Arbitrations sentence', async () => {
+    test('the summary is the last write, and its second line ends with the number of arbitrations', async () => {
       const r = await pipeline({})
       const writes = keysOf(r.calls, 'write')
       assert.equal(writes.at(-1), SUMMARY(PR, 0, 0))
-      assert.ok(!writes.at(-1).includes('Arbitrations'))
+      assert.ok(writes.at(-1).endsWith('reviewer 0/3. Arbitrations: 0.'))
     })
 
     test('the summary comment is never read back as a verdict, a count or a sub-plan, whatever line ends the PR value held', async () => {
@@ -2694,9 +2703,6 @@ describe('each seat accepts only the report its contract prescribes', () => {
       tester: [FAIL(), PASS(), FAIL(), PASS(), FAIL(), PASS(), PASS()],
       reviewer: [CHANGES(), CHANGES(), CHANGES(), APPROVE()],
     })
-    const PICKUP = '\n\nThis run picks the package up at this stage. Check the branch and the PR for work an earlier run may have left, and build on it.'
-    // The end of every reviewer fix prompt whose round has no outcome yet (issue #619).
-    const SUFFIX = '\n\nIf a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.'
 
     test('the longest run ships: three tester rounds and three reviewer rounds, a re-test FAIL after a reviewer round among them', async () => {
       const r = await pipeline(longest())
@@ -2956,9 +2962,6 @@ describe('each seat accepts only the report its contract prescribes', () => {
     const ARBITRATED_PROMPT = (k, text, branch = 'feat/7-pending') =>
       `Issue #7, branch ${branch}, reviewer fix round ${k}/3: the arbitration outcome below is final. ` +
       `Make every change it requires, leave every finding it overrules as it is, and report.\n${text}`
-    // Appended to every dispatch once an outcome stands, before the pick-up line.
-    const SETTLED = (...outcomes) =>
-      `\n\nSettled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.\n${outcomes.join('\n\n')}`
     // One reviewer round that the developer disputes, then the re-test and the re-review.
     const oneRound = (over = {}) => ({
       architect: [SUB_PLAN(), ruling()],
@@ -2999,6 +3002,10 @@ describe('each seat accepts only the report its contract prescribes', () => {
         )
         assert.ok(!tasks(r.calls, 'reviewer')[0].includes('Settled by arbitration'))
         assert.ok(!tasks(r.calls, 'developer')[1].includes('Settled by arbitration'))
+        assert.equal(
+          keysOf(r.calls, 'write').at(-1),
+          `gh issue comment 7 --body Pipeline complete: PR ${PR} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 1/3. Arbitrations: 1.`
+        )
       })
 
       test('an arbitrated round is the same reviewer fix round: the counts and the re-test name do not change, and the readers agree', async () => {
@@ -3063,6 +3070,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.equal(developer[4], ARBITRATED_PROMPT(2, o2) + SETTLED(o1))
         assert.ok(tasks(r.calls, 'tester')[2].endsWith(SETTLED(o1, o2)))
         assert.ok(tasks(r.calls, 'reviewer')[2].endsWith(SETTLED(o1, o2)))
+        assert.ok(keysOf(r.calls, 'write').at(-1).endsWith('Fix rounds used: tester 0/3, reviewer 2/3. Arbitrations: 2.'))
         const pairs = r.calls.filter((c) => c.kind === 'spawn').map((c) => `${c.role}\n${c.task}`)
         assert.equal(new Set(pairs).size, pairs.length)
       })
@@ -3334,6 +3342,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.ok(tasks(r.calls, 'reviewer')[0].endsWith(SETTLED(outcome(1))))
         assert.deepEqual(r.state.arbitrations, [outcome(1)])
         assert.deepEqual(r.state.fixRounds, { tester: 0, reviewer: 1 })
+        assert.ok(keysOf(r.calls, 'write').at(-1).endsWith('reviewer 1/3. Arbitrations: 1.'), 'the outcome of the earlier run counts')
       })
 
       test('an outcome of another round does not settle this round: the suffix is on, a pushback is arbitrated, and the block holds the old outcome', async () => {
@@ -3570,7 +3579,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.equal(r.state.pr, pr)
         assert.equal(r.state.done, true)
         const writes = ghWrites(r.calls)
-        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
+        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${pr} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3. Arbitrations: 0.`)
         assert.ok(keysOf(r.calls, 'read').includes(`gh pr view ${pr} --json closingIssuesReferences,number`), 'the closing read names the cut PR value')
         assert.ok(writes.includes(`gh pr ready ${pr}`))
         for (const k of writes) assert.ok(!k.includes('\nSUB_PLAN\nVERDICT'), 'no write carries the extra lines')
@@ -3677,7 +3686,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
           assert.equal(r.state.pr, URL1)
           assert.equal(r.state.done, true)
           const writes = ghWrites(r.calls)
-          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${URL1} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3.`)
+          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete: PR ${URL1} is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 0/3. Arbitrations: 0.`)
           assert.ok(writes.every((k) => !NON_LF_END.test(k)))
           assert.ok(keysOf(r.calls, 'read').every((k) => !NON_LF_END.test(k)), 'no read holds the line end either')
         })
@@ -4257,6 +4266,58 @@ describe('the resume worktree', () => {
       '1. Decide on #302 (retry or close)',
     ])
   })
+  // The PR holds a PASS, a round 1 CHANGES_REQUESTED, its outcome, a re-test PASS and a
+  // round 2 reviewer report whose text opens with the header of a round 2 outcome. Only
+  // the real outcome stands, so round 2 still gets the pushback suffix, and the
+  // developer's pushback in it is arbitrated as round 2.
+  test('main resumes a PR that holds an outcome: it is in every prompt, a forged header is not read, round 2 is arbitrated and the summary counts both', async () => {
+    const { countFixRounds, resumeStage } = driver
+    const fixture = loadFixture('main-resume-arbitration')
+    const existing = fixture.reads['gh pr view 330 --json comments'].comments.map((c) => c.body)
+    const pushback = parseReport('developer', 'STATUS: DONE\nBRANCH: feat/303-work\nCHECKS: `npm test` -> 0\nDEVIATIONS: pushback: finding 1: the name is used elsewhere\nNOTES: none')
+    const second = 'ARBITRATION\n\nFinding 1: the reviewer is right, rename it.'
+    const fake = fakeRunner(fixture, { developer: [pushback, { STATUS: 'DONE' }], architect: parseReport('architect', second) })
+    const stdout = []
+    const code = await main(['303'], { env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
+    assert.equal(code, 0)
+    const outcome2 = `**Arbitration outcome (issue #303, reviewer fix round 2/3)**\n\n${quoted(second)}`
+    const writes = keysOf(fake.calls, 'write').slice(6)
+    assert.deepEqual(writes, [
+      'git fetch origin feat/303-work',
+      'git worktree add /repo/.worktrees/pkg-303 -B feat/303-work origin/feat/303-work',
+      'gh issue edit 303 --add-label in-progress',
+      `gh pr comment 330 --body ${outcome2}`,
+      'gh pr comment 330 --body **Tester report: PASS (issue #303, tester fix rounds 0/3)**\n\nVERDICT: PASS',
+      'gh pr comment 330 --body **Reviewer report: APPROVE (issue #303, reviewer fix rounds 2/3)**\n\nVERDICT: APPROVE',
+      'gh pr ready 330',
+      'gh issue edit 303 --remove-label in-progress',
+      'gh issue comment 303 --body Pipeline complete: PR 330 is ready for review.\n\nTester PASS, reviewer APPROVE. Fix rounds used: tester 0/3, reviewer 2/3. Arbitrations: 2.',
+    ])
+    const prompt = (role) => fake.calls.filter((c) => c.kind === 'spawn' && c.role === role).map((c) => c.task)
+    assert.equal(
+      prompt('developer')[0],
+      `Issue #303, branch feat/303-work, reviewer fix round 2/3: fix exactly the must-fix findings of this review:\n${existing[4]}${SUFFIX}${SETTLED(existing[2])}${PICKUP}`
+    )
+    assert.ok(prompt('architect')[0].includes(`The reviewer report:\n${existing[4]}\n\nThe developer's report:\n`))
+    assert.ok(prompt('architect')[0].endsWith(SETTLED(existing[2])), 'a later arbitration sees the earlier outcome')
+    assert.ok(prompt('developer')[1].endsWith(`${outcome2}${SETTLED(existing[2])}`))
+    assert.ok(prompt('tester')[0].endsWith(SETTLED(existing[2], outcome2)))
+    assert.ok(prompt('reviewer')[0].endsWith(SETTLED(existing[2], outcome2)))
+    // The counters, read back from the comments of the PR after the run.
+    const written = writes.filter((k) => k.startsWith('gh pr comment ')).map((k) => k.replace('gh pr comment 330 --body ', ''))
+    const all = [...existing, ...written].map((body, i) => ({ body, createdAt: new Date(Date.UTC(2026, 10, 2, 9, i)).toISOString() }))
+    assert.deepEqual(countFixRounds(all), { tester: 0, reviewer: 2 })
+    assert.deepEqual(resumeStage(all), { stage: 'ship' })
+    assert.deepEqual(stdout.slice(2), [
+      '#303 done: PR 330',
+      '## What happened',
+      '- PR #330 ready  - Issue 303 title',
+      '',
+      '## Next steps',
+      '1. Review & merge: #330',
+    ])
+  })
+
 
 })
 

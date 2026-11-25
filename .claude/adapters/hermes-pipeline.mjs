@@ -491,7 +491,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.comment(
       issueNumber,
       `Pipeline complete: PR ${state.pr} is ready for review.\n\n` +
-        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}.`
+        `Tester PASS, reviewer APPROVE. Fix rounds used: tester ${state.fixRounds.tester}/${MAX_ROUNDS}, reviewer ${state.fixRounds.reviewer}/${MAX_ROUNDS}. Arbitrations: ${state.arbitrations.length}.`
     )
     // Only a package whose writes all went through is done.
     state.done = true
