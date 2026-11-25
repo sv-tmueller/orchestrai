@@ -1135,6 +1135,17 @@ const CARRY_FALSE = {
   allow_fork_syncing: false,
   dismiss_stale_reviews: false,
 }
+// The six labels tm-kickoff and tm-advisor also create. The values are copied here on
+// purpose: a change to the script's table has to show up as a test failure.
+const LABELS = [
+  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
+  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours.' },
+  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
+  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
+  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
+  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
+]
+const FLOW_LABELS = LABELS.map((l) => ({ name: l.name, color: l.color, description: l.description }))
 const PROTECTED = {
   kind: 'present',
   requiredChecks: ['Unit tests'],
@@ -1395,11 +1406,25 @@ describe('evaluate', () => {
   })
 
   test('set up exactly when not blocked, no CI is needed and there are no writes', () => {
-    for (const [name, facts] of Object.entries(FIXTURES)) {
+    // Only fixtures with the pipeline labels: Apply writes the labels on every repo
+    // without them, a gap the next test covers.
+    for (const [name, fixture] of Object.entries(FIXTURES)) {
+      if (!fixture.pipelineLabels) continue
+      const facts = { ...fixture, labels: FLOW_LABELS }
       const plan = planChanges(facts)
       const nothingToDo = plan.blocked === null && !plan.needsCi && buildWrites(TARGET, facts).length === 0
       assert.equal(evaluate(facts).state === 'set up', nothingToDo, name)
     }
+  })
+
+  test('a repo without the pipeline labels reads as set up in Check, and Apply still writes the labels and the review check', () => {
+    // Check does not count the labels as a gap: the guard treats a repo that is not set up
+    // as closed to writes, and the labels come with the first Apply (#651).
+    const facts = FIXTURES['fully set up']
+    assert.equal(evaluate(facts).state, 'set up')
+    const ops = buildWrites(TARGET, facts)
+    assert.deepEqual(ops.slice(0, 6), LABELS.map(labelPost))
+    assert.deepEqual(ops[6].body.required_status_checks.contexts, ['Unit tests', 'orchestrai/review'])
   })
 
   test('the new items show as missing', () => {
@@ -1956,16 +1981,6 @@ describe('render', () => {
 
 const TARGET = { repo: 'octo/widget', branch: 'main' }
 
-// The six labels tm-kickoff and tm-advisor also create. The values are copied here on
-// purpose: a change to the script's table has to show up as a test failure.
-const LABELS = [
-  { name: 'size:S', color: 'c2e0c6', description: 'Under 1 hour. One focused change.' },
-  { name: 'size:M', color: 'BFD4F2', description: '1 to 3 hours.' },
-  { name: 'size:L', color: 'F9D0C4', description: '4 to 6 hours. Split or checkpoint.' },
-  { name: 'size:XL', color: 'D93F0B', description: 'About 8 hours. Too big. Split it.' },
-  { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched by /kickoff; resume, do not restart.' },
-  { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
-]
 const labelPost = (l) => ({ method: 'POST', path: 'repos/octo/widget/labels', body: { name: l.name, color: l.color, description: l.description } })
 const labelPatch = (l) => ({
   method: 'PATCH',
@@ -1974,14 +1989,23 @@ const labelPatch = (l) => ({
 })
 
 // The PUT body Apply sends for a repo with no protection and one current check.
-const noProtection = baseFacts({ protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
+// A repo whose six labels are in place and whose protection already requires the review check, so
+// what is left to write is only what a test changes.
+const labeled = (over = {}) =>
+  baseFacts({
+    labels: FLOW_LABELS,
+    pipelineLabels: true,
+    protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review'] },
+    ...over,
+  })
+const noProtection = labeled({ protection: { kind: 'none' }, allowAutoMerge: false, allowSquashMerge: false })
 
 // ---------------------------------------------------------------------------
 // buildWrites
 // ---------------------------------------------------------------------------
 describe('buildWrites', () => {
   const putBody = (over = {}) => ({
-    required_status_checks: { strict: false, contexts: ['Unit tests'] },
+    required_status_checks: { strict: false, contexts: ['Unit tests', 'orchestrai/review'] },
     enforce_admins: true,
     required_pull_request_reviews: {
       required_approving_review_count: 0,
@@ -2008,10 +2032,10 @@ describe('buildWrites', () => {
   })
 
   test('repo only: one PATCH with just the settings that are off', () => {
-    assert.deepEqual(buildWrites(TARGET, baseFacts({ allowAutoMerge: false })), [
+    assert.deepEqual(buildWrites(TARGET, labeled({ allowAutoMerge: false })), [
       { method: 'PATCH', path: 'repos/octo/widget', body: { allow_auto_merge: true } },
     ])
-    assert.deepEqual(buildWrites(TARGET, baseFacts({ allowSquashMerge: false })), [
+    assert.deepEqual(buildWrites(TARGET, labeled({ allowSquashMerge: false })), [
       { method: 'PATCH', path: 'repos/octo/widget', body: { allow_squash_merge: true } },
     ])
   })
@@ -2026,11 +2050,11 @@ describe('buildWrites', () => {
   })
 
   test('nothing to change gives no writes', () => {
-    assert.deepEqual(buildWrites(TARGET, baseFacts()), [])
+    assert.deepEqual(buildWrites(TARGET, labeled()), [])
   })
 
   test('copied values pass through into the PUT', () => {
-    const facts = baseFacts({
+    const facts = labeled({
       protection: {
         ...PROTECTED,
         prRequired: false,
@@ -2054,7 +2078,7 @@ describe('buildWrites', () => {
   })
 
   test('required contexts are the desired set, sorted', () => {
-    const facts = baseFacts({
+    const facts = labeled({
       pipelineLabels: true,
       ciChecks: ['zz', 'Unit tests'],
       protection: { ...PROTECTED, requiredChecks: ['Gone'] },
@@ -2067,7 +2091,7 @@ describe('buildWrites', () => {
   })
 
   test('a repo with up to date required gets a PUT that turns it off (#630)', () => {
-    const [put, ...rest] = buildWrites(TARGET, FIXTURES['strict on'])
+    const [put, ...rest] = buildWrites(TARGET, { ...FIXTURES['strict on'], labels: FLOW_LABELS })
     assert.equal(rest.length, 0)
     assert.equal(put.method, 'PUT')
     assert.equal(put.body.required_status_checks.strict, false)
@@ -2081,12 +2105,14 @@ describe('buildWrites', () => {
   test('returns no writes exactly when there is nothing to change', () => {
     // The CI setup path writes the labels and the tests check, so what is left
     // to change is judged on the facts after Apply, as buildWrites does.
-    for (const [name, facts] of Object.entries(FIXTURES)) {
+    // Labels are written on every apply, so a fixture is judged with its labels in place.
+    for (const [name, fixture] of Object.entries(FIXTURES)) {
+      const facts = { ...fixture, labels: FLOW_LABELS }
       assert.equal(buildWrites(TARGET, facts).length === 0, planChanges(factsAfterApply(facts)).changes.length === 0, name)
     }
   })
 
-  describe('labels on the CI setup path', () => {
+  describe('labels on every apply', () => {
     // Test files and no finished PR check: where Apply refuses today.
     const ciPath = (over = {}) => baseFacts({ ...NO_CI, ...over })
     const labelOps = (ops) => ops.filter((o) => o.path.includes('/labels'))
@@ -2139,12 +2165,43 @@ describe('buildWrites', () => {
       assert.deepEqual(ops, LABELS.map(labelPost))
     })
 
-    test('a repo that already has CI gets no label writes', () => {
-      assert.deepEqual(labelOps(buildWrites(TARGET, baseFacts({ protection: { kind: 'none' } }))), [])
+    test('a repo with CI and no labels gets the six creates, then a PUT that requires the review check', () => {
+      const ops = buildWrites(TARGET, baseFacts({ protection: { kind: 'none' } }))
+      assert.deepEqual(ops.slice(0, 6), LABELS.map(labelPost))
+      assert.equal(ops[6].method, 'PUT')
+      assert.deepEqual(ops[6].body.required_status_checks.contexts, ['Unit tests', 'orchestrai/review'])
     })
 
-    test('a repo with no test files gets no label writes', () => {
-      assert.deepEqual(labelOps(buildWrites(TARGET, ciPath({ testFileCount: 0, protection: { kind: 'none' } }))), [])
+    test('a protected repo with CI and no labels gets the creates and a PUT that adds the review check', () => {
+      const ops = buildWrites(TARGET, baseFacts())
+      assert.deepEqual(ops.slice(0, 6), LABELS.map(labelPost))
+      assert.deepEqual(
+        ops.slice(6).map((o) => [o.method, o.body.required_status_checks.contexts]),
+        [['PUT', ['Unit tests', 'orchestrai/review']]]
+      )
+    })
+
+    test('a repo with CI, matching labels and the review check required gets no writes', () => {
+      const facts = baseFacts({
+        labels: LABELS.map((l) => have(l)),
+        pipelineLabels: true,
+        protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review'] },
+      })
+      assert.deepEqual(buildWrites(TARGET, facts), [])
+    })
+
+    test('a repo with CI and one label off gets one PATCH and no PUT when the review check is already required', () => {
+      const facts = baseFacts({
+        labels: LABELS.map((l) => have(l, l.name === 'size:M' ? { color: '000000' } : {})),
+        pipelineLabels: true,
+        protection: { ...PROTECTED, requiredChecks: ['Unit tests', 'orchestrai/review'] },
+      })
+      assert.deepEqual(buildWrites(TARGET, facts), [labelPatch(LABELS[1])])
+    })
+
+    test('a repo with no test files and no CI gets the labels too', () => {
+      const ops = labelOps(buildWrites(TARGET, ciPath({ testFileCount: 0, protection: { kind: 'none' } })))
+      assert.deepEqual(ops, LABELS.map(labelPost))
     })
 
     test('every label write passes the write fence and fails the read guard', () => {
@@ -2169,11 +2226,18 @@ describe('buildWrites', () => {
       assert.equal(facts.pipelineLabels, false)
     })
 
-    test('anywhere else it returns the facts as they are', () => {
-      const withCi = baseFacts()
-      const noTests = baseFacts({ ...NO_CI, testFileCount: 0 })
-      assert.equal(factsAfterApply(withCi), withCi)
-      assert.equal(factsAfterApply(noTests), noTests)
+    test('on a repo with CI it adds the pipeline labels and keeps the checks', () => {
+      const facts = baseFacts()
+      const after = factsAfterApply(facts)
+      assert.deepEqual(after.ciChecks, ['Unit tests'])
+      assert.equal(after.pipelineLabels, true)
+      assert.equal(facts.pipelineLabels, false, 'the input is not changed')
+    })
+
+    test('on a repo with no test files it adds the pipeline labels and no tests check', () => {
+      const after = factsAfterApply(baseFacts({ ...NO_CI, testFileCount: 0 }))
+      assert.deepEqual(after.ciChecks, [])
+      assert.equal(after.pipelineLabels, true)
     })
 
     test('the plan after Apply is one the read after the writes calls set up', () => {
@@ -2219,10 +2283,10 @@ describe('confirmToken', () => {
   })
 
   test('a token for a plan without CI is the same as before the ci argument existed', () => {
-    // Pinned from the code as it stood before #551, so a change here breaks every shown token. Re-taken in #630, when the PUT body went to strict: false.
-    assert.equal(confirmToken(TARGET, ops), '60469ca6464f')
-    assert.equal(confirmToken(TARGET, ops, undefined), '60469ca6464f')
-    assert.equal(confirmToken(TARGET, ops, null), '60469ca6464f')
+    // Pinned from the code as it stood before #551, so a change here breaks every shown token. Re-taken in #630, when the PUT body went to strict: false, and in #651, when the PUT began to require the review check on every apply.
+    assert.equal(confirmToken(TARGET, ops), '56f5479774ca')
+    assert.equal(confirmToken(TARGET, ops, undefined), '56f5479774ca')
+    assert.equal(confirmToken(TARGET, ops, null), '56f5479774ca')
   })
 
   test('covers the ci object, the file text included', () => {
@@ -3063,6 +3127,8 @@ describe('runApply', () => {
 
   const tokenOf = (text) => text.match(/^confirm token: ([0-9a-f]{12})$/m)?.[1]
   const apply = (fake, ...argv) => runApply(fake.run, argv, fake.clock)
+  // A repo whose six labels exist: what is left to write is only what a test sets up.
+  const labeledFake = (over = {}) => makeFake({ labels: FLOW_LABELS, ...over })
 
   // A fully set up repo, as the fake reports it.
   const SET_UP_PROTECTION = {
@@ -3073,16 +3139,22 @@ describe('runApply', () => {
     allow_deletions: { enabled: false },
   }
 
+  // Fully set up when the six labels exist: the review check is required with them.
+  const REVIEWED_PROTECTION = {
+    ...SET_UP_PROTECTION,
+    required_status_checks: { strict: false, contexts: ['Unit tests', 'orchestrai/review'] },
+  }
+
   describe('plan mode', () => {
     test('prints the changes, the checks, the writes and a token, and only reads', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
       assert.match(text, /^octo\/widget: not set up/m)
       assert.match(text, /^ {2}branch protection$/m)
       assert.match(text, /^ {2}auto merge on$/m)
       assert.match(text, /^ {2}squash merge allowed$/m)
-      assert.match(text, /^required checks after apply: Unit tests$/m)
+      assert.match(text, /^required checks after apply: Unit tests, orchestrai\/review$/m)
       assert.match(text, /^ {2}PUT repos\/octo\/widget\/branches\/main\/protection$/m)
       assert.match(text, /^ {2}PATCH repos\/octo\/widget$/m)
       assert.ok(tokenOf(text), 'no token line')
@@ -3095,13 +3167,13 @@ describe('runApply', () => {
     })
 
     test('names a check that no longer runs', () => {
-      const fake = makeFake({ prs: [pr(12, [done('Unit tests')]), pr(11, [done('Unit tests'), done('Version bump guard')])] })
+      const fake = labeledFake({ prs: [pr(12, [done('Unit tests')]), pr(11, [done('Unit tests'), done('Version bump guard')])] })
       assert.match(apply(fake, 'widget').text, /^not required: no longer runs: Version bump guard$/m)
     })
 
     test('lists a required check that no longer runs as stop requiring', () => {
       const prot = { ...SET_UP_PROTECTION, required_status_checks: { strict: false, contexts: ['Unit tests', 'Gone'] } }
-      const fake = makeFake({ protection: prot, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const fake = labeledFake({ protection: prot, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { text } = apply(fake, 'widget')
       assert.match(text, /^ {2}stop requiring: Gone$/m)
       assert.match(text, /^ {2}PUT /m)
@@ -3109,13 +3181,13 @@ describe('runApply', () => {
     })
 
     test('a short name and owner/name give the same plan and token', () => {
-      const a = apply(makeFake(), 'widget')
-      const b = apply(makeFake(), 'octo/widget')
+      const a = apply(labeledFake(), 'widget')
+      const b = apply(labeledFake(), 'octo/widget')
       assert.equal(a.text, b.text)
     })
 
     test('the owner is matched without regard to case', () => {
-      const { code, text } = apply(makeFake(), 'Octo/widget')
+      const { code, text } = apply(labeledFake(), 'Octo/widget')
       assert.equal(code, 0)
       assert.ok(tokenOf(text))
     })
@@ -3124,13 +3196,13 @@ describe('runApply', () => {
       // GitHub resolves names without regard to case, and the fake does too for
       // the repo read. Every later call in the fake matches exactly, so a call
       // that used the typed WIDGET would fail there.
-      const typed = apply(makeFake(), 'WIDGET')
-      const canonical = apply(makeFake(), 'widget')
+      const typed = apply(labeledFake(), 'WIDGET')
+      const canonical = apply(labeledFake(), 'widget')
       assert.equal(typed.code, 0)
       assert.equal(typed.text, canonical.text)
       assert.equal(tokenOf(typed.text), tokenOf(canonical.text))
 
-      const fake = makeFake()
+      const fake = labeledFake()
       const token = tokenOf(apply(fake, 'WIDGET').text)
       const confirmed = apply(fake, 'WIDGET', '--confirm', token)
       assert.equal(confirmed.code, 0)
@@ -3141,7 +3213,7 @@ describe('runApply', () => {
     // The fake answers a repo whose name is `--web` as if it were octo/widget, so
     // a call built from it can be told apart. Only the read guard stops it.
     const dashFake = (afterWritesOnly = false) => {
-      const fake = makeFake({ repo: afterWritesOnly ? {} : { full_name: '--web' } })
+      const fake = labeledFake({ repo: afterWritesOnly ? {} : { full_name: '--web' } })
       const seen = []
       const run = (args, input) => {
         seen.push({ args, afterWrite: fake.state.writes.length > 0 })
@@ -3179,7 +3251,7 @@ describe('runApply', () => {
     })
 
     test('nothing to change prints one line and no token', () => {
-      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const fake = labeledFake({ protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget')
       assert.equal(code, 0)
       assert.equal(text, 'octo/widget: set up, nothing to change\n')
@@ -3188,7 +3260,7 @@ describe('runApply', () => {
 
   describe('confirm mode', () => {
     test('writes the PUT then the PATCH, re-reads, and reports set up', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       const token = tokenOf(apply(fake, 'widget').text)
       fake.state.calls.length = 0
       const { code, text } = apply(fake, 'widget', '--confirm', token)
@@ -3208,11 +3280,48 @@ describe('runApply', () => {
       assert.match(text, /^octo\/widget: set up$/m)
       assert.equal(fake.state.repo.allow_auto_merge, true)
       assert.equal(fake.state.protection.enforce_admins.enabled, true)
-      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['Unit tests'])
+      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['Unit tests', 'orchestrai/review'])
+    })
+
+    test('a repo with CI and no flow labels: the plan lists them and requires the review check, the confirm creates them', () => {
+      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const plan = apply(fake, 'widget')
+      assert.equal(plan.code, 0)
+      assert.match(plan.text, /^labels:$/m)
+      for (const l of LABELS) assert.match(plan.text, new RegExp(`^ {2}create ${l.name}, color ${l.color}:`, 'm'))
+      assert.match(plan.text, /^ {2}required check: orchestrai\/review$/m)
+      assert.match(plan.text, /^required checks after apply: Unit tests, orchestrai\/review$/m)
+      assert.deepEqual(fake.state.writes, [])
+
+      const { code, text } = apply(fake, 'widget', '--confirm', tokenOf(plan.text))
+      assert.equal(code, 0)
+      assert.deepEqual(
+        fake.state.writes.map((w) => w.method),
+        [...LABELS.map(() => 'POST'), 'PUT']
+      )
+      assert.deepEqual(fake.state.protection.required_status_checks.contexts, ['Unit tests', 'orchestrai/review'])
+      assert.match(text, /^octo\/widget: set up$/m)
+    })
+
+    test('a repo with CI whose labels and review check are already in place writes nothing', () => {
+      const fake = makeFake({ labels: FLOW_LABELS, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const { code, text } = apply(fake, 'widget')
+      assert.equal(code, 0)
+      assert.equal(text, 'octo/widget: set up, nothing to change\n')
+      assert.deepEqual(fake.state.writes, [])
+    })
+
+    test('a repo with CI whose only gap is one label with another color gets one PATCH and no PUT', () => {
+      const labels = LABELS.map((l) => ({ name: l.name, color: l.name === 'needs-human' ? '000000' : l.color, description: l.description }))
+      const fake = makeFake({ labels, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const token = tokenOf(apply(fake, 'widget').text)
+      const { code } = apply(fake, 'widget', '--confirm', token)
+      assert.equal(code, 0)
+      assert.deepEqual(fake.state.writes.map((w) => [w.method, w.path]), [['PATCH', 'repos/octo/widget/labels/needs-human']])
     })
 
     test('a second run changes nothing and writes nothing', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       apply(fake, 'widget', '--confirm', tokenOf(apply(fake, 'widget').text))
       const writesBefore = fake.state.writes.length
       const again = apply(fake, 'widget')
@@ -3222,7 +3331,7 @@ describe('runApply', () => {
     })
 
     test('a token from a changed state writes nothing', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       const token = tokenOf(apply(fake, 'widget').text)
       fake.state.prs = [pr(13, [done('Unit tests'), done('lint')]), ...fake.state.prs]
       const { code, text } = apply(fake, 'widget', '--confirm', token)
@@ -3232,14 +3341,14 @@ describe('runApply', () => {
     })
 
     test('a made-up token writes nothing', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       const { code } = apply(fake, 'widget', '--confirm', '000000000000')
       assert.equal(code, 2)
       assert.deepEqual(fake.state.writes, [])
     })
 
     test('the token must match exactly: no trimming, no case folding, no prefix', () => {
-      const fake = makeFake()
+      const fake = labeledFake()
       const token = tokenOf(apply(fake, 'widget').text)
       assert.notEqual(token.toUpperCase(), token)
       for (const value of ['', token.slice(0, 6), token.toUpperCase(), ' ' + token, token + '\n']) {
@@ -3251,7 +3360,7 @@ describe('runApply', () => {
     })
 
     test('with nothing to change, any token writes nothing', () => {
-      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+      const fake = labeledFake({ protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const { code, text } = apply(fake, 'widget', '--confirm', 'whatever')
       assert.equal(code, 0)
       assert.match(text, /set up, nothing to change/)
@@ -3259,7 +3368,7 @@ describe('runApply', () => {
     })
 
     test('a failed PUT stops before the PATCH, reports the state unchanged and exits 1', () => {
-      const fake = makeFake({ failPut: fail(422, 'Validation Failed') })
+      const fake = labeledFake({ failPut: fail(422, 'Validation Failed') })
       const token = tokenOf(apply(fake, 'widget').text)
       const { code, text } = apply(fake, 'widget', '--confirm', token)
       assert.equal(code, 1)
@@ -3273,7 +3382,7 @@ describe('runApply', () => {
     })
 
     test('a failed PATCH leaves protection on and auto merge still missing, and exits 1', () => {
-      const fake = makeFake({ failPatch: fail(422, 'Validation Failed') })
+      const fake = labeledFake({ failPatch: fail(422, 'Validation Failed') })
       const token = tokenOf(apply(fake, 'widget').text)
       const { code, text } = apply(fake, 'widget', '--confirm', token)
       assert.equal(code, 1)
@@ -3291,7 +3400,7 @@ describe('runApply', () => {
       // body the fence refuses (contexts: ['']), while the plan and token still
       // come out normally. A runApply that called the raw runner for its writes
       // would send it, and this test would fail.
-      const fake = makeFake({ prs: [pr(12, [done('')])] })
+      const fake = labeledFake({ prs: [pr(12, [done('')])] })
       const token = tokenOf(apply(fake, 'widget').text)
       assert.ok(token, 'plan mode printed no token')
       const { code, text } = apply(fake, 'widget', '--confirm', token)
@@ -3305,7 +3414,7 @@ describe('runApply', () => {
       // Only the auto merge PATCH is planned. The wrapper lets it change the
       // fake's state but answers 502, so the re-read looks fine and only the
       // failed write is left to make the exit code 1.
-      const fake = makeFake({ protection: SET_UP_PROTECTION, repo: { allow_squash_merge: true } })
+      const fake = labeledFake({ protection: REVIEWED_PROTECTION, repo: { allow_squash_merge: true } })
       const token = tokenOf(apply(fake, 'widget').text)
       const run = (args, input) => {
         const res = fake.run(args, input)
@@ -3319,7 +3428,7 @@ describe('runApply', () => {
 
     test('exits 1 when the re-read still says not set up after the writes', () => {
       // A host that drops the status block would leave "up to date required" missing.
-      const fake = makeFake()
+      const fake = labeledFake()
       const token = tokenOf(apply(fake, 'widget').text)
       const run = (args, input) => {
         const res = fake.run(args, input)
@@ -4908,7 +5017,7 @@ describe('runApply', () => {
     describe('signed commits and the protection PUT', () => {
       // The PUT replaces the whole rule and cannot carry required_signatures, so a
       // repo that requires signed commits is refused whenever the plan has a PUT.
-      const signed = { ...SET_UP_PROTECTION, required_signatures: { enabled: true } }
+      const signed = { ...REVIEWED_PROTECTION, required_signatures: { enabled: true } }
       const incomplete = { ...signed, enforce_admins: { enabled: false } }
 
       test('a PUT in the plan is refused in plan mode: no token, nothing written', () => {
@@ -4940,7 +5049,7 @@ describe('runApply', () => {
       })
 
       test('a PATCH-only plan is not refused: the PATCH does not touch the rule', () => {
-        const fake = makeFake({ protection: signed })
+        const fake = labeledFake({ protection: signed })
         const { code, text } = runApply(fake.run, ['widget'])
         assert.equal(code, 0)
         assert.doesNotMatch(text, /signed commits/)
@@ -4951,7 +5060,7 @@ describe('runApply', () => {
       })
 
       test('a PATCH-only plan is written on confirm', () => {
-        const fake = makeFake({ protection: signed })
+        const fake = labeledFake({ protection: signed })
         const token = tokenOf(runApply(fake.run, ['widget']).text)
         const { code } = runApply(fake.run, ['widget', '--confirm', token])
         assert.equal(code, 0)
@@ -4961,8 +5070,16 @@ describe('runApply', () => {
         )
       })
 
+      test('missing labels bring a PUT that requires the review check, so a signed-commit repo is refused', () => {
+        const fake = makeFake({ protection: { ...SET_UP_PROTECTION, required_signatures: { enabled: true } }, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+        const { code, text } = runApply(fake.run, ['widget'])
+        assert.equal(code, 2)
+        assert.match(text, /requires signed commits/)
+        assert.deepEqual(fake.state.writes, [])
+      })
+
       test('nothing to change still prints set up, nothing to change', () => {
-        const fake = makeFake({ protection: signed, repo: { allow_auto_merge: true, allow_squash_merge: true } })
+        const fake = labeledFake({ protection: signed, repo: { allow_auto_merge: true, allow_squash_merge: true } })
         const { code, text } = runApply(fake.run, ['widget'])
         assert.equal(code, 0)
         assert.equal(text, 'octo/widget: set up, nothing to change\n')
