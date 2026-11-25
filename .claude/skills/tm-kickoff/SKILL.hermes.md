@@ -117,13 +117,14 @@ Exit codes:
   Never run it with `DRY_RUN=true`. Never post a reply that is not a split
   proposal.
 - **`park`, `parked`, `parked (needs-human)`**: in a live run the driver
-  posted `Parked: <reason>` on the issue and set `needs-human`. A dry run only
-  prints the gate line. A human decides. Report it with its reason. Do not
-  clear the label and do not rerun it yourself. For `architect size check: the
-  work exceeds the size label`, the sub-plan on the issue names the label it
-  recommends. Once the user has dealt with the reason and removed `needs-human`,
-  the next run picks the issue up. For `no size label, not guessing a size` that
-  means adding a size label: without one the gate parks the issue again.
+  posted `Parked: <reason>` on the issue and set `needs-human`. A dry run
+  posts nothing and sets no label. A human decides. Report it with its reason.
+  Do not clear the label and do not rerun it yourself. For `architect size
+  check: the work exceeds the size label`, the sub-plan on the issue names the
+  label it recommends. Once the user has dealt with the reason and removed
+  `needs-human`, the next run picks the issue up. For `no size label, not
+  guessing a size` that means adding a size label: without one the gate parks
+  the issue again.
 - **`error`**: a failed `gh` or `git` call in that package, or an unexpected
   fault. Nothing was parked and the other packages ran. Report it. Once the
   cause is fixed, a new run picks the package up from where it stopped.
