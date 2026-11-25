@@ -160,22 +160,37 @@ describe('hermes advisor skill', () => {
     assert.ok(existsSync(skillPath), 'SKILL.hermes.md not found')
   })
 
-  test('skill references delegate_task', () => {
+  test('skill runs the pipeline driver through the root variable, and dispatches no seat itself', () => {
     const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
     const content = readFileSync(skillPath, 'utf8')
-    assert.ok(
-      content.includes('delegate_task'),
-      'SKILL.hermes.md must reference delegate_task'
+    assert.match(
+      content,
+      /^node "\$\{ORCHESTRAI_ROOT:-\.claude\}\/adapters\/hermes-pipeline\.mjs" <numbers>$/m,
+      'SKILL.hermes.md must run the driver through ORCHESTRAI_ROOT'
     )
+    for (const gone of ['delegate_task', 'skill_view', 'tester', 'plan-status']) {
+      assert.ok(!content.includes(gone), `SKILL.hermes.md still names ${gone}`)
+    }
   })
 
-  test('skill references the orchestrai skill', () => {
+  test('skill says the sign-off stands in for the dry-run confirmation', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8').replace(/\s+/g, ' ')
+    assert.ok(content.includes("stands in for the driver's dry-run confirmation"))
+  })
+
+  test('skill decides parked questions between driver runs and clears needs-human', () => {
+    const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
+    const content = readFileSync(skillPath, 'utf8').replace(/\s+/g, ' ')
+    assert.ok(content.includes('remove `needs-human` from the package issue, and run the driver again'))
+  })
+
+  test('skill uses the issue body template with an Approach section', () => {
     const skillPath = join(skillsDir, 'tm-advisor', 'SKILL.hermes.md')
     const content = readFileSync(skillPath, 'utf8')
-    assert.ok(
-      content.includes("skill_view"),
-      'SKILL.hermes.md must reference skill_view to load the pipeline'
-    )
+    for (const heading of ['## What to build', '## Approach', '## Acceptance criteria', '## Non-goals']) {
+      assert.ok(content.includes(heading), `missing ${heading}`)
+    }
   })
 
   test('skill has the 6 advisor sections', () => {

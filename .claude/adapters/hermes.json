@@ -22,7 +22,7 @@
       "effort": "max"
     }
   },
-  "_fallback_comment": "Within-tier fallback (batch #437 arbitration, package #438): a per-seat `-m` pin plausibly bypasses Hermes' native fallback_model config for the spawned subprocess, so adapter-level fallback is the only 504 protection for seats. Composition is #431's two-tier route; fallback is #354's mechanism. Fallback IDs are catalog-verified (vllm/release/glm-5-2 is listed in the provider's models and was live-tested 2026-10-18). Worker fallback glm-5-2 is a generality upgrade from deepseek-v41-flash - a degraded live seat beats a dead one. Fallback inherits the tier effort.",
+  "_fallback_comment": "Within-tier fallback (batch #437 ruling, package #438): a per-seat `-m` pin plausibly bypasses Hermes' native fallback_model config for the spawned subprocess, so adapter-level fallback is the only 504 protection for seats. Composition is #431's two-tier route; fallback is #354's mechanism. Fallback IDs are catalog-verified (vllm/release/glm-5-2 is listed in the provider's models and was live-tested 2026-10-18). Worker fallback glm-5-2 is a generality upgrade from deepseek-v41-flash - a degraded live seat beats a dead one. Fallback inherits the tier effort.",
   "roles": {
     "architect": "judgment",
     "developer": "worker",

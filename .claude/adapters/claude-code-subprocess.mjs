@@ -714,7 +714,7 @@ export async function dispatchSeat(role, task, opts = {}) {
 
 function dryRunSpawn(role, task, opts) {
   const VERDICTS = {
-    architect: { KIND: 'SUB_PLAN', output: 'SUB_PLAN: approach, files, order, verification.' },
+    architect: { KIND: 'SPLIT_PROPOSAL', output: 'SPLIT_PROPOSAL: the parts of the split.' },
     developer: { STATUS: 'DONE', BRANCH: 'dry-run-branch', PR: 'https://github.com/example/dry-run' },
     reviewer: { VERDICT: 'APPROVE', STAGE: 'both clean', FINDINGS: 'none' },
     'fact-checker': { VERDICT: 'GROUNDED', COMMIT: 'abc123', CLAIMS: [], SUMMARY: '0 verified, 0 contradicted' },

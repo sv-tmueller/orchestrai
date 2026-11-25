@@ -204,6 +204,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     log('the reviewed commit is not the PR head, reviewing again')
   }
 
+  await ensureInProgress() // a resume past the developer has not added it, and removing a missing label is an error
   await gh.postStatus(head || 'dry-run', state.reviewed ? 'approved by the reviewer' : 'not required (size S)')
   await gh.prReady(state.pr)
   await gh.removeLabel(issueNumber, 'in-progress')

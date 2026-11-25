@@ -467,6 +467,9 @@ describe('runPipeline: resume', () => {
     assert.deepEqual(seatsOf(f.calls), [])
     assert.deepEqual([r.done, r.pr], [true, 10])
     assert.match(statusWrite(f.calls), /description=approved by the reviewer$/)
+    const w = writesOf(f.calls)
+    const added = w.indexOf('gh issue edit 7 --add-label in-progress')
+    assert.ok(added >= 0 && added < w.indexOf('gh issue edit 7 --remove-label in-progress'), 'in-progress is added before it is removed')
   })
 
   test('a branch with no PR goes back to the developer, who is told to open the PR', async () => {

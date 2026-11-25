@@ -1,21 +1,32 @@
 ---
 name: tm-kickoff
-description: "Run refined, sized GitHub issues through the orchestrai pipeline driver, node .claude/adapters/hermes-pipeline.mjs: a dry run to confirm, then the live run to ready PRs. User-invocable only."
+description: "Run refined, sized GitHub issues through the orchestrai pipeline driver, node \"${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs\": a dry run to confirm, then the live run to ready PRs. User-invocable only."
 ---
 
 This skill runs the pipeline driver and reads its output back to the user. The
 driver does the pipeline itself: the gate, the waves, every seat, parking and
-the report. It is described in `docs/architecture/hermes-adapter.md`. Do none
-of its steps by hand.
+the report. The flow it follows is `docs/architecture/light-flow.md`, and the
+driver is described in `docs/architecture/hermes-adapter.md`. Do none of its
+steps by hand.
 
 The only GitHub write this skill makes is the split-proposal comment (see
 "What each line asks of you").
 
-Run every command below in the top directory of the repo to be worked on. The
-driver works on the repo in the current directory, and the commands name it by
-a path inside that repo. If `.claude/adapters/hermes-pipeline.mjs` is not there,
-stop and tell the user: this skill needs orchestrai's `.claude/adapters` folder
-in the repo.
+## Find the driver
+
+Both commands below name the driver through `ORCHESTRAI_ROOT`, the folder that
+holds `adapters/`. With the variable unset it is `.claude`, which works in a repo
+that carries orchestrai's `.claude/adapters` folder. For any other repo, set it
+once to the `.claude` folder of an orchestrai checkout, for example
+`export ORCHESTRAI_ROOT=/home/me/orchestrai/.claude`.
+
+Run every command in the top directory of the repo to be worked on. The driver
+works on the repo in the current directory, wherever the driver file is.
+
+If the driver file is not there (`"${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs"`
+is not a file), stop and tell the user to set `ORCHESTRAI_ROOT` to the `.claude`
+folder of an orchestrai checkout, or to run from a repo that carries it. Do not
+look for the driver elsewhere and do not write one.
 
 ## When to use
 
@@ -31,8 +42,8 @@ run.
 
 ## Run the driver
 
-Seats take their model, provider and effort from `.claude/adapters/hermes.json`.
-If the user asks for the OpenRouter variant, put
+Seats take their model, provider and effort from `adapters/hermes.json` under
+the same root. If the user asks for the OpenRouter variant, put
 `HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of every `node` command
 of this skill. Never do that on a customer repo. Details:
 `docs/architecture/hermes-adapter.md`, "OpenRouter variant (Kimi K3.1 Pro)".
@@ -41,7 +52,7 @@ Step 1, a dry run. It reads GitHub, prints the gate and the wave plan, writes
 nothing and starts no seat:
 
 ```
-DRY_RUN=true node .claude/adapters/hermes-pipeline.mjs <arguments>
+DRY_RUN=true node "${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs" <arguments>
 ```
 
 Show its stdout to the user as it is and ask whether to run. This is the only
@@ -50,7 +61,7 @@ question of the run. Any answer but yes: stop.
 Step 2, the live run, with the same arguments:
 
 ```
-node .claude/adapters/hermes-pipeline.mjs <arguments>
+node "${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs" <arguments>
 ```
 
 It asks nothing. It reads GitHub again, so its own gate lines count. It runs
@@ -106,7 +117,7 @@ Exit codes:
   which one happened.
 
   ```
-  node --input-type=module -e 'const { spawn } = await import("./.claude/adapters/hermes-adapter.mjs"); const r = await spawn("architect", process.argv[1], { tier: "judgment", cwd: process.cwd() }); const text = typeof r?.raw === "string" ? r.raw.trim() : ""; if (!/^SPLIT_PROPOSAL(?::|\s)\s*\S/.test(text)) { console.error(text || "no report"); process.exit(1) } console.log(text)' "JOB: SPLIT_PROPOSAL
+  node --input-type=module -e 'const { resolve } = await import("node:path"); const { pathToFileURL } = await import("node:url"); const { spawn } = await import(pathToFileURL(resolve(process.argv[1], "adapters", "hermes-adapter.mjs")).href); const r = await spawn("architect", process.argv[2], { tier: "judgment", cwd: process.cwd() }); const text = typeof r?.raw === "string" ? r.raw.trim() : ""; if (!/^SPLIT_PROPOSAL(?::|\s)\s*\S/.test(text)) { console.error(text || "no report"); process.exit(1) } console.log(text)' "${ORCHESTRAI_ROOT:-.claude}" "JOB: SPLIT_PROPOSAL
 
   Issue #<n>: read the issue and its comments, then propose the split."
   ```
@@ -119,12 +130,12 @@ Exit codes:
 - **`park`, `parked`, `parked (needs-human)`**: in a live run the driver
   posted `Parked: <reason>` on the issue and set `needs-human`. A dry run
   posts nothing and sets no label. A human decides. Report it with its reason.
-  Do not clear the label and do not rerun it yourself. For `architect size
-  check: the work exceeds the size label`, the sub-plan on the issue names the
-  label it recommends. Once the user has dealt with the reason and removed
-  `needs-human`, the next run picks the issue up. For `no size label, not
-  guessing a size` that means adding a size label: without one the gate parks
-  the issue again.
+  Do not clear the label and do not rerun it yourself. Once the user has dealt
+  with the reason and removed `needs-human`, the next run picks the issue up.
+  For `no size label, not guessing a size` that means adding a size label. For
+  `no ## Approach section in the issue or its comments` it means adding an
+  `## Approach` section to the issue body (the approach, the files expected to
+  change, the verification step): without one the gate parks the issue again.
 - **`error`**: a failed `gh` or `git` call in that package, or an unexpected
   fault. Nothing was parked and the other packages ran. Report it. Once the
   cause is fixed, a new run picks the package up from where it stopped.
@@ -132,5 +143,6 @@ Exit codes:
   its blockers to merge. Run the skill again after they merge.
 - **`skip`**: the issue is closed, or labeled `needs-human`. That is the
   user's call.
-- **`complete`, `done`, `PR #<p> ready`**: the PR is ready for review. The
-  driver never merges, and neither does this skill.
+- **`complete`, `done`, `PR #<p> ready`**: the PR is ready for review and the
+  driver has posted its `orchestrai/review` status. The driver never merges, and
+  neither does this skill.
