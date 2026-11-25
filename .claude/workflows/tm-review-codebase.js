@@ -73,7 +73,7 @@ const SPEC = {
 // references tiers, never model names. On Claude Code the resolution is
 // inlined here because the workflow runtime has no imports.
 const TIER_MODELS = { judgment: 'opus', worker: 'sonnet', lead: 'opus' }
-const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'xhigh' }
+const TIER_EFFORTS = { judgment: 'xhigh', worker: 'high', lead: 'high' }
 
 // Bounded by construction. The scout sizes the number of areas N to the repo, and
 // the script hard-clamps N to MAX_AREAS, so a run is 1 scout + (N area workers +

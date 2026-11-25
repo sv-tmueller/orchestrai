@@ -6,7 +6,7 @@ Generic process guidance for the orchestrator team. Project specifics live in ea
 
 Standing preferences for this project:
 
-- Effort: xhigh session default. It governs only the lead; every agent seat
+- Effort: high session default. It governs only the lead; every agent seat
   pins its own effort (see Model policy).
 - Permission mode: Auto (acceptEdits) during development (user-controlled;
   mode reference: docs/team-guide-rationale.md).
@@ -79,26 +79,23 @@ The rules that matter session-wide:
 - Each batch has a tracking issue (title `Batch: <slug>`): the approved
   contract, the decision log, parked questions, the final report. Dropped
   sessions resume from it.
-- Refinement-only effort note: the refine and propose steps may run at
-  `/effort high` instead of `xhigh` (docs/reviews/2026-09-28-lead-effort-comparison.md).
-  Typing `/effort high` writes a persistent per-model override into the
-  user-level `settings.json` (owner-confirmed 2026-10-01), so it stays in
-  force in later sessions. Switch back to `/effort xhigh` before replying
-  "dispatch" or "file only"; typing it is what undoes the override. The
-  run phase is not covered.
 
 ## Model policy
 
-Opus at xhigh in every plan-and-decide seat: architect, reviewer, workflow
-critics, and the lead itself. Efficient workers everywhere else. The lever is
+Opus at xhigh in every judgment seat: architect, reviewer, workflow critics.
+The lead runs Opus at high. Efficient workers everywhere else. The lever is
 where each model runs, not raw effort everywhere. Rationale:
 docs/team-guide-rationale.md. The lead-model move:
 docs/reviews/2026-09-23-lead-model-comparison.md. Moving the team between Max
 and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
-  Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at xhigh effort, the
-  same model family as the judgment seats. Comparable quality to Fable at
+  Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at high effort, the
+  same model family as the judgment seats. High moved down from xhigh on
+  2026-11-25 (owner decision): it scored 19.67/20 against 20/20 at 0.48x the
+  cost on refinement (docs/reviews/2026-09-28-lead-effort-comparison.md); the
+  run phase was not measured, and in the light flow it is mostly routing and
+  gate checks. Comparable quality to Fable at
   under half the cost per run, at low confidence
   (docs/reviews/2026-09-23-lead-model-comparison.md). Shared blind spot: a
   systematic Opus-class mistake would go uncaught by any seat in the flow

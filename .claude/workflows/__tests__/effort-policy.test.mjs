@@ -177,7 +177,7 @@ const REFERENCE_ADAPTER = 'claude-code.json'
 const SEAT_EXPECTATIONS = {
   judgment: { model: 'opus', effort: 'xhigh' },
   worker: { model: 'sonnet', effort: 'high' },
-  lead: { model: 'opus', effort: 'xhigh' },
+  lead: { model: 'opus', effort: 'high' },
 }
 
 const WORKFLOW_FILES = ['tm-review-changes.js', 'tm-review-codebase.js', 'tm-map-codebase.js']
