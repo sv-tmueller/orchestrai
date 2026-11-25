@@ -200,10 +200,13 @@ export async function runPipeline(issueNumber, opts = {}) {
     await gh.addLabel(issueNumber, 'in-progress')
   }
 
-  // Every stop of the package ends here, so none is silent.
-  const stop = async (reason) => {
+  // Every stop of the package ends here, so none is silent: the reason goes on
+  // the issue with needs-human, and in-progress comes off when this run or the
+  // gate put it on. details is the seat's own text, quoted under the reason.
+  const stop = async (reason, details) => {
     state.parked = reason
     log(`parked: ${state.parked}`)
+    await gh.park(issueNumber, reason, { inProgress: labeled || opts.inProgress === true, details: details?.trim() })
     return state
   }
   // A live run never turns a missing report into success: the package stops.
@@ -224,7 +227,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   const developerOk = async (report) => {
     const status = report?.STATUS
     if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
-      await stop(`developer ${status}: ${report.NOTES}`)
+      await stop(`developer ${status}: ${report.NOTES}`, report.raw)
       return false
     }
     if (!dryRun && status !== 'DONE' && status !== 'DONE_WITH_CONCERNS') {
@@ -316,7 +319,7 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     if (archReport?.KIND === 'NEEDS_DECISION') {
       const question = decisionQuestion(archReport)
-      return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION')
+      return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', archReport.raw)
     }
     // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
     // ARBITRATION, text with no header and a bare header are not posted as one.

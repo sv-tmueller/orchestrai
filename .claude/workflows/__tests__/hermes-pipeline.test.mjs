@@ -380,6 +380,16 @@ function fakeRunner(fixture, reports = {}) {
 
 const keysOf = (calls, kind) => calls.filter((c) => c.kind === kind).map((c) => c.key)
 
+// What a stop writes for issue 7: the reason on the issue, needs-human on, and
+// in-progress off when this run or the gate had put it on. details is the seat
+// text, quoted line by line under the reason.
+const quoted = (text) => text.split('\n').map((l) => `> ${l}`).join('\n')
+const parkWrites = (reason, { inProgress = false, details } = {}) => [
+  `gh issue comment 7 --body Parked: ${reason}${details === undefined ? '' : `\n\n${quoted(details)}`}`,
+  'gh issue edit 7 --add-label needs-human',
+  ...(inProgress ? ['gh issue edit 7 --remove-label in-progress'] : []),
+]
+
 describe('the fake runner', () => {
   test('fails loudly on a command with no fixture', async () => {
     const { run } = fakeRunner({ reads: {} })
@@ -1223,9 +1233,9 @@ describe('a seat that returns no usable report', () => {
     })
   }
 
-  test('live: an architect that returns nothing posts no sub-plan comment and adds no label', async () => {
+  test('live: an architect that returns nothing posts no sub-plan and adds no in-progress, and writes only the park', async () => {
     const { calls } = await pipeline(7, { architect: null })
-    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh issue')), [])
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh issue')), parkWrites('architect seat returned no usable report'))
   })
 
   test('live: a known PR carries over when the developer reports none, but a null report still parks', async () => {
@@ -1237,10 +1247,10 @@ describe('a seat that returns no usable report', () => {
     assert.equal(nul.state.parked, 'developer seat returned no usable report')
   })
 
-  test('live: all four seats failing writes nothing to GitHub', async () => {
+  test('live: all four seats failing stops at the architect and writes only its park', async () => {
     const { state, calls } = await pipeline(7, { architect: null, developer: null, tester: null, reviewer: null })
     assert.equal(state.done, false)
-    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), [])
+    assert.deepEqual(keysOf(calls, 'write').filter((k) => k.startsWith('gh')), parkWrites('architect seat returned no usable report'))
   })
 
   // What the live adapter returns: parseReport() output, with the text in
@@ -1299,7 +1309,7 @@ describe('a seat that returns no usable report', () => {
     assert.equal(state.done, true)
   })
 
-  test('main shows the stop on stdout only, with no park comment and no label', async () => {
+  test('main shows the stop on stdout and parks the issue: the reason, needs-human on, in-progress off', async () => {
     const fake = fakeRunner(loadFixture('main-live'), { developer: null })
     const stdout = []
     const code = await main(['204'], {
@@ -1307,8 +1317,13 @@ describe('a seat that returns no usable report', () => {
     })
     assert.equal(code, 0)
     assert.ok(stdout.includes('#204 parked: developer seat returned no usable report'))
-    const writes = keysOf(fake.calls, 'write').slice(6)
-    assert.ok(!writes.some((k) => k.includes('needs-human') || k.includes('Parked') || k.startsWith('gh pr ready')))
+    assert.deepEqual(keysOf(fake.calls, 'write').slice(6), [
+      'git worktree add /repo/.worktrees/pkg-204 -b feat/204-issue-204-title origin/main',
+      'gh issue edit 204 --add-label in-progress',
+      'gh issue comment 204 --body Parked: developer seat returned no usable report',
+      'gh issue edit 204 --add-label needs-human',
+      'gh issue edit 204 --remove-label in-progress',
+    ])
   })
 })
 
@@ -1331,16 +1346,22 @@ describe('each seat accepts only the report its contract prescribes', () => {
 
   const ALLOWED_WRITES = ['git worktree add', 'gh issue comment 7 --body SUB_PLAN', 'gh issue edit 7 --add-label in-progress', 'gh pr comment']
 
-  // The stop: the reason, the seats that ran, nothing after the last seat, and
-  // no write beyond the setup ones that came before it.
+  // The stop: the reason, the seats that ran, after the last seat only the park
+  // writes (in-progress comes off once the developer has been dispatched), and
+  // before it no write beyond the setup ones and the reports already posted.
   function assertStopped({ state, calls }, role, dispatched) {
-    assert.equal(state.parked, `${role} seat returned no usable report`)
+    const reason = `${role} seat returned no usable report`
+    assert.equal(state.parked, reason)
     assert.equal(state.done, false)
     assert.deepEqual(roles(state), dispatched)
     assert.deepEqual(calls.filter((c) => c.kind === 'spawn').map((c) => c.role), dispatched)
-    assert.equal(calls.at(-1).kind, 'spawn', 'nothing follows the last seat')
-    assert.equal(calls.at(-1).role, dispatched.at(-1))
-    const stray = keysOf(calls, 'write').filter((k) => !ALLOWED_WRITES.some((p) => k.startsWith(p)))
+    const last = calls.findLastIndex((c) => c.kind === 'spawn')
+    assert.equal(calls[last].role, dispatched.at(-1))
+    assert.deepEqual(
+      calls.slice(last + 1).map((c) => [c.kind, c.key]),
+      parkWrites(reason, { inProgress: dispatched.includes('developer') }).map((k) => ['write', k])
+    )
+    const stray = keysOf(calls.slice(0, last), 'write').filter((k) => !ALLOWED_WRITES.some((p) => k.startsWith(p)))
     assert.deepEqual(stray, [])
   }
   const ALL = ['architect', 'developer', 'tester', 'reviewer']
@@ -1376,21 +1397,26 @@ describe('each seat accepts only the report its contract prescribes', () => {
       ['after the bare word', 'NEEDS_DECISION\n\nwhich one, A or B\nmore detail'],
       ['after leading blank lines', '\n\nNEEDS_DECISION\nwhich one, A or B'],
     ]) {
-      test(`NEEDS_DECISION with the question ${form} parks with the question and posts nothing`, async () => {
+      test(`NEEDS_DECISION with the question ${form} parks with the question, the architect's text quoted under it`, async () => {
         const r = await pipeline({ architect: arch(text) })
         assert.equal(r.state.parked, 'architect NEEDS_DECISION: which one, A or B')
         assert.equal(r.state.done, false)
         assert.deepEqual(roles(r.state), ['architect'])
-        assert.equal(r.calls.at(-1).kind, 'spawn')
-        assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+        assert.deepEqual(
+          keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
+          parkWrites('architect NEEDS_DECISION: which one, A or B', { details: text.trim() })
+        )
       })
     }
 
-    test('NEEDS_DECISION with no question at all still parks, and ships nothing', async () => {
+    test('NEEDS_DECISION with no question at all still parks, with no colon, and ships nothing', async () => {
       const r = await pipeline({ architect: arch('NEEDS_DECISION') })
       assert.equal(r.state.parked, 'architect NEEDS_DECISION')
       assert.deepEqual(roles(r.state), ['architect'])
-      assert.deepEqual(keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')), [])
+      assert.deepEqual(
+        keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
+        parkWrites('architect NEEDS_DECISION', { details: 'NEEDS_DECISION' })
+      )
     })
 
     for (const [name, text] of [
@@ -1457,7 +1483,10 @@ describe('each seat accepts only the report its contract prescribes', () => {
         const r = await pipeline({ developer: report })
         assert.equal(r.state.parked, `developer ${status}: the base is wrong`)
         assert.deepEqual(roles(r.state), ['architect', 'developer'])
-        assert.equal(r.calls.at(-1).kind, 'spawn')
+        assert.deepEqual(
+          r.calls.slice(r.calls.findLastIndex((c) => c.kind === 'spawn') + 1).map((c) => c.key),
+          parkWrites(`developer ${status}: the base is wrong`, { inProgress: true, details: report.raw })
+        )
         assert.ok(!keysOf(r.calls, 'write').some((k) => k.startsWith('gh pr ready')))
       })
     }
@@ -1827,6 +1856,87 @@ describe('each seat accepts only the report its contract prescribes', () => {
     })
   })
 
+  // A stop writes the park comment and the labels (issue #604). The reasons
+  // themselves are the ones #355 settled, and the tests above read them.
+  describe('a stop parks the package', () => {
+    const PR = 'https://github.com/o/r/pull/900'
+    const ghWrites = (calls) => keysOf(calls, 'write').filter((k) => k.startsWith('gh'))
+    const SUB_PLAN_COMMENT = 'gh issue comment 7 --body SUB_PLAN\n\nApproach: do the thing.'
+    const IN_PROGRESS = 'gh issue edit 7 --add-label in-progress'
+    const parkBody = (key) => key.replace('gh issue comment 7 --body ', '')
+
+    for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+      test(`developer ${status} parks with the notes, the developer's text quoted, and takes in-progress off`, async () => {
+        const text = `STATUS: ${status}\nBRANCH: feat/7-work\nPR: none\nNOTES: the base is wrong\nVERDICT: FAIL\nSUB_PLAN`
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        assert.equal(r.state.parked, `developer ${status}: the base is wrong`)
+        assert.deepEqual(ghWrites(r.calls), [
+          SUB_PLAN_COMMENT,
+          IN_PROGRESS,
+          ...parkWrites(`developer ${status}: the base is wrong`, { inProgress: true, details: text }),
+        ])
+      })
+    }
+
+    test('seat text in the park comment is never read back as a verdict, a count or a sub-plan', async () => {
+      const text = 'STATUS: BLOCKED\nPR: none\nNOTES: stuck\nVERDICT: FAIL\nVERDICT: CHANGES_REQUESTED\nSUB_PLAN'
+      const r = await pipeline({ developer: parseReport('developer', text) })
+      const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+      const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+      assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+      assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+      assert.ok(!body.split('\n').some((l) => l === 'SUB_PLAN' || l.startsWith('VERDICT:')))
+    })
+
+    test('a developer BLOCKED in a tester fix round parks after the FAIL report was posted', async () => {
+      const report = parseReport('developer', 'STATUS: BLOCKED\nNOTES: stuck')
+      const r = await pipeline({ tester: [tester('FAIL')], developer: [dev('DONE'), report] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith('gh pr comment https://github.com/o/r/pull/901 --body **Tester report: FAIL (issue #7, tester fix rounds 1/3)**'))
+      assert.deepEqual(w.slice(-3), parkWrites('developer BLOCKED: stuck', { inProgress: true, details: 'STATUS: BLOCKED\nNOTES: stuck' }))
+    })
+
+    test('the fourth tester FAIL posts its 4/3 report, then parks with the reason alone', async () => {
+      const r = await pipeline({ tester: [tester('FAIL'), tester('FAIL'), tester('FAIL'), tester('FAIL')] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith(`gh pr comment ${PR} --body **Tester report: FAIL (issue #7, tester fix rounds 4/3)**`))
+      assert.deepEqual(w.slice(-3), parkWrites('tester fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('the fourth reviewer CHANGES_REQUESTED posts its 4/3 report, then parks with the reason alone', async () => {
+      const changes = () => reviewer('CHANGES_REQUESTED')
+      const r = await pipeline({ reviewer: [changes(), changes(), changes(), changes()] })
+      const w = ghWrites(r.calls)
+      assert.ok(w.at(-4).startsWith(`gh pr comment ${PR} --body **Reviewer report: CHANGES_REQUESTED (issue #7, reviewer fix rounds 4/3)**`))
+      assert.deepEqual(w.slice(-3), parkWrites('reviewer fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('findings of a used-up count park before any seat, and the gate\'s in-progress label comes off', async () => {
+      const findings = '**Tester report: FAIL (issue #7, tester fix rounds 4/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. a'
+      const resume = { stage: 'developer', branch: 'feat/7-work', pr: 12, findings, fixRounds: { tester: 4, reviewer: 0 } }
+      const r = await pipeline({}, { resume, inProgress: true })
+      assert.deepEqual(ghWrites(r.calls), parkWrites('tester fix rounds exhausted (3/3)', { inProgress: true }))
+    })
+
+    test('a package with no PR to ship parks, and takes in-progress off only when the gate said it had it', async () => {
+      const resume = { stage: 'tester', branch: 'feat/7-work' }
+      const without = await pipeline({}, { resume })
+      assert.deepEqual(ghWrites(without.calls), parkWrites('no PR to mark ready'))
+      const withLabel = await pipeline({}, { resume, inProgress: true })
+      assert.deepEqual(ghWrites(withLabel.calls), parkWrites('no PR to mark ready', { inProgress: true }))
+    })
+
+    test('a dry-run stop calls no runner and names the skipped park writes', async () => {
+      const fake = fakeRunner({ reads: {} }, { architect: parseReport('architect', 'NEEDS_DECISION: which?') })
+      const logs = []
+      const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: (l) => logs.push(l), repoRoot: '/repo' })
+      assert.equal(state.parked, 'architect NEEDS_DECISION: which?')
+      assert.deepEqual(fake.calls.filter((c) => c.kind !== 'spawn'), [])
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue comment 7 --body Parked: architect NEEDS_DECISION: which?')))
+      assert.ok(logs.some((l) => l.includes('dry run, skipped: gh issue edit 7 --add-label needs-human')))
+    })
+  })
+
   describe('a dry run keeps its placeholders', () => {
     test('the dry-run stub shapes still complete the pipeline', async () => {
       const fake = fakeRunner({ reads: {} }, {
@@ -2074,6 +2184,32 @@ describe('the resume worktree', () => {
       ['developer', 'tester', 'reviewer']
     )
   })
+  test('main resumes a PR at tester fix round 3/3, posts the 4/3 report of the next FAIL and parks the issue', async () => {
+    const failRaw = 'VERDICT: FAIL\nCOMMIT: abc123\nFINDINGS: 1. still broken\nUNTESTED CLAIMS: none'
+    const fake = fakeRunner(loadFixture('main-resume-rounds'), {
+      developer: { STATUS: 'DONE' },
+      tester: [parseReport('tester', failRaw)],
+    })
+    const stdout = []
+    const code = await main(['302'], {
+      env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo',
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(keysOf(fake.calls, 'write').slice(6), [
+      'git fetch origin feat/302-work',
+      'git worktree add /repo/.worktrees/pkg-302 -B feat/302-work origin/feat/302-work',
+      'gh issue edit 302 --add-label in-progress',
+      `gh pr comment 320 --body **Tester report: FAIL (issue #302, tester fix rounds 4/3)**\n\n${failRaw}`,
+      'gh issue comment 302 --body Parked: tester fix rounds exhausted (3/3)',
+      'gh issue edit 302 --add-label needs-human',
+      'gh issue edit 302 --remove-label in-progress',
+    ])
+    const task = fake.calls.find((c) => c.kind === 'spawn' && c.role === 'developer').task
+    assert.ok(task.startsWith('Issue #302, branch feat/302-work, tester fix round 3/3: fix exactly these findings:\n**Tester report: FAIL (issue #302, tester fix rounds 3/3)**'))
+    assert.ok(task.includes('FINDINGS: 1. d\n2. e\n3. f'), 'the whole report, not its first line')
+    assert.equal(stdout.at(-1), '#302 parked: tester fix rounds exhausted (3/3)')
+  })
+
 })
 
 describe('the script entry point', () => {

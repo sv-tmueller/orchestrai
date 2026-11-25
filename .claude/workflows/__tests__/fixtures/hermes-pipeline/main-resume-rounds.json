@@ -1,0 +1,134 @@
+{
+  "reads": {
+    "gh issue view 302 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 302",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 302,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 302 title"
+    },
+    "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_302",
+            "number": 302,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/302"
+          }
+        ],
+        "headRefName": "feat/302-work",
+        "isDraft": true,
+        "number": 320,
+        "url": "https://github.com/o/r/pull/320"
+      }
+    ],
+    "gh pr view 320 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p1",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: FAIL (issue #302, tester fix rounds 1/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. a",
+          "createdAt": "2026-11-02T09:00:00Z"
+        },
+        {
+          "id": "IC_p2",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: PASS (issue #302, tester fix rounds 1/3)**\n\nVERDICT: PASS\nFINDINGS: none",
+          "createdAt": "2026-11-02T09:10:00Z"
+        },
+        {
+          "id": "IC_p3",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Reviewer report: CHANGES_REQUESTED (issue #302, reviewer fix rounds 1/3)**\n\nVERDICT: CHANGES_REQUESTED\nFINDINGS: 1. b",
+          "createdAt": "2026-11-02T09:20:00Z"
+        },
+        {
+          "id": "IC_p4",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: FAIL (issue #302, tester fix rounds 2/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. c",
+          "createdAt": "2026-11-02T09:30:00Z"
+        },
+        {
+          "id": "IC_p5",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "**Tester report: FAIL (issue #302, tester fix rounds 3/3)**\n\nVERDICT: FAIL\nFINDINGS: 1. d\n2. e\n3. f",
+          "createdAt": "2026-11-02T09:40:00Z"
+        },
+        {
+          "id": "IC_p6",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: CONTRADICTED\nCLAIMS: 1. the claim is wrong",
+          "createdAt": "2026-11-02T09:50:00Z"
+        },
+        {
+          "id": "IC_p7",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "> VERDICT: FAIL\nI disagree with the last report.",
+          "createdAt": "2026-11-02T09:55:00Z"
+        }
+      ]
+    },
+    "git worktree list --porcelain": ""
+  },
+  "failures": {}
+}
