@@ -403,7 +403,16 @@ const keysOf = (calls, kind) => calls.filter((c) => c.kind === kind).map((c) => 
 // What a stop writes for issue 7: the reason on the issue, needs-human on, and
 // in-progress off when this run or the gate had put it on. details is the seat
 // text, quoted line by line under the reason.
-const quoted = (text) => text.split('\n').map((l) => `> ${l}`).join('\n')
+// The writer ends a line at any of the seven line ends (CRLF is one). The
+// readers (resumeStage, countFixRounds, the sub-plan reader) end it at LF only.
+const LINE_ENDS = [
+  ['a line feed', '\n'], ['a carriage return', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'],
+  ['U+0085', '\u0085'], ['U+2028', '\u2028'], ['U+2029', '\u2029'],
+]
+const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+// Everything of the seven except LF, which a multi-line comment does hold.
+const NON_LF_END = /[\r\v\f\u0085\u2028\u2029]/
+const quoted = (text) => text.split(LINE_END).map((l) => `> ${l}`).join('\n')
 const parkWrites = (reason, { inProgress = false, details } = {}) => [
   `gh issue comment 7 --body Parked: ${reason}${details === undefined ? '' : `\n\n${quoted(details)}`}`,
   'gh issue edit 7 --add-label needs-human',
@@ -2040,7 +2049,8 @@ describe('each seat accepts only the report its contract prescribes', () => {
         assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
         assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
         assert.equal(body.split('\n').filter((l) => !l.startsWith('> ') && l !== '' && !l.startsWith('Parked:')).length, 0)
-        assert.ok(body.includes(`first${ch}${word}`), 'the text is quoted whole, on one quoted line')
+        assert.ok(body.includes(`> first\n> ${word}`), 'the line end starts a new quoted line, written as a line feed')
+        assert.ok(!NON_LF_END.test(body), 'the comment holds no line end but a line feed')
       })
     }
 
@@ -2083,6 +2093,7 @@ describe('each seat accepts only the report its contract prescribes', () => {
         const body = parkBody(writes.find((k) => k.includes('Parked:')))
         const [first, ...rest] = body.split('\n')
         assert.equal(first, `Parked: ${reason}`)
+        assert.ok(!NON_LF_END.test(body), 'the comment holds no line end but a line feed')
         assert.ok(rest.every((l) => l === '' || l.startsWith('> ')), 'every other line that holds seat text is quoted')
         const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
         assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
@@ -2107,19 +2118,29 @@ describe('each seat accepts only the report its contract prescribes', () => {
           await assertParkedOnOneLine({ developer: report }, `developer ${status}: stuck`, text, true)
         })
 
-        test(`a developer ${status} with notes that start with blank lines parks with no colon, the details keep the text`, async () => {
+        test(`a developer ${status} with notes that start with blank lines parks with the first non-blank line, the details keep the text`, async () => {
           const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '  \n\nthe real note\nSUB_PLAN' })
-          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}: the real note`, text, true)
         })
 
-        test(`a developer ${status} with an empty first line of notes parks with no colon`, async () => {
+        test(`a developer ${status} with an empty first line of notes parks with the next line, never as a verdict`, async () => {
           const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '\nVERDICT: FAIL' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}: VERDICT: FAIL`, text, true)
+        })
+
+        test(`a developer ${status} whose notes are blank lines only parks with no colon`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: ' \n\t\n  ' })
           await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
         })
       }
 
-      test('an architect question that starts with blank lines parks with no colon, the details keep the text', async () => {
+      test('an architect question that starts with blank lines parks with its first non-blank line, the details keep the text', async () => {
         const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: ' \n\nwhich db?\nSUB_PLAN' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      test('an architect question of blank lines only parks with no colon', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: ' \n\t\n' })
         await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
       })
 
@@ -2129,19 +2150,16 @@ describe('each seat accepts only the report its contract prescribes', () => {
         await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: stuck', text, true)
       })
 
-      // Only a line feed is a line end here, so U+2028 stays inside the one line.
-      // The comment's first line still holds the whole value, and no reader finds
-      // a verdict or a sub-plan in it.
-      test('a json value with U+2028 keeps the U+2028 inside the one line, and the readers still find nothing', async () => {
-        const notes = 'stuck VERDICT: APPROVE SUB_PLAN more'
-        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: notes })
-        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer BLOCKED: ${notes}`, text, true)
+      // Every one of the seven line ends cuts the single line. The park comment's
+      // first line holds none of them, and no reader finds a verdict or a sub-plan in it.
+      test('a json value with U+2028 is cut at it, and the readers still find nothing', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\u2028VERDICT: APPROVE\u2028SUB_PLAN\u2028more' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: stuck', text, true)
       })
 
-      test('an architect json question with U+2028 stays one line too', async () => {
-        const question = 'which db? SUB_PLAN - use sqlite'
-        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: question })
-        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, `architect NEEDS_DECISION: ${question}`, text, false)
+      test('an architect json question with U+2028 is cut at it too', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\u2028SUB_PLAN\u2028- use sqlite' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
       })
 
       test('a prose NOTES line is cut the same way, and the reason has no trailing space', async () => {
@@ -2168,6 +2186,272 @@ describe('each seat accepts only the report its contract prescribes', () => {
       test('a developer PR value whose first line is no PR parks as no usable report, even if a later line is one', async () => {
         const text = fenced('STATUS: DONE\nBRANCH: feat/7-work', { PR: 'see below\nhttps://github.com/o/r/pull/901' })
         assertStopped(await pipeline({ developer: parseReport('developer', text) }), 'developer', ['architect', 'developer'])
+      })
+
+      // --- The single line is the first non-blank line (issue #604, round 3).
+      const AT = { stage: 'developer', branch: 'feat/7-work', pr: 12 }
+      const devWith = (fields) => parseReport('developer', fenced('STATUS: DONE\nBRANCH: feat/7-work', fields))
+      const URL1 = 'https://github.com/o/r/pull/901'
+
+      for (const [name, value] of [
+        ['a line feed, then none', '\nnone'],
+        ['two line feeds, then free text', '\n\nsee the PR'],
+        ['blank lines, then an issue URL', ' \n\nhttps://github.com/o/r/issues/901'],
+        ['only a tilde fence', '~~~'],
+      ]) {
+        test(`a PR value of ${name} stops the package even when the gate knows a PR`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+          assert.equal(r.state.parked, 'developer seat returned no usable report')
+          assert.equal(r.state.done, false)
+          assert.deepEqual(roles(r.state), ['developer'])
+          assert.ok(!ghWrites(r.calls).some((k) => k.startsWith('gh pr ready')))
+        })
+      }
+
+      test('a PR value of blank lines only is missing: the gate\'s PR is used on a resume', async () => {
+        const r = await pipeline({ developer: devWith({ PR: ' \n\n\t\n  ' }) }, { resume: AT })
+        assert.equal(r.state.parked, null)
+        assert.equal(r.state.pr, 12)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a PR value of blank lines only, with no PR known, stops', async () => {
+        assertStopped(await pipeline({ developer: devWith({ PR: '\n \n' }) }), 'developer', ['architect', 'developer'])
+      })
+
+      for (const [name, value, expected] of [
+        ['blank lines, then a pull request URL', `\n \n  ${URL1}  \nmore text`, URL1],
+        ['a tilde fence, then a pull request URL', `~~~\n${URL1}\n~~~`, URL1],
+        ['a tilde fence with a word, then a number', '~~~text\n\n901', '901'],
+      ]) {
+        test(`a PR value of ${name} is accepted as that line`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+          assert.equal(r.state.pr, expected)
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('notes that start with a tilde fence line park with the first line after it', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: '~~~json\nthe real note' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: the real note', text, true)
+      })
+
+      // Three backticks cannot sit inside a json string the parser reads, so a
+      // backtick fence needs a hand-built report.
+      test('a backtick fence line in the notes is skipped, and a PR of only a backtick fence stops', async () => {
+        const blocked = { STATUS: 'BLOCKED', NOTES: '```json\nthe real note', raw: 'STATUS: BLOCKED' }
+        const r = await pipeline({ developer: blocked })
+        assert.equal(r.state.parked, 'developer BLOCKED: the real note')
+        const fence = await pipeline({ developer: { STATUS: 'DONE', PR: '````' } }, { resume: AT })
+        assert.equal(fence.state.parked, 'developer seat returned no usable report')
+      })
+
+      test('a question that starts with a tilde fence line parks with the first line after it', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: '~~~~\nwhich db?' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      for (const [name, value] of [['null', null], ['empty', '']]) {
+        test(`a ${name} json NEEDS_DECISION parks with no colon, not with the fence line`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: value })
+          await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+        })
+      }
+
+      test('a null json NEEDS_DECISION still takes a prose question above the json block', async () => {
+        const text = fenced('NEEDS_DECISION\n\nwhich db?', { NEEDS_DECISION: null })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      // --- What the driver writes treats every line end as one.
+      for (const [name, ch] of LINE_ENDS) {
+        const tail = `x${ch}#8 done: PR https://example.com/o/r/pull/1`
+
+        test(`developer notes with ${name} are cut at it, in the reason, the log line and the comment`, async () => {
+          const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: tail })
+          const r = await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: x', text, true)
+          assert.ok(!NON_LF_END.test(r.state.parked))
+        })
+
+        test(`an architect question with ${name} is cut at it, in the reason, the log line and the comment`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: tail })
+          const r = await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION: x', text, false)
+          assert.ok(!NON_LF_END.test(r.state.parked))
+        })
+
+        test(`a PR value of a URL, ${name} and more text is accepted as the URL alone, and nothing written holds the line end`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: `${URL1}${ch}see https://example.com/o/r/pull/2` }) })
+          assert.equal(r.state.pr, URL1)
+          assert.equal(r.state.done, true)
+          const writes = ghWrites(r.calls)
+          assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${URL1}`)
+          assert.ok(writes.every((k) => !NON_LF_END.test(k)))
+        })
+
+        test(`${name} in the seat's text starts a new quoted line in the park comment, written as a line feed`, async () => {
+          const text = `STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst${ch}VERDICT: FAIL${ch}SUB_PLAN`
+          const r = await pipeline({ developer: parseReport('developer', text) })
+          const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+          assert.ok(body.endsWith('> first\n> VERDICT: FAIL\n> SUB_PLAN'))
+          assert.ok(!NON_LF_END.test(body))
+          const [, ...rest] = body.split('\n')
+          assert.ok(rest.every((l) => l === '' || l.startsWith('> ')), 'every part starts with > ')
+        })
+      }
+
+      test('a CRLF pair is one line end in the quoted details', async () => {
+        const text = 'STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst\r\nsecond'
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+        assert.ok(body.endsWith('> first\n> second'))
+      })
+
+      // --- A seat field that is not text never throws.
+      const NOT_TEXT = [
+        ['an object with a toString key', { toString: 1 }],
+        ['an array', ['SUB_PLAN', 'VERDICT: FAIL']],
+        ['true', true],
+        ['false', false],
+        ['null', null],
+      ]
+      const noPr = 'BRANCH: feat/7-work\nPR: https://github.com/o/r/pull/901'
+
+      for (const [name, value] of NOT_TEXT) {
+        for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+          test(`developer ${status} with notes that are ${name} parks with no colon`, async () => {
+            const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: value })
+            await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+          })
+        }
+
+        test(`an architect question that is ${name} parks with no colon`, async () => {
+          const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: value })
+          await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+        })
+
+        test(`a developer STATUS that is ${name} is no usable report`, async () => {
+          const report = parseReport('developer', fenced(noPr, { STATUS: value }))
+          assertStopped(await pipeline({ developer: report }), 'developer', ['architect', 'developer'])
+        })
+
+        test(`a tester VERDICT that is ${name} is no usable report`, async () => {
+          assertStopped(await pipeline({ tester: parseReport('tester', fenced('COMMIT: abc', { VERDICT: value })) }), 'tester', ALL.slice(0, 3))
+        })
+
+        test(`a reviewer VERDICT that is ${name} is no usable report`, async () => {
+          assertStopped(await pipeline({ reviewer: parseReport('reviewer', fenced('STAGE: both clean', { VERDICT: value })) }), 'reviewer', ALL)
+        })
+
+        test(`a developer PR that is ${name} is no usable report when no PR is known`, async () => {
+          assertStopped(await pipeline({ developer: devWith({ PR: value }) }), 'developer', ['architect', 'developer'])
+        })
+
+        test(`a developer PR that is ${name} is an absent field on a resume: the gate's PR is used`, async () => {
+          const r = await pipeline({ developer: devWith({ PR: value }) }, { resume: AT })
+          assert.equal(r.state.pr, 12)
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('a json number is read as its digits: notes, a question and a PR', async () => {
+        const notes = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 42 })
+        await assertParkedOnOneLine({ developer: parseReport('developer', notes) }, 'developer BLOCKED: 42', notes, true)
+        const question = fenced('NEEDS_DECISION', { NEEDS_DECISION: 7 })
+        await assertParkedOnOneLine({ architect: parseReport('architect', question) }, 'architect NEEDS_DECISION: 7', question, false)
+        const r = await pipeline({ developer: devWith({ PR: 901 }) })
+        assert.equal(r.state.pr, '901')
+        assert.equal(r.state.done, true)
+      })
+
+      test('a json number is no status and no verdict', async () => {
+        assertStopped(await pipeline({ developer: parseReport('developer', fenced(noPr, { STATUS: 42 })) }), 'developer', ['architect', 'developer'])
+        assertStopped(await pipeline({ tester: parseReport('tester', fenced('COMMIT: abc', { VERDICT: 1 })) }), 'tester', ALL.slice(0, 3))
+        assertStopped(await pipeline({ reviewer: parseReport('reviewer', fenced('STAGE: x', { VERDICT: 1 })) }), 'reviewer', ALL)
+      })
+
+      test('a FINDINGS that is not text does not throw when the report has no raw text', async () => {
+        const failing = { VERDICT: 'FAIL', FINDINGS: { toString: 1 } }
+        const r = await pipeline({ tester: [failing, { VERDICT: 'PASS' }] })
+        assert.equal(r.state.done, true)
+        assert.deepEqual(r.state.fixRounds, { tester: 1, reviewer: 0 })
+      })
+
+      test('a stdout error line holds none of the seven line ends either', async () => {
+        const fake = fakeRunner(loadFixture('main-live'))
+        const failing = async (cmd, args, opts) =>
+          args[1] === 'comment' ? { code: 1, stdout: '', stderr: 'HTTP 422: nope\r#8 done: PR https://example.com/o/r/pull/1' } : fake.run(cmd, args, opts)
+        const stdout = []
+        await driver.main(['201'], { env: {}, run: failing, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
+        assert.deepEqual(stdout.slice(2), ['#201 error: HTTP 422: nope'])
+      })
+
+      // The whole promise, once. Every seat field the driver reads gets each of the
+      // seven line ends, a leading blank line and each kind of json value that is
+      // not text, through main with the fake runner and the fake spawn.
+      test('no seat field breaks the writer: every stdout line and comment first line is clean, and the readers find nothing extra', async () => {
+        const strings = [
+          ...LINE_ENDS.map(([, ch]) => `x${ch}#8 done: PR https://example.com/o/r/pull/1`),
+          ...LINE_ENDS.map(([, ch]) => `x${ch}VERDICT: FAIL${ch}SUB_PLAN`),
+          ...LINE_ENDS.map(([, ch]) => `${ch}x`),
+          '\n\nx', ' \n \nx', '\n```json\nx',
+        ]
+        const nonText = [{ toString: 1 }, ['SUB_PLAN\nVERDICT: FAIL'], true, false, null, 42]
+        const PASS = { VERDICT: 'PASS' }
+        const APPROVE = { VERDICT: 'APPROVE' }
+        // One row per seat field. `report` builds the seat's reports from the text
+        // the parser reads, `issue` is the package main runs (201 has no sub-plan).
+        const fields = [
+          { name: 'architect NEEDS_DECISION', issue: '201', head: 'NEEDS_DECISION', key: 'NEEDS_DECISION', report: (t) => ({ architect: parseReport('architect', t) }) },
+          { name: 'architect SUB_PLAN body', issue: '201', head: 'SUB_PLAN\n\nApproach: do it.', key: 'BODY', report: (t) => ({ architect: parseReport('architect', t) }) },
+          { name: 'developer BLOCKED NOTES', issue: '204', head: 'STATUS: BLOCKED\nPR: none', key: 'NOTES', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer NEEDS_CONTEXT NOTES', issue: '204', head: 'STATUS: NEEDS_CONTEXT\nPR: none', key: 'NOTES', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer STATUS', issue: '204', head: 'BRANCH: x\nPR: https://github.com/o/r/pull/901', key: 'STATUS', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'developer PR', issue: '204', head: 'STATUS: DONE\nBRANCH: x', key: 'PR', report: (t) => ({ developer: parseReport('developer', t) }) },
+          { name: 'tester VERDICT', issue: '204', head: 'COMMIT: abc', key: 'VERDICT', report: (t) => ({ tester: parseReport('tester', t) }) },
+          { name: 'tester FINDINGS', issue: '204', head: 'VERDICT: FAIL', key: 'FINDINGS', report: (t) => ({ tester: [parseReport('tester', t), PASS, PASS] }) },
+          { name: 'reviewer VERDICT', issue: '204', head: 'STAGE: both clean', key: 'VERDICT', report: (t) => ({ reviewer: parseReport('reviewer', t) }) },
+          { name: 'reviewer FINDINGS', issue: '204', head: 'VERDICT: CHANGES_REQUESTED', key: 'FINDINGS', report: (t) => ({ reviewer: [parseReport('reviewer', t), APPROVE, APPROVE] }) },
+        ]
+        const jsonText = (head, key, value) => (key === 'BODY' ? `${head}\n${value}` : fenced(head, { [key]: value }))
+        const proseText = (head, key, value) => (key === 'BODY' ? `${head}\n${value}` : `${head}\n${key}: ${value}`)
+        const cases = []
+        for (const f of fields) {
+          for (const v of strings) {
+            cases.push({ f, how: 'json', text: jsonText(f.head, f.key, v) })
+            if (f.key !== 'BODY') cases.push({ f, how: 'prose', text: proseText(f.head, f.key, v) })
+          }
+          if (f.key !== 'BODY') for (const v of nonText) cases.push({ f, how: 'json non-text', text: jsonText(f.head, f.key, v) })
+        }
+
+        const verdictStage = { PASS: 'reviewer', APPROVE: 'ship', FAIL: 'developer', CHANGES_REQUESTED: 'developer' }
+        for (const { f, how, text } of cases) {
+          const label = `${f.name} (${how}): ${JSON.stringify(text)}`
+          const fake = fakeRunner(loadFixture('main-live'), f.report(text))
+          const stdout = []
+          const code = await driver.main([f.issue], { env: {}, run: fake.run, spawn: fake.spawn, out: (l) => stdout.push(l), err: () => {}, cwd: '/repo' })
+          assert.equal(code, 0, `no exception escapes: ${label}`)
+          assert.ok(stdout.every((l) => !LINE_END.test(l)), `a stdout line holds a line end: ${label}`)
+          for (const key of keysOf(fake.calls, 'write')) {
+            const m = /^gh (issue|pr) comment (\S+) --body ([\s\S]*)$/.exec(key)
+            if (!m) continue
+            const [, kind, , body] = m
+            assert.ok(!LINE_END.test(body.split('\n')[0]), `a comment first line holds a line end: ${label}`)
+            if (kind === 'pr') {
+              const verdict = /^\*\*(?:Tester|Reviewer) report: ([A-Z_]+) \(/.exec(body)?.[1]
+              assert.ok(verdict in verdictStage, `a posted report names its accepted verdict: ${label}`)
+              assert.equal(driver.resumeStage([{ body, createdAt: '2026-01-01T00:00:00Z' }]).stage, verdictStage[verdict], label)
+              const counts = driver.countFixRounds([{ body }])
+              assert.equal(counts.tester + counts.reviewer, verdict === 'FAIL' || verdict === 'CHANGES_REQUESTED' ? 1 : 0, label)
+            } else if (body.startsWith('SUB_PLAN')) {
+              assert.equal(body.split('\n')[0], 'SUB_PLAN', label)
+            } else {
+              assert.ok(!NON_LF_END.test(body), `a park or completion comment holds a line end: ${label}`)
+              assert.deepEqual(driver.resumeStage([{ body, createdAt: '2026-01-01T00:00:00Z' }]), { stage: 'tester' }, label)
+              assert.equal(await gateSeesSubPlan(body), false, `the gate reads a sub-plan in: ${label}`)
+            }
+          }
+        }
+        assert.equal(cases.length, 10 * 24 + 9 * 24 + 9 * 6)
       })
     })
 
@@ -2231,6 +2515,19 @@ describe('each seat accepts only the report its contract prescribes', () => {
       const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
       assert.equal(state.done, true)
     })
+
+    for (const [name, value] of [['an object with a toString key', { toString: 1 }], ['an array', ['x']], ['true', true], ['null', null]]) {
+      test(`a seat field that is ${name} does not throw, and the placeholders stand in`, async () => {
+        const fake = fakeRunner({ reads: {} }, {
+          developer: { STATUS: 'DONE', PR: value },
+          tester: { VERDICT: value, FINDINGS: value },
+          reviewer: { VERDICT: value, FINDINGS: value },
+        })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.done, true)
+        assert.equal(state.pr, 'https://github.com/example/repo/pull/7')
+      })
+    }
   })
 })
 

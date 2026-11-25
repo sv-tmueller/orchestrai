@@ -245,14 +245,21 @@ In a live run each stage accepts only the report its contract prescribes:
   non-empty line after it. A bare `SUB_PLAN` line is not a sub-plan. A
   sub-plan is posted on the issue. `NEEDS_DECISION` parks the
   package. The question may be on the same line, on the next line or after the
-  bare word, and the reason reads `architect NEEDS_DECISION: <the question>`.
-  With no question at all it reads `architect NEEDS_DECISION`, with no colon.
+  bare word, and the reason reads `architect NEEDS_DECISION: <the question>`,
+  cut to one line (see "Parking"). With no question at all it reads
+  `architect NEEDS_DECISION`, with no colon. A `NEEDS_DECISION` field that
+  is not text, or is empty, counts as no field: the question then comes from the
+  first non-blank line after the header, outside any fenced block, so it is never
+  the fence line of a json block.
   A `SPLIT_PROPOSAL`, an `ARBITRATION` or text with no header is not a
   sub-plan.
 - The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
-  that is a pull request URL (it holds `/pull/<digits>`) or a number. The PR
-  comes from the report, or from the gate on a resume when the report names
-  none. `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
+  that is a pull request URL (it holds `/pull/<digits>`) or a number, on the
+  single line of the value (see "Parking"). The PR comes from the report, or
+  from the gate on a resume when the report names none. It is missing only when
+  the whole value is blank. Any other value that is no pull request URL or
+  number stops the package, also when the gate knows a PR.
+  `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
   holds in a fix round too, as far as the `STATUS` goes. `NEEDS_CONTEXT`
   always parks: no seat contract has a job that answers a question, so the
   driver has nobody to ask.
@@ -260,6 +267,13 @@ In a live run each stage accepts only the report its contract prescribes:
   exactly `APPROVE` or `CHANGES_REQUESTED`, in the first pass and in every
   re-test and re-review. A lower-case word, a word with trailing text or any
   other word is not a verdict.
+
+A seat field that is not text never throws. A json number is read as its
+digits. Any other json value that is not a string (an object, an array, a
+boolean, `null`) is read as an absent field: the stage that needs it stops with
+`<role> seat returned no usable report` (a `STATUS`, a `VERDICT`, a `PR` on a run
+that has no PR from the gate), and a note or a question that is absent leaves the
+reason without a colon.
 
 Anything else, and a seat that returns nothing, stops the package: it parks
 with the reason `<role> seat returned no usable report`. `runPipeline` with
@@ -270,8 +284,9 @@ stdout carries the gate lines, the wave plan and one result line per package.
 A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
 does not stop the others: its line reads `#<n> error: <reason>`, and every
 other package still runs and reports. The reason is the first line of the
-failed command's stderr. When the error is not a failed command, it is the
-first line of the error's message. A failure at the gate prints one line on
+failed command's stderr, cut at any line end of the writer's rule (see
+"Parking"). When the error is not a failed command, it is the first line of the
+error's message. A failure at the gate prints one line on
 stderr instead: the command with its arguments on one line (a newline in an
 argument shows as a space), then the first line of its stderr. Progress,
 dry-run notes and errors go to stderr.
@@ -318,7 +333,8 @@ a reviewer round, from the first verdict line of each comment. A bold header, a
 quoted line and a fact-checker verdict do not count. The readers split a
 comment at a line feed only (a CR before it is dropped). U+2028, U+2029, a
 lone CR, a vertical tab, a form feed and U+0085 do not start a line for the
-readers. The gate reads the PR's
+readers. That is the readers' rule, and it is not the rule for what the driver
+writes (see "Parking"). The gate reads the PR's
 comments once and hands the counts to the resumed run, so a run that starts
 later has the numbers the run that stopped had. A package that parked on a
 used-up count parks again if it is resumed, because the count comes from the
@@ -347,21 +363,44 @@ memory, it names the tester's comment on the PR instead.
 Every stop of a package writes three things: the comment `Parked: <reason>` on
 the issue, the `needs-human` label, and removal of `in-progress` when this run
 or the gate had put it on. Where the stop has seat text (a `NEEDS_DECISION`,
-`BLOCKED` or `NEEDS_CONTEXT` report), the comment quotes it line by line under
-the reason, one `> ` per line-feed line, so no line of it starts with
-`SUB_PLAN` or `VERDICT:` where the gate reads comments. A developer
-`BLOCKED` or `NEEDS_CONTEXT` report with no notes parks as `developer BLOCKED`
-or `developer NEEDS_CONTEXT`, with no colon.
+`BLOCKED` or `NEEDS_CONTEXT` report), the comment quotes it under the reason,
+one `> ` per line, so no line of it starts with `SUB_PLAN` or `VERDICT:` where
+the gate reads comments. A developer `BLOCKED` or `NEEDS_CONTEXT` report with
+no notes parks as `developer BLOCKED` or `developer NEEDS_CONTEXT`, with no
+colon.
 
-The reason is one line. Where it takes seat text (the developer's notes for
-`BLOCKED` and `NEEDS_CONTEXT`, the architect's question for `NEEDS_DECISION`),
-the driver takes that text up to its first line feed and trims it. If nothing
-is left, the reason has no colon. The whole text of the seat's report stays in
-the quoted lines under the reason. A line feed is the only line end here too,
-so a U+2028 stays inside the one line. The developer's `PR` value is cut the
-same way before it is checked, so the completion comment and the `done` line
-carry one line. Seat text reaches a comment or a result line in three forms
-only: a posted report body, a quoted block, or a single line cut as above.
+Two rules about lines apply, one for what the driver writes and one for what it
+reads. They differ on purpose.
+
+**The writer ends a line at any of seven characters:** line feed, carriage
+return, vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one
+line end. The reason is that other consumers of the output (a terminal, a
+script, a model reading stdout) may split on more than a line feed, and a seat
+must not be able to forge a result line for them. The writer's rule covers:
+
+- The single line of seat text. Where the driver cuts seat text to one line (the
+  developer's notes for a reason, the architect's question for a reason, the
+  developer's `PR` value), it takes the first line that holds a non-blank
+  character, trimmed. A line that is only a code fence marker (three or more
+  backticks or tildes, with or without a language word) is skipped. The result
+  is empty only when the whole text is blank. If the reason has no text left, it
+  has no colon. The whole text of the seat's report stays in the quoted lines
+  under the reason.
+- The quoted details of a park comment. Each of the seven starts a new `> `
+  line and is written as a line feed.
+- So `state.parked`, the first line of a park comment, the completion comment
+  and every result line on stdout hold none of the seven, and the `error` line
+  of a package is cut the same way.
+
+The developer's `PR` value is cut to its single line before it is checked, so a
+value with a blank first line is judged by its first non-blank line. It is
+missing only when that line is empty, which means the whole value is blank. A
+report body posted on a PR stays as the seat wrote it.
+
+**The readers split at a line feed only:** `resumeStage`, `countFixRounds` and
+the sub-plan reader (see "Fix rounds"). They read what GitHub shows. Seat text
+reaches a comment or a result line in three forms only: a posted report body, a
+quoted block, or a single line cut as above.
 
 The stops are: an architect `NEEDS_DECISION`, a developer `BLOCKED` or
 `NEEDS_CONTEXT`, a seat with no usable report, an exhausted count, no PR to

@@ -206,7 +206,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   const stop = async (reason, details) => {
     state.parked = reason
     log(`parked: ${state.parked}`)
-    await gh.park(issueNumber, reason, { inProgress: labeled || opts.inProgress === true, details: details?.trim() })
+    await gh.park(issueNumber, reason, { inProgress: labeled || opts.inProgress === true, details: textOf(details).trim() })
     return state
   }
   // A live run never turns a missing report into success: the package stops.
@@ -215,8 +215,9 @@ export async function runPipeline(issueNumber, opts = {}) {
   // Each seat is read as its contract prescribes. A live run accepts the exact
   // words only; a dry run keeps the old lenient read and the placeholders.
   const verdictOf = (report, valid, dryFallback) => {
-    if (dryRun) return report?.VERDICT || report?.verdict || dryFallback
-    return valid.includes(report?.VERDICT) ? report.VERDICT : null
+    if (dryRun) return textOf(report?.VERDICT) || textOf(report?.verdict) || dryFallback
+    const verdict = textOf(report?.VERDICT)
+    return valid.includes(verdict) ? verdict : null
   }
   const testerVerdict = (report) => verdictOf(report, ['PASS', 'FAIL'], 'PASS')
   const reviewerVerdict = (report) => verdictOf(report, ['APPROVE', 'CHANGES_REQUESTED'], 'APPROVE')
@@ -225,7 +226,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   // park: no seat contract has a job that answers a question. In a live run any
   // status but DONE and DONE_WITH_CONCERNS stops.
   const developerOk = async (report) => {
-    const status = report?.STATUS
+    const status = textOf(report?.STATUS)
     if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
       const notes = oneLine(report.NOTES)
       await stop(notes ? `developer ${status}: ${notes}` : `developer ${status}`, report.raw)
@@ -275,7 +276,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   // find is not the accepted verdict (none, as with a verdict the parser took
   // from a json block, or another word), the driver adds its own above the text.
   const postReport = async (seat, verdict, report) => {
-    const text = report?.raw?.trim() || [`VERDICT: ${verdict}`, report?.FINDINGS ? `FINDINGS: ${report.FINDINGS}` : null].filter(Boolean).join('\n')
+    const findings = textOf(report?.FINDINGS)
+    const text = textOf(report?.raw).trim() || [`VERDICT: ${verdict}`, findings ? `FINDINGS: ${findings}` : null].filter(Boolean).join('\n')
     const name = seat === 'tester' ? 'Tester' : 'Reviewer'
     const top = `**${name} report: ${verdict} (issue #${issueNumber}, ${seat} fix rounds ${state.fixRounds[seat]}/${MAX_ROUNDS})**\n\n`
     const plain = `${top}${text}`
@@ -367,9 +369,9 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     if (!(await developerOk(devReport))) return state
 
-    // A PR the report names must be a pull request URL or a number. An empty
-    // or missing one falls back to the gate's.
-    const reported = oneLine(devReport?.pr || devReport?.PR)
+    // A PR the report names must be a pull request URL or a number on its
+    // single line. A blank or missing one falls back to the gate's.
+    const reported = oneLine(devReport?.pr) || oneLine(devReport?.PR)
     if (!dryRun && reported && !isPullRequest(reported)) return noReport('developer')
     state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
@@ -623,11 +625,33 @@ export const LABELS = [
   { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
 ]
 
-// Seat text that goes outside a report body or a quoted block is one line: the
-// text up to its first line feed, trimmed. The rest stays in the quoted details.
-const oneLine = (text) => String(text ?? '').split('\n')[0].trim()
+// A seat field read as text. A string is itself and a json number is its digits.
+// Any other value (an object, an array, a boolean, null) is an absent field, so
+// no String() call can throw on it.
+const textOf = (value) => (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '')
 
-const firstLine = (text) => String(text || '').trim().split('\n')[0]
+// What the driver writes ends a line at any of these: line feed, carriage return,
+// vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one end.
+// The readers above (linesOf) split at a line feed only, on purpose: they read
+// what GitHub shows, and the writer must hold up for any consumer of its output.
+const LINE_END = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+
+// A line that is only a code fence marker, with or without a language word.
+const FENCE_LINE = /^(?:`{3,}|~{3,})[^\s`~]*$/
+
+// Seat text that goes outside a report body or a quoted block is one line: the
+// first line that holds a non-blank character, trimmed, skipping lines that are
+// only a code fence marker. The rest stays in the quoted details. It is empty
+// only when the whole text is blank. Text that holds nothing but fence markers
+// gives its first one, so it still counts as text.
+function oneLine(value) {
+  const lines = textOf(value).split(LINE_END).map((line) => line.trim()).filter(Boolean)
+  return lines.find((line) => !FENCE_LINE.test(line)) ?? lines[0] ?? ''
+}
+
+// The first line of an error message or a stderr, for a result line: trimmed
+// text up to its first line end.
+const firstLine = (text) => String(text || '').trim().split(LINE_END)[0]
 
 /**
  * The error for a gh or git call that exited nonzero. The message names the
@@ -654,10 +678,17 @@ function hasBody(raw, header) {
 }
 
 // The question of an architect NEEDS_DECISION report: the field when it has
-// text, else the first non-empty line after the header line.
+// text, else the first non-blank line after the header line. A fenced block is
+// not prose, so the fallback skips it, json block included.
 function decisionQuestion(report) {
-  if (report.NEEDS_DECISION) return report.NEEDS_DECISION
-  const lines = String(report.raw || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const field = textOf(report.NEEDS_DECISION)
+  if (field.trim()) return field
+  let fenced = false
+  const lines = []
+  for (const line of textOf(report.raw).split(LINE_END).map((l) => l.trim())) {
+    if (FENCE_LINE.test(line)) fenced = !fenced
+    else if (line && !fenced) lines.push(line)
+  }
   return lines[1] || ''
 }
 const shorten = (arg) => (arg.length > 60 ? `${arg.slice(0, 57)}...` : arg)
@@ -731,10 +762,10 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
 
     // Parking: the reason on the issue, needs-human on, in-progress off only
     // when the issue has it (removing a missing label is an error). details is
-    // seat text. It is quoted line by line, so no line of it starts with
-    // SUB_PLAN or VERDICT: where the gate reads comments.
+    // seat text. It is quoted line by line, every line end starting a new line,
+    // so no line of it starts with SUB_PLAN or VERDICT: where the gate reads comments.
     async park(n, reason, { inProgress = false, details } = {}) {
-      const quoted = details ? `\n\n${linesOf(details).map((l) => `> ${l}`).join('\n')}` : ''
+      const quoted = details ? `\n\n${details.split(LINE_END).map((l) => `> ${l}`).join('\n')}` : ''
       await gh.comment(n, `Parked: ${reason}${quoted}`)
       await gh.addLabel(n, 'needs-human')
       if (inProgress) await gh.removeLabel(n, 'in-progress')
