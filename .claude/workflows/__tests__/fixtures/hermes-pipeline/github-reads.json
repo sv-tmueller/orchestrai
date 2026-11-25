@@ -1,0 +1,93 @@
+{
+  "reads": {
+    "gh issue view 355 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Part of batch #603",
+      "comments": [
+        {
+          "id": "IC_x",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "SUB_PLAN\n\n# Issue: approach, files, order, verification.",
+          "createdAt": "2026-11-01T10:00:00Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/o/r/issues/1#issuecomment-1",
+          "viewerDidAuthor": true
+        }
+      ],
+      "labels": [
+        {
+          "id": "LA_size:M",
+          "name": "size:M",
+          "description": "",
+          "color": "ededed"
+        },
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 355,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 355 title"
+    },
+    "gh issue list --state open --label size:M --limit 100 --json number": [
+      {
+        "number": 604
+      },
+      {
+        "number": 355
+      },
+      {
+        "number": 450
+      }
+    ],
+    "gh pr list --state open --limit 100 --json closingIssuesReferences,headRefName,isDraft,number,url": [
+      {
+        "closingIssuesReferences": [
+          {
+            "id": "I_601",
+            "number": 601,
+            "repository": {
+              "id": "R_x",
+              "name": "r",
+              "owner": {
+                "id": "U_x",
+                "login": "o"
+              }
+            },
+            "url": "https://github.com/o/r/issues/601"
+          }
+        ],
+        "headRefName": "feat/601-work",
+        "isDraft": true,
+        "number": 602,
+        "url": "https://github.com/o/r/pull/602"
+      }
+    ],
+    "gh pr view 602 --json comments": {
+      "comments": [
+        {
+          "id": "IC_p",
+          "author": {
+            "login": "sv-tmueller"
+          },
+          "authorAssociation": "OWNER",
+          "body": "VERDICT: PASS",
+          "createdAt": "2026-11-02T09:00:00Z"
+        }
+      ]
+    },
+    "git ls-remote --heads origin": "1111111111111111111111111111111111111111\trefs/heads/main\n2222222222222222222222222222222222222222\trefs/heads/feat/355-hermes-driver\n"
+  },
+  "failures": {
+    "gh issue view 404 --json body,comments,labels,number,state,stateReason,title": "GraphQL: Could not resolve to an Issue with the number of 404. (repository.issue)\nsecond line of stderr"
+  }
+}

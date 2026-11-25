@@ -1,0 +1,21 @@
+{
+  "reads": {
+    "gh issue view 206 --json body,comments,labels,number,state,stateReason,title": {
+      "body": "Issue 206",
+      "comments": [],
+      "labels": [
+        {
+          "id": "LA_in-progress",
+          "name": "in-progress",
+          "description": "",
+          "color": "ededed"
+        }
+      ],
+      "number": 206,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Issue 206 title"
+    }
+  },
+  "failures": {}
+}

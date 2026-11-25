@@ -546,14 +546,18 @@ forbidden). It is not for customer repos.
 
 `HERMES_ADAPTER_TABLE` is read only by the adapter module, so it selects the
 variant for the programmatic driver and for anything else that spawns seats
-through `hermes-adapter.mjs`. `hermes-pipeline.mjs` has no CLI entry point;
-call `runPipeline` from a Node one-liner:
+through `hermes-adapter.mjs`. `hermes-pipeline.mjs` has a command line. Run
+it from the repo you want worked on, with issue numbers or `label:<name>`:
 
 ```bash
 HERMES_ADAPTER_TABLE=hermes-openrouter.json \
-  node --input-type=module -e \
-  "import { runPipeline } from './.claude/adapters/hermes-pipeline.mjs'; await runPipeline(42)"
+  node .claude/adapters/hermes-pipeline.mjs 42 43 label:size:S
 ```
+
+Run it with `DRY_RUN=true` first. A dry run reads GitHub, prints the gate and
+the wave plan, writes nothing and starts no seat. Run it again without
+`DRY_RUN` to do the work. Details: `docs/architecture/hermes-adapter.md`,
+"Driver command line".
 
 The skill-driven path (`hermes -s orchestrai chat`) does not read the env
 var: its workers go through `delegate_task`, pinned by `delegation.model`,
