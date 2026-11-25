@@ -141,15 +141,6 @@ describe('hermes kickoff skill', () => {
     assert.ok(existsSync(skillPath), 'SKILL.hermes.md not found')
   })
 
-  test('skill references delegate_task', () => {
-    const skillPath = join(skillsDir, 'tm-kickoff', 'SKILL.hermes.md')
-    const content = readFileSync(skillPath, 'utf8')
-    assert.ok(
-      content.includes('delegate_task'),
-      'SKILL.hermes.md must reference delegate_task'
-    )
-  })
-
   test('skill references the adapter table', () => {
     const skillPath = join(skillsDir, 'tm-kickoff', 'SKILL.hermes.md')
     const content = readFileSync(skillPath, 'utf8')
@@ -157,16 +148,6 @@ describe('hermes kickoff skill', () => {
       content.includes('hermes.json'),
       'SKILL.hermes.md must reference the adapter table'
     )
-  })
-
-  test('skill has the 5 pipeline stages', () => {
-    const skillPath = join(skillsDir, 'tm-kickoff', 'SKILL.hermes.md')
-    const content = readFileSync(skillPath, 'utf8')
-    assert.ok(content.includes('Architect'), 'missing Architect stage')
-    assert.ok(content.includes('Developer'), 'missing Developer stage')
-    assert.ok(content.includes('Tester'), 'missing Tester stage')
-    assert.ok(content.includes('Reviewer'), 'missing Reviewer stage')
-    assert.ok(content.includes('Ship'), 'missing Ship stage')
   })
 })
 

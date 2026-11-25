@@ -872,14 +872,15 @@ describe('LABELS', () => {
     ])
   })
 
-  test('the comment above it does not claim the skill list is gone while the skill still holds it', () => {
+  test('the comment above it says the Hermes kickoff skill holds no copy', () => {
     const source = readFileSync(new URL('../../adapters/hermes-pipeline.mjs', import.meta.url), 'utf8')
     const skill = readFileSync(new URL('../../skills/tm-kickoff/SKILL.hermes.md', import.meta.url), 'utf8')
-    assert.ok(skill.includes('label create'), 'the premise: the skill still carries the list')
+    assert.ok(!skill.includes('label create'), 'the premise: the skill no longer carries the list')
+    assert.ok(!source.includes('#605 removes it there'))
     assert.ok(!source.includes('so this is the only copy'))
     assert.ok(source.includes(
-      '// The canonical label set. SKILL.hermes.md carries the same list in its Gate\n' +
-      '// block today. #605 removes it there, and this becomes the only copy.\n'
+      '// The canonical label set, created by main before the gate. The Hermes kickoff\n' +
+      '// skill holds no copy of it since #605: the skill runs this driver.\n'
     ))
   })
 })
