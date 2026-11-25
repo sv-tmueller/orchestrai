@@ -3314,7 +3314,7 @@ describe('runApply', () => {
       const labels = LABELS.map((l) => have(l, l.name === 'needs-human' ? { color: '000000' } : {}))
       const fake = makeFake({ labels, protection: REVIEWED_PROTECTION, repo: { allow_auto_merge: true, allow_squash_merge: true } })
       const plan = apply(fake, 'widget').text
-      assert.match(plan, /^octo\/widget: labels missing \(default branch main\)$/m)
+      assert.match(plan, /^octo\/widget: labels to create or fix \(default branch main\)$/m)
       assert.doesNotMatch(plan, /not set up|^changes:$/m)
       const { code } = apply(fake, 'widget', '--confirm', tokenOf(plan))
       assert.equal(code, 0)

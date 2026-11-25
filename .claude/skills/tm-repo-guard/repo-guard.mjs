@@ -1209,7 +1209,7 @@ export function opText(op) {
 
 export function planText(target, plan, ops, token, ci) {
   const labelsOnly = !ci && plan.changes.length === 0
-  const lines = [`${target.repo}: ${labelsOnly ? 'labels missing' : 'not set up'} (default branch ${target.branch})`]
+  const lines = [`${target.repo}: ${labelsOnly ? 'labels to create or fix' : 'not set up'} (default branch ${target.branch})`]
   if (ci) lines.push(...ciText(ci))
   const labelOps = ops.filter((op) => labelOpName(op) !== null)
   if (labelOps.length > 0) {
