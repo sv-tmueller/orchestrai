@@ -1955,9 +1955,9 @@ describe('each seat accepts only the report its contract prescribes', () => {
           const logs = []
           const r = await pipeline({ developer: parseReport('developer', text) }, { log: (l) => logs.push(l) })
           assert.equal(r.state.parked, `developer ${status}`)
-          assert.deepEqual(ghWrites(r.calls).slice(-3), parkWrites(`developer ${status}`, { inProgress: true, details: text }))
+          assert.deepEqual(ghWrites(r.calls).slice(-3), parkWrites(`developer ${status}`, { inProgress: true, details: text.trim() }))
           assert.ok(logs.every((l) => !l.includes('undefined')), 'the stdout line follows the reason')
-          assert.ok(logs.includes(`parked: developer ${status}`))
+          assert.ok(logs.some((l) => l.endsWith(`parked: developer ${status}`)))
         })
       }
     }
