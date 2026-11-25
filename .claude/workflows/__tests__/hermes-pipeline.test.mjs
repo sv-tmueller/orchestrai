@@ -326,7 +326,7 @@ describe('planWaves', () => {
 const FIXTURE_DIR = new URL('./fixtures/hermes-pipeline/', import.meta.url)
 const loadFixture = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURE_DIR), 'utf8'))
 
-// #604 extends this list if it adds a new write command.
+// Every write command the driver runs has a prefix here. A new one is added here.
 const WRITE_PREFIXES = [
   'gh label create',
   'gh issue comment',
