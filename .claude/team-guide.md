@@ -91,12 +91,9 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
 
 - Orchestrator (the lead session, including `/tm-advisor` and `/tm-kickoff`):
   Opus (the `opus` alias, Opus 5.5 as of 2026-09-23) at high effort, the
-  same model family as the judgment seats. High moved down from xhigh on
-  2026-11-25 (owner decision): it scored 19.67/20 against 20/20 at 0.48x the
-  cost on refinement (docs/reviews/2026-09-28-lead-effort-comparison.md); the
-  run phase was not measured, and in the light flow it is mostly routing and
-  gate checks. Comparable quality to Fable at
-  under half the cost per run, at low confidence
+  same model family as the judgment seats (why high: docs/team-guide-rationale.md,
+  "Orchestrator effort"). Comparable quality to Fable at under half the cost
+  per run, at low confidence
   (docs/reviews/2026-09-23-lead-model-comparison.md). Shared blind spot: a
   systematic Opus-class mistake would go uncaught by any seat in the flow
   (report section 8). No lead fallback is prescribed if Opus itself is

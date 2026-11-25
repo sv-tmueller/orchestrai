@@ -278,9 +278,9 @@ A repo that is already set up, with its six labels in place, prints "set up,
 nothing to change" and asks nothing. A set-up repo that lacks `in-progress` or
 `needs-human` does not yet require `orchestrai/review`, so its plan keeps the
 "not set up" header and lists `required check: orchestrai/review` and a PUT
-next to the label writes. The header reads "labels to create or fix" only when
-the review check is already required and the gap is a missing size label or a
-label with another color or description. Protection settings the guard does
+next to the label writes. The header reads "labels to create or fix" when the
+review check is already required and the only gap is labels (missing, or with
+another color or description). Protection settings the guard does
 not manage are carried over, not reset. Apply also removes any required check
 that is no longer in the list.
 
