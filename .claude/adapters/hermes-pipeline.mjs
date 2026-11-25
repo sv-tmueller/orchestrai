@@ -227,7 +227,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   const developerOk = async (report) => {
     const status = report?.STATUS
     if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
-      await stop(`developer ${status}: ${report.NOTES}`, report.raw)
+      const notes = String(report.NOTES ?? '').trim()
+      await stop(notes ? `developer ${status}: ${notes}` : `developer ${status}`, report.raw)
       return false
     }
     if (!dryRun && status !== 'DONE' && status !== 'DONE_WITH_CONCERNS') {
@@ -346,7 +347,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     let devTask
     if (resume?.findings !== undefined) {
       // The findings are a posted report, and the count already includes it.
-      const kind = VERDICT_LINE.exec(resume.findings.replace(/\r/g, ''))?.[1] === 'CHANGES_REQUESTED' ? 'reviewer' : 'tester'
+      const kind = readVerdict(resume.findings) === 'CHANGES_REQUESTED' ? 'reviewer' : 'tester'
       const round = state.fixRounds[kind] || 1
       if (round > MAX_ROUNDS) return exhausted(kind)
       state.fixRounds[kind] = round
@@ -500,8 +501,24 @@ export function parseBlockers(body) {
   return found
 }
 
+// The readers split a comment at a line feed only, and drop a CR right before
+// it. GitHub starts a line nowhere else, so U+2028, U+2029, a lone CR and the
+// rest do not start one here. A regex with the m flag would start one after
+// U+2028 and U+2029.
+const linesOf = (body) => String(body || '').split('\n').map((line) => line.replace(/\r$/, ''))
+
 // The parser accepts any spacing after the colon, so the reader does too.
-const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/m
+const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/
+
+// The first verdict word of a comment body, or null. resumeStage, countFixRounds
+// and the driver's own check of a report it posts all read it here.
+const readVerdict = (body) => {
+  for (const line of linesOf(body)) {
+    const m = VERDICT_LINE.exec(line)
+    if (m) return m[1]
+  }
+  return null
+}
 
 /**
  * resumeStage(comments) -> { stage, findings? }
@@ -513,10 +530,10 @@ const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/m
 export function resumeStage(comments) {
   const ordered = [...comments].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
   for (let i = ordered.length - 1; i >= 0; i--) {
-    const m = String(ordered[i].body || '').replace(/\r/g, '').match(VERDICT_LINE)
-    if (!m) continue
-    if (m[1] === 'PASS') return { stage: 'reviewer' }
-    if (m[1] === 'APPROVE') return { stage: 'ship' }
+    const verdict = readVerdict(ordered[i].body)
+    if (!verdict) continue
+    if (verdict === 'PASS') return { stage: 'reviewer' }
+    if (verdict === 'APPROVE') return { stage: 'ship' }
     return { stage: 'developer', findings: String(ordered[i].body) }
   }
   return { stage: 'tester' }
@@ -533,9 +550,9 @@ export function resumeStage(comments) {
 export function countFixRounds(comments) {
   const counts = { tester: 0, reviewer: 0 }
   for (const comment of comments) {
-    const m = String(comment.body || '').replace(/\r/g, '').match(VERDICT_LINE)
-    if (m?.[1] === 'FAIL') counts.tester++
-    if (m?.[1] === 'CHANGES_REQUESTED') counts.reviewer++
+    const verdict = readVerdict(comment.body)
+    if (verdict === 'FAIL') counts.tester++
+    if (verdict === 'CHANGES_REQUESTED') counts.reviewer++
   }
   return counts
 }
@@ -710,7 +727,7 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
     // seat text. It is quoted line by line, so no line of it starts with
     // SUB_PLAN or VERDICT: where the gate reads comments.
     async park(n, reason, { inProgress = false, details } = {}) {
-      const quoted = details ? `\n\n${details.replace(/\r/g, '').split('\n').map((l) => `> ${l}`).join('\n')}` : ''
+      const quoted = details ? `\n\n${linesOf(details).map((l) => `> ${l}`).join('\n')}` : ''
       await gh.comment(n, `Parked: ${reason}${quoted}`)
       await gh.addLabel(n, 'needs-human')
       if (inProgress) await gh.removeLabel(n, 'in-progress')
@@ -726,8 +743,7 @@ export function createGitHub({ run = defaultRun, dryRun = false, log = () => {},
 const SIZES = ['size:XL', 'size:L', 'size:M', 'size:S']
 
 // A sub-plan comment is an issue comment with a line that is exactly SUB_PLAN.
-const hasSubPlan = (comments) =>
-  comments.some((c) => String(c.body || '').split('\n').some((line) => line.replace(/\r$/, '') === 'SUB_PLAN'))
+const hasSubPlan = (comments) => comments.some((c) => linesOf(c.body).some((line) => line === 'SUB_PLAN'))
 
 /**
  * runGate(numbers, gh) -> entries[]

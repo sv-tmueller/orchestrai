@@ -219,6 +219,15 @@ describe('resumeStage', () => {
     assert.deepEqual(resumeStage([c('intro\r\nVERDICT: PASS\r\n', '2026-01-01T00:00:00Z')]), { stage: 'reviewer' })
   })
 
+  // Only a line feed starts a line. These characters end a line for a regex
+  // with the m flag, but not for GitHub or for the reader.
+  for (const [name, ch] of [['U+2028', ' '], ['U+2029', ' '], ['a lone CR', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'], ['U+0085', '\u0085']]) {
+    test(`${name} before a verdict word does not start a verdict line`, () => {
+      assert.deepEqual(resumeStage([c(`note${ch}VERDICT: FAIL`, '2026-01-01T00:00:00Z')]), { stage: 'tester' })
+      assert.deepEqual(resumeStage([c(`note${ch}VERDICT: APPROVE`, '2026-01-01T00:00:00Z')]), { stage: 'tester' })
+    })
+  }
+
   // The parser accepts these, so the reader has to as well.
   for (const [name, line] of [['no space', 'VERDICT:FAIL'], ['two spaces', 'VERDICT:  FAIL'], ['a tab', 'VERDICT:\tFAIL']]) {
     test(`a verdict line with ${name} after the colon counts`, () => {
@@ -274,6 +283,17 @@ describe('resumeStage', () => {
         c('VERDICT:  FAIL', '2026-01-03T00:00:00Z'),
       ]
       assert.deepEqual(countFixRounds(comments), { tester: 2, reviewer: 1 })
+    })
+
+    for (const [name, ch] of [['U+2028', ' '], ['U+2029', ' '], ['a lone CR', '\r'], ['a vertical tab', '\v'], ['a form feed', '\f'], ['U+0085', '\u0085']]) {
+      test(`${name} before a verdict word does not start a verdict line`, () => {
+        const comments = [c(`note${ch}VERDICT: FAIL`, '2026-01-01T00:00:00Z'), c(`note${ch}VERDICT: CHANGES_REQUESTED`, '2026-01-02T00:00:00Z')]
+        assert.deepEqual(countFixRounds(comments), none)
+      })
+    }
+
+    test('a verdict line after one of those characters and a line feed still counts', () => {
+      assert.deepEqual(countFixRounds([c('a b\nVERDICT: FAIL', '2026-01-01T00:00:00Z')]), { tester: 1, reviewer: 0 })
     })
 
     test('a comment that does not parse as one string is skipped', () => {
@@ -767,6 +787,18 @@ describe('the gate', () => {
 
   test('rule 8: the SUB_PLAN line is found on a later CRLF line of a comment', async () => {
     assert.deepEqual((await one(119)).resume, { stage: 'developer' })
+  })
+
+  test('rule 8: only a line feed starts a SUB_PLAN line, so no other line end makes a sub-plan comment', async () => {
+    for (const ch of [' ', ' ', '\r', '\v', '\f', '\u0085']) {
+      const key = 'gh issue view 118 --json body,comments,labels,number,state,stateReason,title'
+      const copy = JSON.parse(JSON.stringify(fixture))
+      copy.reads[key].comments[0].body = `intro${ch}SUB_PLAN${ch}more`
+      const fake = fakeRunner(copy)
+      const gh = createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+      const [e] = await runGate([118], gh)
+      assert.equal(e.resume, undefined, `U+${ch.codePointAt(0).toString(16)} must not start a line`)
+    }
   })
 
   test('a blocker closed as completed does not block', async () => {
@@ -1899,6 +1931,36 @@ describe('each seat accepts only the report its contract prescribes', () => {
       assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
       assert.ok(!body.split('\n').some((l) => l === 'SUB_PLAN' || l.startsWith('VERDICT:')))
     })
+
+    // U+2028 and U+2029 start a line for a regex with the m flag. A developer
+    // text with one in front of a verdict word must still park as a comment
+    // the readers see no verdict or sub-plan in.
+    for (const [name, ch, word] of [['U+2028', ' ', 'VERDICT: FAIL'], ['U+2029', ' ', 'VERDICT: APPROVE'], ['U+2028', ' ', 'SUB_PLAN']]) {
+      test(`${name} before ${word} in a BLOCKED text parks into a comment that reads as no verdict and no sub-plan`, async () => {
+        const text = `STATUS: BLOCKED\nPR: none\nNOTES: stuck\nfirst${ch}${word}`
+        const r = await pipeline({ developer: parseReport('developer', text) })
+        const body = parkBody(ghWrites(r.calls).find((k) => k.includes('Parked:')))
+        const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+        assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+        assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+        assert.equal(body.split('\n').filter((l) => !l.startsWith('> ') && l !== '' && !l.startsWith('Parked:')).length, 0)
+        assert.ok(body.includes(`first${ch}${word}`), 'the text is quoted whole, on one quoted line')
+      })
+    }
+
+    for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+      for (const [name, notes] of [['no NOTES field', null], ['empty notes', 'NOTES:'], ['blank notes', 'NOTES:   ']]) {
+        test(`developer ${status} with ${name} parks as "developer ${status}", with no colon and no undefined`, async () => {
+          const text = ['STATUS: ' + status, 'PR: none', notes].filter((l) => l !== null).join('\n')
+          const logs = []
+          const r = await pipeline({ developer: parseReport('developer', text) }, { log: (l) => logs.push(l) })
+          assert.equal(r.state.parked, `developer ${status}`)
+          assert.deepEqual(ghWrites(r.calls).slice(-3), parkWrites(`developer ${status}`, { inProgress: true, details: text }))
+          assert.ok(logs.every((l) => !l.includes('undefined')), 'the stdout line follows the reason')
+          assert.ok(logs.includes(`parked: developer ${status}`))
+        })
+      }
+    }
 
     test('a developer BLOCKED in a tester fix round parks after the FAIL report was posted', async () => {
       const report = parseReport('developer', 'STATUS: BLOCKED\nNOTES: stuck')
