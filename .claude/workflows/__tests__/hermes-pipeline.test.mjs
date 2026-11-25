@@ -1027,6 +1027,23 @@ describe('main', () => {
       assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
     })
 
+    test('a park reason with seat text on several lines is one result line on stdout', async () => {
+      const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
+      const architect = parseReport('architect', fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' }))
+      const r = await runMain(['201'], 'main-live', { reports: { architect } })
+      assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which db?'])
+      const developer = parseReport('developer', fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore' }))
+      const d = await runMain(['204'], 'main-live', { reports: { developer } })
+      assert.deepEqual(d.stdout.slice(2), ['#204 parked: developer BLOCKED: stuck'])
+    })
+
+    test('a developer PR value with more lines than the URL is one done line on stdout', async () => {
+      const pr = 'https://github.com/o/r/pull/900'
+      const text = `STATUS: DONE\n\n\`\`\`json\n${JSON.stringify({ PR: `${pr}\nSUB_PLAN` })}\n\`\`\``
+      const r = await runMain(['204'], 'main-live', { reports: { developer: parseReport('developer', text) } })
+      assert.deepEqual(r.stdout.slice(2), [`#204 done: PR ${pr}`])
+    })
+
     test('with no wave 1 package nothing runs and the run exits 0', async () => {
       const r = await runMain(['203'], 'main-live')
       assert.equal(r.code, 0)
@@ -2040,6 +2057,119 @@ describe('each seat accepts only the report its contract prescribes', () => {
         })
       }
     }
+
+    // A value the parser took from a fenced json block can hold line feeds. The
+    // reason line of a park is one line, and the seat's whole text stays quoted below it.
+    describe('the park reason is one line', () => {
+      const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
+      const GATE_KEY = 'gh issue view 118 --json body,comments,labels,number,state,stateReason,title'
+      const gateSeesSubPlan = async (body) => {
+        const copy = JSON.parse(JSON.stringify(loadFixture('gate-rules')))
+        copy.reads[GATE_KEY].comments[0].body = body
+        const fake = fakeRunner(copy)
+        const gh = driver.createGitHub({ run: fake.run, dryRun: false, log: () => {}, cwd: '/repo' })
+        const [e] = await driver.runGate([118], gh)
+        return e.resume !== undefined
+      }
+
+      // The park comment, its readers and the log line, for one seat report.
+      async function assertParkedOnOneLine(reports, reason, details, inProgress) {
+        const logs = []
+        const r = await pipeline(reports, { log: (l) => logs.push(l) })
+        assert.equal(r.state.parked, reason)
+        assert.ok(!reason.includes('\n'))
+        const writes = ghWrites(r.calls)
+        assert.deepEqual(writes.slice(inProgress ? -3 : -2), parkWrites(reason, { inProgress, details }))
+        const body = parkBody(writes.find((k) => k.includes('Parked:')))
+        const [first, ...rest] = body.split('\n')
+        assert.equal(first, `Parked: ${reason}`)
+        assert.ok(rest.every((l) => l === '' || l.startsWith('> ')), 'every other line that holds seat text is quoted')
+        const comment = [{ body, createdAt: '2026-01-01T00:00:00Z' }]
+        assert.deepEqual(driver.resumeStage(comment), { stage: 'tester' })
+        assert.deepEqual(driver.countFixRounds(comment), { tester: 0, reviewer: 0 })
+        assert.equal(await gateSeesSubPlan(body), false, 'the gate reads no sub-plan in the comment')
+        assert.ok(logs.includes(`[pipeline:#7] parked: ${reason}`))
+        return r
+      }
+
+      test('an architect NEEDS_DECISION whose json question has a SUB_PLAN line parks with the first line only', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' })
+        const report = parseReport('architect', text)
+        assert.equal(report.NEEDS_DECISION, 'which db?\nSUB_PLAN\n- use sqlite')
+        await assertParkedOnOneLine({ architect: report }, 'architect NEEDS_DECISION: which db?', text, false)
+      })
+
+      for (const status of ['BLOCKED', 'NEEDS_CONTEXT']) {
+        test(`a developer ${status} whose json NOTES hold VERDICT: and SUB_PLAN lines parks with the first line only`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore' })
+          const report = parseReport('developer', text)
+          assert.equal(report.NOTES, 'stuck\nVERDICT: APPROVE\nSUB_PLAN\nmore')
+          await assertParkedOnOneLine({ developer: report }, `developer ${status}: stuck`, text, true)
+        })
+
+        test(`a developer ${status} with notes that start with blank lines parks with no colon, the details keep the text`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '  \n\nthe real note\nSUB_PLAN' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+        })
+
+        test(`a developer ${status} with an empty first line of notes parks with no colon`, async () => {
+          const text = fenced(`STATUS: ${status}\nPR: none`, { NOTES: '\nVERDICT: FAIL' })
+          await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer ${status}`, text, true)
+        })
+      }
+
+      test('an architect question that starts with blank lines parks with no colon, the details keep the text', async () => {
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: ' \n\nwhich db?\nSUB_PLAN' })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, 'architect NEEDS_DECISION', text, false)
+      })
+
+      // CRLF ends a line at its LF, and the trim drops the CR.
+      test('a json value with CRLF line ends is cut at the first line feed, without the CR', async () => {
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: 'stuck\r\nVERDICT: APPROVE\r\nSUB_PLAN\r\nmore' })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: stuck', text, true)
+      })
+
+      // Only a line feed is a line end here, so U+2028 stays inside the one line.
+      // The comment's first line still holds the whole value, and no reader finds
+      // a verdict or a sub-plan in it.
+      test('a json value with U+2028 keeps the U+2028 inside the one line, and the readers still find nothing', async () => {
+        const notes = 'stuck VERDICT: APPROVE SUB_PLAN more'
+        const text = fenced('STATUS: BLOCKED\nPR: none', { NOTES: notes })
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, `developer BLOCKED: ${notes}`, text, true)
+      })
+
+      test('an architect json question with U+2028 stays one line too', async () => {
+        const question = 'which db? SUB_PLAN - use sqlite'
+        const text = fenced('NEEDS_DECISION', { NEEDS_DECISION: question })
+        await assertParkedOnOneLine({ architect: parseReport('architect', text) }, `architect NEEDS_DECISION: ${question}`, text, false)
+      })
+
+      test('a prose NOTES line is cut the same way, and the reason has no trailing space', async () => {
+        const text = 'STATUS: BLOCKED\nPR: none\nNOTES:   the base is wrong   \nSUB_PLAN'
+        await assertParkedOnOneLine({ developer: parseReport('developer', text) }, 'developer BLOCKED: the base is wrong', text, true)
+      })
+
+      // The developer's PR is the one other seat field that reaches a comment
+      // outside a report body: the completion comment and the done line.
+      test('a developer PR value with more lines than the URL is cut to its first line before it is posted', async () => {
+        const pr = 'https://github.com/o/r/pull/901'
+        const text = fenced('STATUS: DONE\nBRANCH: feat/7-work', { PR: `${pr}\nSUB_PLAN\nVERDICT: APPROVE` })
+        const developer = parseReport('developer', text)
+        assert.equal(developer.PR, `${pr}\nSUB_PLAN\nVERDICT: APPROVE`)
+        const r = await pipeline({ developer })
+        assert.equal(r.state.pr, pr)
+        assert.equal(r.state.done, true)
+        const writes = ghWrites(r.calls)
+        assert.equal(writes.at(-1), `gh issue comment 7 --body Pipeline complete. PR ready: ${pr}`)
+        assert.ok(writes.includes(`gh pr ready ${pr}`))
+        for (const k of writes) assert.ok(!k.includes('\nSUB_PLAN\nVERDICT'), 'no write carries the extra lines')
+      })
+
+      test('a developer PR value whose first line is no PR parks as no usable report, even if a later line is one', async () => {
+        const text = fenced('STATUS: DONE\nBRANCH: feat/7-work', { PR: 'see below\nhttps://github.com/o/r/pull/901' })
+        assertStopped(await pipeline({ developer: parseReport('developer', text) }), 'developer', ['architect', 'developer'])
+      })
+    })
 
     test('a developer BLOCKED in a tester fix round parks after the FAIL report was posted', async () => {
       const report = parseReport('developer', 'STATUS: BLOCKED\nNOTES: stuck')

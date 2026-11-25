@@ -316,9 +316,9 @@ from a json block, or another verdict word ahead of the real one). So
 `countFixRounds` counts a `FAIL` as a tester round and a `CHANGES_REQUESTED` as
 a reviewer round, from the first verdict line of each comment. A bold header, a
 quoted line and a fact-checker verdict do not count. The readers split a
-comment at a line feed only (a CR before it is dropped), as GitHub does:
-U+2028, U+2029, a lone CR, a vertical tab, a form feed and U+0085 do not
-start a line. The gate reads the PR's
+comment at a line feed only (a CR before it is dropped). U+2028, U+2029, a
+lone CR, a vertical tab, a form feed and U+0085 do not start a line for the
+readers. The gate reads the PR's
 comments once and hands the counts to the resumed run, so a run that starts
 later has the numbers the run that stopped had. A package that parked on a
 used-up count parks again if it is resumed, because the count comes from the
@@ -351,10 +351,22 @@ or the gate had put it on. Where the stop has seat text (a `NEEDS_DECISION`,
 the reason, one `> ` per line-feed line, so no line of it starts with
 `SUB_PLAN` or `VERDICT:` where the gate reads comments. A developer
 `BLOCKED` or `NEEDS_CONTEXT` report with no notes parks as `developer BLOCKED`
-or `developer NEEDS_CONTEXT`, with no colon. The stops are: an architect `NEEDS_DECISION`, a developer
-`BLOCKED` or `NEEDS_CONTEXT`, a seat with no usable report, an exhausted
-count, no PR to mark ready, and an unexpected final state. The result line on
-stdout is unchanged: `#<n> parked: <reason>`.
+or `developer NEEDS_CONTEXT`, with no colon.
+
+The reason is one line. Where it takes seat text (the developer's notes for
+`BLOCKED` and `NEEDS_CONTEXT`, the architect's question for `NEEDS_DECISION`),
+the driver takes that text up to its first line feed and trims it. If nothing
+is left, the reason has no colon. The whole text of the seat's report stays in
+the quoted lines under the reason. A line feed is the only line end here too,
+so a U+2028 stays inside the one line. The developer's `PR` value is cut the
+same way before it is checked, so the completion comment and the `done` line
+carry one line. Seat text reaches a comment or a result line in three forms
+only: a posted report body, a quoted block, or a single line cut as above.
+
+The stops are: an architect `NEEDS_DECISION`, a developer `BLOCKED` or
+`NEEDS_CONTEXT`, a seat with no usable report, an exhausted count, no PR to
+mark ready, and an unexpected final state. The result line on stdout is
+`#<n> parked: <reason>`, with that same one-line reason.
 
 ### Branch name
 

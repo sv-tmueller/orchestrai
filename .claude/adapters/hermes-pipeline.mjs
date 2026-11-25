@@ -227,7 +227,7 @@ export async function runPipeline(issueNumber, opts = {}) {
   const developerOk = async (report) => {
     const status = report?.STATUS
     if (status === 'BLOCKED' || status === 'NEEDS_CONTEXT') {
-      const notes = String(report.NOTES ?? '').trim()
+      const notes = oneLine(report.NOTES)
       await stop(notes ? `developer ${status}: ${notes}` : `developer ${status}`, report.raw)
       return false
     }
@@ -324,7 +324,7 @@ export async function runPipeline(issueNumber, opts = {}) {
     const archReport = await dispatch('architect', archTask, 'judgment')
 
     if (archReport?.KIND === 'NEEDS_DECISION') {
-      const question = decisionQuestion(archReport)
+      const question = oneLine(decisionQuestion(archReport))
       return stop(question ? `architect NEEDS_DECISION: ${question}` : 'architect NEEDS_DECISION', archReport.raw)
     }
     // Only a SUB_PLAN with a body is a sub-plan. A SPLIT_PROPOSAL, an
@@ -369,7 +369,7 @@ export async function runPipeline(issueNumber, opts = {}) {
 
     // A PR the report names must be a pull request URL or a number. An empty
     // or missing one falls back to the gate's.
-    const reported = devReport?.pr || devReport?.PR
+    const reported = oneLine(devReport?.pr || devReport?.PR)
     if (!dryRun && reported && !isPullRequest(reported)) return noReport('developer')
     state.pr = reported || resume?.pr || (dryRun ? `https://github.com/example/repo/pull/${issueNumber}` : null)
     if (!state.pr && !dryRun) return noReport('developer')
@@ -506,9 +506,8 @@ export function parseBlockers(body) {
 }
 
 // The readers split a comment at a line feed only, and drop a CR right before
-// it. GitHub starts a line nowhere else, so U+2028, U+2029, a lone CR and the
-// rest do not start one here. A regex with the m flag would start one after
-// U+2028 and U+2029.
+// it. U+2028, U+2029, a lone CR and the rest do not start a line here. A regex
+// with the m flag would start one after U+2028 and U+2029.
 const linesOf = (body) => String(body || '').split('\n').map((line) => line.replace(/\r$/, ''))
 
 // The parser accepts any spacing after the colon, so the reader does too.
@@ -623,6 +622,10 @@ export const LABELS = [
   { name: 'in-progress', color: 'FBCA04', description: 'Package dispatched; resume, do not restart.' },
   { name: 'needs-human', color: 'B60205', description: 'Agent loop exhausted or blocked; human decision needed.' },
 ]
+
+// Seat text that goes outside a report body or a quoted block is one line: the
+// text up to its first line feed, trimmed. The rest stays in the quoted details.
+const oneLine = (text) => String(text ?? '').split('\n')[0].trim()
 
 const firstLine = (text) => String(text || '').trim().split('\n')[0]
 
