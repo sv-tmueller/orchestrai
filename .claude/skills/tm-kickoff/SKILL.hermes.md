@@ -12,7 +12,10 @@ The only GitHub write this skill makes is the split-proposal comment (see
 "What each line asks of you").
 
 Run every command below in the top directory of the repo to be worked on. The
-driver works on the repo in the current directory.
+driver works on the repo in the current directory, and the commands name it by
+a path inside that repo. If `.claude/adapters/hermes-pipeline.mjs` is not there,
+stop and tell the user: this skill needs orchestrai's `.claude/adapters` folder
+in the repo.
 
 ## When to use
 
@@ -30,9 +33,9 @@ run.
 
 Seats take their model, provider and effort from `.claude/adapters/hermes.json`.
 If the user asks for the OpenRouter variant, put
-`HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of every command of this
-skill. Never do that on a customer repo. Details: `docs/architecture/hermes-adapter.md`,
-"OpenRouter variant (Kimi K3.1 Pro)".
+`HERMES_ADAPTER_TABLE=hermes-openrouter.json` in front of every `node` command
+of this skill. Never do that on a customer repo. Details:
+`docs/architecture/hermes-adapter.md`, "OpenRouter variant (Kimi K3.1 Pro)".
 
 Step 1, a dry run. It reads GitHub, prints the gate and the wave plan, writes
 nothing and starts no seat:
@@ -85,33 +88,42 @@ Exit codes:
 
 - **`stop`** (`#<n> size:L stop: size:L, split it first`, or `size:XL`; report
   line `- #<n> stopped: ...`). The driver only stops the issue. The next step is
-  yours: a split proposal from the architect. After the live run, check for an
-  issue comment that starts with `SPLIT_PROPOSAL`:
+  yours: a split proposal from the architect. Ask for it only after a live run.
+  If the user declined the live run, name the stopped issues and do nothing
+  more. After the live run, check for an issue comment that starts with
+  `SPLIT_PROPOSAL`:
 
   ```
   gh issue view <n> --json comments --jq '[.comments[].body | select(startswith("SPLIT_PROPOSAL"))] | length'
   ```
 
   If the count is 0, run the command below with its stdout redirected to a
-  file outside the repo (`mktemp` makes one). On exit 0, post the file with
-  `gh issue comment <n> --body-file <file>`. On exit 1, post nothing: stderr
-  holds the reply or `no report`. Tell the user which one happened.
+  file outside the repo (`mktemp` makes one). It can run for up to 30 minutes,
+  the adapter's limit for one seat, so start it so that no shorter timeout stops
+  it. On exit 0 the file starts with `SPLIT_PROPOSAL` and holds the proposal:
+  post it with `gh issue comment <n> --body-file <file>`. On any other exit,
+  post nothing: stderr holds the reply, `no report` or an error. Tell the user
+  which one happened.
 
   ```
-  node --input-type=module -e 'const { spawn } = await import("./.claude/adapters/hermes-adapter.mjs"); const r = await spawn("architect", process.argv[1], { tier: "judgment", cwd: process.cwd() }); if (r?.KIND !== "SPLIT_PROPOSAL") { console.error(r?.raw || "no report"); process.exit(1) } console.log(r.raw)' "JOB: SPLIT_PROPOSAL
+  node --input-type=module -e 'const { spawn } = await import("./.claude/adapters/hermes-adapter.mjs"); const r = await spawn("architect", process.argv[1], { tier: "judgment", cwd: process.cwd() }); const text = typeof r?.raw === "string" ? r.raw.trim() : ""; if (!/^SPLIT_PROPOSAL(?::|\s)\s*\S/.test(text)) { console.error(text || "no report"); process.exit(1) } console.log(text)' "JOB: SPLIT_PROPOSAL
 
   Issue #<n>: read the issue and its comments, then propose the split."
   ```
 
   It goes through the adapter, so it uses the table, the env var, the role
-  prompt and the effort guard, and this skill names no model. Never run it with
-  `DRY_RUN=true`. Never post a reply that is not a split proposal.
-- **`park`, `parked`, `parked (needs-human)`**: the driver posted
-  `Parked: <reason>` on the issue and set `needs-human`. A human decides.
-  Report it with its reason. Do not clear the label and do not rerun it
-  yourself. For `architect size check: the work exceeds the size label`, the
-  sub-plan on the issue names the label it recommends. Once the user removes
-  `needs-human`, the next run picks the issue up.
+  prompt and the effort guard, and this skill names no model. It prints a reply
+  only when the reply starts with `SPLIT_PROPOSAL` and has text after that word.
+  Never run it with `DRY_RUN=true`. Never post a reply that is not a split
+  proposal.
+- **`park`, `parked`, `parked (needs-human)`**: in a live run the driver
+  posted `Parked: <reason>` on the issue and set `needs-human`. A dry run only
+  prints the gate line. A human decides. Report it with its reason. Do not
+  clear the label and do not rerun it yourself. For `architect size check: the
+  work exceeds the size label`, the sub-plan on the issue names the label it
+  recommends. Once the user has dealt with the reason and removed `needs-human`,
+  the next run picks the issue up. For `no size label, not guessing a size` that
+  means adding a size label: without one the gate parks the issue again.
 - **`error`**: a failed `gh` or `git` call in that package, or an unexpected
   fault. Nothing was parked and the other packages ran. Report it. Once the
   cause is fixed, a new run picks the package up from where it stopped.
