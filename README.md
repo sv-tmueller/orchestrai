@@ -525,7 +525,7 @@ Two adapter tables ship for Hermes. The default is
 | Tier | Model | Effort | Roles |
 |------|-------|--------|-------|
 | judgment | vllm/release/glm-5-3 | max | architect, reviewer |
-| worker | vllm/release/deepseek-v41-flash | max | developer, tester, fact-checker, docs-writer, perf-investigator |
+| worker | vllm/release/deepseek-v41-flash | max | developer, fact-checker, docs-writer, perf-investigator |
 | lead | vllm/release/glm-5-3 | max | the lead session |
 
 Each tier falls back to `vllm/release/glm-5-2` at the same effort. Max is
