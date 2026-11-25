@@ -119,7 +119,7 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
-  `xhigh` and use the tm- scripts; use `ultracode` only for a one-off heavy
+  `high` and use the tm- scripts; use `ultracode` only for a one-off heavy
   task with no tm- script.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
   (`sonnet` is the documented per-call fallback); `developer`,
