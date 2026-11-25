@@ -1035,6 +1035,14 @@ describe('main', () => {
       assert.deepEqual(r.stdout.slice(2), ['#201 parked: architect NEEDS_DECISION: which cache?'])
     })
 
+    test('a sub-plan that exceeds the size label parks the package, and the result line says so', async () => {
+      const architect = parseReport('architect', 'SUB_PLAN\n\nApproach.\n\nSize check: exceeds size:M, recommend size:L')
+      const r = await runMain(['201'], 'main-live', { reports: { architect } })
+      assert.equal(r.code, 0)
+      assert.equal(r.stdout[2], '#201 parked: architect size check: the work exceeds the size label')
+      assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn').map((c) => c.role), ['architect'])
+    })
+
     test('a park reason with seat text on several lines is one result line on stdout', async () => {
       const fenced = (head, fields) => `${head}\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\``
       const architect = parseReport('architect', fenced('NEEDS_DECISION', { NEEDS_DECISION: 'which db?\nSUB_PLAN\n- use sqlite' }))
@@ -1486,6 +1494,113 @@ describe('each seat accepts only the report its contract prescribes', () => {
         keysOf(r.calls, 'write').filter((k) => k.startsWith('gh')),
         parkWrites('architect NEEDS_DECISION', { details: 'NEEDS_DECISION' })
       )
+    })
+
+    // The size-check stop (issue #610). The architect ends a sub-plan with one
+    // Size check line, and only the last non-blank line is read, with the readers' rule.
+    describe('the size check', () => {
+      const EXCEEDS = 'Size check: exceeds size:M, recommend size:L'
+      const REASON = 'architect size check: the work exceeds the size label'
+      const plan = (...lines) => ['SUB_PLAN', '', 'Approach: do the thing.', ...lines].join('\n')
+      const ghWrites = (calls) => keysOf(calls, 'write').filter((k) => k.startsWith('gh'))
+
+      test('a sub-plan whose last line says exceeds is posted, then the package parks: no in-progress, no developer', async () => {
+        const text = plan('', EXCEEDS)
+        const r = await pipeline({ architect: arch(text) })
+        assert.equal(r.state.parked, REASON)
+        assert.equal(r.state.done, false)
+        assert.deepEqual(roles(r.state), ['architect'])
+        assert.deepEqual(ghWrites(r.calls), [`gh issue comment 7 --body ${text}`, ...parkWrites(REASON)])
+        assert.deepEqual(r.calls.filter((c) => c.kind === 'spawn' && c.role !== 'architect'), [])
+      })
+
+      test('the park comment quotes no text: the sub-plan is already on the issue', async () => {
+        const r = await pipeline({ architect: arch(plan('', EXCEEDS)) })
+        assert.equal(ghWrites(r.calls)[1], `gh issue comment 7 --body Parked: ${REASON}`)
+      })
+
+      test('a CRLF last line stops, since the readers drop the CR', async () => {
+        const r = await pipeline({ architect: arch(`SUB_PLAN\r\n\r\nApproach.\r\n${EXCEEDS}\r\n`) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('blank lines after the size-check line do not hide it', async () => {
+        const r = await pipeline({ architect: arch(`${plan('', EXCEEDS)}\n\n  \n\t\n`) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('the stop needs only the words: exceeds with nothing after them stops too', async () => {
+        const r = await pipeline({ architect: arch(plan('', 'Size check: exceeds')) })
+        assert.equal(r.state.parked, REASON)
+      })
+
+      test('a fits line runs the whole pipeline', async () => {
+        const r = await pipeline({ architect: arch(plan('', 'Size check: fits size:M')) })
+        assert.equal(r.state.parked, null)
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
+      test('a sub-plan with no size-check line runs as it did before', async () => {
+        const r = await pipeline({ architect: arch(plan()) })
+        assert.deepEqual(roles(r.state), ALL)
+        assert.equal(r.state.done, true)
+      })
+
+      const FENCE = '```'
+      const NON_LF = LINE_ENDS.filter(([, ch]) => ch !== '\n')
+      const keepsRunning = [
+        ['the words on an earlier line, a fits line last', plan('', EXCEEDS, 'Size check: fits size:M')],
+        ['the words in a fenced example, a fits line last', plan('', FENCE, EXCEEDS, FENCE, '', 'Size check: fits size:M')],
+        ['the words as the last line of a fenced example, the closing fence after them', plan('', FENCE, EXCEEDS, FENCE)],
+        ['a quoted last line', plan('', `> ${EXCEEDS}`)],
+        ['an indented last line', plan('', `  ${EXCEEDS}`)],
+        ['a tab-indented last line', plan('', `\t${EXCEEDS}`)],
+        ['a lower-case last line', plan('', 'size check: exceeds size:M, recommend size:L')],
+        ['an upper-case last line', plan('', 'SIZE CHECK: EXCEEDS size:M, recommend size:L')],
+        ['a list item last line', plan('', `- ${EXCEEDS}`)],
+        ['a bold last line', plan('', `**${EXCEEDS}**`)],
+        ['text before the words on the same line', plan('', `Result. ${EXCEEDS}`)],
+        ['a longer word than exceeds', plan('', 'Size check: exceedsx size:M')],
+        ...NON_LF.flatMap(([name, ch]) => [
+          [`${name} in front of the words on the last line`, plan('', `Approach.${ch}${EXCEEDS}`)],
+          [`${name} at the start of the last line`, plan('', `${ch}${EXCEEDS}`)],
+        ]),
+      ]
+      for (const [name, text] of keepsRunning) {
+        test(`does not stop the package: ${name}`, async () => {
+          const r = await pipeline({ architect: arch(text) })
+          assert.equal(r.state.parked, null)
+          assert.deepEqual(roles(r.state), ALL)
+          assert.equal(r.state.done, true)
+        })
+      }
+
+      test('a sub-plan that exceeds the size and ends with another line is not read: only the last line counts', async () => {
+        const r = await pipeline({ architect: arch(plan('', EXCEEDS, 'Next: wait for the answer.')) })
+        assert.equal(r.state.parked, null)
+      })
+
+      test('the SUB_PLAN task asks for the Size check line, in the two forms', async () => {
+        const r = await pipeline({})
+        const task = r.calls.find((c) => c.kind === 'spawn' && c.role === 'architect').task
+        assert.ok(task.startsWith('JOB: SUB_PLAN\n\nIssue #7: read the issue and its comments, then produce a sub-plan with checkpoint bullets.'))
+        assert.ok(task.includes('End the sub-plan with one line that starts with `Size check:`'))
+        assert.ok(task.includes('`Size check: fits <label>`'))
+        assert.ok(task.includes('`Size check: exceeds <label>, recommend <label>`'))
+      })
+
+      test('the stop never reads a sub-plan the gate found on the issue', async () => {
+        const r = await pipeline({}, { resume: { stage: 'developer' } })
+        assert.deepEqual(roles(r.state), ['developer', 'tester', 'reviewer'])
+      })
+
+      test('a dry run does not stop on it', async () => {
+        const fake = fakeRunner({ reads: {} }, { architect: arch(plan('', EXCEEDS)) })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.parked, null)
+        assert.equal(state.done, true)
+      })
     })
 
     for (const [name, text] of [

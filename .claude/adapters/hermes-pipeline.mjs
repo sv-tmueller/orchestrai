@@ -322,7 +322,8 @@ export async function runPipeline(issueNumber, opts = {}) {
   // --- Stage 1: Architect (SUB_PLAN) ---
   if (runs('architect')) {
     log('stage 1: architect SUB_PLAN')
-    const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets.`
+    const archTask = `JOB: SUB_PLAN\n\nIssue #${issueNumber}: read the issue and its comments, then produce a sub-plan with checkpoint bullets. ` +
+      'End the sub-plan with one line that starts with `Size check:`: `Size check: fits <label>` or `Size check: exceeds <label>, recommend <label>`.'
     const archReport = await dispatch('architect', archTask, 'judgment')
 
     if (archReport?.KIND === 'NEEDS_DECISION') {
@@ -341,6 +342,10 @@ export async function runPipeline(issueNumber, opts = {}) {
     // The gate finds a sub-plan by a line that is exactly SUB_PLAN, so the
     // posted comment always carries one.
     await gh.comment(issueNumber, hasSubPlan([{ body: state.subPlan }]) ? state.subPlan : `SUB_PLAN\n\n${state.subPlan}`)
+
+    // The sub-plan is on the issue now. The park comment quotes no text and the
+    // reason holds none, so nothing of the sub-plan reaches a line a second time.
+    if (!dryRun && exceedsSize(archReport.raw)) return stop('architect size check: the work exceeds the size label')
   }
 
   // --- Stage 2: Developer (implement, or fix the findings of a resume) ---
@@ -511,6 +516,11 @@ export function parseBlockers(body) {
 // it. U+2028, U+2029, a lone CR and the rest do not start a line here. A regex
 // with the m flag would start one after U+2028 and U+2029.
 const linesOf = (body) => String(body || '').split('\n').map((line) => line.replace(/\r$/, ''))
+
+// The architect ends a sub-plan with one Size check line. Only its last
+// non-blank line counts, read with the readers' rule.
+const SIZE_EXCEEDS = /^Size check: exceeds\b/
+const exceedsSize = (raw) => SIZE_EXCEEDS.test(linesOf(textOf(raw)).filter((line) => line.trim() !== '').at(-1) ?? '')
 
 // The parser accepts any spacing after the colon, so the reader does too.
 const VERDICT_LINE = /^VERDICT:[ \t]*(PASS|FAIL|APPROVE|CHANGES_REQUESTED)\b/
