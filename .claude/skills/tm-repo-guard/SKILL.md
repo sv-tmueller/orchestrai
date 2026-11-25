@@ -1,6 +1,6 @@
 ---
 name: tm-repo-guard
-description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state and bypass default, apply them to one repo after you confirm (adding CI first where a repo has tests but none), or print the commands that record the review status on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
+description: Report how each repo you own stands against the guard rules (branch protection, required PR, auto merge, required checks) and each config dir's plugin state and bypass default, apply them to one repo after you confirm (creating the six flow labels on every repo, and adding CI first where a repo has tests but none), or print the commands that record the review status on a PR by hand. Check and statuses only read; apply asks first. User-invocable only.
 disable-model-invocation: true
 ---
 

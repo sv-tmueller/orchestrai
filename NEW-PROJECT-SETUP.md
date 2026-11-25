@@ -2,18 +2,22 @@
 
 Run once when adopting the orchestrai plugin into an existing repo.
 
+The one command that sets a repo up is `/tm-repo-guard apply <owner>/<name>`
+(section 5). After the plugin is installed (section 2), it creates the six
+labels, adds CI where the repo has tests but none, and protects the default
+branch. Sections 1 and 5 are what Apply covers. Sections 2, 3, 4 and 6 are
+by hand.
+
 ## 1. Labels
 
-- [ ] Create the labels the workflow uses: the sizing set `size:S`,
-      `size:M`, `size:L`, `size:XL` (see process-core.md "Sizing") plus
-      `in-progress` and `needs-human` (see team-guide.md "Agent team").
-      `/tm-kickoff` and `/tm-advisor` create these six automatically on first
-      run, including `/tm-advisor` (file only). Create them before the merge
-      rule (section 5): Apply requires `orchestrai/review` only on a repo that
-      has `in-progress` and `needs-human`. On a repo that needs CI,
-      `/tm-repo-guard apply` creates the six labels itself. A repo that
-      already has CI gets them from `/tm-kickoff` or `/tm-advisor` on first
-      run, not from Apply.
+- [ ] The workflow uses six labels: the sizing set `size:S`, `size:M`,
+      `size:L`, `size:XL` (see process-core.md "Sizing") plus `in-progress`
+      and `needs-human` (see team-guide.md "Agent team").
+      `/tm-repo-guard apply` creates or fixes all six on every repo, so you do
+      not create them by hand. Apply requires `orchestrai/review` once they
+      exist, and it counts them as present in the same run. `/tm-kickoff` and
+      `/tm-advisor` also create them on first run, including `/tm-advisor`
+      (file only).
 - [ ] (Optional) Create the labels you will filter on, e.g. `type:feat`,
       `type:fix`. The flow itself uses only the six above
       (`docs/architecture/light-flow.md`).
@@ -77,11 +81,11 @@ Run once when adopting the orchestrai plugin into an existing repo.
 
 ## 5. Merge rule
 
-- [ ] After the labels (section 1), type
-      `/tm-repo-guard apply <owner>/<name>` with this repo's full name. It
-      shows the changes and asks before it writes. It requires every check
-      that ran on the newest finished PR, plus `orchestrai/review` once the
-      labels from section 1 exist. It never requires an up to date branch.
+- [ ] Type `/tm-repo-guard apply <owner>/<name>` with this repo's full name.
+      It shows the changes and asks before it writes. It creates the six
+      labels from section 1, and requires every check that ran on the newest
+      finished PR plus `orchestrai/review`. It never requires an up to date
+      branch.
 - [ ] If Apply refuses the repo as not your own (an organization repo, or one
       owned by another account), protect `main` by hand in the repo's GitHub
       settings instead: block direct pushes, require a PR, require status

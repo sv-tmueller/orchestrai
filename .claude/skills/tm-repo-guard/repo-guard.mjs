@@ -18,7 +18,7 @@
  * Apply changes one repo, and only after the owner confirms. Its writes go
  * through `writeGuarded()`, a separate fence that accepts exactly the branch
  * protection PUT, the repo PATCH, the create or update of the six workflow
- * labels and, on a repo that needs CI, the five CI setup writes (create the
+ * labels (on every apply) and, on a repo that needs CI, the five CI setup writes (create the
  * `orchestrai/ci-setup` branch, put the workflow file, open the PR, merge it,
  * delete the branch), with bodies it validates. The read guard is never
  * loosened for them.
@@ -817,7 +817,9 @@ const VERDICT_CHECKS = ['orchestrai/review']
 const BLOCKED_REASON = 'branch protection is not available on the current plan'
 
 // Decides for both Check and Apply: one rule, so Check can never call a repo
-// set up while Apply would still change it.
+// set up while Apply would still change it. One deliberate exception: Check does
+// not count missing flow labels as a gap, because a repo that is not set up is
+// closed to writes (decide.mjs), and the labels come with the first Apply (#651).
 export function planChanges(facts) {
   const { protection } = facts
   const ci = facts.ciChecks.length > 0
@@ -889,14 +891,15 @@ function labelWrites(target, facts) {
   return ops
 }
 
-// On the CI setup path Apply adds the pipeline labels and the tests check in
-// the same run, so the protection is built as if both already exist.
+// Apply creates or fixes the six labels on every repo, so the protection is built
+// as if they already exist. On the CI setup path it also adds the tests check in
+// the same run, so that exists too.
 export function factsAfterApply(facts) {
-  if (!planChanges(facts).needsCi) return facts
-  return { ...facts, ciChecks: ['tests'], pipelineLabels: true }
+  const needsCi = planChanges(facts).needsCi
+  return { ...facts, ...(needsCi ? { ciChecks: ['tests'] } : {}), pipelineLabels: true }
 }
 
-// The writes that bring a repo to the plan: the labels (CI setup path only),
+// The writes that bring a repo to the plan: the labels (on every apply),
 // then protection, then the repo settings. If the PATCH fails the repo is
 // protected with auto merge still off, which the ship decision already treats as
 // not set up. Always takes the facts as read, before anything is written.
@@ -905,7 +908,7 @@ export function factsAfterApply(facts) {
 export function buildWrites(target, facts) {
   const plan = planChanges(factsAfterApply(facts))
   const protectionChanges = plan.changes.filter((c) => !REPO_CHANGES.includes(c))
-  const ops = planChanges(facts).needsCi ? labelWrites(target, facts) : []
+  const ops = labelWrites(target, facts)
 
   if (protectionChanges.length > 0) {
     const carry = (facts.protection.kind === 'present' && facts.protection.carry) || CARRY_OFF
@@ -1205,7 +1208,8 @@ export function opText(op) {
 }
 
 export function planText(target, plan, ops, token, ci) {
-  const lines = [`${target.repo}: not set up (default branch ${target.branch})`]
+  const labelsOnly = !ci && plan.changes.length === 0
+  const lines = [`${target.repo}: ${labelsOnly ? 'labels to create or fix' : 'not set up'} (default branch ${target.branch})`]
   if (ci) lines.push(...ciText(ci))
   const labelOps = ops.filter((op) => labelOpName(op) !== null)
   if (labelOps.length > 0) {
@@ -1214,8 +1218,10 @@ export function planText(target, plan, ops, token, ci) {
       lines.push(`  ${op.method === 'POST' ? 'create' : 'update'} ${labelOpName(op)}, color ${op.body.color}: ${op.body.description}`)
     }
   }
-  lines.push('changes:')
-  for (const c of plan.changes) lines.push(`  ${c}`)
+  if (plan.changes.length > 0) {
+    lines.push('changes:')
+    for (const c of plan.changes) lines.push(`  ${c}`)
+  }
   lines.push(`required checks after apply: ${plan.requiredChecks.length > 0 ? plan.requiredChecks.join(', ') : 'none'}`)
   if (plan.notRequired.length > 0) lines.push(`not required: no longer runs: ${plan.notRequired.join(', ')}`)
   lines.push('writes:')
@@ -1649,13 +1655,12 @@ export function runApply(run, argv, clock = SYSTEM_CLOCK) {
   if (args.install !== null) {
     return { code: 2, text: `${USAGE} (--install and --test apply only to a repo that needs CI)\n` }
   }
-  if (plan.changes.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
-
   const ops = buildWrites(target, facts)
+  if (ops.length === 0) return { code: 0, text: `${target.repo}: set up, nothing to change\n` }
   const signed = signedCommitsRefusal(target, facts, ops)
   if (signed) return signed
   const token = confirmToken(target, ops)
-  if (args.confirm === null) return { code: 0, text: planText(target, plan, ops, token) }
+  if (args.confirm === null) return { code: 0, text: planText(target, planChanges(factsAfterApply(facts)), ops, token) }
   if (args.confirm !== token) return { code: 2, text: 'plan changed since it was shown, nothing written\n' }
 
   const lines = []

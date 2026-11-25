@@ -161,7 +161,8 @@ older PRs ran is no longer required, and the report lists it as "not required:
 no longer runs".
 
 On a repo with the pipeline labels (`in-progress` and `needs-human`), the
-status `orchestrai/review` is required too.
+status `orchestrai/review` is required too. Apply creates the six flow labels
+on every repo, so after one Apply the status is required everywhere, except where Apply refuses.
 
 Hand-made PRs on a set-up repo follow the same rule. They need every required
 check to pass, and on a repo with the pipeline labels they also need the
@@ -175,7 +176,8 @@ it and queue the merge. You run them in your own shell; the command never does.
 `/tm-repo-guard` with no argument reads every repo you own and prints one
 state per repo. It never writes.
 
-- `set up`: nothing to change.
+- `set up`: nothing to change, except that Check does not count missing flow
+  labels. Apply creates them on a repo that reads `set up` without them.
 - `not set up`: the `missing` line lists what is off. It also says `needs CI
   first` when the repo has test files but no finished, non-draft PR has run a
   check. Run `/tm-repo-guard apply <repo>`: it adds the CI first.
@@ -243,8 +245,9 @@ archived repo, a blocked repo, and a repo that requires signed commits (the
 protection write could reset that).
 
 1. It first prints a plan: the changes, the required checks after apply, the
-   GitHub writes it will make (branch protection, then repo settings, only
-   those that are needed), and a confirm token that covers those exact writes.
+   GitHub writes it will make (the six flow labels, then branch protection,
+   then repo settings, only those that are needed), and a confirm token that
+   covers those exact writes.
    When it cannot tell which install and test commands the CI should run, it
    asks you for them first.
 2. It asks you in the session whether to apply. Only your own yes to that
@@ -256,7 +259,7 @@ protection write could reset that).
 
 On a repo that has test files but no finished CI run, the same steps add the
 CI first. The plan shows the generated `ci.yml`. On yes, Apply creates the
-labels, turns on auto merge and squash merge, opens a PR from
+labels (as it does on every repo), turns on auto merge and squash merge, opens a PR from
 `orchestrai/ci-setup`, waits up to 20 minutes for the `tests` check, merges the
 PR and only then writes the protection. If a check fails or the wait runs out,
 the PR stays open; run Apply again and it resumes from the open PR. If the PR
@@ -271,9 +274,15 @@ starts requiring signed commits during the wait, Apply stops after the merge
 without a token and writes no protection, because the write could reset that
 setting.
 
-A repo that is already set up prints "set up, nothing to change" and asks
-nothing. Protection settings the guard does not manage are carried over, not
-reset. Apply also removes any required check that is no longer in the list.
+A repo that is already set up, with its six labels in place, prints "set up,
+nothing to change" and asks nothing. A set-up repo that lacks `in-progress` or
+`needs-human` does not yet require `orchestrai/review`, so its plan keeps the
+"not set up" header and lists `required check: orchestrai/review` and a PUT
+next to the label writes. The header reads "labels to create or fix" only when
+the review check is already required and the gap is a missing size label or a
+label with another color or description. Protection settings the guard does
+not manage are carried over, not reset. Apply also removes any required check
+that is no longer in the list.
 
 ### When a required check stops reporting
 
