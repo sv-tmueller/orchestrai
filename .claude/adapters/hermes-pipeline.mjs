@@ -437,7 +437,8 @@ export async function runPipeline(issueNumber, opts = {}) {
     // Only a package whose writes all went through is done.
     state.done = true
   } else {
-    return stop(`unexpected state: tester=${state.testerVerdict}, reviewer=${state.reviewerVerdict}`)
+    // A dry run reads a verdict leniently, so the word can be any text: one line each.
+    return stop(`unexpected state: tester=${oneLine(state.testerVerdict)}, reviewer=${oneLine(state.reviewerVerdict)}`)
   }
 
   return state

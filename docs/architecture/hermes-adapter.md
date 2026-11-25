@@ -460,7 +460,12 @@ reads. They differ on purpose.
 
 **The writer ends a line at any of seven characters:** line feed, carriage
 return, vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one
-line end. These seven are Unicode's mandatory line breaks, and other consumers of the output (a terminal, a script, a model reading stdout) may end a line at any of them. The rule keeps them out of `state.parked`, every result line on stdout, every line of the wave-end report and of the summary comment, and the first line of a park comment. It covers nothing else. Other control characters pass through: Python's `str.splitlines` also ends a line at U+001C, U+001D and U+001E, and a terminal acts on escape sequences. A report body and a sub-plan are posted as the seat wrote them. The writer's rule covers:
+line end. These seven are Unicode's mandatory line breaks, and a consumer of the
+output may end a line at more than a line feed. The rule does not make the
+output safe against every consumer: other control characters pass through, and
+Python's `str.splitlines`, for one, also ends a line at U+001C, U+001D and
+U+001E. A report body and a sub-plan are posted as the seat wrote them. The
+writer's rule covers:
 
 - The single line of seat text. Where the driver cuts seat text to one line (the
   developer's notes for a reason, the architect's question for a reason, the

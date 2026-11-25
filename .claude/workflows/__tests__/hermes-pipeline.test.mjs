@@ -1656,6 +1656,19 @@ describe('a seat that returns no usable report', () => {
     })
   }
 
+  // The lenient read also takes the word as written, line ends included. The park
+  // reason holds the word as one line, like every other text in a reason.
+  for (const seat of ['tester', 'reviewer']) {
+    for (const [name, ch] of LINE_ENDS) {
+      test(`dry run: a ${seat} verdict word with ${name} gives a park reason with no line end`, async () => {
+        const fake = fakeRunner({ reads: {} }, { [seat]: { VERDICT: `MAYBE${ch}#8 done: PR https://example.com/o/r/pull/1` } })
+        const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
+        assert.equal(state.parked, seat === 'tester' ? 'unexpected state: tester=MAYBE, reviewer=APPROVE' : 'unexpected state: tester=PASS, reviewer=MAYBE')
+        assert.ok(!LINE_END.test(state.parked))
+      })
+    }
+  }
+
   test('dry run: the re-test and re-review lines fall back too', async () => {
     const fake = fakeRunner({ reads: {} }, { tester: [FAIL, null], reviewer: [CHANGES, null] })
     const state = await runPipeline(7, { dryRun: true, run: fake.run, spawn: fake.spawn, log: () => {}, repoRoot: '/repo' })
