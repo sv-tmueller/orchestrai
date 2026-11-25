@@ -243,7 +243,7 @@ function collectSlotVals(name, args, root, base) {
 // the machine-facing requirement unmissable without changing the prompts.
 const STDOUT_CONTRACT = {
   developer: 'Finally, your ENTIRE reply must end with this exact report block, and start with the STATUS line:\n\nSTATUS: DONE\n\nAny structured lists (areas, findings) must ALSO appear as a fenced ```json block.',
-  architect: 'Finally, your ENTIRE reply must START with one of: SUB_PLAN:, SPLIT_PROPOSAL:, ARBITRATION:, NEEDS_DECISION: (the architect report contract). Plain prose without that opener is unparsable and will be discarded.',
+  architect: 'Finally, your ENTIRE reply must START with one of: SPLIT_PROPOSAL:, ARBITRATION:, NEEDS_DECISION: (the architect report contract). Plain prose without that opener is unparsable and will be discarded.',
   reviewer: 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: APPROVE or VERDICT: CHANGES_REQUESTED.',
   'fact-checker': 'Finally, your ENTIRE reply must end with the report block beginning VERDICT: CONFIRMED or VERDICT: REFUTED.',
   'docs-writer': 'Finally, your ENTIRE reply must end with a FILES: line listing the files you wrote.',

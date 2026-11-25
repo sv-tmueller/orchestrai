@@ -20,7 +20,7 @@ export const REQUIRED_FIELD = {
 }
 
 // The openers an architect report may start with (role-contracts.md).
-export const ARCHITECT_KINDS = ['SUB_PLAN', 'SPLIT_PROPOSAL', 'ARBITRATION', 'NEEDS_DECISION']
+export const ARCHITECT_KINDS = ['SPLIT_PROPOSAL', 'ARBITRATION', 'NEEDS_DECISION']
 
 // Report keys are uppercase and may contain spaces ("UNTESTED CLAIMS") or
 // hyphens ("RE-MEASURE"). Anchored at column 0 so the indented sub-keys

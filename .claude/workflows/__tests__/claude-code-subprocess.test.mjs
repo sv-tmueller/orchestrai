@@ -360,7 +360,7 @@ describe('parseReport', () => {
   })
 
   test('reads the architect opener as the report kind', () => {
-    assert.equal(parseReport('architect', 'SUB_PLAN\n\nApproach: x').KIND, 'SUB_PLAN')
+    assert.equal(parseReport('architect', 'SPLIT_PROPOSAL\n\nPart 1: x').KIND, 'SPLIT_PROPOSAL')
     assert.equal(
       parseReport('architect', 'NEEDS_DECISION: which worktree layout?').KIND,
       'NEEDS_DECISION'

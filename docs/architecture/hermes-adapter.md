@@ -18,8 +18,8 @@ section 4 Phase C for the design.
 - `.claude/adapters/hermes-adapter.mjs` -- the adapter module exporting
   `spawn`, `detectFailure`, `retry`, `resolveTier`, and `resolveRole`.
 - `.claude/adapters/hermes-pipeline.mjs` -- the pipeline driver: a command
-  line (see "Driver command line"), the gate, and the per-package stage
-  loop that runs architect, developer, tester, reviewer and ship.
+  line (see "Driver command line"), the gate, and the per-package loop that
+  runs the developer, the reviewer when the review gate says so, and ship.
 - `.claude/adapters/hermes-renderer.mjs` -- the workflow renderer that
   reads JSON spec files from `.claude/workflows/specs/` and drives the
   adapter's spawn/parallel operations.
@@ -30,8 +30,8 @@ section 4 Phase C for the design.
   `~/.hermes/skills/autonomous-ai-agents/orchestrai/` skill.
 - `.claude/skills/tm-advisor/SKILL.hermes.md` -- the Hermes variant of the
   batch-advisor skill (#346). Source for the auto-discovered
-  `~/.hermes/skills/autonomous-ai-agents/tm-advisor/` skill. Loads the
-  pipeline via `skill_view(name='orchestrai')` at dispatch time.
+  `~/.hermes/skills/autonomous-ai-agents/tm-advisor/` skill. Runs the packages
+  through `hermes-pipeline.mjs` after the sign-off.
 
 ## Configuration
 
@@ -214,335 +214,177 @@ toolset, so no seat can re-delegate.
 ## Driver command line
 
 ```
-node .claude/adapters/hermes-pipeline.mjs <arg>...
+node "${ORCHESTRAI_ROOT:-.claude}/adapters/hermes-pipeline.mjs" <arg>...
 ```
+
+The driver is the code form of `docs/architecture/light-flow.md`: a developer, a
+reviewer only when the review gate says so, at most 2 fix rounds, then ship.
+This section describes what the code does; the flow doc is the rule.
+
+### How the driver is found
+
+The driver finds its own files (the adapter table, the role prompts) by its
+module location, never by the current directory. So the only thing that ties it
+to a repo is the path the caller names it by. `ORCHESTRAI_ROOT` is the folder
+that holds `adapters/`, and it defaults to `.claude`, the way the Claude side
+uses `${CLAUDE_PLUGIN_ROOT:-.claude}`.
+
+- In a repo that carries orchestrai's `.claude/adapters` folder, leave it unset.
+- In any other repo, point it at the `.claude` folder of an orchestrai checkout,
+  for example `export ORCHESTRAI_ROOT=/home/me/orchestrai/.claude`. The driver
+  still works on the repo in the current directory: `gh` and `git` find the repo
+  from there.
+- When neither the variable nor the default leads to
+  `adapters/hermes-pipeline.mjs`, the skill stops and tells the user to set the
+  variable. The driver is not bundled into the skill, because a bundle would be a
+  second copy to keep in step.
+
+Both Hermes skills and the split-proposal command of the kickoff skill take the
+driver and the adapter from the variable. `hermes-kickoff-skill-text.test.mjs`
+runs them from a folder with no `.claude`, with the variable set.
+
+### Arguments and the gate
 
 Each argument is an issue number or `label:<name>`. A label selects the open
-issues carrying it (the first 100). Numbers and labels mix, and the package
-list is all of them in argument order with duplicates dropped. The driver
-works on the repo in the current directory, since `gh` and `git` find the
-repo from there. It never merges.
+issues carrying it (the first 100). Numbers and labels mix, and the package list
+is all of them in argument order with duplicates dropped. The driver never
+merges.
 
-The gate reads each issue and decides one outcome per package: `run`,
-`resume`, `wait`, `complete`, `park`, `stop` or `skip`. The first matching
-rule wins: closed, `needs-human`, `size:L` or `size:XL`, no size label,
-a ready PR, a draft PR, `in-progress` with no PR, and then a plain run. A run
-starts at the developer when the issue has a sub-plan comment (a comment with
-a line that is exactly `SUB_PLAN`), and at the architect when it has none. An
-unmerged `Blocked by: #N` blocker turns a run or resume into a wait. Only
-wave 1 runs, because a later wave's blocker cannot be merged during the run.
+The gate reads each issue and decides one outcome per package: `run`, `resume`,
+`wait`, `complete`, `park`, `stop` or `skip`. The first matching rule wins:
 
-An `in-progress` issue with no PR resumes at the developer when a branch named
-`<type>/<n>-...` is on origin, on that branch. The developer is told the
-branch has no PR, to finish the work and to open the draft PR. Without such a
-branch the package runs from the developer. The tester's and reviewer's
-reports belong on a PR, so a package with no PR is never resumed past the
-developer.
+1. closed: `skip`;
+2. labeled `needs-human`: `skip`;
+3. `size:L` or `size:XL`: `stop`, split it first;
+4. no size label: `park`, no guessed size;
+5. a ready PR for the issue: `complete` (the highest PR number);
+6. a draft PR: `resume` at the stage its comments show (below);
+7. `in-progress` with no PR and a branch `<type>/<n>-...` on origin: `resume` at
+   the developer on that branch, who is told to finish the work and open the PR;
+8. no `## Approach` section in the issue body or any comment: `park`. The driver
+   never dispatches a developer with no plan, and it cannot write one;
+9. otherwise `run` at the developer.
 
-In a live run each stage accepts only the report its contract prescribes:
+An unmerged `Blocked by: #N` blocker (a whole line, closed as completed) turns a
+`run` or `resume` into a `wait`. Only wave 1 runs, because a later wave's blocker
+cannot be merged during the run. Wave 1 runs as a rolling pool of 3: the next
+package starts when any one finishes. The gate writes nothing.
 
-- The architect's report is a sub-plan only when it opens with `SUB_PLAN` and
-  has a body: text after `SUB_PLAN:` on the header line, or at least one
-  non-empty line after it. A bare `SUB_PLAN` line is not a sub-plan. A
-  sub-plan is posted on the issue. `NEEDS_DECISION` parks the
-  package. The question may be on the same line, on the next line or after the
-  bare word, and the reason reads `architect NEEDS_DECISION: <the question>`,
-  cut to one line (see "Parking"). With no question at all it reads
-  `architect NEEDS_DECISION`, with no colon. A `NEEDS_DECISION` field that
-  is not text, or is empty, counts as no field: the question then comes from the
-  first non-blank line after the header, outside any fenced block, so it is never
-  the fence line of a json block.
-  A `SPLIT_PROPOSAL`, an `ARBITRATION` or text with no header is not a
-  sub-plan. The task asks the architect to end the sub-plan with one line that
-  starts with `Size check:`, either `Size check: fits <label>` or
-  `Size check: exceeds <label>, recommend <label>`. The driver reads the last line
-  of an accepted sub-plan that is not blank under JavaScript's `trim()`, with the
-  readers' rule (a line feed ends a line, and a CR before it is dropped). When
-  that line starts with `Size check: exceeds` at its first character, followed by
-  a word boundary (JavaScript's `\b`), the driver posts the sub-plan and
-  then parks the package with the reason
-  `architect size check: the work exceeds the size label`. The comparison is
-  case-sensitive. No developer runs. These do not stop the package: the words on
-  any other line, in a quote, indented, in another case, or on the last line
-  after a vertical tab, a form feed, a lone carriage return, U+0085, U+2028 or
-  U+2029. A sub-plan with no `Size check:` line runs as before. A sub-plan the
-  gate finds on the issue is never read for it.
-- The developer's `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, with a PR
-  that is a pull request URL (it holds `/pull/<digits>`) or a number, on the
-  single line of the value (see "Parking"). The PR comes from the report, or
-  from the gate on a resume when the report names none. It is missing only when
-  the field is absent, is json `null`, or is text with no non-blank character.
-  With no PR known the package then stops. Any other value must be a pull request
-  URL or a number on its single line (a json number counts as its digits). An
-  object, an array, a boolean, or text that is neither stops the package, also
-  when the gate knows a PR.
-  `BLOCKED` and `NEEDS_CONTEXT` park with the developer's notes. This
-  holds in a fix round too, as far as the `STATUS` goes. `NEEDS_CONTEXT`
-  always parks: no seat contract has a job that answers a question, so the
-  driver has nobody to ask.
-- The tester's `VERDICT` is exactly `PASS` or `FAIL`, and the reviewer's is
-  exactly `APPROVE` or `CHANGES_REQUESTED`, in the first pass and in every
-  re-test and re-review. A lower-case word, a word with trailing text or any
-  other word is not a verdict.
+Resume reads GitHub state only. The stage comes from the latest PR comment that
+has a line starting with `VERDICT: APPROVE` or `VERDICT: CHANGES_REQUESTED`:
 
-A seat field that is not text never throws. A json number is read as its
-digits. Any other json value that is not a string (an object, an array, a
-boolean, `null`) is read as an absent field: the stage that needs it stops with
-`<role> seat returned no usable report` (a `STATUS`, a `VERDICT`), and a note or
-a question that is absent leaves the reason without a colon. The `PR` is the
-exception, because it can also come from the gate: see the developer bullet
-above. There `null` is a missing PR, and an object, an array or a boolean is an
-invalid one.
+| State | Stage |
+| --- | --- |
+| no PR | `develop` |
+| a PR, no review comment | `gate`: run the review gate. On an S issue this is still the gate, never a new developer |
+| last review `CHANGES_REQUESTED` | `fix`: the developer gets that comment, then a re-review |
+| last review `APPROVE` | `done`: ship, if the sha on that comment's `CHECKS` block is the PR head; else the gate (a reviewer runs again) |
 
-Anything else, and a seat that returns nothing, stops the package: it parks
-with the reason `<role> seat returned no usable report`. `runPipeline` with
-`dryRun` uses placeholders in place of seat output instead, so the dry-run
-tests complete.
+`countFixRounds` counts the `CHANGES_REQUESTED` comments on the PR, so a resumed
+run starts with the count the stopped run had. A package parked on a used-up
+count parks again if it is resumed. The readers split a comment at a line feed
+only, and a quoted line does not count.
 
-stdout carries the gate lines, the wave plan and one result line per package.
-In a live run with at least one gate entry the report follows the result lines
-(see "Ship and report"). A dry run prints none. A package that throws (a failed
-`git fetch`, `git worktree add` or `gh` write) does not stop the others: its
-line reads `#<n> error: <reason>`, and every other package still runs and
-reports. The reason is the single line of the failed command's stderr, cut as
-described under "Parking". When the error is not a failed command, it is the
-single line of the error's message, cut the same way. A failed command at the
-gate prints one line on stderr instead: the command with its arguments on one
-line (a newline in an argument shows as a space), then the single line of its
-stderr. An answer the driver cannot accept is a failed read with a fixed
-message, `gh <command> returned a malformed answer`, that holds none of the
-answer. At the gate the message is printed on stderr, and in a package it is
-that package's `error` line. A read is accepted only when:
+### One package
 
-- `gh issue list` is a list of objects, each with a positive integer `number`.
-- `gh issue view` is an object with a positive integer `number` and with
-  `labels` and `comments` that are lists.
-- `gh pr list` is a list of objects, each with a positive integer `number` and
-  a `closingIssuesReferences` that is a list. An entry of
-  `closingIssuesReferences` that is not an object matches no issue.
-- `gh pr view <pr> --json comments` is an object whose `comments` is a list.
-- The closing read of ship is described under "Ship and report".
+1. The driver creates the package worktree (`<repo>/.worktrees/pkg-<n>`, branch
+   `<type>/<n>-<slug>`, the slug from the issue title: lowercase, other runs
+   hyphenated, at most 40 characters, `pending` when empty) and runs every seat
+   in it. It never passes `hermes -w`. A resume continues the branch the PR
+   already has.
+2. `in-progress` goes on the issue and the developer runs (worker tier). Its
+   `STATUS` must be `DONE` or `DONE_WITH_CONCERNS`, and its `PR` a pull request
+   URL (it holds `/pull/<digits>`) or a number. `BLOCKED` and `NEEDS_CONTEXT`
+   park with the developer's notes: no seat has a job that answers a question.
+3. The review gate decides whether a reviewer runs (judgment tier). It does when
+   `needsReview` says so: the issue is `size:M` or larger, the diff (read with
+   `gh pr diff <pr> --name-only`) touches a path in `RISKY_PATHS`, or the
+   developer reported `DONE_WITH_CONCERNS`. `RISKY_PATHS` is `.claude/agents`,
+   `.claude/skills`, `.claude/workflows`, `.github/workflows`, and the names of
+   dependency manifests and lockfiles at any depth. It also runs when the
+   developer's `CHECKS` block (the line and every line up to the next report key)
+   has no command or a command that did not exit 0, and at a resume into the gate,
+   where there is no `CHECKS` block to trust. Otherwise the lead's own check
+   stands: every command in the block exited 0.
+4. The reviewer's `VERDICT` must be exactly `APPROVE` or `CHANGES_REQUESTED`. The
+   driver posts every reviewer report on the PR as
+   `**Reviewer report: <VERDICT> (issue #<n>)**`, then the report as the seat
+   wrote it, with a `VERDICT:` line added when the seat's own cannot be read back.
+5. `CHANGES_REQUESTED` is one fix round. The driver sends the developer the whole
+   comment (the parser keeps only the first line of a multi-line `FINDINGS`),
+   then the reviewer reviews again. The 3rd `CHANGES_REQUESTED` parks the package
+   with `fix rounds exhausted (2/2)`.
+6. A developer who disputes a finding parks the package with
+   `developer disputes a finding of the review`. The fix prompt ends with the rule:
+   under `DEVIATIONS`, one line per disputed finding,
+   `pushback: finding <k>: <why it is wrong>`. The driver reads that line (also
+   after `DEVIATIONS:` or `NOTES:`, a list marker or a number) in the report's
+   raw text. No seat settles the dispute here: a person decides, or the advisor
+   skill does between driver runs.
+7. Anything else, and a seat that returns nothing, parks with
+   `<role> seat returned no usable report`. A dry run uses placeholders in place
+   of seat output instead.
 
-Progress, dry-run notes and errors go to stderr.
+### Ship
 
-`DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but
-it creates no label, posts no comment, makes no worktree and starts no seat.
-Each skipped write is named on stderr. A run without `DRY_RUN` is the
-confirmed run and asks no questions.
+The writes go in this order, and a failed write throws, so the package ends with
+an `error` line and is not done:
 
-Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
-packages are outcomes, not failures), 1 when a `gh` or `git` call failed at
-the gate, when any package ended with an `error` line, or when something
-unexpected happened (a mistyped issue number ends here), and 2 for a usage
-error, before any GitHub call.
+1. The driver reads the PR with
+   `gh pr view <pr> --json closingIssuesReferences,headRefOid,number`. The PR has
+   to close the issue (GitHub's own list, not the words of the body), else the
+   package parks with `PR #<number> does not close #<n>` and the PR stays a draft.
+2. The reviewer's `CHECKS` block must start with a commit sha (7 to 40 hex
+   digits) that the PR head starts with. With another sha, or none, the review
+   does not cover the head: the driver posts nothing and runs the review gate
+   again. A second miss parks with `the PR head moved after two reviews, so no
+   review covers it`, or `two reviews gave no head sha on CHECKS, so no review
+   covers the head`. A re-review is not a fix round. A resume at `done` takes the
+   sha from the latest review comment and goes through the same check.
+3. `orchestrai/review` = `success` is posted on the head read in step 1:
+   `gh api -X POST repos/{owner}/{repo}/statuses/<head> -f state=success -f context=orchestrai/review -f description=<d>`,
+   with `<d>` = `approved by the reviewer`, or `not required (size S)` when the
+   gate skipped the reviewer; in that case a PR comment
+   `Review not required (size S)` goes on first. This is the only status the
+   driver posts, and `main` never requires `orchestrai/test`.
+4. `gh pr ready`, `in-progress` comes off, and the summary comment goes on the
+   issue: `Pipeline complete: PR <pr> is ready for review.`, then
+   `Reviewer: <APPROVE | not required (size S)>. Fix rounds used: <c>/2.`
 
-### Fix rounds
+The driver does not queue auto merge and does not update a branch that falls
+behind `main`. A queued PR that falls behind needs `gh api -X PUT
+repos/{owner}/{repo}/pulls/<n>/update-branch` and a new `orchestrai/review` post
+on the new head; that is not automated here.
 
-Each tester `FAIL` and each reviewer `CHANGES_REQUESTED` is one fix round. Each
-seat has up to 3, and the two counts never touch each other. The driver posts
-the report on the PR, the developer fixes it, and the tester runs again. After
-a reviewer fix round the re-test comes first. A `PASS` there goes to the
-re-review. A `FAIL` there is an ordinary tester round: it adds to the tester
-count and goes through the tester loop. The 4th `FAIL` or the 4th
-`CHANGES_REQUESTED` is posted and then parks the package, with the reason
-`tester fix rounds exhausted (3/3)` or `reviewer fix rounds exhausted (3/3)`.
+### Parking
 
-Every tester and reviewer report is posted on the PR with `gh pr comment`,
-`PASS` and `APPROVE` included:
+Every stop writes three things: `Parked: <reason>` on the issue, the
+`needs-human` label, and removal of `in-progress` when this run or the gate had
+put it on. Where the stop has seat text (a `BLOCKED` or `NEEDS_CONTEXT` report, a
+dispute), the comment quotes it under the reason, one `> ` per line, so no line of
+it starts with `VERDICT:` where the readers look. The stops are: a developer
+`BLOCKED` or `NEEDS_CONTEXT`, a seat with no usable report, a dispute, an
+exhausted count, a PR that does not close the issue, and a stale review. The
+result line is `#<n> parked: <reason>`.
 
-```
-**<Tester|Reviewer> report: <VERDICT> (issue #<n>, <tester|reviewer> fix rounds <c>/3)**
+Text the driver writes ends a line at any of seven characters (line feed, CR,
+vertical tab, form feed, U+0085, U+2028, U+2029), so a reason, a result line and a
+report line each hold one line of seat text, cut to its first non-blank line.
 
-<the seat's report, trimmed, unchanged and unquoted>
-```
+### Output, dry run and exit codes
 
-`<c>` is that seat's count once this report is counted, so the report that
-uses up the cap reads `4/3`. The comment always carries a `VERDICT:` line at
-the start of a line: the seat's own, or one the driver adds under the header
-when the report text has none the readers can read (a verdict the parser took
-from a json block, or another verdict word ahead of the real one). So
-`resumeStage` reads the stage back from it. The same lines give the counts:
-`countFixRounds` counts a `FAIL` as a tester round and a `CHANGES_REQUESTED` as
-a reviewer round, from the first verdict line of each comment. A bold header, a
-quoted line and a fact-checker verdict do not count. The readers split a
-comment at a line feed only (a CR before it is dropped). U+2028, U+2029, a
-lone CR, a vertical tab, a form feed and U+0085 do not start a line for the
-readers. That is the readers' rule, and it is not the rule for what the driver
-writes (see "Parking"). The gate reads the PR's
-comments once and hands the counts to the resumed run, so a run that starts
-later has the numbers the run that stopped had. A package that parked on a
-used-up count parks again if it is resumed, because the count comes from the
-PR.
+stdout carries the gate lines (`#<n> <size> <outcome>: <detail>`), the wave plan
+(`wave <k>: ...`, `waiting: ...`) and, in a live run, one result line per package
+(`#<n> done: PR <pr>`, `#<n> parked: <reason>`, `#<n> error: <reason>`) and the
+report. Progress, dry-run notes and errors go to stderr.
 
-The fix prompt carries the whole comment body, not the `FINDINGS` field. The
-report parser keeps only the first line of a multi-line key, so a prompt built
-from the field would drop every finding after the first. On a resume with
-findings, the round is the count of the findings' kind, which already
-includes that report. With no count given it is 1. A count already above 3
-parks before any seat is dispatched.
+`DRY_RUN=true` is the confirmation step. The driver still reads GitHub, but it
+creates no label, posts no comment, makes no worktree and starts no seat, and it
+prints the plan and stops. Each skipped write is named on stderr. A run without
+`DRY_RUN` is the confirmed run and asks nothing. The advisor skill treats its
+sign-off as that confirmation and runs live.
 
-A seat is never sent the same prompt twice in one run. The re-test and the
-review prompts name the latest fix round they follow, the fix prompts name
-their own round, and the counts only rise. The first seat of a resumed run
-gets one more line asking it to check the branch and the PR for work an
-earlier run left, since the run that stopped may have sent the same text.
-The one exception is the developer resume for a branch with no PR: it keeps
-the exact prompt of #355's ruling and gets no pick-up line.
-The reviewer's prompt carries the latest tester report, for the untested
-claims it rates. After a resume at the reviewer, which has no tester report in
-memory, it names the tester's comment on the PR instead.
-
-#### Arbitration
-
-A developer may dispute a finding of a reviewer round. The fix prompt of every
-reviewer round that has no outcome yet (below) has this after the findings:
-
-```
-
-If a finding is wrong, do not fix it. Under DEVIATIONS, write one line per such finding: `pushback: finding <k>: <why it is wrong>`.
-```
-
-A tester fix prompt does not carry it: a tester finding is settled by the
-re-test, and a tester round is never arbitrated.
-
-**What counts as a pushback.** A line of the developer report's `raw` that
-starts with optional spaces and tabs, then optionally `DEVIATIONS:` or `NOTES:`
-and spaces, then optionally a list marker (`-` or `*` and spaces, or digits, a
-dot and spaces), and then `pushback: finding <digits>:`. The match is
-case-sensitive and uses the readers' rule (see "Fix rounds"): a line feed starts
-a line, and a CR before it is dropped. So the words after a lone carriage return,
-a vertical tab, a form feed, U+0085, U+2028 or U+2029 do not make a pushback, a
-quoted line does not, and neither does the suffix line of the prompt echoed back.
-Only `raw` is read: a pushback that appears only in the json block is not read,
-nothing is arbitrated, and the re-review decides.
-
-**The flow.** The check sits after the developer's report passes the status
-check and before the re-test. On a resume with reviewer findings it sits in the
-developer stage, after the PR check, so a live run spends no architect on a
-report with a bad PR. When the report pushes back, and the round has no outcome
-yet, the driver dispatches the architect (judgment tier, the package worktree):
-
-```
-JOB: ARBITRATION
-
-Issue #<n>, PR <pr>, reviewer fix round <k>/3: the developer pushed back on findings of the reviewer report below. For each finding pushed back on, decide who is right and state the required outcome.
-
-The reviewer report:
-<the posted report body>
-
-The developer's report:
-<the developer's raw>
-```
-
-The reply is accepted only when it is an `ARBITRATION` report with a body (the
-rule of the sub-plan: text after `ARBITRATION:` on the header line, or a
-non-empty line after it). A `NEEDS_DECISION` parks as in the sub-plan stage, in a dry run too.
-Any other reply parks with `architect seat returned no usable report`. A dry run
-accepts any other reply.
-
-The outcome is posted on the PR (a dry run logs the write):
-
-```
-**Arbitration outcome (issue #<n>, reviewer fix round <k>/3)**
-
-> <the architect's reply, trimmed, one `> ` per line>
-```
-
-The reply is quoted the way a park comment quotes seat text (see "Parking"). The
-developer is then dispatched again for the same round:
-
-```
-Issue #<n>, branch <branch>, reviewer fix round <k>/3: the arbitration outcome below is final. Make every change it requires, leave every finding it overrules as it is, and report.
-<the outcome comment's body>
-```
-
-Its `STATUS` is checked like that of any fix-round report (a `BLOCKED` parks),
-and then the re-test follows.
-
-**The same round.** An arbitration is not a new round. It moves no count, the
-re-test and the re-review name `after reviewer fix round <k>/3`, and a `FAIL` in
-that re-test is an ordinary tester round. The architect's dispatch adds to no
-count. A round is arbitrated at most once: the outcomes of the run are keyed by
-their header, and a round that already has one is not arbitrated again. That
-covers a pushback in the second developer report, and a resume after the outcome
-was posted.
-
-**Settled findings.** While the run holds an outcome, every dispatch gets the
-block below after its prompt, and the first seat of a resume gets the pick-up
-line after the block. This includes a later arbitration, which sees the earlier
-outcomes. The one prompt sent word for word (the developer resume for a branch
-with no PR) never gets it. The outcome of the arbitration in progress is in its
-developer prompt and joins the block after that dispatch.
-
-```
-
-Settled by arbitration on this PR. These outcomes are final: a finding they overrule is not raised again and not fixed.
-<outcome>
-
-<outcome>
-```
-
-**Resume.** `resumeStage` skips an outcome comment: after its header and an
-empty line every line starts with `> `, so it has no `VERDICT:` line at the start
-of a line. The stage and the findings are read from the latest comment that has
-a verdict line, as before. `countFixRounds` does not count it. The gate reads the
-outcomes from the PR comments it already reads, with no further call. A comment
-is an outcome when its first line, read with the readers' rule, is exactly the
-header above, with the number of this issue and a round number in digits. A
-header on a later line, after another line end, for another issue, or in the
-text of a posted report (the first line of a posted report is the driver's own)
-is not read. The bodies are kept in order of creation, and `resume.arbitrations`
-is set only when there is at least one. The driver does not look at who wrote a
-comment, for an outcome or for a verdict. The run starts with these outcomes. A round that already has one gets its fix prompt
-with no pushback suffix, then the block and the pick-up line, and a pushback in
-the developer's report is not arbitrated.
-
-**Dry run.** `runPipeline` with `dryRun` arbitrates only when a scripted
-developer report pushes back: the adapter's dry-run developer has no `raw`. The
-outcome write is logged as `dry run, skipped: gh pr comment ...`.
-
-Arbitration adds nothing to stdout. A stop inside it is one more `parked` line,
-and the summary comment names the number of arbitrations (see "Ship and report").
-
-### Ship and report
-
-A package ships when the tester's last verdict is `PASS` and the reviewer's is
-`APPROVE`. The writes go in this order: `in-progress` is added if this run has
-not added it, the closing references are read, `gh pr ready` runs, `in-progress`
-comes off, and the summary comment is posted on the issue. `state.done` is set
-only after the summary comment succeeded. A write that fails throws, so the
-package ends with an `error` line and is not done.
-
-The PR has to close the issue. The driver reads
-`gh pr view <pr> --json closingIssuesReferences,number` through the runner and
-looks for an entry whose `number` is the issue. The words of the PR body do not
-count, and this is the same test the gate uses to find a package's PR. When no
-entry matches, the package parks with `PR #<number> does not close #<n>`:
-`<number>` is the number in the read and `<n>` is the issue, so the reason holds
-no seat text. `in-progress` comes off and the PR stays a draft. The
-driver does not edit the PR: a person adds `Closes #<n>` and removes
-`needs-human`, and the next gate finds the draft PR and resumes at ship from
-the `APPROVE` comment. A dry run makes no read.
-
-The driver accepts the answer only when it is an object whose `number` is a
-positive integer and whose `closingIssuesReferences` is a list. Anything else is
-a failed read: the package gets an error.
-
-The summary comment on the issue is:
-
-```
-Pipeline complete: PR <pr> is ready for review.
-
-Tester PASS, reviewer APPROVE. Fix rounds used: tester <t>/3, reviewer <r>/3. Arbitrations: <a>.
-```
-
-`<pr>` is the PR value of the package, cut to its single line, `<t>` and `<r>`
-are the counts of fix rounds used, and `<a>` is the number of arbitrations: the
-outcomes of this run and the ones an earlier run left on the PR.
-
-The report is `formatReport(entries, results)`, a pure function that returns
-its lines. `main` prints it after the result lines in a live run with at least
-one gate entry, also when no package ran. It is:
+The report is `formatReport(entries, results)`:
 
 ```
 ## What happened
@@ -559,91 +401,20 @@ one gate entry, also when no package ran. It is:
 3. Run the driver again to start the next wave
 ```
 
-"What happened" has one line per gate entry, in gate order:
+One line per gate entry, in gate order. "Next steps" lists only the items that
+have members, numbered from 1; with none it is `1. Nothing to do`.
 
-- A package shipped in this run and a gate `complete` entry give the PR line.
-  `<p>` is the PR's number from GitHub: the number of the closing read for a
-  package shipped in this run, and the gate's own number for a `complete` entry.
-- A package that parked in this run and a gate `park` give the `parked` line.
-  A package that threw gives the `error` line.
-- A gate `stop`, `skip` and `wait` give `stopped`, `skipped` and `deferred`.
+A package that throws (a failed `git fetch`, `git worktree add` or `gh` write)
+does not stop the others: its line reads `#<n> error: <reason>`, the first line of
+the failed command's stderr. A failed read at the gate prints the command and the
+first line of its stderr on stderr and exits 1. An answer the driver cannot
+accept is a failed read with the fixed message
+`gh <command> returned a malformed answer`.
 
-"Next steps" lists only the items that have members, numbered from 1: "Review
-& merge" for the ready PRs, "Decide on" for the parked and errored packages, and
-"Run the driver again" when any package was deferred. With none, the section is
-`1. Nothing to do`. It holds issue and PR numbers only. A title, a reason, an
-error and a gate detail are each one line cut with the writer's rule (see
-"Parking"). Every line starts with a fixed prefix and the text follows it on the
-same line, so no text starts a line of its own.
-
-### Parking
-
-Every stop of a package writes three things: the comment `Parked: <reason>` on
-the issue, the `needs-human` label, and removal of `in-progress` when this run
-or the gate had put it on. Where the stop has seat text (a `NEEDS_DECISION`,
-`BLOCKED` or `NEEDS_CONTEXT` report), the comment quotes it under the reason,
-one `> ` per line, so no line of it starts with `SUB_PLAN` or `VERDICT:` where
-the gate reads comments. A developer `BLOCKED` or `NEEDS_CONTEXT` report with
-no notes parks as `developer BLOCKED` or `developer NEEDS_CONTEXT`, with no
-colon.
-
-Two rules about lines apply, one for what the driver writes and one for what it
-reads. They differ on purpose.
-
-**The writer ends a line at any of seven characters:** line feed, carriage
-return, vertical tab, form feed, U+0085, U+2028 and U+2029. A CRLF pair is one
-line end. These seven are Unicode's mandatory line breaks, and a consumer of the
-output may end a line at more than a line feed. The rule does not make the
-output safe against every consumer: other control characters pass through, and
-Python's `str.splitlines`, for one, also ends a line at U+001C, U+001D and
-U+001E. A report body and a sub-plan are posted as the seat wrote them. The
-writer's rule covers:
-
-- The single line of seat text. Where the driver cuts seat text to one line (the
-  developer's notes for a reason, the architect's question for a reason, the
-  developer's `PR` value), it takes the first line that holds a non-blank
-  character, trimmed. A line that is only a code fence marker (three or more
-  backticks or tildes, with or without a language word) is skipped. The result
-  is empty only when the whole text is blank. If the reason has no text left, it
-  has no colon. The whole text of the seat's report stays in the quoted lines
-  under the reason.
-- The quoted details of a park comment, and the quoted reply in an arbitration
-  outcome comment. Each of the seven starts a new `> ` line and is written as a
-  line feed.
-- The header line of an arbitration outcome comment is fixed text with two
-  numbers. An empty line follows it, then the quoted reply.
-- So `state.parked`, the first line of a park comment, the first line of an
-  outcome comment, every line of the summary comment, every result line on
-  stdout and every line of the report hold none of the seven. The `error` line
-  of a package is cut with `oneLine`, the same cut as every other single line. So is the detail of a gate line, which can hold a
-  branch name read from origin.
-
-The developer's `PR` value is cut to its single line before it is checked, so a
-value with a blank first line is judged by its first non-blank line. It is
-missing only when that line is empty, which means the whole value is blank. A
-report body posted on a PR stays as the seat wrote it.
-
-**The readers split at a line feed only:** `resumeStage`, `countFixRounds` and
-the sub-plan reader (see "Fix rounds"). Seat text reaches a comment or a result
-line in three forms only: a posted report body, a quoted block, or a single line
-cut as above.
-
-The stops are: an architect `NEEDS_DECISION` (in the sub-plan or in an
-arbitration), an architect size check that says the work exceeds the size label,
-a developer `BLOCKED` or `NEEDS_CONTEXT` (also in the report after an outcome),
-a seat with no usable report (an arbitration reply that is not an `ARBITRATION`
-with a body included), an exhausted count, no PR to mark ready, a PR that does
-not close the issue, and an unexpected final state. The size-check stop
-applies in a live run only: a dry run does not stop on a Size check line. The
-result line on stdout is `#<n> parked: <reason>`, with that same one-line reason.
-
-### Branch name
-
-The branch is `<type>/<n>-<slug>`, and the slug comes from the issue title:
-lowercase, every run of characters other than letters and digits becomes one
-hyphen, hyphens trimmed at both ends, cut at 40 characters, and `pending` when
-nothing is left. The worktree is created on that branch and the developer is
-told the same name. A resume keeps the branch its PR already has.
+Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
+packages are outcomes, not failures), 1 when a `gh` or `git` call failed at the
+gate, when a package ended with an `error` line, or when something unexpected
+happened, and 2 for a usage error, before any GitHub call.
 
 ## Workflow rendering
 
