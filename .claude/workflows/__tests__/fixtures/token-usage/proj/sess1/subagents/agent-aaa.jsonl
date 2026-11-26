@@ -1,0 +1,2 @@
+{"type":"assistant","timestamp":"2026-11-25T12:30:00.000Z","message":{"id":"msg_d","model":"claude-sonnet-5-5","usage":{"input_tokens":5,"cache_creation_input_tokens":6,"cache_read_input_tokens":7,"output_tokens":8}}}
+not json
