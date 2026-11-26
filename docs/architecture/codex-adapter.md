@@ -16,12 +16,10 @@ verified auth path.
   models and efforts for the Codex host.
 - `.claude/adapters/codex-adapter.mjs` -- the adapter module exporting
   `spawn`, `detectFailure`, `retry`, `resolveTier`, and `resolveRole`.
-- `.claude/adapters/codex-renderer.mjs` -- the workflow renderer that
-  reads JSON spec files and drives the adapter's spawn operations.
 - `.claude/adapters/personas/*.toml` -- TOML personas for each role,
   mapped from the neutral role contracts.
 - `.claude/workflows/__tests__/codex-adapter.test.mjs` -- tests for the
-  adapter table, interface, renderer, and personas (dry-run mode).
+  adapter table, interface, and personas (dry-run mode).
 
 ## Authentication
 
@@ -82,7 +80,7 @@ docs-writer). Override via the `isolation` opt.
 
 ## Dry-run mode
 
-Set `DRY_RUN=true` to exercise the adapter and renderer without live
+Set `DRY_RUN=true` to exercise the adapter without live
 codex exec calls. The test suite always runs in dry-run mode.
 
 ## Live mode

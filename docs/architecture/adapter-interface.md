@@ -1,15 +1,12 @@
 # Adapter interface
 
-The minimal interface a host adapter must implement. Derived from the
-existing `criticWithFallback` pattern in the workflow scripts, which is
-the proto-interface already in production.
+The minimal interface a host adapter must implement. It began as the
+`criticWithFallback` pattern in the removed workflow scripts.
 
 Status: the Hermes adapter is implemented as of Phase C (#315), rebuilt
 on subprocess spawn in #351, and the Codex adapter as of Phase D (#316).
 The Codex adapter has never been live-tested. The three operations
-(spawn, detectFailure, retry) are defined here as prose; the existing
-`criticWithFallback` function in the workflow scripts is the
-proto-implementation. The Hermes adapter lives at
+(spawn, detectFailure, retry) are defined here as prose. The Hermes adapter lives at
 `.claude/adapters/hermes-adapter.mjs` and spawns a `hermes` subprocess
 per seat. It previously used `delegate_task`, which takes no model
 override, no working directory, and no output schema, so none of the
@@ -51,10 +48,8 @@ Returns: the agent's report object matching the schema, or null when
 the agent errors out, returns nothing, or is skipped mid-run.
 
 Host implementations:
-- Claude Code, in-process (the default): the Agent tool (for pipeline
-  dispatch) or the Workflow tool's `agent()` function (for workflow
-  scripts). The `model` and `effort` opts map to the Agent tool's `model`
-  and `effort` params. This is `claude-code.json`, whose `dispatch` is
+- Claude Code, in-process (the default): the Agent tool. The `model` and
+  `effort` opts map to the Agent tool's `model` and `effort` params. This is `claude-code.json`, whose `dispatch` is
   absent; all seats share the lead's process and directory.
 - Claude Code, subprocess (`dispatch: "subprocess"`, issue #453): one
   headless `claude -p` process per seat, so each seat gets its own model,
@@ -86,8 +81,7 @@ Host implementations:
 
 ### detectFailure(report) -> bool
 
-Return true if the report indicates the agent could not complete. This
-generalizes what `criticWithFallback` does today with `if (first)`: a
+Return true if the report indicates the agent could not complete: a
 null return, an empty output, an error sentinel, or a quota-exhaustion
 signal all count as failure.
 
@@ -111,8 +105,7 @@ fallback.
 
 The retry must:
 1. Log that a fallback occurred (visible in the run output).
-2. Flag the fallback in the report (a `modelFallback` marker, as
-   `criticWithFallback` does today).
+2. Flag the fallback in the report (a `modelFallback` marker).
 3. Preserve the original task's schema and effort.
 4. Append a retry notice to the prompt explaining the fallback.
 
@@ -153,88 +146,12 @@ lifts the ceiling. The effort-policy test holds the exemption authority
 guard in the subprocess adapter mirrors it.
 
 Adding a new model means editing the host's tier map in the adapter
-table. On this branch the workflow scripts still pin literal model
-names in their agent() calls; the effort-policy test resolves each
-pinned model through the adapter table to verify it matches the
-declared tier. A future phase (Phase B, issue #314) introduces
-inline TIER_MODELS/TIER_EFFORTS maps in the workflow scripts so the
-scripts reference tiers, not model names, at the callsite.
+table.
 
 A target repo's `.orchestrai/columns.json`, when present, overrides the
 per-stage model and effort at lead dispatch time (and names the runner that
 executes the stage); the adapter table stays the resolution source for every
-repo without that file, and for the workflow scripts.
-
-## Spec format
-
-Each workflow's fan-out is encoded as a JSON spec file under
-`.claude/workflows/specs/`. The Claude Code JS renderer embeds a
-matching `SPEC` constant; a future Hermes or Codex renderer reads the
-JSON directly. The spec-sync test asserts the two stay in sync.
-
-Top-level fields:
-
-- `name`: the workflow identifier (matches the JS filename stem).
-- `description`: one paragraph, no tool names or model names.
-- `phases`: array of `{ title, detail, tier }`. Ordered list of phases
-  the workflow progresses through. `tier` is the model tier for that
-  phase.
-- `stages`: object mapping stage names to stage descriptors. Each
-  stage descriptor has:
-  - `phase`: which phase this stage belongs to.
-  - `tier`: `"judgment"` or `"worker"` (never `"lead"`).
-  - `parallelism`: `"single"` (one agent), `"fixed-list"` (N agents,
-    N known at spec-write time), or `"dynamic-list"` (N agents, N
-    determined at runtime by the previous stage's output).
-  - `schema`: the name of the JSON Schema constant the stage uses.
-  - `fallback`: `null`, or `{ from_tier, to_tier, preserve_effort }`
-    describing the retry behavior on failure.
-  - `label`: for `single` stages, the literal label string used in
-    agent() calls. Used by the render-path test to map recorded
-    calls back to their SPEC stage.
-  - `item_label_prefix`: for `fixed-list` and `dynamic-list` stages,
-    the prefix concatenated with each item to form the agent() label.
-  - `item_label`: for `single` stages that use a descriptive label
-    rather than a literal (e.g. `architecture`).
-  - `items_source`: for `dynamic-list` stages, a dotted path into the
-    run context, where each finished stage's output is stored under
-    `<stage>_result` (e.g. `scout_result.areas` reads the `areas`
-    field off the `scout` stage's result).
-  - `items_key`: for `fixed-list` stages, the name of the data array
-    in the SPEC that enumerates the items.
-  - `items_transform`: for `dynamic-list` stages, optional. The name of
-    a reducer from the closed set below, applied to the resolved
-    `items_source` array before the cap. A renderer that does not
-    know the name must throw, not fall back to the unreduced items.
-  - `items_cap`: for `dynamic-list` stages, the args field that caps
-    the item count, written `args.<field>` (e.g. `args.areas`). The
-    renderer strips the `args.` prefix and reads the field; a value
-    that is not a positive integer falls back to `items_default_cap`.
-  - `items_default_cap`: for `dynamic-list` stages, the default cap
-    when the args field is absent or invalid (e.g. `24`).
-
-Item reducers (`items_transform` values). A reducer only flattens,
-filters and dedups. The cap is the one generic step that runs after
-it, so overflow is computed in one place. Each renderer implements
-the full set; add a name here and in every renderer together.
-
-- `must_fix_deduped`: the source is an array of worker reports, each
-  `{ findings: [...] }`. Flatten the findings of every report that has
-  a `findings` array (skip null and malformed reports), keep
-  `severity === 'must-fix'`, and dedup on file + line + problem.
-
-When the cap drops items, a renderer logs the overflow. Only a
-renderer that builds its consolidate input from runtime data (the
-Claude Code one) can also put the overflow in the report.
-
-Stages do not carry `effort` or `model`; those are resolved from the
-tier via the adapter table at render time.
-
-The JSON spec files carry only `name`, `description`, `phases`, and
-`stages`. Data arrays (dimensions, area lists), schema objects, and
-default args stay inlined in the JS because the runtime has no
-imports; the specs.test.mjs sync test compares only the four
-synced fields.
+repo without that file.
 
 ## What the interface does not specify
 

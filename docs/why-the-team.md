@@ -44,7 +44,7 @@ thinking tokens (`docs/research/2026-09-27-batch-371-token-baseline.md`).
 ## What it catches that plain plan-and-execute does not
 
 **Independent test and review (earlier pipeline).** In the same size:M trial above, an
-identical, independent review pass (`tm-review-changes`) was run against
+identical, independent review pass (a review workflow since removed) was run against
 both diffs afterward. The full-pipeline diff drew 0 must-fix issues (3
 should-fix, 2 nits). The diff from the single, unaudited developer
 dispatch drew 1 must-fix plus 3 should-fix. That gap is not a
@@ -89,8 +89,9 @@ every handoff and writes state (issue bodies, PR review comments, labels) to
 GitHub instead of holding it in one session. A dropped connection
 therefore resumes from GitHub instead of restarting a lost session.
 
-**Bounded fan-out.** The team's workflow scripts pin worker and judgment
-model tiers and cap agent counts in code, independent of which model leads.
+**Bounded fan-out.** The team's earlier workflow scripts (since removed)
+pinned worker and judgment model tiers and capped agent counts in code,
+independent of which model leads.
 A live trial pitted this bounded construction against a hand-authored
 stand-in for an ultracode-style workflow: both reviewed the same repository
 from the same commit. The bounded run finished cleanly with 9 agents. The

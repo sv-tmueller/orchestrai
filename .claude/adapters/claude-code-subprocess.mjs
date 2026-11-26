@@ -189,7 +189,7 @@ function resolveEffectiveSeat(role, opts = {}) {
 /**
  * The settings fragment every subprocess seat carries, merged with the
  * tier's own profile. Each entry is a trap from the headless `claude -p`
- * checklist (.claude/skills/tm-ab-test/SKILL.md), each one observed live:
+ * checklist, each one observed live:
  *
  * - every orchestrai plugin key off: disabling only the first copy left
  *   the account-synced second copy loading silently.

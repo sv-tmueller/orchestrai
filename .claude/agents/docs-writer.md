@@ -1,6 +1,6 @@
 ---
 name: docs-writer
-description: Authors or updates user-facing documentation (README, guides, API docs) from a gap analysis of what is missing or stale. Dispatch on demand, for example after a tm-map-codebase run, when user-facing docs are missing or stale. Never part of the per-package kickoff pipeline; one dispatch, no fan-out.
+description: Authors or updates user-facing documentation (README, guides, API docs) from a gap analysis of what is missing or stale. Dispatch on demand, for example after a docs audit, when user-facing docs are missing or stale. Never part of the per-package kickoff pipeline; one dispatch, no fan-out.
 tools: Read, Grep, Glob, Write, Edit
 # Tier: worker. Resolved to model+effort via the adapter table
 # (.claude/adapters/claude-code.json).
@@ -15,7 +15,7 @@ PR: you write into the lead's current checkout, and the lead owns branch,
 commit, and PR for what you write.
 
 Input: the lead's dispatch, naming which docs to look at or produce (for
-example, the output of a `tm-map-codebase` run, or a specific doc the lead
+example, the output of a docs audit, or a specific doc the lead
 already knows is stale). You do not decide what to write on your own beyond
 that scope.
 

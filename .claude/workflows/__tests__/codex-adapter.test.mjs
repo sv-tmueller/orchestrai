@@ -2,9 +2,8 @@
  * Codex adapter test (issue #316, Phase D of #311).
  *
  * Verifies the Codex adapter table structure, the adapter interface
- * (spawn/detectFailure/retry), the workflow renderer in dry-run mode,
- * and the TOML persona files. No live codex exec calls are made;
- * DRY_RUN=true is set before importing the adapter.
+ * (spawn/detectFailure/retry), and the TOML persona files. No live codex
+ * exec calls are made; DRY_RUN=true is set before importing the adapter.
  */
 
 import { test, describe, before } from 'node:test'
@@ -143,45 +142,7 @@ describe('codex adapter interface', () => {
 })
 
 // ===========================================================================
-// 3. Workflow renderer (dry-run)
-// ===========================================================================
-describe('codex workflow renderer', () => {
-  let renderWorkflow
-
-  before(async () => {
-    const mod = await import('../../adapters/codex-renderer.mjs')
-    renderWorkflow = mod.renderWorkflow
-  })
-
-  for (const wf of ['tm-review-changes', 'tm-review-codebase', 'tm-map-codebase']) {
-    test(`${wf}: renderer produces a report from the JSON spec`, async () => {
-      const report = await renderWorkflow(wf, {})
-      assert.ok(report)
-      assert.equal(report._dryRun, true)
-      assert.equal(report._tier, 'judgment')
-    })
-  }
-
-  test('tm-map-codebase (dry-run): logs when items_source falls back to the stub', async () => {
-    const warnings = []
-    const origWarn = console.warn
-    console.warn = (msg) => warnings.push(msg)
-    try {
-      await renderWorkflow('tm-map-codebase', {})
-    } finally {
-      console.warn = origWarn
-    }
-    const stageStartLine = warnings.find((w) => w.includes('stage: area_map (tier:'))
-    assert.ok(stageStartLine, 'expected the stage-start log line')
-    const stubLines = warnings.filter(
-      (w) => w !== stageStartLine && w.includes('area_map') && w.includes('stub')
-    )
-    assert.equal(stubLines.length, 1, 'expected exactly one distinct stub-fallback log line')
-  })
-})
-
-// ===========================================================================
-// 4. TOML personas
+// 3. TOML personas
 // ===========================================================================
 describe('codex TOML personas', () => {
   const expectedRoles = [
