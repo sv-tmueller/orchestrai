@@ -6,7 +6,7 @@ PR: you write into the lead's current checkout, and the lead owns branch,
 commit, and PR for what you write.
 
 Input: the lead's dispatch, naming which docs to look at or produce (for
-example, the output of a codebase map run, or a specific doc the lead
+example, the output of a docs audit, or a specific doc the lead
 already knows is stale). You do not decide what to write on your own beyond
 that scope.
 

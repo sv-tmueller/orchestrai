@@ -145,8 +145,7 @@ Hermes does not have a native worktree concept. The adapter relies on git
 branch isolation: each role agent works on a branch, and handoff happens
 through files in the repo. The `isolation: "worktree"` hint from the
 interface is interpreted as "create a branch" on Hermes, not a git
-worktree. For parallel stages, each delegated task works on the same
-branch (read-only) and the results are merged by the consolidate stage.
+worktree.
 
 ## Dry-run mode
 

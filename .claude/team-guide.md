@@ -159,7 +159,8 @@ issue (see "Agent team").
 ## Repo layout (team)
 
 `.claude/` holds `agents/`, `skills/`, `adapters/`, `workflows/` (the unit
-tests only), and `settings.json` (full annotated tree: docs/team-guide-rationale.md).
+tests only), and `settings.json` (full annotated tree:
+docs/team-guide-rationale.md).
 
 Every skill built in this repo carries the `tm-` prefix
 (`/tm-advisor`, `/tm-kickoff`, `/tm-grill-me`, and so on), marking them
