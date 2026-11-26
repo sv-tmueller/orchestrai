@@ -1,0 +1,38 @@
+{
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "retrieved": "2026-11-26",
+  "unit": "USD per 1,000,000 tokens",
+  "models": {
+    "claude-opus-5-5": {
+      "input": 4,
+      "cache_write_5m": 5,
+      "cache_write_1h": 8,
+      "cache_read": 0.2,
+      "output": 20,
+      "fast": { "input": 8, "output": 40 }
+    },
+    "claude-sonnet-5-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.1,
+      "output": 10
+    },
+    "claude-haiku-5-5": {
+      "input": 0.1,
+      "cache_write_5m": 0.125,
+      "cache_write_1h": 0.2,
+      "cache_read": 0.01,
+      "output": 0.5,
+      "note": "rates for prompts up to 100,000 tokens; the higher long-prompt rates are not modeled"
+    },
+    "claude-fable-5-2": {
+      "input": 8,
+      "cache_write_5m": 10,
+      "cache_write_1h": 16,
+      "cache_read": 0.2,
+      "output": 40,
+      "fast": { "input": 16, "output": 80 }
+    }
+  }
+}
