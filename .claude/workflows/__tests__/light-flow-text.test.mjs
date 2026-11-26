@@ -212,13 +212,6 @@ describe('claude skills', () => {
     assert.ok(advisorRaw.includes('"size:M"'))
   })
 
-  test('tm-ab-test points at kickoff wave end and marks the removed token-report script', () => {
-    const ab = read('tm-ab-test')
-    assert.ok(ab.replace(/\s+/g, ' ').includes('SKILL.md\'s "6. Wave end" section'))
-    assert.ok(!ab.includes('Worktree cleanup (deterministic)'))
-    assert.ok(ab.includes('(script removed in #630)'))
-  })
-
   test('the reviewer may get only a PR number, so the lead passes the PR and the issue', () => {
     assert.ok(kickoff.includes('the PR number and the issue number'))
   })

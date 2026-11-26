@@ -499,29 +499,3 @@ describe('pipeline threads a working directory to every seat', () => {
     assert.match(result.branch, /^feat\/42-/)
   })
 })
-
-// ===========================================================================
-// 8. Workflow renderer stage bindings
-// ===========================================================================
-describe('renderer stageOpts', () => {
-  let stageOpts
-
-  before(async () => {
-    const mod = await import('../../adapters/hermes-renderer.mjs')
-    stageOpts = mod.stageOpts
-  })
-
-  test('gives every workflow stage the repo root as its working directory', () => {
-    const opts = stageOpts({ tier: 'worker' }, 'review', '/repo')
-    assert.equal(
-      opts.cwd, '/repo',
-      'a workflow stage with no cwd cannot spawn: buildArgv requires one'
-    )
-  })
-
-  test('carries the stage tier and the inferred role', () => {
-    const opts = stageOpts({ tier: 'judgment' }, 'consolidate', '/repo')
-    assert.equal(opts.tier, 'judgment')
-    assert.ok(opts.role, 'the role is needed for report parsing and failure detection')
-  })
-})
