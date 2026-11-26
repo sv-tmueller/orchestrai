@@ -59,7 +59,7 @@ session resumable. The `architect`, `fact-checker`, `docs-writer`, and
 reviewer dispute. It dispatches `fact-checker` on
 demand when a report's claims are load-bearing but carry no evidence, and
 routes any CONTRADICTED claim back to the agent that made it; it dispatches
-`docs-writer` on demand, for example after a `tm-map-codebase` run, when
+`docs-writer` on demand, for example after a docs audit, when
 user-facing docs are missing or stale; and it dispatches `perf-investigator`
 on demand when a package's job is specifically a performance investigation,
 handing its baseline to the developer before implementation and its

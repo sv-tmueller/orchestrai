@@ -46,13 +46,6 @@ graph TD
 
     L -->|"3 ready PR"| G[("GitHub<br/>issue bodies, review comments, labels")]
     G -->|"4 merge: queued by the lead, or human"| H
-
-    subgraph WF["Review workflows"]
-        RC["tm-review-changes<br/>worker reviewers + worker verifiers + 1 judgment critic"]
-        RB["tm-review-codebase<br/>worker scout + area workers + 1 judgment critic"]
-    end
-
-    L -->|"run as commands"| WF
 ```
 
 Detailed diagrams: `docs/team-architecture.md`. Adapter interface:
@@ -97,14 +90,9 @@ review gate says so, and at most 2 fix rounds.
   (`claude-code.json`, `hermes.json`, `codex.json`) map tiers to concrete
   models per host. Role prompt templates (`prompts/<role>.md`) carry the
   host-neutral job descriptions and report contracts.
-- `.claude/workflows/` - 3 bounded orchestration scripts (tm-review-changes,
-  tm-review-codebase, tm-map-codebase). Fan-out is encoded as JSON data
-  specs under `workflows/specs/`; the JS files embed matching SPEC constants
-  and a sync test asserts alignment.
+- `.claude/workflows/__tests__/` - the unit tests that `npm test` runs.
 - `.claude/skills/` - slash commands: `/tm-kickoff` (runs the light flow),
   `/tm-advisor` (batch advisory), `/tm-grill-me` (plan stress-test),
-  `/tm-ab-test` (A/B comparison), `/tm-review-changes` (diff review),
-  `/tm-review-codebase` (repo review), `/tm-map-codebase` (architecture map),
   `/tm-repo-guard` (guard check and apply, CI setup included, for your repos),
   `/tm-security-audit` (security review and full audit, vendored from Cloudflare).
   Hermes variants ship as
@@ -301,7 +289,7 @@ Via the marketplace (recommended):
 /plugin install orchestrai@orchestrai
 ```
 
-Installs the agents and all 9 skills under the `orchestrai` namespace
+Installs the agents and all 5 skills under the `orchestrai` namespace
 (e.g. `/orchestrai:tm-kickoff`). Wire the process docs into your
 config-dir `CLAUDE.md`:
 
@@ -326,9 +314,6 @@ must be committed rather than installed from the marketplace.
 /tm-kickoff 42          # run the light flow on issue #42
 /tm-kickoff 42 43 44    # run a wave of issues (up to 3 concurrent)
 /tm-advisor <need>      # refine a need into a batch, then run it
-/tm-review-changes      # review the current diff
-/tm-review-codebase     # review the whole repo
-/tm-map-codebase        # map the repo architecture
 /tm-repo-guard          # report each owned repo's guard state (apply <repo> asks first)
 /tm-repo-guard statuses <repo> <pr>  # print the commands that record the review status by hand
 ```
@@ -520,7 +505,6 @@ sync bundle files.
 | Claude Code | Hermes |
 |---|---|
 | Agent tool dispatch | One `hermes -z` subprocess per seat (`spawn` in `hermes-adapter.mjs`) |
-| Workflow `agent()` / `parallel()` | The same `spawn`, driven by `hermes-renderer.mjs` |
 | Worktree isolation | One git worktree per package, made by the driver (`.worktrees/pkg-<n>`) |
 | `gh pr diff`, `gh issue view` | `terminal` tool with `gh` commands |
 | Frontmatter `model:` / `effort:` | Adapter table `hermes.json` tier mapping |

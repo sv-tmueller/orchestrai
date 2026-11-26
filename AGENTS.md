@@ -38,15 +38,15 @@ style (see "Useful commands").
 ```
 docs/
   architecture/      stack and policy decisions, data model, domain math;
-                       also dated codebase maps from /tm-map-codebase
+                       also dated codebase maps
   operations/        run/deploy/operate: environments, CI/CD, runbooks
   plans/             implementation plans, <issue-number>-<slug>.md
-  reviews/           dated codebase-review reports from /tm-review-codebase
+  reviews/           dated codebase-review reports
   superpowers/specs/ approved designs, YYYY-MM-DD-<topic>-design.md
   team-architecture.md  flat-star agent-team diagrams and rationale
 ```
 
-`.claude/` holds the team machinery (agents, skills, workflows, adapters) and
+`.claude/` holds the team machinery (agents, skills, adapters, and the unit tests under `workflows/`) and
 the process docs; the README says which hosts run the team.
 `.claude/process-core.md` is normative for every seat (see Guardrails).
 

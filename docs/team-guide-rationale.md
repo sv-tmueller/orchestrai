@@ -41,16 +41,16 @@ No relocated chunks; the fact-checker verdict taxonomy lives in
 
 ### Full annotated tree
 
-Supports: "`.claude/` holds `agents/`, `skills/`, `workflows/`,
-`adapters/`, and `settings.json`."
+Supports: "`.claude/` holds `agents/`, `skills/`, `adapters/`,
+`workflows/` (the unit tests only), and `settings.json`."
 
 ```
 .claude/
   agents/            role agents: architect, developer, reviewer,
                        fact-checker, docs-writer, perf-investigator
   skills/            project skills: /tm-advisor, /tm-grill-me, /tm-kickoff, /tm-repo-guard
-  workflows/         bounded orchestration scripts (tm-review-changes, tm-review-codebase, tm-map-codebase)
   adapters/          adapter tables: tier-to-model mapping per host (claude-code.json)
+  workflows/         the unit tests (__tests__/), run by npm test
   settings.json      project settings; enables the superpowers plugin
                        enabledPlugins is template-managed;
                        permissions, hooks, env, and defaultMode are project-owned
@@ -127,7 +127,7 @@ runs at whatever the session's own model is: Opus by default now that it is
 the lead, or Fable if the user has put the main window on Fable. Fable
 over-spawns under exactly this shape. The measured trial behind this rule
 (288 agents attempted by an unbounded dynamic workflow with every stage on
-Sonnet 5, against the bounded `tm-review-codebase` script's 9, spend cap
+Sonnet 5, against a bounded review script's 9, spend cap
 exhausted) is in the addendum of
 `docs/reviews/2026-06-30-orchestration-comparison.md`.
 (Source: code.claude.com/docs/en/model-config.md, "Adjust effort level".)
@@ -154,26 +154,6 @@ same as at high for roughly 1.8x the cost, and Sonnet 5 at max is dominated
 by Fable 5 at every plotted effort level. Effort inherits to any seat that
 does not pin it, so the old session-wide max ran the Sonnet workers at the
 chart's worst value point.
-
-### Workflows: the three worked examples
-
-Supports: "pin worker stages to a cheap model at `high` effort in the
-script and reserve the strong model for synthesis or critique."
-
-The `tm-review-changes` workflow in `.claude/workflows/` is the worked
-example: a fixed set of Sonnet reviewers, a capped Sonnet verify pass on
-must-fix findings, and one Opus critic pinned to
-xhigh effort, bounded by construction so it cannot fan out into the
-100-agent review that an unpinned session model produces. `tm-review-codebase`
-applies the same discipline to a whole-repo audit: a Sonnet scout splits the
-repo into N areas (sized to the repo, capped at a ceiling), Sonnet workers
-review each area plus repo-wide structure, and one Opus critic consolidates.
-The agent count is N + 3, so it scales with repo size up to the ceiling and
-never fans out unboundedly. `tm-map-codebase` reuses the same
-scout/worker/critic shape for a purely descriptive map (purpose, entry
-points, data and control flow, no findings): it drops the architecture
-worker, so the agent count is N + 2, bounded and scaling with repo size the
-same way.
 
 ### CLAUDE_CODE_SUBAGENT_MODEL: default, not override
 

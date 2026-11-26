@@ -20,11 +20,8 @@ section 4 Phase C for the design.
 - `.claude/adapters/hermes-pipeline.mjs` -- the pipeline driver: a command
   line (see "Driver command line"), the gate, and the per-package loop that
   runs the developer, the reviewer when the review gate says so, and ship.
-- `.claude/adapters/hermes-renderer.mjs` -- the workflow renderer that
-  reads JSON spec files from `.claude/workflows/specs/` and drives the
-  adapter's spawn/parallel operations.
 - `.claude/workflows/__tests__/hermes-adapter.test.mjs` -- tests for the
-  adapter table, interface, and renderer (dry-run mode).
+  adapter table and interface (dry-run mode).
 - `.claude/skills/tm-kickoff/SKILL.hermes.md` -- the Hermes kickoff skill: it
   runs `hermes-pipeline.mjs` and reads its output. Source for the auto-discovered
   `~/.hermes/skills/autonomous-ai-agents/orchestrai/` skill.
@@ -153,10 +150,9 @@ branch (read-only) and the results are merged by the consolidate stage.
 
 ## Dry-run mode
 
-Set `DRY_RUN=true` to exercise the adapter and renderer without live API
+Set `DRY_RUN=true` to exercise the adapter without live API
 calls. In dry-run mode, `spawn` returns synthetic reports shaped to
-satisfy the schema, so the full fan-out (scout, parallel workers, critic
-with fallback) can be tested offline.
+satisfy the schema, so the adapter can be tested offline.
 
 ```bash
 DRY_RUN=true npm test
@@ -409,16 +405,3 @@ Exit codes: 0 when the run finished (parked, stopped, waiting and skipped
 packages are outcomes, not failures), 1 when a `gh` or `git` call failed at the
 gate, when a package ended with an `error` line, or when something unexpected
 happened, and 2 for a usage error, before any GitHub call.
-
-## Workflow rendering
-
-The renderer (`hermes-renderer.mjs`) reads the same JSON spec files that
-the Claude Code JS renderer consumes (via its embedded SPEC constant).
-This proves the data-spec approach works on a second host: the spec is
-the single source of truth, and each host provides its own renderer.
-
-The renderer handles all three parallelism modes (single, fixed-list,
-dynamic-list) and the fallback ladder for stages that declare one. The
-prompt templates are minimal in the current implementation; a full
-production renderer would interpolate the complete prompt from the
-workflow's JS source or a shared prompt template library.

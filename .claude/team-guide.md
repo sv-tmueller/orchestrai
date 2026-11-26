@@ -38,7 +38,7 @@ Diagrams and rationale: `docs/team-architecture.md`.
   no evidence; a CONTRADICTED claim is never dropped, it goes back to the
   agent that made it.
 - `docs-writer` - authors or updates user-facing docs from a gap analysis.
-  Dispatch on demand (for example after `tm-map-codebase`) when docs are
+  Dispatch on demand (for example after a docs audit) when docs are
   missing or stale.
 - `perf-investigator` - measures a baseline and target for a reported
   slowness before anyone touches code. Dispatch only for a package whose job
@@ -82,7 +82,7 @@ The rules that matter session-wide:
 
 ## Model policy
 
-Opus at xhigh in every judgment seat: architect, reviewer, workflow critics.
+Opus at xhigh in every judgment seat: architect and reviewer.
 The lead runs Opus at high. Efficient workers everywhere else. The lever is
 where each model runs, not raw effort everywhere. Rationale:
 docs/team-guide-rationale.md. The lead-model move:
@@ -101,23 +101,20 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
 - Fable (main-window user choice only): no part of the machinery, this
   policy included, ever pins Fable or switches to it automatically; a lead
   session on Fable is the user's own `/model` choice for that window.
-- Judgment seats (architect, reviewer, workflow critics): Opus at xhigh
+- Judgment seats (architect, reviewer): Opus at xhigh
   effort is the primary model. The per-call fallback is Sonnet at the same
   xhigh effort. A reviewer that hits a usage limit runs once more on Sonnet,
   and a Sonnet-fallback APPROVE ships like an Opus APPROVE: the lead posts
-  `orchestrai/review` the same way and queues the merge the same way. The
-  critic stage of every `tm-` workflow (`.claude/workflows/`) already retries
-  on sonnet automatically when Opus returns nothing. Nothing in the machinery
-  falls back to Fable. If judgment quality visibly degrades on real batches,
-  log the observation here.
+  `orchestrai/review` the same way and queues the merge the same way. Nothing
+  in the machinery falls back to Fable. If judgment quality visibly degrades
+  on real batches, log the observation here.
 - Cost-based fallback trigger: superseded by the move to Opus. To revisit
   Fable, re-run the comparison first; never switch on availability alone
   (`docs/reviews/2026-09-23-lead-model-comparison.md`, section 7).
 - No session-wide `ultracode` under this policy (a prompt keyword or
   `/effort` menu option, not a slash command). Measured trial:
   `docs/reviews/2026-06-30-orchestration-comparison.md`. Keep `/effort` at
-  `high` and use the tm- scripts; use `ultracode` only for a one-off heavy
-  task with no tm- script.
+  `high`; use `ultracode` only for a one-off heavy task.
 - Role agents (frontmatter `model:`): `architect`/`reviewer` run `opus`
   (`sonnet` is the documented per-call fallback); `developer`,
   `fact-checker`, `docs-writer`, `perf-investigator` run `sonnet`
@@ -129,12 +126,9 @@ and Pro: docs/operations/plan-downgrade-runbook.md.
   `xhigh` effort instead.
 - Effort ceiling: `xhigh`. Nothing runs at `max`. Effort inherits to any seat
   that does not pin it. The effort-policy test in `npm test` fails any agent
-  or workflow stage that omits its pin or reintroduces max, and its guard
-  describe fails if fable is pinned on any adapter tier, agent or skill
-  frontmatter, or workflow stage (issue #380).
-- Workflows: pin worker stages to a cheap model at `high` effort and reserve
-  the strong model for synthesis or critique, bounded by construction
-  (`.claude/workflows/*.js`; docs/superpowers/specs/2026-06-13-review-codebase-design.md).
+  that omits its pin or reintroduces max, and its guard describe fails if
+  fable is pinned on any adapter tier or in agent or skill frontmatter
+  (issue #380).
 - Do not set `CLAUDE_CODE_SUBAGENT_MODEL`. Since Claude Code v2.1.251 it is
   a default, not an override: the per-invocation model parameter and the
   agent definition's `model` frontmatter (including `inherit`) both take
@@ -164,11 +158,11 @@ issue (see "Agent team").
 
 ## Repo layout (team)
 
-`.claude/` holds `agents/`, `skills/`, `workflows/`, `adapters/`, and
-`settings.json` (full annotated tree: docs/team-guide-rationale.md).
+`.claude/` holds `agents/`, `skills/`, `adapters/`, `workflows/` (the unit
+tests only), and `settings.json` (full annotated tree: docs/team-guide-rationale.md).
 
-Every skill and workflow built in this repo carries the `tm-` prefix
-(`/tm-advisor`, `/tm-kickoff`, `/tm-review-changes`, and so on), marking them
+Every skill built in this repo carries the `tm-` prefix
+(`/tm-advisor`, `/tm-kickoff`, `/tm-grill-me`, and so on), marking them
 as this project's own commands apart from out-of-the-box and plugin skills.
 New project commands follow the same rule: name them `tm-<thing>`.
 
