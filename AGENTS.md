@@ -46,8 +46,9 @@ docs/
   team-architecture.md  flat-star agent-team diagrams and rationale
 ```
 
-`.claude/` holds the team machinery (agents, skills, adapters, and the unit tests under `workflows/`) and
-the process docs; the README says which hosts run the team.
+`.claude/` holds the team machinery (agents, skills, adapters, and the unit
+tests under `workflows/`) and the process docs; the README says which hosts
+run the team.
 `.claude/process-core.md` is normative for every seat (see Guardrails).
 
 ## Useful commands

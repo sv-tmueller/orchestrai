@@ -6,12 +6,13 @@ The minimal interface a host adapter must implement. It began as the
 Status: the Hermes adapter is implemented as of Phase C (#315), rebuilt
 on subprocess spawn in #351, and the Codex adapter as of Phase D (#316).
 The Codex adapter has never been live-tested. The three operations
-(spawn, detectFailure, retry) are defined here as prose. The Hermes adapter lives at
-`.claude/adapters/hermes-adapter.mjs` and spawns a `hermes` subprocess
-per seat. It previously used `delegate_task`, which takes no model
-override, no working directory, and no output schema, so none of the
-tier bindings actually reached the seat (#351). The Codex adapter lives at `.claude/adapters/codex-adapter.mjs`
-and uses `codex exec` for spawn.
+(spawn, detectFailure, retry) are defined here as prose. The Hermes
+adapter lives at `.claude/adapters/hermes-adapter.mjs` and spawns a
+`hermes` subprocess per seat. It previously used `delegate_task`, which
+takes no model override, no working directory, and no output schema, so
+none of the tier bindings actually reached the seat (#351). The Codex
+adapter lives at `.claude/adapters/codex-adapter.mjs` and uses
+`codex exec` for spawn.
 
 The report parser is shared, not per adapter: `role-contract-parser.mjs`
 holds `parseReport` and `hasProviderError`, because the markers
@@ -49,8 +50,9 @@ the agent errors out, returns nothing, or is skipped mid-run.
 
 Host implementations:
 - Claude Code, in-process (the default): the Agent tool. The `model` and
-  `effort` opts map to the Agent tool's `model` and `effort` params. This is `claude-code.json`, whose `dispatch` is
-  absent; all seats share the lead's process and directory.
+  `effort` opts map to the Agent tool's `model` and `effort` params. This
+  is `claude-code.json`, whose `dispatch` is absent; all seats share the
+  lead's process and directory.
 - Claude Code, subprocess (`dispatch: "subprocess"`, issue #453): one
   headless `claude -p` process per seat, so each seat gets its own model,
   endpoint, effort pin, and working directory. Lives at

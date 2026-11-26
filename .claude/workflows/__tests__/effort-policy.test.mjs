@@ -455,9 +455,10 @@ describe('fable is never pinned in the reference policy', () => {
   }
 
   // (c) the raw source of any adapter .json
-  const rawScanTargets = [
-    ...adapterFiles.map((f) => ({ label: `adapters/${f}`, path: join(adaptersDir, f) })),
-  ]
+  const rawScanTargets = adapterFiles.map((f) => ({
+    label: `adapters/${f}`,
+    path: join(adaptersDir, f),
+  }))
   for (const { label, path } of rawScanTargets) {
     test(`${label}: raw source does not name fable`, () => {
       assert.ok(

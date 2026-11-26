@@ -43,9 +43,10 @@ thinking tokens (`docs/research/2026-09-27-batch-371-token-baseline.md`).
 
 ## What it catches that plain plan-and-execute does not
 
-**Independent test and review (earlier pipeline).** In the same size:M trial above, an
-identical, independent review pass (a review workflow since removed) was run against
-both diffs afterward. The full-pipeline diff drew 0 must-fix issues (3
+**Independent test and review (earlier pipeline).** In the same size:M
+trial above, an identical, independent review pass (a review workflow
+since removed) was run against both diffs afterward. The full-pipeline
+diff drew 0 must-fix issues (3
 should-fix, 2 nits). The diff from the single, unaudited developer
 dispatch drew 1 must-fix plus 3 should-fix. That gap is not a
 clean code-quality result. Both diffs share the same underlying flaw: a
