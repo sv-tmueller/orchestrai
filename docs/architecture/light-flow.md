@@ -123,6 +123,6 @@ Rounds used, in every case: the `CHANGES_REQUESTED` review comments plus the
 
 No architect stage, no tester stage, no plan-status blocks, no `phase:*`,
 `track:*`, `runner*`, `run:*` or `claimed:*` labels, no ship-decision script,
-no repair pass beyond the conflict rule, no remote stage dispatch, no
-wave-end token report. The architect stays available on demand, to split an
-`L` issue or settle a developer and reviewer dispute.
+no repair pass beyond the conflict rule, no remote stage dispatch. The architect
+is on demand only, to split an `L` issue or settle a developer and reviewer
+dispute. The run-end overview is a per-seat token table (`token-usage.mjs`).

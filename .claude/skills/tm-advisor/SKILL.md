@@ -141,7 +141,8 @@ package starting as one finishes. The advisor differs from a plain
 When every package is shipped or parked, post one report comment on the batch
 issue: PRs merged, queued, and waiting for a human merge (with the reason),
 every decision made during the run, parked packages with their open questions,
-and anything deferred. End both that comment and the chat digest with:
+anything deferred, and the `## Token usage` table from `token-usage.mjs` (kickoff's
+wave end), once. End both that comment and the chat digest with:
 
 ```
 ## What happened

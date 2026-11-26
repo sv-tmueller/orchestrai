@@ -59,6 +59,8 @@ Then read each issue (`gh issue view <n> --comments`) and check it:
 Run up to 3 packages at once and start the next queued one when one finishes.
 Worktree isolation keeps packages apart. Within a package the steps are serial.
 
+Record the run start for the wave-end token table: `date -u +%Y-%m-%dT%H:%M:%S.000Z`.
+
 ## 2. Per package
 
 1. Label the issue `in-progress`. Dispatch the `developer` with the issue
@@ -178,3 +180,9 @@ force-remove a dirty one. Then print:
 1. Review and merge: #NN (only PRs waiting for a human merge)
 2. Decide on #NN (retry or close)
 ```
+
+Then add the token table under the summary as `## Token usage`: run
+`node "${CLAUDE_PLUGIN_ROOT:-.claude}/skills/tm-kickoff/token-usage.mjs" --session "${CLAUDE_CODE_SESSION_ID}" --since <run start>`
+and paste its output. If it fails (missing transcript, script error), write one
+line saying so. It never blocks the wave. Inside an `/tm-advisor` batch the
+advisor's report carries the table instead.
