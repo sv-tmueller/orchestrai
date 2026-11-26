@@ -246,6 +246,18 @@ describe('claude skills', () => {
     })
   }
 
+  test('kickoff and advisor name token-usage.mjs, and the flow doc names the token overview (#655)', () => {
+    const kickoffSrc = read('tm-kickoff')
+    const advisorSrc = read('tm-advisor')
+    assert.ok(kickoffSrc.includes('skills/tm-kickoff/token-usage.mjs'), 'tm-kickoff')
+    assert.ok(advisorSrc.includes('token-usage.mjs'), 'tm-advisor')
+    assert.match(kickoffSrc.replace(/\s+/g, ' '), /run start[^.]*token-usage\.mjs|token-usage\.mjs[^.]*--since/)
+    assert.ok(kickoffSrc.includes('never blocks'), 'a failed run never blocks the wave')
+    const doc = readFileSync(docPath, 'utf8').replace(/\s+/g, ' ')
+    assert.ok(doc.includes('token-usage.mjs'), 'flow doc names the overview')
+    assert.ok(!doc.includes('no wave-end token report'), 'old line is gone')
+  })
+
   test('advisor follows the same flow doc and keeps the sign-off outcomes', () => {
     const advisor = advisorRaw.replace(/\s+/g, ' ')
     assert.ok(advisor.includes('docs/architecture/light-flow.md'))
